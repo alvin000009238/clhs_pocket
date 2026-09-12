@@ -31,7 +31,7 @@ object GradeExporter {
 
         for ((examDisplayName, report) in reports) {
             val yearTermDisplay = report.examSummary?.let { summary ->
-                val yearText = summary.year?.let { "${it}" } ?: ""
+                val yearText = summary.year?.toString() ?: ""
                 val termText = summary.termText
                 if (yearText.isNotEmpty()) "${yearText}${termText}" else termText
             } ?: ""
@@ -63,6 +63,7 @@ object GradeExporter {
         context: Context,
         csv: String,
         studentNo: String,
+        shouldPublish: () -> Boolean = { true },
     ): Result<String> = runCatching {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())
         val fileName = "${studentNo}_成績_${timestamp}.csv"
@@ -81,6 +82,7 @@ object GradeExporter {
         try {
             context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
                 ?: throw IllegalStateException("無法寫入檔案")
+            if (!shouldPublish()) throw kotlinx.coroutines.CancellationException("Session changed")
             values.clear()
             values.put(MediaStore.Downloads.IS_PENDING, 0)
             context.contentResolver.update(uri, values, null, null)
@@ -104,11 +106,17 @@ object GradeExporter {
         return if (count != null && count > 0) "$rank/$count" else "$rank"
     }
 
-    private fun csvEscape(value: String): String {
-        return if (value.contains(',') || value.contains('"') || value.contains('\n')) {
-            "\"${value.replace("\"", "\"\"")}\""
+    internal fun csvEscape(value: String): String {
+        val firstCellCharacter = value.dropWhile { it == ' ' }.firstOrNull()
+        val safeValue = if (firstCellCharacter != null && firstCellCharacter in "=+-@\t\r") {
+            "'$value"
         } else {
             value
+        }
+        return if (safeValue.any { it == ',' || it == '"' || it == '\n' || it == '\r' }) {
+            "\"${safeValue.replace("\"", "\"\"")}\""
+        } else {
+            safeValue
         }
     }
 }

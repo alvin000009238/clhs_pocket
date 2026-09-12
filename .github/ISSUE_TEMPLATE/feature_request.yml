@@ -1,0 +1,28 @@
+name: Feature request
+description: 提出能改善使用情境的功能建議
+title: "feature: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解決的使用情境
+      description: 說明誰在什麼情境下遇到什麼困難。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建議的行為
+      description: 描述可觀察的結果，不必先指定實作方式。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 已考慮的替代方案
+  - type: textarea
+    id: privacy
+    attributes:
+      label: 隱私或安全影響
+      description: 請勿貼上學號、密碼、cookie、token、成績或其他敏感資料。

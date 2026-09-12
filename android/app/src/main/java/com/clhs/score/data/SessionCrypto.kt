@@ -13,12 +13,29 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-internal data class EncryptedPayload(
+internal class EncryptedPayload(
     val version: Int,
     val keyVersion: Int,
     val iv: ByteArray,
     val ciphertext: ByteArray,
-)
+) {
+    fun copy(
+        version: Int = this.version,
+        keyVersion: Int = this.keyVersion,
+        iv: ByteArray = this.iv,
+        ciphertext: ByteArray = this.ciphertext,
+    ): EncryptedPayload = EncryptedPayload(version, keyVersion, iv, ciphertext)
+
+    override fun equals(other: Any?): Boolean =
+        other is EncryptedPayload &&
+            version == other.version &&
+            keyVersion == other.keyVersion &&
+            iv.contentEquals(other.iv) &&
+            ciphertext.contentEquals(other.ciphertext)
+
+    override fun hashCode(): Int =
+        (((version * 31 + keyVersion) * 31 + iv.contentHashCode()) * 31 + ciphertext.contentHashCode())
+}
 
 internal interface SessionCipher {
     suspend fun encrypt(plaintext: ByteArray, associatedData: ByteArray): EncryptedPayload
@@ -39,9 +56,6 @@ internal class UnsupportedSessionPayloadException(message: String) : SessionCorr
 
 internal class SessionKeyUnavailableException(cause: Throwable? = null) :
     SessionStorageException("Session encryption key is unavailable", cause)
-
-internal class SessionMigrationException(cause: Throwable? = null) :
-    SessionStorageException("Legacy session migration failed", cause)
 
 internal class SessionStorageUnavailableException(cause: Throwable? = null) :
     SessionStorageException("Session storage is unavailable", cause)

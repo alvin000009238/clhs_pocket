@@ -20,6 +20,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,14 +36,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -57,6 +65,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +76,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -81,6 +95,7 @@ import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.SchoolAnnouncementAttachment
 import com.clhs.score.data.SchoolAnnouncementDetail
 import com.clhs.score.data.SchoolAnnouncementImage
+import com.clhs.score.data.SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH
 import com.clhs.score.data.safeAnnouncementWebUrl
 import com.clhs.score.ui.OutlinedRoundedSymbol
 import com.clhs.score.ui.SubpageLayout
@@ -95,12 +110,47 @@ fun SchoolAnnouncementsScreen(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
+    onSearch: (String) -> Unit,
+    onClearSearch: () -> Unit,
     onOpenAnnouncement: (SchoolAnnouncement) -> Unit,
     onOpenOfficialWebsite: () -> Unit,
+    onOpenAnnouncementReminder: () -> Unit,
     onNoticeShown: () -> Unit,
+    unreadIds: Set<String> = emptySet(),
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val pullToRefreshState = rememberPullToRefreshState()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val clearFocusAndHideKeyboard: () -> Unit = {
+        focusManager.clearFocus()
+        keyboardController?.hide()
+    }
+    val interactionSource = remember { MutableInteractionSource() }
+    var showMoreMenu by remember { mutableStateOf(false) }
+    var searchText by rememberSaveable { mutableStateOf(uiState.searchQuery) }
+    val clearSearch: () -> Unit = {
+        searchText = ""
+        if (uiState.searchQuery.isNotEmpty()) onClearSearch()
+    }
+    val clearSearchAndHideKeyboard: () -> Unit = {
+        clearSearch()
+        clearFocusAndHideKeyboard()
+    }
+    val searchField: @Composable (Modifier) -> Unit = { modifier ->
+        AnnouncementSearchField(
+            value = searchText,
+            onValueChange = { value ->
+                if (value.length <= SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH) {
+                    searchText = value
+                    onSearch(value)
+                }
+            },
+            onClear = clearSearch,
+            onSearch = { keyboardController?.hide() },
+            modifier = modifier,
+        )
+    }
     LaunchedEffect(uiState.noticeMessage) {
         uiState.noticeMessage?.let { message ->
             snackbarHostState.showSnackbar(message)
@@ -110,78 +160,213 @@ fun SchoolAnnouncementsScreen(
 
     SubpageLayout(
         onBack = onBack,
+        modifier = Modifier.clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = clearFocusAndHideKeyboard,
+        ),
         title = "學校公告",
         containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-    ) {
-        PullToRefreshBox(
-            isRefreshing = uiState.isRefreshing,
-            onRefresh = onRefresh,
-            state = pullToRefreshState,
-            modifier = Modifier.fillMaxSize(),
-            indicator = {},
-        ) {
-            when {
-                uiState.isInitialLoading -> AnnouncementsLoadingList()
-                uiState.errorMessage != null -> AnnouncementMessageState(
-                    title = "暫時無法取得學校消息",
-                    message = uiState.errorMessage,
-                    actionLabel = "重新整理",
-                    onAction = onRefresh,
-                    onOpenOfficialWebsite = onOpenOfficialWebsite,
-                )
-                uiState.announcements.isEmpty() -> AnnouncementMessageState(
-                    title = "目前沒有最新消息",
-                    message = "可以稍後重新整理，或前往學校網站查看。",
-                    actionLabel = "重新整理",
-                    onAction = onRefresh,
-                    onOpenOfficialWebsite = onOpenOfficialWebsite,
-                )
-                else -> AnnouncementList(
-                    uiState = uiState,
-                    onLoadMore = onLoadMore,
-                    onOpenAnnouncement = onOpenAnnouncement,
+        actions = {
+            IconButton(
+                onClick = { showMoreMenu = true },
+                shapes = IconButtonDefaults.shapes(),
+            ) {
+                OutlinedRoundedSymbol(icon = "more_vert", contentDescription = "更多選項")
+            }
+            DropdownMenu(
+                expanded = showMoreMenu,
+                onDismissRequest = { showMoreMenu = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("公告更新提醒") },
+                    onClick = {
+                        showMoreMenu = false
+                        clearFocusAndHideKeyboard()
+                        onOpenAnnouncementReminder()
+                    },
                 )
             }
-            PullToRefreshDefaults.LoadingIndicator(
-                state = pullToRefreshState,
+        },
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            PullToRefreshBox(
                 isRefreshing = uiState.isRefreshing,
+                onRefresh = {
+                    clearFocusAndHideKeyboard()
+                    onRefresh()
+                },
+                state = pullToRefreshState,
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .zIndex(2f),
-            )
+                    .weight(1f)
+                    .fillMaxWidth(),
+                indicator = {},
+            ) {
+                AnnouncementList(
+                    uiState = uiState,
+                    unreadIds = unreadIds,
+                    searchField = searchField,
+                    onRefresh = onRefresh,
+                    onClearSearch = clearSearchAndHideKeyboard,
+                    onLoadMore = {
+                        clearFocusAndHideKeyboard()
+                        onLoadMore()
+                    },
+                    onOpenAnnouncement = { announcement ->
+                        clearFocusAndHideKeyboard()
+                        onOpenAnnouncement(announcement)
+                    },
+                    onOpenOfficialWebsite = {
+                        clearFocusAndHideKeyboard()
+                        onOpenOfficialWebsite()
+                    },
+                )
+                PullToRefreshDefaults.LoadingIndicator(
+                    state = pullToRefreshState,
+                    isRefreshing = uiState.isRefreshing,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .zIndex(2f),
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun AnnouncementSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onClear: () -> Unit,
+    onSearch: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        placeholder = { Text("輸入公告關鍵字") },
+        leadingIcon = {
+            OutlinedRoundedSymbol(icon = "search", contentDescription = null)
+        },
+        trailingIcon = if (value.isNotEmpty()) {
+            {
+                IconButton(onClick = onClear) {
+                    OutlinedRoundedSymbol(icon = "close", contentDescription = "清除搜尋")
+                }
+            }
+        } else {
+            null
+        },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+        singleLine = true,
+        shape = MaterialTheme.shapes.extraLarge,
+    )
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AnnouncementList(
     uiState: SchoolAnnouncementsUiState,
+    unreadIds: Set<String>,
+    searchField: @Composable (Modifier) -> Unit,
+    onRefresh: () -> Unit,
+    onClearSearch: () -> Unit,
     onLoadMore: () -> Unit,
     onOpenAnnouncement: (SchoolAnnouncement) -> Unit,
+    onOpenOfficialWebsite: () -> Unit,
 ) {
     val listState = rememberLazyListState()
+    val announcements = remember(uiState.announcements, unreadIds) {
+        orderAnnouncements(uiState.announcements, unreadIds)
+    }
     val coroutineScope = rememberCoroutineScope()
+    val shimmerProgress = rememberInfiniteTransition(label = "announcement-loading-shimmer").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1_300, easing = LinearEasing),
+        ),
+        label = "announcement-loading-shimmer-progress",
+    )
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .navigationBarsPadding(),
+                .navigationBarsPadding()
+                .semantics {
+                    if (uiState.isInitialLoading) contentDescription = "正在載入學校消息"
+                },
             contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(uiState.announcements, key = SchoolAnnouncement::id) { announcement ->
-                AnnouncementCard(announcement, onClick = { onOpenAnnouncement(announcement) })
-            }
-            item(key = "announcement-footer") {
-                AnnouncementListFooter(
-                    hasMore = uiState.hasMore,
-                    isLoadingMore = uiState.isLoadingMore,
-                    errorMessage = uiState.loadMoreError,
-                    onLoadMore = onLoadMore,
-                )
+            item(key = "announcement-search") { searchField(Modifier) }
+            when {
+                uiState.isInitialLoading -> item(key = "announcement-loading") {
+                    AnnouncementsLoadingList(shimmerProgress)
+                }
+                uiState.errorMessage != null -> item(key = "announcement-message") {
+                    AnnouncementMessageCard(
+                        title = if (uiState.searchQuery.isEmpty()) {
+                            "暫時無法取得學校消息"
+                        } else {
+                            "暫時無法搜尋公告"
+                        },
+                        message = uiState.errorMessage,
+                        actionLabel = "重新整理",
+                        onAction = onRefresh,
+                        onOpenOfficialWebsite = onOpenOfficialWebsite,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 24.dp),
+                    )
+                }
+                uiState.announcements.isEmpty() && uiState.searchQuery.isNotEmpty() -> item(key = "announcement-message") {
+                    AnnouncementMessageCard(
+                        title = "找不到符合「${uiState.searchQuery}」的公告",
+                        message = "請嘗試其他關鍵字，或清除搜尋查看最新公告。",
+                        actionLabel = "清除搜尋",
+                        onAction = onClearSearch,
+                        onOpenOfficialWebsite = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 24.dp),
+                    )
+                }
+                uiState.announcements.isEmpty() -> item(key = "announcement-message") {
+                    AnnouncementMessageCard(
+                        title = "目前沒有最新消息",
+                        message = "可以稍後重新整理，或前往學校網站查看。",
+                        actionLabel = "重新整理",
+                        onAction = onRefresh,
+                        onOpenOfficialWebsite = onOpenOfficialWebsite,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 24.dp),
+                    )
+                }
+                else -> {
+                    items(announcements, key = SchoolAnnouncement::id) { announcement ->
+                        AnnouncementCard(
+                            announcement = announcement,
+                            isUnread = announcement.id in unreadIds,
+                            onClick = { onOpenAnnouncement(announcement) },
+                        )
+                    }
+                    item(key = "announcement-footer") {
+                        AnnouncementListFooter(
+                            hasMore = uiState.hasMore,
+                            isLoadingMore = uiState.isLoadingMore,
+                            errorMessage = uiState.loadMoreError,
+                            onLoadMore = onLoadMore,
+                        )
+                    }
+                }
             }
         }
 
@@ -219,8 +404,15 @@ private fun AnnouncementList(
     }
 }
 
+internal fun orderAnnouncements(
+    announcements: List<SchoolAnnouncement>,
+    unreadIds: Set<String>,
+): List<SchoolAnnouncement> = announcements.sortedWith(
+    compareByDescending<SchoolAnnouncement> { it.id in unreadIds }.thenByDescending { it.isPinned },
+)
+
 @Composable
-private fun AnnouncementCard(announcement: SchoolAnnouncement, onClick: () -> Unit) {
+private fun AnnouncementCard(announcement: SchoolAnnouncement, isUnread: Boolean, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -236,6 +428,9 @@ private fun AnnouncementCard(announcement: SchoolAnnouncement, onClick: () -> Un
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (isUnread) {
+                    AnnouncementBadge("未讀", unread = true)
+                }
                 if (announcement.isPinned) AnnouncementBadge("置頂", emphasized = true)
                 announcement.category.takeIf(String::isNotBlank)?.let { AnnouncementBadge(it) }
                 Spacer(modifier = Modifier.weight(1f))
@@ -267,15 +462,19 @@ private fun AnnouncementCard(announcement: SchoolAnnouncement, onClick: () -> Un
 }
 
 @Composable
-private fun AnnouncementBadge(text: String, emphasized: Boolean = false) {
+private fun AnnouncementBadge(text: String, emphasized: Boolean = false, unread: Boolean = false) {
     Surface(
         shape = MaterialTheme.shapes.small,
-        color = if (emphasized) {
+        color = if (unread) {
+            MaterialTheme.colorScheme.errorContainer
+        } else if (emphasized) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
             MaterialTheme.colorScheme.surfaceContainerHighest
         },
-        contentColor = if (emphasized) {
+        contentColor = if (unread) {
+            MaterialTheme.colorScheme.onErrorContainer
+        } else if (emphasized) {
             MaterialTheme.colorScheme.onSecondaryContainer
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
@@ -341,19 +540,16 @@ fun SchoolAnnouncementDetailScreen(
 ) {
     SubpageLayout(
         onBack = onBack,
-        title = "消息內容",
+        title = "公告內容",
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         when {
             uiState.isLoading -> AnnouncementDetailLoading()
             uiState.detail != null -> AnnouncementDetailContent(uiState.detail, onOpenUrl)
             else -> AnnouncementMessageState(
-                title = "暫時無法取得消息內容",
                 message = uiState.errorMessage ?: "請稍後再試一次。",
-                actionLabel = "重試",
                 onAction = onRetry,
                 onOpenOfficialWebsite = { onOpenUrl(officialUrl) },
-                officialLabel = "查看公告原文",
             )
         }
     }
@@ -397,7 +593,7 @@ private fun AnnouncementDetailContent(
                 modifier = Modifier.fillMaxWidth(),
                 shapes = ButtonDefaults.shapes(),
             ) {
-                Text("查看公告原文")
+                Text("查看原文")
             }
         }
     }
@@ -548,43 +744,65 @@ private fun AnnouncementAttachmentButton(
 
 @Composable
 private fun AnnouncementMessageState(
-    title: String,
     message: String,
-    actionLabel: String,
     onAction: () -> Unit,
-    onOpenOfficialWebsite: () -> Unit,
-    officialLabel: String = "學校網站",
+    onOpenOfficialWebsite: (() -> Unit)?,
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp)
-            .navigationBarsPadding(),
+            .verticalScroll(rememberScrollState())
+        .navigationBarsPadding(),
         verticalArrangement = Arrangement.Center,
     ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.largeIncreased,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        AnnouncementMessageCard(
+            title = "暫時無法取得公告內容",
+            message = message,
+            actionLabel = "重試",
+            onAction = onAction,
+            onOpenOfficialWebsite = onOpenOfficialWebsite,
+            officialLabel = "查看原文",
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 24.dp),
+        )
+    }
+}
+
+@Composable
+private fun AnnouncementMessageCard(
+    title: String,
+    message: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+    onOpenOfficialWebsite: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    officialLabel: String = "學校網站",
+) {
+    Card(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.largeIncreased,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = onAction,
-                        modifier = Modifier.fillMaxWidth(),
-                        shapes = ButtonDefaults.shapes(),
-                    ) { Text(actionLabel) }
+            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onAction,
+                    modifier = Modifier.fillMaxWidth(),
+                    shapes = ButtonDefaults.shapes(),
+                ) { Text(actionLabel) }
+                onOpenOfficialWebsite?.let { openOfficialWebsite ->
                     FilledTonalButton(
-                        onClick = onOpenOfficialWebsite,
+                        onClick = openOfficialWebsite,
                         modifier = Modifier.fillMaxWidth(),
                         shapes = ButtonDefaults.shapes(),
                     ) {
@@ -597,24 +815,17 @@ private fun AnnouncementMessageState(
 }
 
 @Composable
-private fun AnnouncementsLoadingList() {
-    val shimmerProgress = rememberInfiniteTransition(label = "announcement-loading-shimmer").animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1_300, easing = LinearEasing),
-        ),
-        label = "announcement-loading-shimmer-progress",
-    )
-    LazyColumn(
+private fun AnnouncementsLoadingList(shimmerProgress: State<Float>) {
+    Column(
         modifier = Modifier
-            .fillMaxSize()
-            .navigationBarsPadding()
+            .fillMaxWidth()
             .semantics { contentDescription = "正在載入學校消息" },
-        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        items(5) { AnnouncementLoadingBlock(112.dp, shimmerProgress = shimmerProgress) }
+    )
+    {
+        repeat(5) {
+            AnnouncementLoadingBlock(112.dp, shimmerProgress = shimmerProgress)
+        }
     }
 }
 
@@ -633,7 +844,7 @@ private fun AnnouncementDetailLoading() {
             .fillMaxSize()
             .navigationBarsPadding()
             .padding(16.dp)
-            .semantics { contentDescription = "正在載入消息內容" },
+            .semantics { contentDescription = "正在載入公告內容" },
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         AnnouncementLoadingBlock(

@@ -59,6 +59,7 @@ fun PinInputDialog(
                         .focusRequester(focusRequester),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     visualTransformation = PasswordVisualTransformation(),
+                    label = { Text("備用密碼") },
                     singleLine = true,
                     isError = errorMessage != null,
                     supportingText = {
@@ -101,7 +102,7 @@ fun PinSetupDialog(
     if (step == 1) {
         PinInputDialog(
             title = "設定備用密碼",
-            subtitle = "請輸入 4 到 6 位數字作為備用解鎖密碼：",
+            subtitle = "請輸入 4–6 位數字作為備用解鎖密碼。",
             errorMessage = null,
             onConfirm = { 
                 firstPin = it

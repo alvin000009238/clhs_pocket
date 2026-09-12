@@ -1,5 +1,6 @@
 package com.clhs.score
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
@@ -9,19 +10,21 @@ import java.nio.file.Paths
 class NotificationPermissionArchitectureTest {
     @Test
     fun notificationPermissionFlowUsesRuntimeRequestAndSystemAvailabilityChecks() {
-        val settings = readSource("app/src/main/java/com/clhs/score/ui/SettingsScreen.kt")
+        val personal = readSource("app/src/main/java/com/clhs/score/ui/PersonalScreen.kt")
         val grades = readSource("app/src/main/java/com/clhs/score/ui/GradesScreen.kt")
-        val prompt = readSource("app/src/main/java/com/clhs/score/ui/NotificationPromptDialog.kt")
+        val onboarding = readSource("app/src/main/java/com/clhs/score/ui/OnboardingScreen.kt")
         val app = readSource("app/src/main/java/com/clhs/score/ui/ScoreApp.kt")
         val helper = readSource("app/src/main/java/com/clhs/score/notifications/NotificationPermissionHelper.kt")
 
-        listOf(settings, grades, prompt).forEach { source ->
+        listOf(personal, grades, onboarding).forEach { source ->
             assertTrue(source.contains("ActivityResultContracts.RequestPermission()"))
             assertTrue(source.contains("shouldShowPostNotificationsRationale()"))
         }
-        assertTrue(settings.contains("Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU"))
+        assertTrue(personal.contains("Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU"))
         assertTrue(grades.contains("Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU"))
-        assertTrue(app.contains("Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU"))
+        assertTrue(onboarding.contains("notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)"))
+        assertTrue(onboarding.contains("openAppNotificationSettings()"))
+        assertFalse(app.contains("NotificationPromptDialog("))
         assertTrue(helper.contains("ContextCompat.checkSelfPermission("))
         assertTrue(helper.contains("NotificationManagerCompat.from(this).areNotificationsEnabled()"))
         assertTrue(helper.contains("hasPostNotificationsPermission() && areNotificationsEnabled()"))

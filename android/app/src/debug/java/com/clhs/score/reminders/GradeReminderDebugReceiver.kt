@@ -11,6 +11,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.clhs.score.BuildConfig
 import com.clhs.score.data.GradeReminderRepository
+import com.clhs.score.data.identity
 import com.clhs.score.data.GradeReminderSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,15 +62,20 @@ class GradeReminderDebugReceiver : BroadcastReceiver() {
             return
         }
 
-        repository.saveState(
-            state.copy(
-                snapshot = staleSnapshot,
-                latestChangeSet = null,
-                consecutiveFailures = 0,
-                stoppedReason = null,
-                expiresAtMillis = maxOf(state.expiresAtMillis, now + MIN_TEST_VALIDITY_MILLIS),
-            ),
-        )
+        val updated = repository.mutate {
+            if (loadState().identity() != state.identity()) return@mutate false
+            saveState(
+                state.copy(
+                    snapshot = staleSnapshot,
+                    latestChangeSet = null,
+                    consecutiveFailures = 0,
+                    stoppedReason = null,
+                    expiresAtMillis = maxOf(state.expiresAtMillis, now + MIN_TEST_VALIDITY_MILLIS),
+                ),
+            )
+            true
+        }
+        if (!updated) return
 
         val request = OneTimeWorkRequestBuilder<GradeReminderWorker>()
             .setConstraints(

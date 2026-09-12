@@ -41,6 +41,17 @@ jobs:
         languages: ${{ matrix.language }}
         build-mode: ${{ matrix.build-mode }}
 
+    - name: Set up JDK 25
+      if: matrix.language == 'java-kotlin'
+      uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+      with:
+        distribution: temurin
+        java-version: '25'
+        cache: gradle
+        cache-dependency-path: |
+          android/**/*.gradle*
+          android/gradle/wrapper/gradle-wrapper.properties
+
     - name: Run manual build steps
       if: matrix.build-mode == 'manual'
       shell: bash

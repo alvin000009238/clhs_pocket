@@ -31,9 +31,9 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItemDefaults
@@ -129,21 +129,87 @@ fun SubjectTrendScreen(
     }
 
     val chartSection = @Composable {
+        val hasNoYears = state.selectedYearValues.isEmpty()
+        val hasNoSubjects = state.selectedSubjectKeys.isEmpty()
+        val selectedPointCount = remember(state.reports, state.selectedSubjectKeys) {
+            state.selectedSubjectKeys.maxOfOrNull { subjectKey ->
+                state.reports.count { report ->
+                    report.subjects.any {
+                        cleanSubjectName(it.subjectName).substringBefore("-") == subjectKey && it.scoreValue > 0
+                    }
+                }
+            } ?: 0
+        }
+        val hasInsufficientData = !hasNoSubjects && selectedPointCount < 2
+        val showEmptyState = hasNoYears || hasNoSubjects || state.reports.isEmpty() || hasInsufficientData
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 280.dp, max = 520.dp)
-                .aspectRatio(1.5f),
-            shape = MaterialTheme.shapes.largeIncreased,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            modifier = if (showEmptyState) {
+                Modifier.fillMaxWidth()
+            } else {
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 280.dp, max = 520.dp)
+                    .aspectRatio(1.5f)
+            },
+            shape = if (showEmptyState) MaterialTheme.shapes.large else MaterialTheme.shapes.largeIncreased,
+            colors = CardDefaults.cardColors(
+                containerColor = if (showEmptyState) {
+                    MaterialTheme.colorScheme.surfaceContainerLow
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainer
+                },
+            ),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
-            if (state.reports.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    if (state.isLoading) {
+            if (showEmptyState) {
+                if (state.isLoading) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         LoadingIndicator()
-                    } else {
-                        Text("請選擇學期與科目以顯示圖表")
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 20.dp),
+                        horizontalAlignment = Alignment.Start,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = when {
+                                hasNoYears -> "選擇要比較的學期"
+                                hasNoSubjects -> "選擇要比較的科目"
+                                hasInsufficientData -> "選取的科目只有 $selectedPointCount 次可比較成績"
+                                else -> "暫時沒有可繪製的成績資料"
+                            },
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = when {
+                                hasNoYears -> "可一次選擇多個學期，再比較同一科目的變化。"
+                                hasNoSubjects -> "選好後，就能比較各次考試的成績變化。"
+                                hasInsufficientData -> "至少需要 2 次成績才能繪製趨勢，請調整學期或科目。"
+                                else -> "請調整學期或科目後再試一次。"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = {
+                                if (hasNoYears) showYearTermBottomSheet = true
+                                else showSubjectBottomSheet = true
+                            },
+                            enabled = !hasNoYears || structure.isNotEmpty(),
+                            shapes = ButtonDefaults.shapes(),
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Text(if (hasNoYears) "選擇學期" else "選擇科目")
+                        }
                     }
                 }
             } else {
@@ -207,10 +273,9 @@ fun SubjectTrendScreen(
 
     val filtersSection = @Composable {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            val selectedCount = state.selectedYearValues.size
-            val selectionSummary = when {
-                selectedCount == 0 -> "尚未選擇學期"
-                selectedCount == structure.size -> "已全選（共 $selectedCount 個學期）"
+            val selectionSummary = when (val selectedCount = state.selectedYearValues.size) {
+                0 -> "尚未選擇學期"
+                structure.size -> "已全選（共 $selectedCount 個學期）"
                 else -> "已選 $selectedCount 個學期"
             }
             SegmentedListItem(
@@ -246,12 +311,14 @@ fun SubjectTrendScreen(
             ) {
                 Text("選擇學期")
             }
-            ElevatedButton(
-                onClick = { showSubjectBottomSheet = true },
-                modifier = Modifier.fillMaxWidth(),
-                shapes = ButtonDefaults.shapes(),
-            ) {
-                Text("新增 / 變更對比科目")
+            if (state.selectedSubjectKeys.isNotEmpty()) {
+                FilledTonalButton(
+                    onClick = { showSubjectBottomSheet = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Text("調整對比科目")
+                }
             }
         }
     }
@@ -298,6 +365,9 @@ fun SubjectTrendScreen(
                                 .fillMaxHeight(),
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
+                            state.errorMessage?.let { message ->
+                                item { Text(message, color = MaterialTheme.colorScheme.error) }
+                            }
                             item { chartSection() }
                             if (state.selectedSubjectKeys.isNotEmpty()) {
                                 item { legendSection() }
@@ -333,6 +403,9 @@ fun SubjectTrendScreen(
                             .padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        state.errorMessage?.let { message ->
+                            item { Text(message, color = MaterialTheme.colorScheme.error) }
+                        }
                         item { chartSection() }
                         if (state.selectedSubjectKeys.isNotEmpty()) {
                             item { legendSection() }

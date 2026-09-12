@@ -37,22 +37,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.clhs.score.data.GradeAnalysis
 import com.clhs.score.data.GradeReport
-import com.clhs.score.data.GradeStandard
 import com.clhs.score.data.SubjectScore
-import com.clhs.score.data.buildGradeAnalysis
 import com.clhs.score.data.gradeLevel
 import com.clhs.score.data.shortenSubjectName
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
-
-@Composable
-fun ChartsTab(report: GradeReport) {
-    AnalysisSection(report = report, analysis = buildGradeAnalysis(report))
-}
 
 @Composable
 fun AnalysisSection(report: GradeReport, analysis: GradeAnalysis) {

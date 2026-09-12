@@ -1,0 +1,47 @@
+name: Bug report
+description: 回報可重現的問題
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        請勿貼上學號、姓名、成績、密碼、cookie、token、完整網路回應或其他個資。
+  - type: input
+    id: version
+    attributes:
+      label: App 版本
+      placeholder: 例如 2.0.0
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 裝置與 Android 版本
+      placeholder: 例如 Pixel 8 / Android 16
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 重現步驟
+      placeholder: 1. ...\n2. ...\n3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 預期行為
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 實際行為
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 補充資訊
+      description: 可附已去識別化的截圖或 log；請先移除所有個資與憑證。

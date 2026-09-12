@@ -1,10 +1,13 @@
 package com.clhs.score.viewmodel
 
 import com.clhs.score.data.ScheduleClassOption
+import com.clhs.score.data.FakeScheduleData
+import com.clhs.score.data.FakeScheduleRepository
 import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleRepository
 import com.clhs.score.data.ScheduleScope
+import com.clhs.score.data.ScheduleSubjectOverride
 import com.clhs.score.data.ScheduleYearTermOption
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -15,6 +18,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -23,6 +27,7 @@ import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScheduleViewModelTest {
@@ -90,6 +95,21 @@ class ScheduleViewModelTest {
 
         assertEquals(emptyList<Pair<String, String>>(), repository.classRequests)
         assertEquals("學期資料格式錯誤", viewModel.uiState.value.errorMessage)
+    }
+
+    @Test
+    fun fakeScheduleCanSwitchSemesterAndLoadClasses() = runTest(dispatcher) {
+        val viewModel = ScheduleViewModel(FakeScheduleRepository())
+        runCurrent()
+
+        viewModel.clearSelection()
+        runCurrent()
+        viewModel.selectYear(FakeScheduleData.years.last().value)
+        runCurrent()
+
+        assertFalse(viewModel.uiState.value.isError)
+        assertEquals(FakeScheduleData.classes, viewModel.uiState.value.availableClasses)
+        assertEquals(FakeScheduleData.classes.first().value, viewModel.uiState.value.selectedClassValue)
     }
 
     @Test
@@ -283,6 +303,46 @@ class ScheduleViewModelTest {
     }
 
     @Test
+    fun subjectOverridesUpdateLoadedReportAndPersistEdits() = runTest(dispatcher) {
+        val report = ScheduleReport(
+            "114_1",
+            "230",
+            ScheduleScope.SEMESTER,
+            items = listOf(ScheduleItem(1, 1, "彈性學習時間")),
+        )
+        val repository = ControllableScheduleRepository(latestSchedule = report)
+        val viewModel = ScheduleViewModel(repository)
+        runCurrent()
+        val override = ScheduleSubjectOverride("彈性學習時間", customSubjectName = "彈性課")
+        var saved = false
+
+        viewModel.saveSubjectOverride(override) { saved = true }
+        runCurrent()
+
+        assertEquals(true, saved)
+        assertEquals(listOf(override), repository.savedOverrides)
+        assertEquals(listOf(override), viewModel.uiState.value.report?.subjectOverrides)
+        assertFalse(viewModel.uiState.value.isSavingSubjectOverride)
+    }
+
+    @Test
+    fun subjectOverrideSaveFailureKeepsEditorOpenAndShowsFixedMessage() = runTest(dispatcher) {
+        val repository = ControllableScheduleRepository(
+            latestSchedule = ScheduleReport("114_1", "230", ScheduleScope.SEMESTER, items = emptyList()),
+        ).apply { subjectOverrideSaveFailure = IOException("secret path") }
+        val viewModel = ScheduleViewModel(repository)
+        runCurrent()
+        var saved = false
+
+        viewModel.saveSubjectOverride(ScheduleSubjectOverride("國文", "國語文")) { saved = true }
+        runCurrent()
+
+        assertFalse(saved)
+        assertEquals("無法儲存自訂科目，請稍後再試", viewModel.uiState.value.noticeMessage)
+        assertFalse(viewModel.uiState.value.isSavingSubjectOverride)
+    }
+
+    @Test
     fun currentWeekCachePastRefreshBoundaryIsRefreshed() = runTest(dispatcher) {
         val yesterday = LocalDate.now().minusDays(1)
         val cached = ScheduleReport(
@@ -397,6 +457,9 @@ class ScheduleViewModelTest {
         val scheduleTargetDates = mutableListOf<LocalDate>()
         private val classes = mutableMapOf<Pair<String, String>, CompletableDeferred<List<ScheduleClassOption>>>()
         private val scheduleResults = ArrayDeque<CompletableDeferred<Result<ScheduleReport>>>()
+        private val subjectOverrides = MutableStateFlow<List<ScheduleSubjectOverride>>(emptyList())
+        var savedOverrides: List<ScheduleSubjectOverride> = emptyList()
+        var subjectOverrideSaveFailure: Throwable? = null
 
         override suspend fun getScheduleYears(): List<ScheduleYearTermOption> = yearsDeferred.await()
 
@@ -420,6 +483,14 @@ class ScheduleViewModelTest {
         }
 
         override suspend fun getLatestSchedule(): ScheduleReport? = latestSchedule
+
+        override fun subjectOverridesFlow() = subjectOverrides
+
+        override suspend fun saveSubjectOverrides(overrides: List<ScheduleSubjectOverride>) {
+            subjectOverrideSaveFailure?.let { throw it }
+            savedOverrides = overrides
+            subjectOverrides.value = overrides
+        }
 
         fun completeClasses(year: String, term: String, classes: List<ScheduleClassOption>) {
             this.classes.getOrPut(year to term) { CompletableDeferred() }.complete(classes)

@@ -59,7 +59,7 @@ import com.clhs.score.data.LocalDataCategory
 import com.clhs.score.data.LocalDataCleanupResult
 import com.clhs.score.data.StorageDiagnostics
 import com.clhs.score.data.StorageEntry
-import com.clhs.score.data.defaultClearableLocalDataCategories
+import com.clhs.score.data.defaultSelectedLocalDataCategories
 import com.clhs.score.data.toReadableSize
 import com.clhs.score.notifications.canPostNotifications
 import com.clhs.score.reminders.GradeReminderNotifier
@@ -75,6 +75,7 @@ fun DeveloperSettingsScreen(
     gradesErrorMessage: String?,
     onBack: () -> Unit,
     onSetDemoMode: (Boolean) -> Unit,
+    onRestartOnboarding: () -> Unit,
     onDismissRestartDialog: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -85,7 +86,7 @@ fun DeveloperSettingsScreen(
     var storageDiagnostics by remember { mutableStateOf<StorageDiagnostics?>(null) }
     var cleanupResult by remember { mutableStateOf<LocalDataCleanupResult?>(null) }
     var diagnosticReport by remember { mutableStateOf<String?>(null) }
-    var selectedCleanupCategories by remember { mutableStateOf(defaultClearableLocalDataCategories()) }
+    var selectedCleanupCategories by remember { mutableStateOf(defaultSelectedLocalDataCategories()) }
 
     if (showRestartDialog) {
         AlertDialog(
@@ -147,14 +148,14 @@ fun DeveloperSettingsScreen(
         DiagnosticReportDialog(
             report = report,
             onCopy = {
-                context.copyText("CLHS Pocket 診斷包", report)
+                context.copyText(report)
                 Toast.makeText(context, "診斷包已複製", Toast.LENGTH_SHORT).show()
             },
             onDismiss = { diagnosticReport = null },
         )
     }
 
-    val developerItemCount = if (BuildConfig.DEBUG) 4 else 3
+    val developerItemCount = if (BuildConfig.DEBUG) 5 else 4
     SubpageLayout(
         onBack = onBack,
         title = "開發者選項",
@@ -168,22 +169,28 @@ fun DeveloperSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
         ) {
             DeveloperSwitchItem(
-                icon = "science",
-                title = "Demo 模式",
-                subtitle = "使用假資料測試畫面，不依賴學校系統登入。",
                 checked = settings.demoMode,
                 onCheckedChange = onSetDemoMode,
-                index = 0,
                 count = developerItemCount,
+            )
+
+            DeveloperActionItem(
+                icon = "refresh",
+                title = "重跑 onboarding",
+                subtitle = "重新進行 onboarding 流程。",
+                enabled = !isBusy,
+                index = 1,
+                count = developerItemCount,
+                onClick = onRestartOnboarding,
             )
 
             if (BuildConfig.DEBUG) {
                 DeveloperActionItem(
                     icon = "notifications_active",
-                    title = "段考提醒測試通知",
+                    title = "段考更新提醒測試通知",
                     subtitle = "發送一則模擬資訊更新通知，測試手機是否能收到提醒。",
                     enabled = !isBusy,
-                    index = 1,
+                    index = 2,
                     count = developerItemCount,
                     onClick = {
                         showGradeReminderTestNotification(context)
@@ -196,13 +203,13 @@ fun DeveloperSettingsScreen(
                 title = "本機資料與儲存空間",
                 subtitle = "查看各項資料大小，並只清除選取的本機資料。",
                 enabled = !isBusy,
-                index = if (BuildConfig.DEBUG) 2 else 1,
+                index = if (BuildConfig.DEBUG) 3 else 2,
                 count = developerItemCount,
                 onClick = {
                     isBusy = true
                     scope.launch {
                         cleanupResult = null
-                        selectedCleanupCategories = defaultClearableLocalDataCategories()
+                        selectedCleanupCategories = defaultSelectedLocalDataCategories()
                         runCatching {
                             diagnostics.collectStorageDiagnostics()
                         }.onSuccess { result ->
@@ -302,34 +309,30 @@ private fun showGradeReminderTestNotification(context: Context) {
         ),
     )
     GradeReminderNotifier(context.applicationContext).showChangedNotification(changeSet)
-    Toast.makeText(context, "已發送段考提醒測試通知", Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, "已發送段考更新提醒測試通知", Toast.LENGTH_SHORT).show()
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun DeveloperSwitchItem(
-    icon: String,
-    title: String,
-    subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    index: Int,
     count: Int,
 ) {
     SegmentedListItem(
         checked = checked,
         onCheckedChange = onCheckedChange,
-        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
+        shapes = ListItemDefaults.segmentedShapes(index = 0, count = count),
         leadingContent = {
             OutlinedRoundedSymbol(
-                icon = icon,
+                icon = "science",
                 size = 24.dp,
                 contentDescription = null,
             )
         },
         supportingContent = {
             Text(
-                text = subtitle,
+                text = "使用假資料測試畫面，不依賴學校系統登入。",
                 modifier = Modifier.padding(top = 4.dp),
             )
         },
@@ -348,7 +351,7 @@ private fun DeveloperSwitchItem(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Text(text = title)
+        Text(text = "Demo 模式")
     }
 }
 
@@ -504,16 +507,6 @@ private fun StorageEntryRow(
             Spacer(modifier = Modifier.width(48.dp))
         }
     }
-    val supportingContent: (@Composable () -> Unit)? = if (entry.isClearable) {
-        null
-    } else {
-        {
-            Text(
-                text = "保留設定、Demo 模式與開發者選項",
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-    }
     val trailingContent: @Composable () -> Unit = {
         Text(
             text = entry.bytes.toReadableSize(),
@@ -532,7 +525,6 @@ private fun StorageEntryRow(
             enabled = enabled,
             shapes = shapes,
             leadingContent = leadingContent,
-            supportingContent = supportingContent,
             trailingContent = trailingContent,
             colors = colors,
             verticalAlignment = Alignment.CenterVertically,
@@ -545,7 +537,12 @@ private fun StorageEntryRow(
             enabled = false,
             shapes = shapes,
             leadingContent = leadingContent,
-            supportingContent = supportingContent,
+            supportingContent = {
+                Text(
+                    text = "保留設定、Demo 模式與開發者選項",
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            },
             trailingContent = trailingContent,
             colors = colors,
             verticalAlignment = Alignment.CenterVertically,
@@ -592,7 +589,7 @@ private fun DiagnosticReportDialog(
     )
 }
 
-private fun Context.copyText(label: String, text: String) {
+private fun Context.copyText(text: String) {
     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+    clipboard.setPrimaryClip(ClipData.newPlainText("CLHS Pocket 診斷包", text))
 }

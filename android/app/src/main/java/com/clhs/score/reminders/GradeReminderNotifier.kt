@@ -10,10 +10,11 @@ import com.clhs.score.R
 import com.clhs.score.data.GradeChangeSet
 import com.clhs.score.data.GradeReminderText
 import com.clhs.score.notifications.NotificationChannels
+import com.clhs.score.notifications.NotificationActionCapabilities
 import com.clhs.score.notifications.canPostNotifications
 import java.util.concurrent.atomic.AtomicInteger
 
-class GradeReminderNotifier(private val context: Context) {
+class GradeReminderNotifier(context: Context) {
     private val appContext = context.applicationContext
 
     fun showChangedNotification(changeSet: GradeChangeSet) {
@@ -40,7 +41,7 @@ class GradeReminderNotifier(private val context: Context) {
 
         val notification = Notification.Builder(appContext, NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_notification)
-            .setContentTitle("段考提醒已停止")
+            .setContentTitle("段考更新提醒已停止")
             .setContentText(reason)
             .setStyle(Notification.BigTextStyle().bigText(reason))
             .setContentIntent(openAppIntent())
@@ -53,15 +54,21 @@ class GradeReminderNotifier(private val context: Context) {
     }
 
     private fun openReminderIntent(yearValue: String, examValue: String): PendingIntent {
+        val capabilityToken = NotificationActionCapabilities.issueGradeReminder(
+            appContext,
+            yearValue,
+            examValue,
+        )
         val intent = Intent(appContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_OPEN_GRADE_REMINDER, true)
-            putExtra(EXTRA_YEAR_VALUE, yearValue)
-            putExtra(EXTRA_EXAM_VALUE, examValue)
+            putExtra(
+                NotificationActionCapabilities.EXTRA_CAPABILITY,
+                capabilityToken,
+            )
         }
         return PendingIntent.getActivity(
             appContext,
-            nextRequestCode(),
+            capabilityToken.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -80,9 +87,6 @@ class GradeReminderNotifier(private val context: Context) {
     }
 
     companion object {
-        const val EXTRA_OPEN_GRADE_REMINDER = "open_grade_reminder"
-        const val EXTRA_YEAR_VALUE = "grade_reminder_year_value"
-        const val EXTRA_EXAM_VALUE = "grade_reminder_exam_value"
         private val idCounter = AtomicInteger(3000)
 
         private fun nextNotificationId(): Int = idCounter.getAndIncrement()

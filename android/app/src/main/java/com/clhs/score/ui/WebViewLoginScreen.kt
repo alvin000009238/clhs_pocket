@@ -12,15 +12,16 @@ import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -45,12 +46,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.core.net.toUri
 import com.clhs.score.data.AuthenticatedSession
 import java.net.URLDecoder
@@ -74,12 +78,13 @@ fun WebViewLoginScreen(
 ) {
     var isPageLoading by remember { mutableStateOf(true) }
     var pageProgress by remember { mutableFloatStateOf(0f) }
+    var pageTitle by remember { mutableStateOf("") }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     val utilityMotion = remember { MotionScheme.standard() }
 
     DisposableEffect(Unit) {
         onDispose {
-            webViewRef?.clearSchoolWebData(clearCookies = true)
+            webViewRef?.clearSchoolWebData()
             webViewRef?.destroy()
             webViewRef = null
         }
@@ -92,61 +97,65 @@ fun WebViewLoginScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .imePadding(),
     ) {
-        WebViewContent(
-            onWebViewCreated = { webViewRef = it },
-            onPageStarted = { isPageLoading = true },
-            onPageFinished = { isPageLoading = false },
-            onProgressChanged = { pageProgress = it / 100f },
-            onLoginSuccess = onLoginSuccess,
-        )
+        Column(modifier = Modifier.fillMaxSize()) {
+            WebViewNavigationBar(pageTitle = pageTitle, webView = webViewRef, onBack = onBack)
+            Box(modifier = Modifier.weight(1f)) {
+                WebViewContent(
+                    onWebViewCreated = { webViewRef = it },
+                    onPageStarted = { isPageLoading = true },
+                    onPageFinished = { isPageLoading = false },
+                    onProgressChanged = { pageProgress = it / 100f },
+                    onReceivedTitle = { pageTitle = it.orEmpty().trim() },
+                    onLoginSuccess = onLoginSuccess,
+                )
 
-        AnimatedVisibility(
-            visible = isPageLoading || isProcessingLogin,
-            modifier = Modifier.align(Alignment.TopCenter),
-        ) {
-            LinearProgressIndicator(
-                progress = { if (isProcessingLogin) 1f else pageProgress },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
-        WebViewNavigationControls(webView = webViewRef, onBack = onBack)
-
-        AnimatedVisibility(
-            visible = isProcessingLogin,
-            enter = fadeIn(utilityMotion.defaultEffectsSpec()),
-            exit = fadeOut(utilityMotion.defaultEffectsSpec()),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                awaitPointerEvent().changes.forEach { it.consume() }
+                if (isPageLoading || isProcessingLogin) {
+                    if (isProcessingLogin) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    } else {
+                        LinearProgressIndicator(
+                            progress = { pageProgress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = isProcessingLogin,
+                    enter = fadeIn(utilityMotion.defaultEffectsSpec()),
+                    exit = fadeOut(utilityMotion.defaultEffectsSpec()),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent().changes.forEach { it.consume() }
+                                    }
+                                }
                             }
+                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.38f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    MaterialTheme.shapes.large,
+                                )
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            LoadingIndicator(modifier = Modifier.size(48.dp))
+                            Text(
+                                text = "正在驗證登入…",
+                                modifier = Modifier.padding(top = 16.dp),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
                         }
                     }
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.38f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .background(
-                            MaterialTheme.colorScheme.surfaceContainerHigh,
-                            MaterialTheme.shapes.large,
-                        )
-                        .padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    LoadingIndicator(modifier = Modifier.size(48.dp))
-                    Text(
-                        text = "正在建立連線…",
-                        modifier = Modifier.padding(top = 16.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
                 }
             }
         }
@@ -178,65 +187,73 @@ fun WebViewLoginScreen(
 @Composable
 fun SchoolWebsiteScreen(
     session: AuthenticatedSession,
+    isVisible: Boolean,
     onBack: () -> Unit,
+    onAuthenticationExpired: () -> Unit = {},
 ) {
     var isPageLoading by remember { mutableStateOf(true) }
     var pageProgress by remember { mutableFloatStateOf(0f) }
+    var pageTitle by remember { mutableStateOf("") }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
     DisposableEffect(Unit) {
         onDispose {
-            webViewRef?.clearSchoolWebData(clearCookies = true)
+            webViewRef?.clearSchoolWebData()
             webViewRef?.destroy()
             webViewRef = null
         }
     }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
+            .alpha(if (isVisible) 1f else 0f)
+            .zIndex(if (isVisible) 1f else -1f)
             .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .imePadding(),
     ) {
-        AuthenticatedSchoolWebView(
-            session = session,
-            onWebViewCreated = { webViewRef = it },
-            onPageStarted = { isPageLoading = true },
-            onPageFinished = { isPageLoading = false },
-            onProgressChanged = { pageProgress = it / 100f },
-        )
-
-        AnimatedVisibility(
-            visible = isPageLoading,
-            modifier = Modifier.align(Alignment.TopCenter),
-        ) {
-            LinearProgressIndicator(
-                progress = { pageProgress },
-                modifier = Modifier.fillMaxWidth(),
+        WebViewNavigationBar(pageTitle = pageTitle, webView = webViewRef, onBack = onBack)
+        Box(modifier = Modifier.weight(1f)) {
+            AuthenticatedSchoolWebView(
+                session = session,
+                onWebViewCreated = { webViewRef = it },
+                onPageStarted = { url ->
+                    isPageLoading = true
+                    if (isTrustedSchoolLoginUrl(url)) onAuthenticationExpired()
+                },
+                onPageFinished = { isPageLoading = false },
+                onProgressChanged = { pageProgress = it / 100f },
+                onReceivedTitle = { pageTitle = it.orEmpty().trim() },
             )
-        }
 
-        WebViewNavigationControls(webView = webViewRef, onBack = onBack)
+            if (isPageLoading) {
+                LinearProgressIndicator(
+                    progress = { pageProgress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun WebViewNavigationControls(
+private fun WebViewNavigationBar(
+    pageTitle: String,
     webView: WebView?,
     onBack: () -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         IconButton(
             onClick = onBack,
             shapes = IconButtonDefaults.shapes(),
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp),
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-            ),
         ) {
             OutlinedRoundedSymbol(
                 icon = "arrow_back",
@@ -244,16 +261,28 @@ private fun WebViewNavigationControls(
             )
         }
 
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp),
+        ) {
+            Text(
+                text = pageTitle.ifBlank { "正在載入…" },
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = SCHOOL_DOMAIN,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
         IconButton(
             onClick = { webView?.reload() },
             shapes = IconButtonDefaults.shapes(),
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp),
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-            ),
         ) {
             OutlinedRoundedSymbol(
                 icon = "refresh",
@@ -269,9 +298,10 @@ private fun WebViewNavigationControls(
 private fun AuthenticatedSchoolWebView(
     session: AuthenticatedSession,
     onWebViewCreated: (WebView) -> Unit,
-    onPageStarted: () -> Unit,
+    onPageStarted: (String?) -> Unit,
     onPageFinished: () -> Unit,
     onProgressChanged: (Int) -> Unit,
+    onReceivedTitle: (String?) -> Unit,
 ) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
@@ -289,7 +319,7 @@ private fun AuthenticatedSchoolWebView(
 
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(view, url, favicon)
-                        onPageStarted()
+                        onPageStarted(url)
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {
@@ -300,6 +330,10 @@ private fun AuthenticatedSchoolWebView(
                 webChromeClient = object : WebChromeClient() {
                     override fun onProgressChanged(view: WebView?, newProgress: Int) {
                         onProgressChanged(newProgress)
+                    }
+
+                    override fun onReceivedTitle(view: WebView?, title: String?) {
+                        onReceivedTitle(title)
                     }
                 }
                 onWebViewCreated(this)
@@ -317,6 +351,7 @@ private fun WebViewContent(
     onPageStarted: () -> Unit,
     onPageFinished: () -> Unit,
     onProgressChanged: (Int) -> Unit,
+    onReceivedTitle: (String?) -> Unit,
     onLoginSuccess: (studentNo: String, cookieString: String) -> Unit,
 ) {
     var loginHandled by remember { mutableStateOf(false) }
@@ -325,7 +360,7 @@ private fun WebViewContent(
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
-            android.webkit.WebView(context).apply {
+            WebView(context).apply {
                 configureForSchoolSite()
 
                 webViewClient = object : WebViewClient() {
@@ -357,6 +392,10 @@ private fun WebViewContent(
                 webChromeClient = object : WebChromeClient() {
                     override fun onProgressChanged(view: WebView?, newProgress: Int) {
                         onProgressChanged(newProgress)
+                    }
+
+                    override fun onReceivedTitle(view: WebView?, title: String?) {
+                        onReceivedTitle(title)
                     }
 
                     override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
@@ -440,15 +479,13 @@ private fun WebView.loadAuthenticatedSchoolSite(session: AuthenticatedSession) {
     loadUrl(SCHOOL_HOME_URL)
 }
 
-private fun WebView.clearSchoolWebData(clearCookies: Boolean) {
+private fun WebView.clearSchoolWebData() {
     stopLoading()
     clearHistory()
     clearFormData()
     clearCache(true)
     WebStorage.getInstance().deleteAllData()
-    if (clearCookies) {
-        CookieManager.getInstance().removeAllCookies(null)
-    }
+    CookieManager.getInstance().removeAllCookies(null)
 }
 
 private val LOGIN_HOOK_JS = """

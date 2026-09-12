@@ -31,14 +31,21 @@ class SessionKeystoreInstrumentedTest {
     }
 
     @Test
-    fun biometricClearTombstonePreventsLegacyReimport() {
+    fun biometricReadsOnlyCurrentStorageAndClearRemovesIt() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val prefs = context.getSharedPreferences("score_biometric_session", Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
-        val legacy = StickyBiometricLegacySource()
+        val legacy = CleanupOnlyLegacySource()
         try {
             val storage = SharedPreferencesBiometricSessionStorage(context, legacy) {}
-
+            assertFalse(storage.hasSession())
+            prefs.edit()
+                .putString("session_ciphertext", "cipher")
+                .putString("session_iv", "iv")
+                .putString("session_salt", "salt")
+                .putString("pin_ciphertext", "pin")
+                .putString("pin_iv", "pin-iv")
+                .commit()
             assertTrue(storage.hasSession())
             storage.clear()
 
@@ -48,12 +55,7 @@ class SessionKeystoreInstrumentedTest {
         }
     }
 
-    private class StickyBiometricLegacySource : LegacySessionSource {
-        private val record = BiometricSessionRecord("cipher", "iv", "salt", "pin", "pin-iv")
-
-        override fun readGeneral(): AuthenticatedSession? = null
-        override fun readReminder(): LegacyReminderSession? = null
-        override fun readBiometric(): BiometricSessionRecord = record
+    private class CleanupOnlyLegacySource : LegacySessionSource {
         override fun clearGeneral() = Unit
         override fun clearReminder() = Unit
         override fun clearBiometric() = Unit

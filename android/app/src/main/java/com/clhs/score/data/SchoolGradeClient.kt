@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -16,12 +18,14 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.Dispatcher as OkHttpDispatcher
 import org.jsoup.Jsoup
 import java.io.IOException
 import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 
 internal const val MAX_SCHOOL_RESPONSE_BYTES = 8L * 1024 * 1024
+internal const val MAX_CONCURRENT_SCHOOL_REQUESTS = 4
 
 open class SchoolException(
     message: String,
@@ -45,11 +49,20 @@ class SchoolGradeClient(
     private val baseUrl: HttpUrl = baseUrl.ensureTrailingSlash().toHttpUrl()
     private val origin: String = "${this.baseUrl.scheme}://${this.baseUrl.host}"
     private val client: OkHttpClient = okHttpClient ?: OkHttpClient.Builder()
+        .dispatcher(
+            OkHttpDispatcher().apply {
+                maxRequests = MAX_CONCURRENT_SCHOOL_REQUESTS
+                maxRequestsPerHost = MAX_CONCURRENT_SCHOOL_REQUESTS
+            },
+        )
         .cookieJar(cookieJar)
         .followRedirects(true)
         .followSslRedirects(true)
         .callTimeout(30, TimeUnit.SECONDS)
         .build()
+
+    internal val concurrentRequestLimit: Int
+        get() = client.dispatcher.maxRequestsPerHost
 
     private var currentStudentNo: String? = null
     private var cachedScheduleToken: String? = null
@@ -113,6 +126,35 @@ class SchoolGradeClient(
         parseGradeReport(body)
     }
 
+    suspend fun fetchStudentInfo(session: AuthenticatedSession): StudentInfo = withContext(Dispatchers.IO) {
+        prepareSession(session)
+        val body = executeBody(
+            Request.Builder()
+                .url(homePageUrl())
+                .headers(defaultHeaders(referer = homePageUrl().toString()))
+                .get()
+                .build(),
+        )
+        val rawUserInfo = USER_INFO_PATTERN.find(body)?.groupValues?.get(1)
+            ?: throw SchoolException("學校系統未提供帳號資訊")
+        val userInfo = runCatching { SchoolJson.parseToJsonElement(rawUserInfo).asObjectOrNull() }
+            .getOrNull()
+            ?: throw SchoolException("學校系統帳號資訊格式錯誤")
+        val studentNo = userInfo.string("No")
+        if (studentNo != session.studentNo) throw SchoolAuthenticationException("登入帳號資訊不一致")
+        StudentInfo(
+            studentNo = studentNo,
+            studentName = userInfo.string("UserName"),
+            className = userInfo.string("ClassName"),
+            seatNo = userInfo.string("SeatNo"),
+            updatedAt = "",
+            showClassRank = false,
+            showClassRankCount = false,
+            showCategoryRank = false,
+            showCategoryRankCount = false,
+        )
+    }
+
     private suspend fun getSchedulePageToken(session: AuthenticatedSession): String {
         prepareSession(session)
         synchronized(sessionLock) {
@@ -125,7 +167,7 @@ class SchoolGradeClient(
                 .get()
                 .build(),
         )
-        val token = hiddenInput(pageResponse, "__RequestVerificationToken")
+        val token = hiddenInput(pageResponse)
             ?: throw SchoolAuthenticationException()
         synchronized(sessionLock) {
             cachedScheduleToken = token
@@ -250,6 +292,7 @@ class SchoolGradeClient(
         classNo: String,
         scope: ScheduleScope,
         targetDate: LocalDate = LocalDate.now(),
+        onSemesterReport: suspend (ScheduleReport) -> Unit = {},
     ): ScheduleReport = withContext(Dispatchers.IO) {
         if (scope == ScheduleScope.CURRENT_WEEK) {
             val weekReport = try {
@@ -266,6 +309,7 @@ class SchoolGradeClient(
 
             val changes = try {
                 val semesterReport = fetchScheduleRequest(session, yearValue, year, term, classNo, null)
+                onSemesterReport(semesterReport)
                 compareScheduleItems(semesterReport.items, weekReport.items)
             } catch (error: Exception) {
                 if (error is CancellationException || error is SchoolAuthenticationException) throw error
@@ -349,7 +393,7 @@ class SchoolGradeClient(
                 .get()
                 .build(),
         )
-        val apiToken = hiddenInput(gradesPage, "__RequestVerificationToken")
+        val apiToken = hiddenInput(gradesPage)
             ?: throw SchoolAuthenticationException()
         AuthenticatedSession(
             studentNo = studentNo,
@@ -411,31 +455,31 @@ class SchoolGradeClient(
         )
     }
 
-    private fun execute(request: Request): Response {
-        val response = try {
-            client.newCall(request).execute()
+    private suspend fun <T> execute(request: Request, block: suspend (Response) -> T): T {
+        return try {
+            client.newCall(request).executeCancellable { response ->
+                if (response.request.url.encodedPath.contains(LOGIN_PATH, ignoreCase = true)) {
+                    throw SchoolAuthenticationException()
+                }
+                if (!response.isSuccessful) {
+                    throw when (val code = response.code) {
+                        401, 403 -> SchoolAuthenticationException()
+                        408, 429 ->
+                            SchoolTransientException("學校系統暫時無法回應")
+                        in 500..599 -> SchoolTransientException("學校系統暫時無法回應")
+                        else -> SchoolException("學校系統回應異常 HTTP $code")
+                    }
+                }
+                block(response)
+            }
         } catch (error: IOException) {
+            currentCoroutineContext().ensureActive()
             throw SchoolTransientException("無法連線學校系統", error)
         }
-        if (response.request.url.encodedPath.contains(LOGIN_PATH, ignoreCase = true)) {
-            response.close()
-            throw SchoolAuthenticationException()
-        }
-        if (!response.isSuccessful) {
-            val code = response.code
-            response.close()
-            throw when {
-                code == 401 || code == 403 -> SchoolAuthenticationException()
-                code == 408 || code == 429 || code in 500..599 ->
-                    SchoolTransientException("學校系統暫時無法回應")
-                else -> SchoolException("學校系統回應異常 HTTP $code")
-            }
-        }
-        return response
     }
 
-    private fun executeBody(request: Request, expectJson: Boolean = false): String =
-        execute(request).use { response ->
+    private suspend fun executeBody(request: Request, expectJson: Boolean = false): String =
+        execute(request) { response ->
             val responseBody = response.body
             if (responseBody.contentLength() > MAX_SCHOOL_RESPONSE_BYTES ||
                 responseBody.source().request(MAX_SCHOOL_RESPONSE_BYTES + 1)
@@ -454,9 +498,9 @@ class SchoolGradeClient(
             body
         }
 
-    private fun hiddenInput(html: String, name: String): String? {
+    private fun hiddenInput(html: String): String? {
         val doc = Jsoup.parse(html)
-        val element = doc.selectFirst("""[name="$name"]""")
+        val element = doc.selectFirst("""[name="__RequestVerificationToken"]""")
         return (element?.attr("value") ?: element?.text())?.trim()?.takeIf { it.isNotBlank() }
     }
 
@@ -465,6 +509,8 @@ class SchoolGradeClient(
         .newBuilder()
         .addQueryParameter("page", "成績查詢")
         .build()
+
+    private fun homePageUrl(): HttpUrl = resolve("ICampus/Home/Index2")
 
     private fun resolve(path: String): HttpUrl = baseUrl.resolve(path)
         ?: throw IllegalArgumentException("Invalid path: $path")
@@ -483,6 +529,9 @@ class SchoolGradeClient(
     companion object {
         const val DEFAULT_BASE_URL = "https://shcloud2.k12ea.gov.tw/CLHSTYC"
         private const val LOGIN_PATH = "/Auth/Auth/CloudLogin"
+        private val USER_INFO_PATTERN = Regex(
+            """const\s+userInfo\s*=\s*JSON\.parse\(\s*'([^']+)'\s*\)""",
+        )
         private const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
     }

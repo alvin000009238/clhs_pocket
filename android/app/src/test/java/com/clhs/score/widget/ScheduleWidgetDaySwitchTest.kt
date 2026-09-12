@@ -11,6 +11,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
+import java.time.LocalDateTime
 
 class ScheduleWidgetDaySwitchTest {
     private val monday = LocalDate.parse("2026-07-20")
@@ -27,6 +28,72 @@ class ScheduleWidgetDaySwitchTest {
         assertFalse(shouldRefreshScheduleWidgetPreview(true, "old", "current", hour, hour * 2 - 1))
         assertTrue(shouldRefreshScheduleWidgetPreview(true, "old", "current", hour, hour * 2))
         assertTrue(shouldRefreshScheduleWidgetPreview(false, "current", "current", hour, hour * 2))
+    }
+
+    @Test
+    fun nextUpdateUsesActualCourseBoundary() {
+        val report = ScheduleReport(
+            yearTermValue = "1142",
+            classNo = "230",
+            scope = ScheduleScope.CURRENT_WEEK,
+            weekStartDate = monday.toString(),
+            weekEndDate = monday.plusDays(6).toString(),
+            items = listOf(lesson(period = 1), lesson(period = 4)),
+        )
+
+        assertEquals(
+            LocalDateTime.of(2026, 7, 20, 11, 10),
+            nextScheduleWidgetUpdateAt(report, LocalDateTime.of(2026, 7, 20, 9, 5)),
+        )
+    }
+
+    @Test
+    fun nextUpdateUsesMidnightWhenThereIsNoCourseBoundaryToday() {
+        val report = ScheduleReport(
+            yearTermValue = "1142",
+            classNo = "230",
+            scope = ScheduleScope.CURRENT_WEEK,
+            weekStartDate = monday.toString(),
+            weekEndDate = monday.plusDays(6).toString(),
+            items = listOf(lesson(period = 1)),
+        )
+
+        assertEquals(
+            LocalDateTime.of(2026, 7, 21, 0, 0),
+            nextScheduleWidgetUpdateAt(report, LocalDateTime.of(2026, 7, 20, 9, 5)),
+        )
+    }
+
+    @Test
+    fun nextUpdateUsesTheNextBoundaryFromSemesterSchedule() {
+        val report = ScheduleReport(
+            yearTermValue = "1142",
+            classNo = "230",
+            scope = ScheduleScope.SEMESTER,
+            items = listOf(lesson(period = 4)),
+        )
+
+        assertEquals(
+            LocalDateTime.of(2026, 7, 20, 11, 10),
+            nextScheduleWidgetUpdateAt(report, LocalDateTime.of(2026, 7, 20, 10, 0)),
+        )
+    }
+
+    @Test
+    fun nextUpdateIgnoresPeriodsWithoutKnownTimes() {
+        val report = ScheduleReport(
+            yearTermValue = "1142",
+            classNo = "230",
+            scope = ScheduleScope.CURRENT_WEEK,
+            weekStartDate = monday.toString(),
+            weekEndDate = monday.plusDays(6).toString(),
+            items = listOf(lesson(period = 9)),
+        )
+
+        assertEquals(
+            LocalDateTime.of(2026, 7, 21, 0, 0),
+            nextScheduleWidgetUpdateAt(report, LocalDateTime.of(2026, 7, 20, 9, 5)),
+        )
     }
 
     @Test
@@ -221,6 +288,33 @@ class ScheduleWidgetDaySwitchTest {
         assertEquals(true, state[WidgetShowTeacherKey])
         assertEquals(false, state[WidgetShowClassroomKey])
         assertEquals(false, state[WidgetShowTimeKey])
+    }
+
+    @Test
+    fun selectedPreferencesOverrideTheExistingWidgetStateDuringRefresh() {
+        val state = mutablePreferencesOf(
+            WidgetShowTeacherKey to true,
+            WidgetShowClassroomKey to true,
+            WidgetShowTimeKey to true,
+            WidgetAfterLastClassKey to false,
+        )
+
+        state.syncScheduleWidgetState(
+            reportStr = null,
+            settings = AppSettings(),
+            legacyPreferences = Triple(true, true, false),
+            preferences = ScheduleWidgetPreferences(
+                showTeacher = false,
+                showClassroom = false,
+                showTime = false,
+                afterLastClass = true,
+            ),
+        )
+
+        assertEquals(false, state[WidgetShowTeacherKey])
+        assertEquals(false, state[WidgetShowClassroomKey])
+        assertEquals(false, state[WidgetShowTimeKey])
+        assertEquals(true, state[WidgetAfterLastClassKey])
     }
 
     private fun lesson(period: Int, dayOfWeek: Int = 1) =

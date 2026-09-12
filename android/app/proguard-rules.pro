@@ -1,11 +1,5 @@
 # ProGuard / R8 rules for SchoolGrades
 
-# Google Tink / security-crypto
--dontwarn com.google.errorprone.annotations.**
--keepclassmembers class * extends com.google.crypto.tink.shaded.protobuf.GeneratedMessageLite {
-  <fields>;
-}
-
 # protobuf-lite reflects generated field names from its message metadata. Keep
 # this small app-owned package intact because R8 can otherwise remove scalar
 # fields while leaving their names in the metadata.
@@ -32,5 +26,9 @@
 # stable without preventing R8 from shrinking WorkManager and its transitive deps.
 -keepnames class com.clhs.score.reminders.GradeReminderWorker
 -keepclassmembers class com.clhs.score.reminders.GradeReminderWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+-keepnames class com.clhs.score.reminders.AnnouncementReminderWorker
+-keepclassmembers class com.clhs.score.reminders.AnnouncementReminderWorker {
     public <init>(android.content.Context, androidx.work.WorkerParameters);
 }

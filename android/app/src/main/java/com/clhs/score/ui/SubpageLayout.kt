@@ -3,18 +3,21 @@ package com.clhs.score.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -32,8 +35,10 @@ fun SubpageLayout(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     title: String? = null,
+    floatingTitle: String? = null,
     containerColor: Color = MaterialTheme.colorScheme.background,
     snackbarHost: @Composable () -> Unit = {},
+    actions: @Composable RowScope.() -> Unit = {},
     summaryContent: @Composable () -> Unit = {},
     content: @Composable BoxScope.() -> Unit,
 ) {
@@ -55,19 +60,23 @@ fun SubpageLayout(
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
             if (title != null) {
-                MediumFlexibleTopAppBar(
-                    title = { Text(title) },
-                    navigationIcon = {
-                        IconButton(
-                            onClick = onBack,
-                            shapes = IconButtonDefaults.shapes(),
-                        ) {
-                            OutlinedRoundedSymbol(icon = "arrow_back", contentDescription = "返回")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = containerColor,
-                    ),
+                val navigationIcon: @Composable () -> Unit = {
+                    IconButton(
+                        onClick = onBack,
+                        shapes = IconButtonDefaults.shapes(),
+                    ) {
+                        OutlinedRoundedSymbol(icon = "arrow_back", contentDescription = "返回")
+                    }
+                }
+                val colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = containerColor,
+                )
+                val titleContent: @Composable () -> Unit = { Text(title) }
+                LargeFlexibleTopAppBar(
+                    title = titleContent,
+                    navigationIcon = navigationIcon,
+                    actions = actions,
+                    colors = colors,
                     scrollBehavior = scrollBehavior,
                 )
             }
@@ -76,7 +85,10 @@ fun SubpageLayout(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = 1200.dp)
+                .fillMaxWidth(),
         ) {
             content()
 
@@ -114,6 +126,16 @@ fun SubpageLayout(
                     ),
                 ) {
                     OutlinedRoundedSymbol(icon = "arrow_back", contentDescription = "返回")
+                }
+                floatingTitle?.let {
+                    Text(
+                        text = it,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .statusBarsPadding()
+                            .padding(start = 80.dp, top = 26.dp, end = 16.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
                 }
             }
         }

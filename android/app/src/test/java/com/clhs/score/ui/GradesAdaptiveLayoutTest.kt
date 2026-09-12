@@ -12,4 +12,5 @@ class GradesAdaptiveLayoutTest {
         assertEquals(GradesAdaptiveLayout.TwoColumn, gradesAdaptiveLayoutForWidth(839.dp))
         assertEquals(GradesAdaptiveLayout.ListDetail, gradesAdaptiveLayoutForWidth(840.dp))
     }
+
 }

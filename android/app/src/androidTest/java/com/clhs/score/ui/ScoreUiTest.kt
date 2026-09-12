@@ -17,7 +17,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
-import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -27,18 +26,15 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
-import com.clhs.score.data.AppSettings
 import com.clhs.score.data.ExamOption
 import com.clhs.score.data.MockGradeSystem
 import com.clhs.score.data.StudentScenario
 import com.clhs.score.data.YearTermOption
 import com.clhs.score.data.buildGradeAnalysis
-import com.clhs.score.data.buildScoreInsights
 import com.clhs.score.data.buildGradeTrend
 import com.clhs.score.data.cleanSubjectName
 import com.clhs.score.ui.theme.ScoreTheme
 import com.clhs.score.viewmodel.GradesUiState
-import com.clhs.score.viewmodel.SettingsUiState
 import org.junit.Rule
 import org.junit.Test
 
@@ -47,29 +43,54 @@ class ScoreUiTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun introScreenExposesLoginEntryPoint() {
+    fun welcomeScreenExposesPrimaryEntryPoint() {
         var clicked = false
         composeRule.setContent {
             ScoreTheme {
-                IntroScreen(onLoginClick = { clicked = true })
+                OnboardingWelcomeScreen(onContinue = { clicked = true })
             }
         }
 
-        composeRule.onNodeWithText("即時掌握成績").assertIsDisplayed()
-        composeRule.onNode(hasClickAction()).performClick()
+        composeRule.onNodeWithText("壢中 Pocket").assertIsDisplayed()
+        composeRule.onNodeWithText("開始使用").performClick()
         composeRule.runOnIdle {
             assert(clicked)
         }
     }
 
     @Test
-    fun introLoginRemainsReachableInSmallWindowWithLargeText() {
+    fun accountScreenExposesBackEntryPointWhenProvided() {
+        var backClicked = false
+        composeRule.setContent {
+            ScoreTheme {
+                OnboardingAccountScreen(
+                    onBack = { backClicked = true },
+                    onLogin = {},
+                    onSkip = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("返回")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.runOnIdle {
+            assert(backClicked)
+        }
+    }
+
+    @Test
+    fun accountLoginRemainsReachableInSmallWindowWithLargeText() {
         var clicked = false
         composeRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f, 2f)) {
                 ScoreTheme {
                     Box(Modifier.size(320.dp)) {
-                        IntroScreen(onLoginClick = { clicked = true })
+                        OnboardingAccountScreen(
+                            onBack = {},
+                            onLogin = { clicked = true },
+                            onSkip = {},
+                        )
                     }
                 }
             }
@@ -85,7 +106,7 @@ class ScoreUiTest {
     }
 
     @Test
-    fun webViewProcessingOverlayBlocksNavigationTouch() {
+    fun webViewProcessingOverlayKeepsNavigationTouch() {
         var backClicked = false
         composeRule.setContent {
             ScoreTheme {
@@ -102,7 +123,7 @@ class ScoreUiTest {
 
         composeRule.onNodeWithContentDescription("返回").performTouchInput { click() }
         composeRule.runOnIdle {
-            assert(!backClicked)
+            assert(backClicked)
         }
     }
 
@@ -129,7 +150,7 @@ class ScoreUiTest {
     }
 
     @Test
-    fun gradesScreenUsesBottomNavigationAndSegmentedOverview() {
+    fun gradesScreenUsesAdaptiveNavigationAndSegmentedOverview() {
         composeRule.setContent {
             ScoreTheme {
                 TestGradesScreen()
@@ -139,18 +160,42 @@ class ScoreUiTest {
 
         composeRule.onNodeWithText("總覽").assertIsDisplayed()
         composeRule.onNodeWithText("科目").assertIsDisplayed()
-        composeRule.onNodeWithText("更多").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("總覽").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("科目").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("更多").assertIsDisplayed()
+        composeRule.onNodeWithText("分析").assertIsDisplayed()
+        composeRule.onNodeWithText("114-上").assertIsDisplayed()
+        composeRule.onNodeWithText("期末考").assertIsDisplayed()
         composeRule.onAllNodesWithText("全部科目").assertCountEquals(0)
         composeRule.onAllNodesWithText("圖表").assertCountEquals(0)
-        composeRule.onAllNodesWithText("範例學生", substring = true).assertCountEquals(1)
         composeRule.onAllNodesWithText("加權平均").assertCountEquals(1)
         composeRule.onAllNodesWithText("班排 15/38 ・ 類排 88/226").assertCountEquals(1)
+        composeRule.onNodeWithText("表現亮點").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("近期變化").performScrollTo().assertIsDisplayed()
+        composeRule.onAllNodesWithText("ROI").assertCountEquals(0)
         composeRule.onAllNodesWithText("科目分析").assertCountEquals(0)
         composeRule.onAllNodesWithText("圖表分析").assertCountEquals(0)
         composeRule.onAllNodesWithText("更多資料").assertCountEquals(0)
+    }
+
+    @Test
+    fun overviewRemainsReachableInSmallWindowWithLargeText() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f, 2f)) {
+                ScoreTheme {
+                    Box(Modifier.size(width = 320.dp, height = 640.dp)) {
+                        TestGradesScreen()
+                    }
+                }
+            }
+        }
+        settleUi()
+
+        composeRule.onNodeWithText("期末考").assertIsDisplayed()
+        composeRule.onAllNodesWithText("班級前", substring = true)[0].performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("類組前", substring = true).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("表現亮點").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("近期變化").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("更多選項").performClick()
+        composeRule.onNodeWithText("段考更新提醒").assertIsDisplayed()
+        composeRule.onNodeWithText("匯出成績").assertIsDisplayed()
     }
 
     @Test
@@ -170,7 +215,11 @@ class ScoreUiTest {
         composeRule.onNodeWithText("分數分布").assertIsDisplayed()
         composeRule.onNodeWithText("上次成績").assertIsDisplayed()
 
-        composeRule.onNodeWithText("國文").performScrollTo().performClick()
+        composeRule.onNodeWithText("數學").performScrollTo().performClick()
+        settleUi()
+        composeRule.onAllNodesWithText("班級五標").assertCountEquals(1)
+
+        composeRule.onNodeWithText("數學").performScrollTo().performClick()
         settleUi()
         composeRule.onAllNodesWithText("班級五標").assertCountEquals(0)
     }
@@ -184,11 +233,11 @@ class ScoreUiTest {
         }
         settleUi()
 
-        composeRule.onNodeWithContentDescription("科目").performClick()
+        composeRule.onNodeWithText("科目").performClick()
         settleUi()
         composeRule.onNodeWithText("國文").performScrollTo().assertIsDisplayed()
 
-        composeRule.onNodeWithContentDescription("更多").performClick()
+        composeRule.onNodeWithText("分析").performClick()
         settleUi()
         composeRule.onNodeWithText("成績模擬器").performScrollTo().assertIsDisplayed()
     }
@@ -260,7 +309,6 @@ class ScoreUiTest {
         var expanded by remember { mutableStateOf(emptySet<String>()) }
         GradesScreen(
             state = GradesUiState(
-                isLoggedIn = true,
                 studentNo = "DEMO-000",
                 structure = listOf(
                     YearTermOption(
@@ -276,43 +324,25 @@ class ScoreUiTest {
                 isLoadingTrend = isLoadingTrend,
                 trendError = trendError,
                 trend = trend,
-                insights = buildScoreInsights(report, analysis, trend),
                 expandedSubjectKeys = expanded,
             ),
-            settings = AppSettings(),
-            settingsUiState = SettingsUiState(),
-            isExporting = false,
-            exportResult = null,
             snackbarHost = {},
             onSelectYear = {},
             onSelectExam = {},
             onReload = {},
             onToggleSubject = { subjectName ->
                 val key = cleanSubjectName(subjectName)
-                expanded = if (key in expanded) expanded - key else expanded + key
+                expanded = if (key in expanded) emptySet() else setOf(key)
             },
             onStartGradeReminder = {},
             onStopGradeReminder = {},
             onSetNotificationsEnabled = {},
             onGradeReminderPrerequisiteFailed = {},
             onDismissGradeReminderChanges = {},
-            onSetThemeMode = {},
-            onSetDynamicColor = {},
-            onSetAmoledBlack = {},
-            onCheckUpdate = {},
-            onOpenSchoolWebsite = {},
-            onOpenSchoolAnnouncements = {},
-            onOpenAbout = {},
-            onDismissDeveloperToast = {},
-            onOpenDeveloperSettings = {},
-            onExportGrades = {},
-            onDismissExportResult = {},
-            onLogout = {},
-            onSetBiometricEnabled = { _, _ -> },
+            onOpenPersonal = {},
             onOpenScoreSimulator = {},
-            onOpenSchedule = {},
-            onOpenSchoolCalendar = {},
             onOpenSubjectTrend = {},
+            onExportGrades = {},
         )
     }
 }

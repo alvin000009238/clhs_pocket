@@ -5,6 +5,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration.Companion.seconds
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -110,7 +111,7 @@ class SchoolCalendarTest {
                 assertTrue(server.takeRequest(2, TimeUnit.SECONDS) != null)
                 load.cancel()
 
-                withTimeout(1_000L) { load.join() }
+                withTimeout(1.seconds) { load.join() }
                 assertTrue(load.isCancelled)
             } finally {
                 cacheDirectory.deleteRecursively()

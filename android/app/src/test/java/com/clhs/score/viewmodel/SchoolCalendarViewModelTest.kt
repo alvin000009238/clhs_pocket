@@ -37,6 +37,24 @@ class SchoolCalendarViewModelTest {
     }
 
     @Test
+    fun targetedCalendarKeepsOnlyRequestedPastEventAlongsideUpcomingEvents() = runTest(dispatcher) {
+        val loaded = snapshot(
+            event("target", LocalDateTime.of(2026, 8, 7, 0, 0)),
+            event("other-past", LocalDateTime.of(2026, 8, 8, 0, 0)),
+            event("future", LocalDateTime.of(2026, 8, 10, 0, 0)),
+        )
+        val viewModel = SchoolCalendarViewModel(
+            loadCached = { loaded }, loadSnapshot = { loaded },
+            todayProvider = { LocalDate.of(2026, 8, 9) }, targetEventId = "target",
+        )
+        runCurrent()
+        assertEquals(listOf("target", "future"), viewModel.uiState.value.events.map { it.id })
+        viewModel.refresh()
+        runCurrent()
+        assertEquals(listOf("target", "future"), viewModel.uiState.value.events.map { it.id })
+    }
+
+    @Test
     fun failedRefreshKeepsCachedAgendaAndShowsNotice() = runTest(dispatcher) {
         val cached = snapshot(event("future", LocalDateTime.of(2026, 8, 10, 0, 0)))
         val viewModel = SchoolCalendarViewModel(
@@ -82,6 +100,31 @@ class SchoolCalendarViewModelTest {
     }
 
     @Test
+    fun searchFiltersEventsByTitleOrLocationAndClearingRestoresAgenda() = runTest(dispatcher) {
+        val viewModel = SchoolCalendarViewModel(
+            loadCached = { null },
+            loadSnapshot = {
+                snapshot(
+                    event("exam", LocalDateTime.of(2026, 8, 10, 9, 0), location = "中壢高中禮堂"),
+                    event("holiday", LocalDateTime.of(2026, 8, 11, 0, 0)),
+                )
+            },
+            todayProvider = { LocalDate.of(2026, 8, 9) },
+        )
+        runCurrent()
+
+        viewModel.search("  禮堂  ")
+        assertEquals("禮堂", viewModel.uiState.value.searchQuery)
+        assertEquals(listOf("exam"), viewModel.uiState.value.visibleEvents.map(SchoolCalendarEvent::id))
+
+        viewModel.search("不存在")
+        assertTrue(viewModel.uiState.value.visibleEvents.isEmpty())
+
+        viewModel.clearSearch()
+        assertEquals(listOf("exam", "holiday"), viewModel.uiState.value.visibleEvents.map(SchoolCalendarEvent::id))
+    }
+
+    @Test
     fun firstLoadFailureShowsActionableError() = runTest(dispatcher) {
         val viewModel = SchoolCalendarViewModel(
             loadCached = { null },
@@ -94,18 +137,19 @@ class SchoolCalendarViewModelTest {
         assertTrue(viewModel.uiState.value.events.isEmpty())
     }
 
-    private fun event(id: String, start: LocalDateTime): SchoolCalendarEvent =
+    private fun event(id: String, start: LocalDateTime, location: String? = null): SchoolCalendarEvent =
         SchoolCalendarEvent(
             id = id,
             title = id,
             start = start,
             endExclusive = start.plusHours(1),
             isAllDay = false,
+            location = location,
         )
 
-    private fun snapshot(event: SchoolCalendarEvent): SchoolCalendarSnapshot =
+    private fun snapshot(vararg events: SchoolCalendarEvent): SchoolCalendarSnapshot =
         SchoolCalendarSnapshot(
-            feed = SchoolCalendarFeed(events = listOf(event)),
+            feed = SchoolCalendarFeed(events = events.toList()),
             fetchedAt = Instant.parse("2026-08-08T00:00:00Z"),
         )
 

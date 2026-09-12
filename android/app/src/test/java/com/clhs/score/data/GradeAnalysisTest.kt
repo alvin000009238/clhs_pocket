@@ -255,23 +255,6 @@ class GradeAnalysisTest {
     }
 
     @Test
-    fun localInsightsChooseFocusStrengthAndProjection() {
-        val current = MockGradeSystem.generateReport(StudentScenario.NORMAL)
-        val previous = MockGradeSystem.generateReport(
-            customScores = listOf(62.0, 78.0, 70.0, 70.0, 70.0, 70.0, 70.0),
-            customClassRank = 18.0,
-        )
-        val analysis = buildGradeAnalysis(current, previous, "第二次段考")
-        val insights = buildScoreInsights(current, analysis)
-
-        assertNotNull(insights.projection)
-        assertTrue(insights.items.any { it.title == "最值得補強" && it.body.contains("社會") })
-        assertTrue(insights.items.any { it.title == "最具優勢" && it.body.contains("數學") })
-        assertTrue(insights.items.any { it.title == "排名推估" && it.body.contains("粗估") })
-        assertTrue((insights.projection?.estimatedClassRank ?: 99) >= 1)
-    }
-
-    @Test
     fun weightedAverageDefaultsToCurrentReportAverage() {
         val report = MockGradeSystem.generateReport(StudentScenario.NORMAL)
 
@@ -384,14 +367,4 @@ class GradeAnalysisTest {
         )
     }
 
-    @Test
-    fun localInsightsDoNotEstimateRankWhenRankDataMissing() {
-        val current = MockGradeSystem.generateReport(customClassRank = null)
-        val reportWithNullClassCount = current.copy(examSummary = current.examSummary?.copy(classCount = null))
-        val analysis = buildGradeAnalysis(reportWithNullClassCount)
-        val insights = buildScoreInsights(reportWithNullClassCount, analysis)
-
-        assertNull(insights.projection?.estimatedClassRank)
-        assertTrue(insights.items.any { it.body.contains("排名資料不足") })
-    }
 }

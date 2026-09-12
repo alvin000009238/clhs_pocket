@@ -1,5 +1,8 @@
 package com.clhs.score.widget
 
+import kotlinx.coroutines.CancellationException
+import com.clhs.score.data.SessionCleanupFailure
+import com.clhs.score.data.SessionCleanupException
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
@@ -57,6 +60,7 @@ import com.clhs.score.data.PERIOD_TIMES
 import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleScope
+import com.clhs.score.data.displayItems
 import com.clhs.score.data.SettingsRepository
 import com.clhs.score.data.ThemeMode
 import com.clhs.score.ui.theme.AmoledDarkColors
@@ -129,7 +133,7 @@ internal fun classifyWidgetScheduleItems(
         val endMinutes = periodTime?.end?.toMinutesOrNull()
         when {
             startMinutes == null || endMinutes == null -> upcoming += item
-            currentMinutes >= startMinutes && currentMinutes < endMinutes && current == null -> current = item
+            currentMinutes in startMinutes until endMinutes && current == null -> current = item
             currentMinutes >= endMinutes -> completed += item
             else -> upcoming += item
         }
@@ -227,6 +231,7 @@ class ScheduleWidget : GlanceAppWidget() {
         val settingsRepository = SettingsRepository(context)
 
         val report = cacheStore.loadWidgetScheduleReport()
+        WidgetUpdateReceiver.scheduleNextUpdate(context, report)
         val reportStr = report?.let { WidgetJson.encodeToString(it) }
         val appSettings = settingsRepository.settings.first()
         val legacyPreferences = cacheStore.loadLegacyWidgetPreferences()
@@ -278,11 +283,26 @@ suspend fun syncAllScheduleWidgets(
 
     val glanceIds = GlanceAppWidgetManager(context).getGlanceIds(ScheduleWidget::class.java)
     val widget = ScheduleWidget()
+    if (glanceIds.isNotEmpty()) {
+        WidgetUpdateReceiver.scheduleNextUpdate(context, report)
+    }
+    var refreshFailed = false
     glanceIds.forEach { glanceId ->
-        updateAppWidgetState(context, glanceId) { state ->
-            state.syncScheduleWidgetState(reportStr, appSettings, legacyPreferences)
+        try {
+            updateAppWidgetState(context, glanceId) { state ->
+                state.syncScheduleWidgetState(reportStr, appSettings, legacyPreferences)
+            }
+            widget.update(context, glanceId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            refreshFailed = true
         }
-        widget.update(context, glanceId)
+    }
+    if (refreshFailed) {
+        throw SessionCleanupException(
+            setOf(SessionCleanupFailure.WIDGET_REFRESH_FAILED),
+        )
     }
     cacheStore.clearLegacyWidgetPreferences()
 }
@@ -332,7 +352,6 @@ suspend fun refreshScheduleWidgetPreview(context: Context, settings: AppSettings
         return
     }
 
-    // ponytail: fixed cooldown matches the platform's default limit; schedule work only if launch-time retry is insufficient.
     preferences.edit { putLong(ScheduleWidgetPreviewLastAttemptKey, nowMillis) }
     runCatching {
         GlanceAppWidgetManager(context).setWidgetPreviews(ScheduleWidgetReceiver::class)
@@ -347,9 +366,10 @@ suspend fun refreshScheduleWidgetPreview(context: Context, settings: AppSettings
     }.onFailure { Log.w("ScheduleWidget", "Failed to publish widget preview", it) }
 }
 
-suspend fun syncScheduleWidget(
+internal suspend fun syncScheduleWidget(
     context: Context,
     appWidgetId: Int,
+    preferences: ScheduleWidgetPreferences? = null,
 ) = withContext(Dispatchers.IO) {
     val cacheStore = GradeCacheStore(context)
     val report = cacheStore.loadWidgetScheduleReport()
@@ -359,9 +379,9 @@ suspend fun syncScheduleWidget(
     val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
 
     updateAppWidgetState(context, glanceId) { state ->
-        state.syncScheduleWidgetState(reportStr, appSettings, legacyPreferences)
+        state.syncScheduleWidgetState(reportStr, appSettings, legacyPreferences, preferences)
     }
-    ScheduleWidget().update(context, glanceId)
+    WidgetUpdateReceiver.scheduleNextUpdate(context, report)
 }
 
 internal suspend fun loadScheduleWidgetPreferences(
@@ -396,7 +416,14 @@ internal fun MutablePreferences.syncScheduleWidgetState(
     reportStr: String?,
     settings: AppSettings,
     legacyPreferences: Triple<Boolean, Boolean, Boolean>,
+    preferences: ScheduleWidgetPreferences? = null,
 ) {
+    preferences?.let { selected ->
+        this[WidgetShowTeacherKey] = selected.showTeacher
+        this[WidgetShowClassroomKey] = selected.showClassroom
+        this[WidgetShowTimeKey] = selected.showTime
+        this[WidgetAfterLastClassKey] = selected.afterLastClass
+    }
     if (this[WidgetShowTeacherKey] == null) this[WidgetShowTeacherKey] = legacyPreferences.first
     if (this[WidgetShowClassroomKey] == null) this[WidgetShowClassroomKey] = legacyPreferences.second
     if (this[WidgetShowTimeKey] == null) this[WidgetShowTimeKey] = legacyPreferences.third
@@ -450,7 +477,7 @@ private fun ScheduleWidgetContent(
     preferences: ScheduleWidgetPreferences,
     now: LocalDateTime = LocalDateTime.now(),
 ) {
-    val items = report?.items.orEmpty()
+    val items = report?.displayItems().orEmpty()
     val currentTotalMinutes = now.hour * 60 + now.minute
     val today = now.toLocalDate()
     val validFrom = report

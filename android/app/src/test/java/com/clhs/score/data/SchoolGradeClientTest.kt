@@ -1,6 +1,12 @@
 package com.clhs.score.data
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration.Companion.seconds
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -12,6 +18,7 @@ import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.util.concurrent.TimeUnit
 
 class SchoolGradeClientTest {
     private lateinit var server: MockWebServer
@@ -55,6 +62,27 @@ class SchoolGradeClientTest {
     }
 
     @Test
+    fun fetchStudentInfoMapsHomePageUserInfo() = runTest {
+        server.enqueue(
+            htmlResponse(
+                """
+                <script>
+                    const userInfo = JSON.parse('{"ClassNo":"230","ClassName":"高二 30 班","SeatNo":"12","No":"DEMO-001","UserName":"範例學生","Year":115,"Term":1}');
+                </script>
+                """.trimIndent(),
+            ),
+        )
+
+        val student = client.fetchStudentInfo(testSession())
+
+        assertEquals("DEMO-001", student.studentNo)
+        assertEquals("範例學生", student.studentName)
+        assertEquals("高二 30 班", student.className)
+        assertEquals("12", student.seatNo)
+        assertEquals("/CLHSTYC/ICampus/Home/Index2", server.takeRequest().path)
+    }
+
+    @Test
     fun loadStructureClassifiesUnauthorizedResponse() = runTest {
         server.enqueue(MockResponse().setResponseCode(401))
 
@@ -83,6 +111,24 @@ class SchoolGradeClientTest {
         val error = runCatching { client.loadStructure(testSession()) }.exceptionOrNull()
 
         assertTrue(error is SchoolTransientException)
+    }
+
+    @Test
+    fun defaultClientLimitsConcurrentSchoolRequests() {
+        assertEquals(MAX_CONCURRENT_SCHOOL_REQUESTS, client.concurrentRequestLimit)
+    }
+
+    @Test
+    fun cancellingLoadStructureCancelsTheHttpCall() = runBlocking {
+        server.enqueue(jsonResponse("[]").setBodyDelay(5, TimeUnit.SECONDS))
+        val load = launch(Dispatchers.Default) { client.loadStructure(testSession()) }
+        assertTrue(server.takeRequest(2, TimeUnit.SECONDS) != null)
+
+        withTimeout(1.seconds) {
+            load.cancelAndJoin()
+        }
+
+        assertTrue(load.isCancelled)
     }
 
     @Test
@@ -361,41 +407,47 @@ class SchoolGradeClientTest {
 
     @Test
     fun scheduleUsesEveryColorBeforeRepeatingOne() {
-        val subjects = listOf(
-            "團體活動",
-            "物理輔導",
-            "數學輔導",
-            "化學輔導",
-            "英語文輔導",
-            "國語文輔導",
-            "生物",
-            "歷史",
-            "地理",
-            "公民",
-            "音樂",
-            "美術",
-            "體育",
-            "資訊",
-            "生命教育",
-        )
+        val subjects = predefinedColors.indices.map { index ->
+            "科目${index.toString().padStart(2, '0')}"
+        }
+        val colors = getSubjectColors(subjects)
+        val colorsWithRepeat = getSubjectColors(subjects + "科目30")
 
-        assertEquals(subjects.size, getSubjectColors(subjects).values.toSet().size)
+        assertEquals(predefinedColors.size, colors.values.toSet().size)
+        assertEquals(colors.getValue("科目00"), colorsWithRepeat.getValue("科目30"))
+        assertEquals(darkPredefinedColors.size, getSubjectColors(subjects, isDarkTheme = true).values.toSet().size)
     }
 
     @Test
-    fun subjectPaletteStaysPale() {
-        val darkestAverage = predefinedColors.minOf { color ->
-            listOf(16, 8, 0).sumOf { shift ->
-                ((color shr shift) and 0xFF).toInt()
-            } / 3
-        }
-
-        assertTrue(darkestAverage >= 225)
+    fun subjectPalettesMatchTheFixedAccentColors() {
+        assertEquals(
+            listOf(
+                0xFF984357L, 0xFF699C5EL, 0xFF5D70C3L, 0xFF984A26L, 0xFF31A18AL,
+                0xFF8D60B2L, 0xFF805C0EL, 0xFF209DB1L, 0xFFAB558AL, 0xFF616A0DL,
+                0xFF5591C9L, 0xFFB75357L, 0xFF217541L, 0xFF8483CAL, 0xFFB06018L,
+                0xFF0B726CL, 0xFFA877B4L, 0xFF8F7412L, 0xFF016E8BL, 0xFFBE708EL,
+                0xFF618524L, 0xFF3A62A4L, 0xFFC37363L, 0xFF128C64L, 0xFF6A539DL,
+                0xFFB67F40L, 0xFF08888EL, 0xFF884880L, 0xFF978F3CL, 0xFF1481B3L,
+            ),
+            predefinedColors,
+        )
+        assertEquals(
+            listOf(
+                0xFFDD8898L, 0xFFAADA9FL, 0xFFA3B7FEL, 0xFFDC8F6DL, 0xFF83DFC8L,
+                0xFFCFA6F4L, 0xFFC79D53L, 0xFF7BDBEFL, 0xFFEF9CCDL, 0xFFA1AD5DL,
+                0xFF9BCDFEL, 0xFFFA9597L, 0xFF72BD8DL, 0xFFC3C2FFL, 0xFFF3A16AL,
+                0xFF62C1BAL, 0xFFE6B7F0L, 0xFFD2B854L, 0xFF56BED9L, 0xFFF5AECAL,
+                0xFFA9CD6BL, 0xFF83A8E8L, 0xFFF5AE9FL, 0xFF65CBA5L, 0xFFA998DFL,
+                0xFFF0B979L, 0xFF58CDD1L, 0xFFCB8CC2L, 0xFFD6CE80L, 0xFF65C1EAL,
+            ),
+            darkPredefinedColors,
+        )
     }
 
     @Test
     fun currentWeekScheduleLoadsWeekContainingTargetDateAndPostsItOnce() = runTest {
         val session = AuthenticatedSession("DEMO-001", "api-token", mapOf("ASP.NET_SessionId" to "abc"))
+        var cachedSemesterReport: ScheduleReport? = null
         server.enqueue(htmlResponse("""<input name="__RequestVerificationToken" value="schedule-token" />"""))
         server.enqueue(jsonResponse(currentWeekJson))
         server.enqueue(jsonResponse(scheduleJson))
@@ -409,6 +461,7 @@ class SchoolGradeClientTest {
             "230",
             ScheduleScope.CURRENT_WEEK,
             targetDate = LocalDate.parse("2026-07-24"),
+            onSemesterReport = { cachedSemesterReport = it },
         )
 
         assertEquals(ScheduleScope.CURRENT_WEEK, report.scope)
@@ -430,6 +483,8 @@ class SchoolGradeClientTest {
         assertTrue(semesterForm.contains("WeekNo=&"))
         assertEquals(1, Regex("(?:^|&)WeekNo=").findAll(semesterForm).count())
         assertEquals(emptyList<ScheduleChange>(), report.changes)
+        assertEquals(ScheduleScope.SEMESTER, cachedSemesterReport?.scope)
+        assertEquals(report.items, cachedSemesterReport?.items)
     }
 
     @Test

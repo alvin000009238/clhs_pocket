@@ -32,13 +32,13 @@ class UpdateCheckerTest {
                 """
                 {
                   "tag_name": "v1.2.0",
-                  "html_url": "https://github.com/alvin000009238/clhs_score/releases/tag/v1.2.0",
+                  "html_url": "https://github.com/alvin000009238/clhs_pocket/releases/tag/v1.2.0",
                   "body": "Bug fixes",
                   "assets": [
                     {
                       "name": "clhs-score.apk",
                       "digest": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-                      "browser_download_url": "https://github.com/alvin000009238/clhs_score/releases/download/v1.2.0/app.apk"
+                      "browser_download_url": "https://github.com/alvin000009238/clhs_pocket/releases/download/v1.2.0/app.apk"
                     }
                   ]
                 }
@@ -52,7 +52,7 @@ class UpdateCheckerTest {
         assertEquals("1.2.0", result.versionName)
         assertEquals("Bug fixes", result.releaseNotes)
         assertEquals(
-            "https://github.com/alvin000009238/clhs_score/releases/download/v1.2.0/app.apk",
+            "https://github.com/alvin000009238/clhs_pocket/releases/download/v1.2.0/app.apk",
             result.apkAsset?.downloadUrl,
         )
         assertEquals(
@@ -68,7 +68,7 @@ class UpdateCheckerTest {
                 """
                 {
                   "tag_name": "v1.2.0",
-                  "html_url": "https://github.com/alvin000009238/clhs_score/releases/tag/v1.2.0",
+                  "html_url": "https://github.com/alvin000009238/clhs_pocket/releases/tag/v1.2.0",
                   "body": "",
                   "assets": []
                 }
@@ -86,7 +86,7 @@ class UpdateCheckerTest {
                 """
                 {
                   "tag_name": "v1.2.4",
-                  "html_url": "https://github.com/alvin000009238/clhs_score/releases/tag/v1.2.4",
+                  "html_url": "https://github.com/alvin000009238/clhs_pocket/releases/tag/v1.2.4",
                   "body": "",
                   "assets": []
                 }
@@ -131,7 +131,7 @@ class UpdateCheckerTest {
                 """
                 {
                   "tag_name": "v1.2.0",
-                  "html_url": "https://github.com/alvin000009238/clhs_score/releases/tag/v1.2.0",
+                  "html_url": "https://github.com/alvin000009238/clhs_pocket/releases/tag/v1.2.0",
                   "body": "",
                   "assets": [
                     {
@@ -159,13 +159,13 @@ class UpdateCheckerTest {
                 """
                 {
                   "tag_name": "v1.2.0",
-                  "html_url": "http://github.com/alvin000009238/clhs_score/releases/tag/v1.2.0",
+                  "html_url": "http://github.com/alvin000009238/clhs_pocket/releases/tag/v1.2.0",
                   "body": "",
                   "assets": [
                     {
                       "name": "clhs-score.apk",
                       "digest": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-                      "browser_download_url": "http://github.com/alvin000009238/clhs_score/releases/download/v1.2.0/app.apk"
+                      "browser_download_url": "http://github.com/alvin000009238/clhs_pocket/releases/download/v1.2.0/app.apk"
                     }
                   ]
                 }
@@ -186,7 +186,7 @@ class UpdateCheckerTest {
                 """
                 {
                   "tag_name": "v1.bad.3",
-                  "html_url": "https://github.com/alvin000009238/clhs_score/releases/tag/v1.bad.3",
+                  "html_url": "https://github.com/alvin000009238/clhs_pocket/releases/tag/v1.bad.3",
                   "body": "",
                   "assets": []
                 }
@@ -214,13 +214,13 @@ class UpdateCheckerTest {
                     """
                     {
                       "tag_name": "v1.2.0",
-                      "html_url": "https://github.com/alvin000009238/clhs_score/releases/tag/v1.2.0",
+                      "html_url": "https://github.com/alvin000009238/clhs_pocket/releases/tag/v1.2.0",
                       "body": "",
                       "assets": [
                         {
                           "name": "clhs-score.apk",
                           $digestField
-                          "browser_download_url": "https://github.com/alvin000009238/clhs_score/releases/download/v1.2.0/app.apk"
+                          "browser_download_url": "https://github.com/alvin000009238/clhs_pocket/releases/download/v1.2.0/app.apk"
                         }
                       ]
                     }
@@ -236,6 +236,41 @@ class UpdateCheckerTest {
         }
     }
 
+    @Test
+    fun draftAndPrereleaseAreIgnored() = runTest {
+        server.enqueue(
+            jsonResponse(
+                """
+                {
+                  "tag_name": "v9.0.0",
+                  "draft": true,
+                  "prerelease": false,
+                  "assets": []
+                },
+                {
+                  "tag_name": "v8.0.0-beta",
+                  "draft": false,
+                  "prerelease": true,
+                  "assets": []
+                },
+                {
+                  "tag_name": "v1.2.0",
+                  "draft": false,
+                  "prerelease": false,
+                  "html_url": "https://github.com/alvin000009238/clhs_pocket/releases/tag/v1.2.0",
+                  "body": "Stable",
+                  "assets": []
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val result = checker().check("1.1.9")
+
+        result as UpdateResult.NewVersion
+        assertEquals("1.2.0", result.versionName)
+    }
+
     private fun checker(): UpdateChecker =
         UpdateChecker(
             client = OkHttpClient(),
@@ -246,5 +281,5 @@ class UpdateCheckerTest {
         MockResponse()
             .setResponseCode(200)
             .setHeader("Content-Type", "application/json")
-            .setBody(body)
+            .setBody("[$body]")
 }

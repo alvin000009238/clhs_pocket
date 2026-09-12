@@ -9,10 +9,10 @@ enum class StudentScenario {
 }
 
 object MockGradeSystem {
-    private const val DemoStudentNo = "DEMO-000"
-    private const val DemoStudentName = "範例學生"
-    private const val DemoClassName = "示範班級"
-    private const val DemoSeatNo = "00"
+    private const val DEMO_STUDENT_NO = "DEMO-000"
+    private const val DEMO_STUDENT_NAME = "範例學生"
+    private const val DEMO_CLASS_NAME = "示範班級"
+    private const val DEMO_SEAT_NO = "00"
 
     data class SubjectSpec(
         val name: String,
@@ -131,10 +131,10 @@ object MockGradeSystem {
         return GradeReport(
             message = "fake mock data",
             studentInfo = StudentInfo(
-                studentNo = DemoStudentNo,
-                studentName = DemoStudentName,
-                className = DemoClassName,
-                seatNo = DemoSeatNo,
+                studentNo = DEMO_STUDENT_NO,
+                studentName = DEMO_STUDENT_NAME,
+                className = DEMO_CLASS_NAME,
+                seatNo = DEMO_SEAT_NO,
                 updatedAt = "2026-05-20 08:00",
                 showClassRank = true,
                 showClassRankCount = true,
@@ -198,8 +198,8 @@ object FakeData {
         ),
     )
 
-    val currentYearValue = "114_1"
-    val currentExamValue = "114_1_E4"
+    const val CURRENT_YEAR_VALUE = "114_1"
+    const val CURRENT_EXAM_VALUE = "114_1_E4"
 
     val announcementPage = SchoolAnnouncementPage(
         announcements = listOf(
@@ -290,8 +290,8 @@ object FakeData {
     }
 
     fun reportFor(yearValue: String, examValue: String): GradeReport =
-        reports[yearValue to examValue] ?: reports.getValue(currentYearValue to currentExamValue)
-    fun latestReport(): GradeReport = reportFor(currentYearValue, currentExamValue)
+        reports[yearValue to examValue] ?: reports.getValue(CURRENT_YEAR_VALUE to CURRENT_EXAM_VALUE)
+    fun latestReport(): GradeReport = reportFor(CURRENT_YEAR_VALUE, CURRENT_EXAM_VALUE)
 
     fun previousReport(): GradeReport = reportFor("114_1", "114_1_E2")
 
@@ -319,6 +319,9 @@ class FakeGradeRepository : GradeRepository {
 
     override suspend fun loadStructure(session: AuthenticatedSession, forceRefresh: Boolean): List<YearTermOption> = FakeData.structure
 
+    override suspend fun fetchStudentInfo(session: AuthenticatedSession): StudentInfo =
+        MockGradeSystem.generateReport().studentInfo
+
     override suspend fun fetchGrades(
         session: AuthenticatedSession,
         yearValue: String,
@@ -338,8 +341,8 @@ class FakeGradeRepository : GradeRepository {
 
 object FakeScheduleData {
     val years = listOf(
-        ScheduleYearTermOption("113學年度第1學期", "1131"),
-        ScheduleYearTermOption("113學年度第2學期", "1132")
+        ScheduleYearTermOption("113學年度第1學期", "113_1"),
+        ScheduleYearTermOption("113學年度第2學期", "113_2")
     )
 
     val classes = listOf(
@@ -397,7 +400,8 @@ object FakeScheduleData {
                 ScheduleItem(dayOfWeek = 5, period = 4, subjectName = "數學", teacherName = "李四", classroom = "高二30"),
                 ScheduleItem(dayOfWeek = 5, period = 5, subjectName = "國語文", teacherName = "張三", classroom = "高二30"),
                 ScheduleItem(dayOfWeek = 5, period = 6, subjectName = "地理", teacherName = "鄭十", classroom = "高二30"),
-                ScheduleItem(dayOfWeek = 5, period = 7, subjectName = "公民", teacherName = "陳二", classroom = "高二30")
+                ScheduleItem(dayOfWeek = 5, period = 7, subjectName = "公民", teacherName = "陳二", classroom = "高二30"),
+                ScheduleItem(dayOfWeek = 5, period = 8, subjectName = "生涯規劃", teacherName = "代理教師", classroom = "專題教室")
             )
         )
         if (scope == ScheduleScope.SEMESTER) return semesterReport

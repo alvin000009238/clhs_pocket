@@ -40,20 +40,19 @@ venv.bak/
 # Application Data & Temporary Files
 .agent/skills/
 .codex/
-grades_raw.json
-shared_grades/
 *.json
 !android/app/google-services.json
-!requirements.txt
-!package.json
-!package-lock.json
-!manifest.json
 *.md
 !README.md
+!README.en.md
 !AGENTS.md
 !DESIGN.md
 !CHANGELOG.md
-0_build_and_deploy.txt
+!CONTRIBUTING.md
+!CODE_OF_CONDUCT.md
+!SECURITY.md
+!docs/**
+!.github/PULL_REQUEST_TEMPLATE.md
 # Exclude specific JSONs but allow config templates if any
 
 # Large Files

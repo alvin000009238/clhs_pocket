@@ -17,6 +17,8 @@ object AnalyticsParameterSanitizer {
         AnalyticsParams.REASON,
         AnalyticsParams.RESULT,
         AnalyticsParams.SCREEN,
+        AnalyticsParams.SCREEN_CLASS,
+        AnalyticsParams.SCREEN_NAME,
         AnalyticsParams.SELECTION_COUNT_BUCKET,
         AnalyticsParams.SHOW_CLASSROOM,
         AnalyticsParams.SHOW_TEACHER,

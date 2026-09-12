@@ -33,9 +33,11 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -44,6 +46,10 @@ class ScheduleWidgetPreviewCaptureActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!captureInProgress.compareAndSet(false, true)) {
+            finishAndRemoveTask()
+            return
+        }
         window.apply {
             setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
             setFormat(PixelFormat.TRANSLUCENT)
@@ -51,12 +57,16 @@ class ScheduleWidgetPreviewCaptureActivity : Activity() {
             clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         }
         scope.launch {
-            runCatching { capture() }
-                .onFailure { error ->
-                    File(checkNotNull(getExternalFilesDir(null)), ERROR_FILE_NAME)
-                        .writeText(error.stackTraceToString())
-                }
-            finishAndRemoveTask()
+            try {
+                runCatching { capture() }
+                    .onFailure { error ->
+                        File(checkNotNull(getExternalFilesDir(null)), ERROR_FILE_NAME)
+                            .writeText(error.stackTraceToString())
+                    }
+            } finally {
+                captureInProgress.set(false)
+                finishAndRemoveTask()
+            }
         }
     }
 
@@ -115,7 +125,7 @@ class ScheduleWidgetPreviewCaptureActivity : Activity() {
             setContentView(root)
             window.setLayout(OUTPUT_WIDTH, OUTPUT_HEIGHT)
             awaitHardwareFrame(hostView)
-            delay(2_000)
+            delay(2.seconds)
 
             val bitmap = createBitmap(
                 OUTPUT_WIDTH,
@@ -171,6 +181,7 @@ class ScheduleWidgetPreviewCaptureActivity : Activity() {
         View.MeasureSpec.makeMeasureSpec(size, View.MeasureSpec.EXACTLY)
 
     private companion object {
+        val captureInProgress = AtomicBoolean(false)
         const val OUTPUT_WIDTH = 552
         const val OUTPUT_HEIGHT = 406
         const val OUTPUT_FILE_NAME = "schedule_widget_preview.png"

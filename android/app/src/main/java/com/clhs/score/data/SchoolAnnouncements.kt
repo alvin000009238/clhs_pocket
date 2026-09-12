@@ -1,6 +1,7 @@
 package com.clhs.score.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -22,12 +23,10 @@ import java.io.File
 import java.io.IOException
 import java.net.URLDecoder
 import java.net.URI
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.time.Instant
 
 const val SCHOOL_ANNOUNCEMENTS_WEB_URL = "https://www.clhs.tyc.edu.tw/ischool/publish_page/0/"
+const val SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH = 100
 
 data class SchoolAnnouncement(
     val id: String,
@@ -39,6 +38,11 @@ data class SchoolAnnouncement(
     val isPinned: Boolean,
     val contentType: String,
     val externalUrl: String? = null,
+)
+
+data class AnnouncementUnit(
+    val id: String,
+    val name: String,
 )
 
 data class SchoolAnnouncementPage(
@@ -74,7 +78,7 @@ data class SchoolAnnouncementDetail(
 )
 
 class NetworkSchoolAnnouncementsRepository(
-    private val cacheDirectory: File,
+    cacheDirectory: File,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .cookieJar(CookieJar.NO_COOKIES)
         .followRedirects(false)
@@ -82,35 +86,71 @@ class NetworkSchoolAnnouncementsRepository(
     private val baseUrl: HttpUrl = SCHOOL_BASE_URL,
     private val nowProvider: () -> Instant = Instant::now,
 ) {
-    private val cacheFile = File(cacheDirectory, CACHE_FILE_NAME)
+    private val cache = LatestCacheFile(cacheDirectory, CACHE_FILE_NAME)
+    private val cacheFile = cache.file
+    private val unitsCache = LatestCacheFile(cacheDirectory, UNITS_CACHE_FILE_NAME)
+    private val unitsCacheFile = unitsCache.file
 
     suspend fun loadCached(): SchoolAnnouncementPage? = withContext(Dispatchers.IO) {
         readCache()
     }
 
-    suspend fun loadPage(pageIndex: Int): SchoolAnnouncementPage = runInterruptibleHttp {
+    suspend fun loadPage(pageIndex: Int, keyword: String = "", unitId: String = ALL_UNITS_ID): SchoolAnnouncementPage {
         require(pageIndex >= 0) { "pageIndex must not be negative" }
-        val requestBody = FormBody.Builder()
-            .add("auth_type", "user")
-            .add("field", "time")
-            .add("flock", "")
-            .add("keyword", "")
-            .add("maxRows", PAGE_SIZE.toString())
-            .add("order", "DESC")
-            .add("pageNum", pageIndex.toString())
-            .add("tf", "1")
-            .add("uid", LIST_WIDGET_UID)
-            .add("use_cache", "0")
-            .build()
-        val request = Request.Builder()
-            .url(endpoint("ischool/widget/site_news/news_query_json.php"))
-            .post(requestBody)
-            .build()
-        val bytes = executeLimited(request, MAX_LIST_BYTES, "Announcement list")
-        val fetchedAt = nowProvider()
-        val page = SchoolAnnouncementParser.parsePage(bytes.toString(Charsets.UTF_8), fetchedAt)
-        if (pageIndex == 0) writeCache(bytes, fetchedAt)
-        page
+        val normalizedKeyword = keyword.trim()
+        require(normalizedKeyword.length <= SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH) {
+            "keyword is too long"
+        }
+        require(ANNOUNCEMENT_UNIT_ID_REGEX.matches(unitId)) { "Invalid announcement unit" }
+        val cacheGeneration = if (
+            pageIndex == 0 && normalizedKeyword.isEmpty() && unitId == ALL_UNITS_ID
+        ) {
+            cache.beginWrite()
+        } else {
+            null
+        }
+        val requestContext = currentCoroutineContext()
+        return runInterruptibleHttp {
+            val requestBody = FormBody.Builder()
+                .add("auth_type", "user")
+                .add("field", "time")
+                .add("flock", if (unitId == ALL_UNITS_ID) "" else "unit_$unitId")
+                .add("keyword", normalizedKeyword)
+                .add("maxRows", PAGE_SIZE.toString())
+                .add("order", "DESC")
+                .add("pageNum", pageIndex.toString())
+                .add("tf", "1")
+                .add("uid", LIST_WIDGET_UID)
+                .add("use_cache", "0")
+                .build()
+            val request = Request.Builder()
+                .url(endpoint("ischool/widget/site_news/news_query_json.php"))
+                .post(requestBody)
+                .build()
+            val bytes = executeLimited(request, MAX_LIST_BYTES, "Announcement list")
+            val fetchedAt = nowProvider()
+            val page = SchoolAnnouncementParser.parsePage(bytes.toString(Charsets.UTF_8), fetchedAt)
+            if (cacheGeneration != null) {
+                cache.commit(bytes, fetchedAt.toEpochMilli(), cacheGeneration, requestContext)
+            }
+            page
+        }
+    }
+
+    suspend fun loadCachedUnits(): List<AnnouncementUnit> = withContext(Dispatchers.IO) {
+        readUnitsCache()
+    }
+
+    suspend fun loadUnits(): List<AnnouncementUnit> {
+        val generation = unitsCache.beginWrite()
+        val requestContext = currentCoroutineContext()
+        return runInterruptibleHttp {
+            val request = Request.Builder().url(endpoint("home")).get().build()
+            val bytes = executeLimited(request, MAX_HOME_BYTES, "Announcement units")
+            val units = SchoolAnnouncementParser.parseUnits(bytes.toString(Charsets.UTF_8))
+            unitsCache.commit(bytes, nowProvider().toEpochMilli(), generation, requestContext)
+            units
+        }
     }
 
     suspend fun loadDetail(id: String, categoryHint: String = ""): SchoolAnnouncementDetail =
@@ -156,29 +196,13 @@ class NetworkSchoolAnnouncementsRepository(
         }.getOrNull()
     }
 
-    private fun writeCache(bytes: ByteArray, fetchedAt: Instant) {
-        cacheDirectory.mkdirs()
-        val temporaryFile = File(cacheDirectory, "$CACHE_FILE_NAME.tmp")
-        try {
-            temporaryFile.writeBytes(bytes)
-            try {
-                Files.move(
-                    temporaryFile.toPath(),
-                    cacheFile.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(
-                    temporaryFile.toPath(),
-                    cacheFile.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            }
-            cacheFile.setLastModified(fetchedAt.toEpochMilli())
-        } finally {
-            temporaryFile.delete()
+    private fun readUnitsCache(): List<AnnouncementUnit> {
+        if (!unitsCacheFile.isFile || unitsCacheFile.length() !in 1..MAX_HOME_BYTES) {
+            return defaultAnnouncementUnits()
         }
+        return runCatching {
+            SchoolAnnouncementParser.parseUnits(unitsCacheFile.readText(Charsets.UTF_8))
+        }.getOrElse { defaultAnnouncementUnits() }
     }
 
     private fun readLimited(source: okio.BufferedSource, maxBytes: Long, label: String): ByteArray {
@@ -195,11 +219,13 @@ class NetworkSchoolAnnouncementsRepository(
 
     private companion object {
         const val CACHE_FILE_NAME = "school-announcements.json"
+        const val UNITS_CACHE_FILE_NAME = "school-announcement-units.html"
         const val LIST_WIDGET_UID = "WID_549_2_3e2e399a2649fb6ba9918090490f4741fd4453bf"
         const val PAGE_SIZE = 20
         const val MAX_LIST_BYTES = 1024L * 1024
-        const val MAX_VIEW_BYTES = 512L * 1024
+        const val MAX_VIEW_BYTES = 2L * 1024 * 1024
         const val MAX_DETAIL_BYTES = 2L * 1024 * 1024
+        const val MAX_HOME_BYTES = 2L * 1024 * 1024
         val UNIQUE_ID_REGEX = Regex("""g_news_unique_id\s*=\s*["']([^"']+)["']""")
     }
 }
@@ -231,7 +257,7 @@ internal object SchoolAnnouncementParser {
                 category = item.string("attr_name") ?: item.string("attr").orEmpty(),
                 unit = item.string("name") ?: item.string("unit_name") ?: item.string("unit").orEmpty(),
                 issuer = item.string("name") ?: item.string("issuer").orEmpty(),
-                isPinned = item.booleanLike("top"),
+                isPinned = item.isPinned(),
                 contentType = contentType,
                 externalUrl = if (contentType.equals("url", ignoreCase = true)) {
                     safeAnnouncementWebUrl(item.string("content"))
@@ -246,6 +272,21 @@ internal object SchoolAnnouncementParser {
             totalPages = totalPages,
             fetchedAt = fetchedAt,
         )
+    }
+
+    fun parseUnits(source: String): List<AnnouncementUnit> {
+        val units = Jsoup.parse(source, SCHOOL_BASE_URL.toString())
+            .select("select.select-unit-x option[value]")
+            .mapNotNull { option ->
+                val id = option.attr("value").trim()
+                val name = option.text().trim()
+                if (!ANNOUNCEMENT_UNIT_ID_REGEX.matches(id) || name.isBlank()) null else AnnouncementUnit(id, name)
+            }
+            .distinctBy(AnnouncementUnit::id)
+        if (units.isEmpty()) throw IOException("Invalid announcement units")
+        return (defaultAnnouncementUnits() + units)
+            .distinctBy(AnnouncementUnit::id)
+            .distinctBy(AnnouncementUnit::name)
     }
 
     fun parseDetail(source: String, requestedId: String, categoryHint: String = ""): SchoolAnnouncementDetail {
@@ -297,9 +338,11 @@ internal object SchoolAnnouncementParser {
                 canPreview = isOfficialPreviewImage(url),
             )
         }.distinctBy(SchoolAnnouncementImage::url)
-        document.select("table").forEach { table ->
-            table.before("<p><strong>⚠️ 此內容包含表格</strong></p><p>請點擊下方「<strong>查看公告原文</strong>」來查看完整表格內容。</p>")
-            table.remove()
+        document.select("table").let { tables ->
+            tables.firstOrNull()?.before(
+                "<p><strong>⚠️ 此內容包含表格</strong></p><p>請點擊下方「<strong>查看原文</strong>」來查看完整表格內容。</p>",
+            )
+            tables.remove()
         }
         document.select("img").remove()
         val outputSettings = Document.OutputSettings().prettyPrint(false)
@@ -368,6 +411,11 @@ private fun announcementUrl(id: String, baseUrl: HttpUrl = SCHOOL_BASE_URL): Str
 
 internal fun schoolAnnouncementOfficialUrl(id: String): String = announcementUrl(id)
 
+const val ALL_UNITS_ID = "-1"
+internal val ANNOUNCEMENT_UNIT_ID_REGEX = Regex("-1|[0-9]+")
+
+internal fun defaultAnnouncementUnits(): List<AnnouncementUnit> = listOf(AnnouncementUnit(ALL_UNITS_ID, "全部"))
+
 private fun attachmentUrl(newsId: String, fileName: String): String =
     SCHOOL_BASE_URL.newBuilder()
         .addPathSegments("ischool/news/attached")
@@ -379,7 +427,7 @@ private fun attachmentUrl(newsId: String, fileName: String): String =
 private fun JsonObject.string(name: String): String? =
     (this[name] as? JsonPrimitive)?.contentOrNull?.takeUnless { it == "null" }
 
-private fun JsonObject.booleanLike(name: String): Boolean =
-    string(name)?.let { it == "1" || it.equals("true", ignoreCase = true) } == true
+private fun JsonObject.isPinned(): Boolean =
+    string("top")?.let { it == "1" || it.equals("true", ignoreCase = true) } == true
 
 private val SCHOOL_BASE_URL = "https://www.clhs.tyc.edu.tw/".toHttpUrl()

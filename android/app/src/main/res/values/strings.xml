@@ -4,6 +4,8 @@
     <string name="schedule_widget_description">在主畫面查看現在與接下來的課程</string>
     <string name="notification_channel_updates_name">更新與公告</string>
     <string name="notification_channel_updates_description">接收 app 更新與一般公告通知</string>
-    <string name="notification_channel_grade_reminders_name">段考提醒</string>
+    <string name="notification_channel_grade_reminders_name">段考更新提醒</string>
     <string name="notification_channel_grade_reminders_description">接收段考成績、排名與五標資訊變更提醒</string>
+    <string name="notification_channel_school_announcements_name">公告更新提醒</string>
+    <string name="notification_channel_school_announcements_description">接收所選校網單位的新公告更新提醒</string>
 </resources>

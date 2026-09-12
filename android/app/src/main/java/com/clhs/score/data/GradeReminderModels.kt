@@ -33,6 +33,30 @@ data class GradeReminderState(
             this.examValue == examValue
 }
 
+internal data class GradeReminderIdentity(
+    val enabled: Boolean,
+    val studentNo: String,
+    val yearValue: String,
+    val examValue: String,
+    val activatedAtMillis: Long,
+    val expiresAtMillis: Long,
+)
+
+internal fun GradeReminderState.identity() = GradeReminderIdentity(
+    enabled = enabled,
+    studentNo = studentNo,
+    yearValue = yearValue,
+    examValue = examValue,
+    activatedAtMillis = activatedAtMillis,
+    expiresAtMillis = expiresAtMillis,
+)
+
+internal fun mutateReminderStateIfCurrent(
+    current: GradeReminderState,
+    expected: GradeReminderIdentity,
+    transform: (GradeReminderState) -> GradeReminderState,
+): GradeReminderState? = current.takeIf { it.identity() == expected }?.let(transform)
+
 @Serializable
 data class GradeReminderSnapshot(
     val summary: GradeReminderSummarySnapshot? = null,

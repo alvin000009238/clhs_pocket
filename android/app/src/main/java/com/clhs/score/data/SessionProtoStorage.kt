@@ -101,8 +101,8 @@ internal fun EncryptedPayload.toProto(): EncryptedSessionPayload =
         .build()
 
 internal fun EncryptedSessionPayload.toDomain(): EncryptedPayload = EncryptedPayload(
-    version = version,
-    keyVersion = keyVersion,
-    iv = iv.toByteArray(),
-    ciphertext = ciphertext.toByteArray(),
+    version = this.version,
+    keyVersion = this.keyVersion,
+    iv = this.iv.toByteArray(),
+    ciphertext = this.ciphertext.toByteArray(),
 )

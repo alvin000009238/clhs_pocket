@@ -63,6 +63,61 @@ data class ScheduleItem(
     val classroom: String = "",
 )
 
+const val SCHEDULE_SUBJECT_OVERRIDE_MAX_LENGTH = 80
+
+@Serializable
+data class ScheduleSubjectOverride(
+    val originalSubjectName: String,
+    val customSubjectName: String? = null,
+    val customTeacherName: String? = null,
+    val customClassroom: String? = null,
+)
+
+internal fun ScheduleSubjectOverride.normalizedOrNull(): ScheduleSubjectOverride? {
+    val original = originalSubjectName.trim()
+    require(original.isNotEmpty()) { "Original subject name is required" }
+
+    fun String?.customValue(): String? = this
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?.also { value ->
+            require(value.length <= SCHEDULE_SUBJECT_OVERRIDE_MAX_LENGTH) {
+                "Custom schedule value is too long"
+            }
+        }
+
+    val normalized = copy(
+        originalSubjectName = original,
+        customSubjectName = customSubjectName.customValue(),
+        customTeacherName = customTeacherName.customValue(),
+        customClassroom = customClassroom.customValue(),
+    )
+    return normalized.takeIf {
+        it.customSubjectName != null || it.customTeacherName != null || it.customClassroom != null
+    }
+}
+
+internal fun List<ScheduleSubjectOverride>.normalizedSubjectOverrides(): List<ScheduleSubjectOverride> =
+    mapNotNull(ScheduleSubjectOverride::normalizedOrNull)
+        .associateBy(ScheduleSubjectOverride::originalSubjectName)
+        .values
+        .sortedBy(ScheduleSubjectOverride::originalSubjectName)
+
+internal fun List<ScheduleItem>.applySubjectOverrides(
+    overrides: List<ScheduleSubjectOverride>,
+): List<ScheduleItem> {
+    if (overrides.isEmpty()) return this
+    val overridesBySubject = overrides.associateBy(ScheduleSubjectOverride::originalSubjectName)
+    return map { item ->
+        val override = overridesBySubject[item.subjectName] ?: return@map item
+        item.copy(
+            subjectName = override.customSubjectName ?: item.subjectName,
+            teacherName = override.customTeacherName ?: item.teacherName,
+            classroom = override.customClassroom ?: item.classroom,
+        )
+    }
+}
+
 @Serializable
 enum class ScheduleChangeType {
     ADDED,
@@ -89,6 +144,7 @@ data class ScheduleReport(
     val weekEndDate: String? = null,
     val items: List<ScheduleItem>,
     val changes: List<ScheduleChange>? = null,
+    val subjectOverrides: List<ScheduleSubjectOverride> = emptyList(),
 ) {
     fun isValidOn(date: LocalDate): Boolean {
         if (scope == ScheduleScope.SEMESTER) return true
@@ -97,6 +153,31 @@ data class ScheduleReport(
         return date in start..end
     }
 }
+
+internal fun ScheduleReport.displayItems(): List<ScheduleItem> =
+    items.applySubjectOverrides(subjectOverrides)
+
+@JvmName("applySubjectOverridesToChanges")
+internal fun List<ScheduleChange>.applySubjectOverrides(
+    overrides: List<ScheduleSubjectOverride>,
+): List<ScheduleChange> {
+    if (overrides.isEmpty()) return this
+    return map { change ->
+        change.copy(
+            semesterItem = change.semesterItem
+                ?.let(::listOf)
+                ?.applySubjectOverrides(overrides)
+                ?.single(),
+            weekItem = change.weekItem
+                ?.let(::listOf)
+                ?.applySubjectOverrides(overrides)
+                ?.single(),
+        )
+    }
+}
+
+internal fun ScheduleReport.displayChanges(): List<ScheduleChange> =
+    changes.orEmpty().applySubjectOverrides(subjectOverrides)
 
 internal fun ScheduleReport.refreshAt(): LocalDateTime? {
     if (scope != ScheduleScope.CURRENT_WEEK) return null
@@ -263,28 +344,81 @@ private fun JsonObject.dateField(vararg names: String): String? =
     stringField(*names)?.take(10)
 
 val predefinedColors = listOf(
-    0xFFE3F2FD,
-    0xFFF3E5F5,
-    0xFFFFEBEE,
-    0xFFE8F5E9,
-    0xFFFFF3E0,
-    0xFFEFEBE9,
-    0xFFFFF9C4,
-    0xFFFCE4EC,
-    0xFFE0F7FA,
-    0xFFF1F8E9,
-    0xFFE8EAF6,
-    0xFFE0F2F1,
-    0xFFFFF8E1,
-    0xFFECEFF1,
-    0xFFFBE9E7,
+    0xFF984357,
+    0xFF699C5E,
+    0xFF5D70C3,
+    0xFF984A26,
+    0xFF31A18A,
+    0xFF8D60B2,
+    0xFF805C0E,
+    0xFF209DB1,
+    0xFFAB558A,
+    0xFF616A0D,
+    0xFF5591C9,
+    0xFFB75357,
+    0xFF217541,
+    0xFF8483CA,
+    0xFFB06018,
+    0xFF0B726C,
+    0xFFA877B4,
+    0xFF8F7412,
+    0xFF016E8B,
+    0xFFBE708E,
+    0xFF618524,
+    0xFF3A62A4,
+    0xFFC37363,
+    0xFF128C64,
+    0xFF6A539D,
+    0xFFB67F40,
+    0xFF08888E,
+    0xFF884880,
+    0xFF978F3C,
+    0xFF1481B3,
 )
 
-fun getSubjectColors(subjectNames: Iterable<String>): Map<String, Long> =
-    subjectNames
+val darkPredefinedColors = listOf(
+    0xFFDD8898,
+    0xFFAADA9F,
+    0xFFA3B7FE,
+    0xFFDC8F6D,
+    0xFF83DFC8,
+    0xFFCFA6F4,
+    0xFFC79D53,
+    0xFF7BDBEF,
+    0xFFEF9CCD,
+    0xFFA1AD5D,
+    0xFF9BCDFE,
+    0xFFFA9597,
+    0xFF72BD8D,
+    0xFFC3C2FF,
+    0xFFF3A16A,
+    0xFF62C1BA,
+    0xFFE6B7F0,
+    0xFFD2B854,
+    0xFF56BED9,
+    0xFFF5AECA,
+    0xFFA9CD6B,
+    0xFF83A8E8,
+    0xFFF5AE9F,
+    0xFF65CBA5,
+    0xFFA998DF,
+    0xFFF0B979,
+    0xFF58CDD1,
+    0xFFCB8CC2,
+    0xFFD6CE80,
+    0xFF65C1EA,
+)
+
+fun getSubjectColors(
+    subjectNames: Iterable<String>,
+    isDarkTheme: Boolean = false,
+): Map<String, Long> {
+    val palette = if (isDarkTheme) darkPredefinedColors else predefinedColors
+    return subjectNames
         .distinct()
         .sorted()
         .mapIndexed { index, subjectName ->
-            subjectName to predefinedColors[index % predefinedColors.size]
+            subjectName to palette[index % palette.size]
         }
         .toMap()
+}

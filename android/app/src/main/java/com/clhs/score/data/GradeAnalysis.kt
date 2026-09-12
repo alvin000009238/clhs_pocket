@@ -2,7 +2,6 @@ package com.clhs.score.data
 
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 data class PercentileInfo(
@@ -70,90 +69,6 @@ data class SimulationHistorySource(
     } else {
         "同學期前 ${exams.size} 次考試"
     }
-}
-
-data class RankProjection(
-    val subjectName: String,
-    val suggestedIncrease: Double,
-    val weightedAverageGain: Double,
-    val estimatedClassRank: Int?,
-    val classCount: Int?,
-)
-
-enum class ScoreInsightTone {
-    Positive,
-    Warning,
-    Neutral,
-}
-
-data class ScoreInsight(
-    val title: String,
-    val body: String,
-    val tone: ScoreInsightTone,
-)
-
-data class ScoreInsightSet(
-    val items: List<ScoreInsight>,
-    val projection: RankProjection?,
-)
-
-fun buildScoreInsights(
-    report: GradeReport,
-    analysis: GradeAnalysis,
-    trend: GradeTrend? = null,
-): ScoreInsightSet {
-    val focus = focusSubject(report)
-    val strength = report.subjects.maxByOrNull { it.diffValue }
-    val projection = focus?.let { buildRankProjection(report, analysis.comparison, it) }
-    val items = buildList {
-        focus?.let {
-            val body = if (it.diffValue < -0.05) {
-                "${shortenSubjectName(it.subjectName)} 低於平均 ${"%.1f".format(abs(it.diffValue))} 分，先補這科最有感。"
-            } else {
-                "${shortenSubjectName(it.subjectName)} 是目前最適合再拉高的科目，先提升 ${"%.1f".format(min(8.0, max(3.0, abs(it.diffValue))))} 分。"
-            }
-            add(
-                ScoreInsight(
-                    title = "最值得補強",
-                    body = body,
-                    tone = ScoreInsightTone.Warning,
-                ),
-            )
-        }
-        strength?.let {
-            val label = if (it.diffValue >= 0.0) {
-                "高於平均 ${signedDiff(it.diffValue)} 分"
-            } else {
-                "低於平均 ${"%.1f".format(abs(it.diffValue))} 分，但已是目前最接近平均的科目"
-            }
-            add(
-                ScoreInsight(
-                    title = "最具優勢",
-                    body = "${shortenSubjectName(it.subjectName)} $label。",
-                    tone = ScoreInsightTone.Positive,
-                ),
-            )
-        }
-        projection?.let {
-            add(
-                ScoreInsight(
-                    title = "排名推估",
-                    body = projectionText(it),
-                    tone = ScoreInsightTone.Neutral,
-                ),
-            )
-        }
-        trend?.takeIf { it.points.size >= 2 }?.let {
-            add(
-                ScoreInsight(
-                    title = "近 ${it.points.size} 次平均",
-                    body = it.averageLine,
-                    tone = ScoreInsightTone.Neutral,
-                ),
-            )
-        }
-    }
-    return ScoreInsightSet(items = items, projection = projection)
 }
 
 data class GradeComparison(
@@ -306,7 +221,7 @@ fun List<YearTermOption>.simulationHistorySource(
 ): SimulationHistorySource? {
     if (yearValue.isNullOrBlank() || examValue.isNullOrBlank()) return null
     val orderedExams = sortedWith(
-        compareBy<YearTermOption>({ it.sortKey().first }, { it.sortKey().second }),
+        compareBy({ it.sortKey().first }, { it.sortKey().second }),
     ).flatMap { yearTerm ->
         yearTerm.exams.map { exam -> HistoryExamRef(yearTerm, exam) }
     }
@@ -326,7 +241,7 @@ fun List<YearTermOption>.simulationHistorySource(
 
 fun List<YearTermOption>.latestYearTerm(): YearTermOption? =
     maxWithOrNull(
-        compareBy<YearTermOption>(
+        compareBy(
             { option -> parseYearTerm(option.value, defaultYear = "0", defaultTerm = "0").first.toIntOrNull() ?: 0 },
             { option -> parseYearTerm(option.value, defaultYear = "0", defaultTerm = "0").second.toIntOrNull() ?: 0 },
         ),
@@ -416,57 +331,6 @@ private fun GradeReport.toTrendPoint(examName: String): GradeTrendPoint = GradeT
     classRank = examSummary?.classRank?.toInt(),
     highestScore = highestScore(),
 )
-
-private fun focusSubject(report: GradeReport): SubjectScore? {
-    val belowAverage = report.subjects.filter { it.diffValue < -0.05 }
-    return (belowAverage.ifEmpty { report.subjects }).minByOrNull { it.diffValue }
-}
-
-private fun buildRankProjection(
-    report: GradeReport,
-    comparison: GradeComparison?,
-    subject: SubjectScore,
-): RankProjection {
-    val suggestedIncrease = min(8.0, max(3.0, abs(subject.diffValue)))
-    val totalWeight = report.subjects.sumOf { subjectWeight(it.subjectName) }.coerceAtLeast(1)
-    val weightedAverageGain = suggestedIncrease * subjectWeight(subject.subjectName) / totalWeight
-    val currentRank = report.examSummary?.classRank?.toInt()
-    val classCount = report.examSummary?.classCount
-    val rankPerPoint = comparison?.let {
-        if (abs(it.averageDelta) > 0.05 && it.classRankDelta != null) {
-            abs(it.classRankDelta / it.averageDelta).coerceIn(0.25, 2.0)
-        } else {
-            null
-        }
-    } ?: 0.5
-    val estimatedRank = if (currentRank != null && classCount != null && classCount > 0) {
-        (currentRank - (weightedAverageGain * rankPerPoint).roundToInt()).coerceIn(1, classCount)
-    } else {
-        null
-    }
-    return RankProjection(
-        subjectName = subject.subjectName,
-        suggestedIncrease = suggestedIncrease,
-        weightedAverageGain = weightedAverageGain,
-        estimatedClassRank = estimatedRank,
-        classCount = classCount,
-    )
-}
-
-private fun projectionText(projection: RankProjection): String {
-    val subject = shortenSubjectName(projection.subjectName)
-    val gain = "%.1f".format(projection.suggestedIncrease)
-    val weightedGain = "%.1f".format(projection.weightedAverageGain)
-    val rank = projection.estimatedClassRank
-    val count = projection.classCount
-    return if (rank != null && count != null) {
-        "粗估 $subject +$gain 分，加權平均約 +$weightedGain，班排可望接近 $rank/$count，僅供參考。"
-    } else {
-        "建議先把 $subject 拉高約 $gain 分，可改善整體平均；排名資料不足，暫不估名次。"
-    }
-}
-
-private fun signedDiff(value: Double): String = "+${"%.1f".format(value)}"
 
 private fun summaryText(
     report: GradeReport,

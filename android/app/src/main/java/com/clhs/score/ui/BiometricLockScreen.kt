@@ -1,8 +1,6 @@
 package com.clhs.score.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -77,7 +77,7 @@ fun BiometricLockScreen(
     if (showPinDialog) {
         PinInputDialog(
             title = "備用密碼解鎖",
-            subtitle = "請輸入您的 4~6 位數備用密碼：",
+            subtitle = "請輸入您的 4–6 位數備用密碼：",
             onConfirm = { pin ->
                 showPinDialog = false
                 onUnlockWithPin(pin)
@@ -92,7 +92,7 @@ fun BiometricLockScreen(
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
             title = { Text("登出") },
-            text = { Text("確定要登出嗎？登出後成績資料將被刪除。") },
+            text = { Text("確定要登出嗎？") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -152,7 +152,7 @@ fun BiometricLockScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "請進行生物辨識來解鎖，或輸入備用密碼解鎖。",
+            text = "請進行生物識別來解鎖，或輸入備用密碼解鎖。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

@@ -1,25 +1,11 @@
-@file:Suppress("DEPRECATION")
-
 package com.clhs.score.data
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.SharedPreferences
 import android.util.Base64
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import java.io.File
 import java.security.GeneralSecurityException
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
-
-internal data class LegacyReminderSession(
-    val session: AuthenticatedSession,
-    val expiresAtMillis: Long,
-)
 
 internal data class BiometricSessionRecord(
     val sessionCiphertext: String,
@@ -30,151 +16,29 @@ internal data class BiometricSessionRecord(
 )
 
 internal interface LegacySessionSource {
-    fun readGeneral(): AuthenticatedSession?
-    fun readReminder(): LegacyReminderSession?
-    fun readBiometric(): BiometricSessionRecord?
     fun clearGeneral()
     fun clearReminder()
     fun clearBiometric()
     fun clearAll()
 }
 
-@SuppressLint("UseKtx") // Migration requires the synchronous commit() success value before deleting data.
-internal class EncryptedSharedPreferencesLegacySessionSource(context: Context) : LegacySessionSource {
-    private val appContext = context.applicationContext
-    private val legacyFile = File(appContext.applicationInfo.dataDir, "shared_prefs/$PREFS_NAME.xml")
-    private val encryptedPreferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        try {
-            val masterKey = MasterKey.Builder(appContext)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            EncryptedSharedPreferences.create(
-                appContext,
-                PREFS_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-            )
-        } catch (error: Exception) {
-            throw SessionMigrationException(error)
-        }
-    }
+internal class LegacySessionPreferences(
+    private val deletePreferences: () -> Boolean,
+) : LegacySessionSource {
+    constructor(context: Context) : this({ context.applicationContext.deleteSharedPreferences("score_session") })
 
-    override fun readGeneral(): AuthenticatedSession? = preferencesOrNull()?.readSession(
-        studentNoKey = KEY_STUDENT_NO,
-        tokenKey = KEY_API_TOKEN,
-        cookiesKey = KEY_COOKIES,
-    )
-
-    override fun readReminder(): LegacyReminderSession? {
-        val prefs = preferencesOrNull() ?: return null
-        val hasAny = REMINDER_KEYS.any(prefs::contains)
-        if (!hasAny) return null
-        val session = prefs.readSession(
-            studentNoKey = KEY_REMINDER_STUDENT_NO,
-            tokenKey = KEY_REMINDER_API_TOKEN,
-            cookiesKey = KEY_REMINDER_COOKIES,
-        ) ?: throw SessionMigrationException()
-        if (!prefs.contains(KEY_REMINDER_EXPIRES_AT)) throw SessionMigrationException()
-        return LegacyReminderSession(session, prefs.getLong(KEY_REMINDER_EXPIRES_AT, 0L))
-            .also { if (it.expiresAtMillis <= 0L) throw SessionMigrationException() }
-    }
-
-    override fun readBiometric(): BiometricSessionRecord? {
-        val prefs = preferencesOrNull() ?: return null
-        val hasAny = BIOMETRIC_KEYS.any(prefs::contains)
-        if (!hasAny) return null
-        return BiometricSessionRecord(
-            sessionCiphertext = prefs.requiredString(KEY_BIOMETRIC_SESSION_CIPHER_TEXT),
-            sessionIv = prefs.requiredString(KEY_BIOMETRIC_SESSION_IV),
-            sessionSalt = prefs.requiredString(KEY_BIOMETRIC_SESSION_SALT),
-            pinCiphertext = prefs.requiredString(KEY_BIOMETRIC_PIN_CIPHER_TEXT),
-            pinIv = prefs.requiredString(KEY_BIOMETRIC_PIN_IV),
-        )
-    }
-
-    override fun clearGeneral() = clearKeys(GENERAL_KEYS)
-
-    override fun clearReminder() = clearKeys(REMINDER_KEYS)
-
-    override fun clearBiometric() = clearKeys(BIOMETRIC_KEYS + LEGACY_BIOMETRIC_KEYS)
+    // No legacy credential is supported, so every cleanup deletes the entire obsolete store.
+    override fun clearGeneral() = clearAll()
+    override fun clearReminder() = clearAll()
+    override fun clearBiometric() = clearAll()
 
     override fun clearAll() {
-        val prefs = preferencesOrNull() ?: return
-        if (!prefs.edit().clear().commit()) throw SessionMigrationException()
-    }
-
-    private fun preferencesOrNull(): SharedPreferences? = if (legacyFile.exists()) encryptedPreferences else null
-
-    private fun SharedPreferences.readSession(
-        studentNoKey: String,
-        tokenKey: String,
-        cookiesKey: String,
-    ): AuthenticatedSession? {
-        val hasAny = listOf(studentNoKey, tokenKey, cookiesKey).any(::contains)
-        if (!hasAny) return null
-        val studentNo = requiredString(studentNoKey)
-        val token = requiredString(tokenKey)
-        val cookies = try {
-            SchoolJson.parseToJsonElement(requiredString(cookiesKey)).jsonObject.entries
-                .associate { (name, value) -> name to value.asPrimitiveOrNull()?.contentOrNull.orEmpty() }
-                .filterValues(String::isNotBlank)
-        } catch (error: SerializationException) {
-            throw SessionMigrationException(error)
-        } catch (error: IllegalArgumentException) {
-            throw SessionMigrationException(error)
+        val deleted = try {
+            deletePreferences()
+        } catch (_: SecurityException) {
+            false
         }
-        return AuthenticatedSession(studentNo, token, cookies).also {
-            try {
-                SessionSerializer.serialize(it)
-            } catch (error: SessionStorageException) {
-                throw SessionMigrationException(error)
-            }
-        }
-    }
-
-    private fun SharedPreferences.requiredString(key: String): String =
-        getString(key, null)?.takeIf(String::isNotBlank) ?: throw SessionMigrationException()
-
-    private fun clearKeys(keys: Collection<String>) {
-        val prefs = preferencesOrNull() ?: return
-        val editor = prefs.edit()
-        keys.forEach(editor::remove)
-        if (!editor.commit()) throw SessionMigrationException()
-    }
-
-    private companion object {
-        const val PREFS_NAME = "score_session"
-        const val KEY_STUDENT_NO = "student_no"
-        const val KEY_API_TOKEN = "api_token"
-        const val KEY_COOKIES = "cookies"
-        const val KEY_REMINDER_STUDENT_NO = "reminder_student_no"
-        const val KEY_REMINDER_API_TOKEN = "reminder_api_token"
-        const val KEY_REMINDER_COOKIES = "reminder_cookies"
-        const val KEY_REMINDER_EXPIRES_AT = "reminder_expires_at"
-        const val KEY_BIOMETRIC_CIPHER_TEXT = "biometric_cipher_text"
-        const val KEY_BIOMETRIC_IV = "biometric_iv"
-        const val KEY_BIOMETRIC_SESSION_CIPHER_TEXT = "biometric_session_cipher_text"
-        const val KEY_BIOMETRIC_SESSION_IV = "biometric_session_iv"
-        const val KEY_BIOMETRIC_SESSION_SALT = "biometric_session_salt"
-        const val KEY_BIOMETRIC_PIN_CIPHER_TEXT = "biometric_pin_cipher_text"
-        const val KEY_BIOMETRIC_PIN_IV = "biometric_pin_iv"
-
-        val GENERAL_KEYS = listOf(KEY_STUDENT_NO, KEY_API_TOKEN, KEY_COOKIES)
-        val REMINDER_KEYS = listOf(
-            KEY_REMINDER_STUDENT_NO,
-            KEY_REMINDER_API_TOKEN,
-            KEY_REMINDER_COOKIES,
-            KEY_REMINDER_EXPIRES_AT,
-        )
-        val BIOMETRIC_KEYS = listOf(
-            KEY_BIOMETRIC_SESSION_CIPHER_TEXT,
-            KEY_BIOMETRIC_SESSION_IV,
-            KEY_BIOMETRIC_SESSION_SALT,
-            KEY_BIOMETRIC_PIN_CIPHER_TEXT,
-            KEY_BIOMETRIC_PIN_IV,
-        )
-        val LEGACY_BIOMETRIC_KEYS = listOf(KEY_BIOMETRIC_CIPHER_TEXT, KEY_BIOMETRIC_IV)
+        if (!deleted) throw SessionCleanupException(setOf(SessionCleanupFailure.LEGACY_SESSION_DELETE_FAILED))
     }
 }
 
@@ -187,7 +51,7 @@ internal interface BiometricSessionStorage {
     fun clear()
 }
 
-@SuppressLint("UseKtx") // The tombstone must be durably committed before legacy data can be ignored.
+@SuppressLint("UseKtx") // Privacy writes must report commit failure.
 internal class SharedPreferencesBiometricSessionStorage(
     context: Context,
     private val legacySource: LegacySessionSource,
@@ -213,7 +77,7 @@ internal class SharedPreferencesBiometricSessionStorage(
     }
 
     override fun load(cipher: Cipher): AuthenticatedSession? = synchronized(lock) {
-        val record = currentOrMigrated() ?: return@synchronized null
+        val record = readCurrent() ?: return@synchronized null
         try {
             val pin = BiometricHelper.decryptPin(record.pinCiphertext, cipher)
             decryptSession(record, pin)
@@ -227,7 +91,7 @@ internal class SharedPreferencesBiometricSessionStorage(
     }
 
     override fun loadWithPin(pin: String): AuthenticatedSession? = synchronized(lock) {
-        val record = currentOrMigrated() ?: return@synchronized null
+        val record = readCurrent() ?: return@synchronized null
         try {
             decryptSession(record, pin)
         } catch (_: AEADBadTagException) {
@@ -239,10 +103,10 @@ internal class SharedPreferencesBiometricSessionStorage(
         }
     }
 
-    override fun hasSession(): Boolean = synchronized(lock) { currentOrMigrated() != null }
+    override fun hasSession(): Boolean = synchronized(lock) { readCurrent() != null }
 
     override fun pinIv(): ByteArray? = synchronized(lock) {
-        currentOrMigrated()?.let {
+        readCurrent()?.let {
             try {
                 Base64.decode(it.pinIv, Base64.NO_WRAP)
             } catch (error: IllegalArgumentException) {
@@ -253,12 +117,23 @@ internal class SharedPreferencesBiometricSessionStorage(
 
     override fun clear() {
         synchronized(lock) {
-            if (!prefs.edit().clear().putBoolean(KEY_LEGACY_MIGRATION_COMPLETE, true).commit()) {
-                throw SessionStorageUnavailableException()
+            val failures = linkedSetOf<SessionCleanupFailure>()
+            if (!prefs.edit().clear().commit()) {
+                failures += SessionCleanupFailure.BIOMETRIC_DELETE_FAILED
             }
-            // The tombstone is authoritative; leftover legacy ciphertext/key cleanup can retry later.
-            runCatching { legacySource.clearBiometric() }
-            runCatching { deleteBiometricKey() }
+            try {
+                legacySource.clearBiometric()
+            } catch (_: SessionStorageException) {
+                failures += SessionCleanupFailure.LEGACY_SESSION_DELETE_FAILED
+            }
+            try {
+                deleteBiometricKey()
+            } catch (_: GeneralSecurityException) {
+                failures += SessionCleanupFailure.BIOMETRIC_KEY_DELETE_FAILED
+            } catch (_: java.io.IOException) {
+                failures += SessionCleanupFailure.BIOMETRIC_KEY_DELETE_FAILED
+            }
+            if (failures.isNotEmpty()) throw SessionCleanupException(failures)
         }
     }
 
@@ -270,26 +145,6 @@ internal class SharedPreferencesBiometricSessionStorage(
             pin,
             salt,
         )
-    }
-
-    private fun currentOrMigrated(): BiometricSessionRecord? {
-        val current = readCurrent()
-        if (current != null) {
-            if (!prefs.getBoolean(KEY_LEGACY_MIGRATION_COMPLETE, false)) {
-                markLegacyMigrationComplete()
-            }
-            runCatching { legacySource.clearBiometric() }
-            return current
-        }
-        if (prefs.getBoolean(KEY_LEGACY_MIGRATION_COMPLETE, false)) {
-            runCatching { legacySource.clearBiometric() }
-            return null
-        }
-        val legacy = legacySource.readBiometric() ?: return null
-        write(legacy)
-        if (readCurrent() != legacy) throw SessionMigrationException()
-        runCatching { legacySource.clearBiometric() }
-        return legacy
     }
 
     private fun readCurrent(): BiometricSessionRecord? {
@@ -312,14 +167,7 @@ internal class SharedPreferencesBiometricSessionStorage(
             .putString(KEY_SESSION_SALT, record.sessionSalt)
             .putString(KEY_PIN_CIPHER_TEXT, record.pinCiphertext)
             .putString(KEY_PIN_IV, record.pinIv)
-            .putBoolean(KEY_LEGACY_MIGRATION_COMPLETE, true)
         if (!editor.commit()) throw SessionStorageUnavailableException()
-    }
-
-    private fun markLegacyMigrationComplete() {
-        if (!prefs.edit().putBoolean(KEY_LEGACY_MIGRATION_COMPLETE, true).commit()) {
-            throw SessionStorageUnavailableException()
-        }
     }
 
     private companion object {
@@ -329,7 +177,6 @@ internal class SharedPreferencesBiometricSessionStorage(
         const val KEY_SESSION_SALT = "session_salt"
         const val KEY_PIN_CIPHER_TEXT = "pin_ciphertext"
         const val KEY_PIN_IV = "pin_iv"
-        const val KEY_LEGACY_MIGRATION_COMPLETE = "legacy_migration_complete"
         val KEYS = listOf(
             KEY_SESSION_CIPHER_TEXT,
             KEY_SESSION_IV,

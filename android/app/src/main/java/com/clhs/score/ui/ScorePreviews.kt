@@ -13,13 +13,13 @@ import com.clhs.score.data.FakeData
 import com.clhs.score.data.MockGradeSystem
 import com.clhs.score.data.StudentScenario
 import com.clhs.score.data.buildGradeAnalysis
-import com.clhs.score.data.buildScoreInsights
 import com.clhs.score.data.buildGradeTrend
 import com.clhs.score.data.cleanSubjectName
 import com.clhs.score.ui.theme.ScoreTheme
 import com.clhs.score.viewmodel.SchoolAnnouncementDetailUiState
 import com.clhs.score.viewmodel.SchoolAnnouncementsUiState
 import com.clhs.score.viewmodel.GradesUiState
+import com.clhs.score.viewmodel.AuthState
 import com.clhs.score.viewmodel.LoginUiState
 import com.clhs.score.viewmodel.SettingsUiState
 
@@ -61,8 +61,11 @@ private fun SchoolAnnouncementsPreview(
             onBack = {},
             onRefresh = {},
             onLoadMore = {},
+            onSearch = {},
+            onClearSearch = {},
             onOpenAnnouncement = {},
             onOpenOfficialWebsite = {},
+            onOpenAnnouncementReminder = {},
             onNoticeShown = {},
         )
     }
@@ -99,15 +102,19 @@ private fun ScoreAppFakePreview(
             scoreViewModel = scoreViewModel,
             loginState = LoginUiState(),
             gradesState = fakeGradesState(scenario = scenario),
-            settings = AppSettings(),
+            authState = AuthState.Authenticated(1L),
+            settings = AppSettings(hasCompletedOnboarding = true),
             settingsUiState = SettingsUiState(),
-            openScheduleRequested = false,
-            onScheduleOpenHandled = {},
+            launchTarget = null,
+            onLaunchTargetHandled = {},
+            onGradeTargetOpened = { _, _ -> },
             onWebViewLoginSuccess = { _, _ -> },
+            onCompleteOnboarding = {},
             onSelectYear = {},
             onSelectExam = {},
             onReload = {},
             onLogout = {},
+            onRestartOnboarding = {},
             onToggleSubject = {},
             onDismissLoginError = {},
             onDismissGradesError = {},
@@ -121,20 +128,26 @@ private fun ScoreAppFakePreview(
             onSetAmoledBlack = {},
             onSetNotificationsEnabled = {},
             onCheckUpdate = {},
+            onDownloadUpdate = {},
+            onDismissUpdateDownloadResult = {},
             onDismissUpdateResult = {},
             onVersionTap = {},
             onDismissDeveloperToast = {},
             onSetDemoMode = {},
             onDismissRestartDialog = {},
-            onDismissNotificationPrompt = {},
             onExportGrades = {},
             onDismissExportResult = {},
             onSetBiometricEnabled = { _, _ -> },
+            onSetWeatherSource = {},
+            onSaveCwaApiKey = {},
+            onClearCwaApiKey = {},
+            onDismissCwaKeyMessage = {},
         )
     }
 }
 
 @Preview(name = "Grades Screen - Fake Data", showBackground = true, widthDp = 390, heightDp = 844)
+@Preview(name = "Grades Screen - Large Text", showBackground = true, widthDp = 320, heightDp = 900, fontScale = 2f)
 @Preview(name = "Grades Screen - Medium Window", showBackground = true, widthDp = 700, heightDp = 600)
 @Preview(name = "Grades Screen - Expanded Window", showBackground = true, widthDp = 1200, heightDp = 800)
 @Composable
@@ -150,10 +163,6 @@ private fun GradesScreenFakePreview(
                     ?.map { cleanSubjectName(it.subjectName) }
                     ?.toSet() ?: emptySet()
             ),
-            settings = AppSettings(),
-            settingsUiState = SettingsUiState(),
-            isExporting = false,
-            exportResult = null,
             snackbarHost = {},
             onSelectYear = {},
             onSelectExam = {},
@@ -164,23 +173,10 @@ private fun GradesScreenFakePreview(
             onSetNotificationsEnabled = {},
             onGradeReminderPrerequisiteFailed = {},
             onDismissGradeReminderChanges = {},
-            onSetThemeMode = {},
-            onSetDynamicColor = {},
-            onSetAmoledBlack = {},
-            onCheckUpdate = {},
-            onOpenSchoolWebsite = {},
-            onOpenSchoolAnnouncements = {},
-            onOpenAbout = {},
-            onDismissDeveloperToast = {},
-            onOpenDeveloperSettings = {},
-            onExportGrades = {},
-            onDismissExportResult = {},
-            onLogout = {},
-            onSetBiometricEnabled = { _, _ -> },
+            onOpenPersonal = {},
             onOpenScoreSimulator = {},
-            onOpenSchedule = {},
-            onOpenSchoolCalendar = {},
             onOpenSubjectTrend = {},
+            onExportGrades = {},
         )
     }
 }
@@ -238,11 +234,10 @@ private fun fakeGradesState(
         previousExamName = previous.examSummary?.examName,
     )
     return GradesUiState(
-        isLoggedIn = true,
         studentNo = FakeData.session.studentNo,
         structure = FakeData.structure,
-        selectedYearValue = FakeData.currentYearValue,
-        selectedExamValue = FakeData.currentExamValue,
+        selectedYearValue = FakeData.CURRENT_YEAR_VALUE,
+        selectedExamValue = FakeData.CURRENT_EXAM_VALUE,
         report = report,
         comparisonReport = previous,
         comparisonExamName = previous.examSummary?.examName,
@@ -251,7 +246,6 @@ private fun fakeGradesState(
         trend = trend,
         simulatorHistoryReports = FakeData.simulatorHistoryReports(),
         simulatorHistoryLabel = "近 3 次段考",
-        insights = buildScoreInsights(report, analysis, trend),
         analysis = analysis,
         expandedSubjectKeys = expandedSubjectKeys,
     )

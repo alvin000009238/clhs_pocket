@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -61,6 +63,7 @@ import com.clhs.score.data.PERIOD_TIMES
 import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleScope
+import com.clhs.score.data.displayItems
 import com.clhs.score.ui.OutlinedRoundedSymbol
 import com.clhs.score.widget.ScheduleWidgetPreferences
 import com.clhs.score.widget.classifyWidgetScheduleItems
@@ -105,7 +108,7 @@ internal fun WidgetSettingsScreen(
         contentColor = MaterialTheme.colorScheme.onSurface,
         topBar = {
             TopAppBar(
-                title = { Text("此 Widget 的設定") },
+                title = { Text("Widget 設定") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -168,6 +171,9 @@ internal fun WidgetSettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = 720.dp)
+                .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 32.dp)
@@ -308,7 +314,7 @@ private fun ScheduleWidgetPreview(
     val today = now.toLocalDate()
     val currentTotalMinutes = now.hour * 60 + now.minute
 
-    val sourceItems = report?.items.orEmpty()
+    val sourceItems = report?.displayItems().orEmpty()
     val validFrom = report
         ?.takeIf { it.scope == ScheduleScope.CURRENT_WEEK }
         ?.weekStartDate

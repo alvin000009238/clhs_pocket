@@ -1,6 +1,7 @@
 # Gradle / Android Studio
 .gradle/
 .kotlin/
+.gradle_home/
 .gradle-user-home/
 .android-home/
 .android-user-home/

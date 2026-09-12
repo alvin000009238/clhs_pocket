@@ -53,6 +53,7 @@ import com.clhs.score.data.scoreDistributions
 import com.clhs.score.data.shortenSubjectName
 import com.clhs.score.ui.theme.ScoreTheme
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -72,7 +73,7 @@ internal fun SubjectCard(
         if (expanded && bringIntoViewOnExpand) {
             withFrameNanos { }
             bringIntoViewRequester.bringIntoView()
-            delay(320)
+            delay(320.milliseconds)
             bringIntoViewRequester.bringIntoView()
             onBringIntoViewHandled()
         }
@@ -121,9 +122,9 @@ internal fun SubjectCard(
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-                val buildRankString: (Int?, Int?) -> AnnotatedString = { rank, count ->
+                val buildRankString: (Int?, Int?, String) -> AnnotatedString = { rank, count, scope ->
                     val rankStr = formatRank(rank?.toDouble(), count, true)
-                    val pctStr = subjectPercentLabel(rank, count)
+                    val pctStr = subjectPercentLabel(rank, count, scope)
                     buildAnnotatedString {
                         append(rankStr)
                         if (rankStr != "--" && pctStr != "--") {
@@ -137,14 +138,14 @@ internal fun SubjectCard(
                 InfoChip(
                     modifier = Modifier.weight(1f),
                     label = "班排",
-                    value = buildRankString(subject.classRank, subject.classRankCount),
+                    value = buildRankString(subject.classRank, subject.classRankCount, "班級"),
                 )
 
                 if (subject.yearRank != null) {
                     InfoChip(
                         modifier = Modifier.weight(1f),
                         label = "校排",
-                        value = buildRankString(subject.yearRank, subject.yearRankCount),
+                        value = buildRankString(subject.yearRank, subject.yearRankCount, "年級"),
                     )
                 }
             }
@@ -189,9 +190,9 @@ internal fun SubjectCard(
                             score = subject.scoreValue,
                             standard = standard,
                         )
-                    } ?: EmptySubjectDetail("尚無五標與分布資料")
+                    } ?: EmptySubjectDetail()
 
-                    DetailRow("上次成績", analysis.comparison?.let { deltaText("較上一考", it.scoreDelta, "分") } ?: "尚無上一考可比較")
+                    DetailRow(value = analysis.comparison?.let { deltaText("較上一考", it.scoreDelta, "分") } ?: "尚無上一考可比較")
                 }
             }
 
@@ -464,11 +465,11 @@ private fun StandardMark(modifier: Modifier, label: String, value: Double?) {
 }
 
 @Composable
-private fun DetailRow(label: String, value: String, valueColor: Color = MaterialTheme.colorScheme.onSurface) {
+private fun DetailRow(value: String, valueColor: Color = MaterialTheme.colorScheme.onSurface) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
             modifier = Modifier.weight(1f),
-            text = label,
+            text = "上次成績",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -482,13 +483,13 @@ private fun DetailRow(label: String, value: String, valueColor: Color = Material
 }
 
 @Composable
-private fun EmptySubjectDetail(message: String) {
+private fun EmptySubjectDetail() {
     Text(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small)
             .padding(12.dp),
-        text = message,
+        text = "尚無五標與分布資料",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

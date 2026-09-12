@@ -32,12 +32,19 @@ class FakeDataTest {
 
         assertNotNull(session)
         val structure = repository.loadStructure(session)
-        val report = repository.fetchGrades(session, FakeData.currentYearValue, FakeData.currentExamValue)
+        val report = repository.fetchGrades(session, FakeData.CURRENT_YEAR_VALUE, FakeData.CURRENT_EXAM_VALUE)
 
         assertTrue(structure.isNotEmpty())
         assertEquals("範例學生", report.studentInfo.studentName)
         assertEquals("DEMO-000", report.studentInfo.studentNo)
         assertEquals("期末考", report.examSummary?.examName)
+    }
+
+    @Test
+    fun fakeScheduleIncludesEighthPeriod() {
+        val report = FakeScheduleData.report("114_2", "230")
+
+        assertTrue(report.items.any { it.period == 8 })
     }
 
     @Test

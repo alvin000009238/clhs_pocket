@@ -1,5 +1,8 @@
+@file:Suppress("SimplifyBooleanWithConstants")
+
 package com.clhs.score
 
+import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
@@ -10,8 +13,21 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricPrompt
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
@@ -28,44 +44,77 @@ import com.clhs.score.analytics.FirebaseAnalyticsLogger
 import com.clhs.score.data.AppSettings
 import com.clhs.score.data.AuthenticatedSession
 import com.clhs.score.data.BiometricHelper
-import com.clhs.score.data.GradeCacheStore
 import com.clhs.score.data.SessionStore
 import com.clhs.score.data.SessionStorageException
+import com.clhs.score.data.PinAttemptLimiter
 import com.clhs.score.data.SettingsRepository
 import com.clhs.score.data.ThemeMode
 import com.clhs.score.notifications.NotificationChannels
-import com.clhs.score.notifications.ScoreFirebaseMessagingService
-import com.clhs.score.reminders.GradeReminderNotifier
+import com.clhs.score.notifications.NotificationAction
+import com.clhs.score.notifications.consumeNotificationAction
 import com.clhs.score.ui.BiometricLockScreen
 import com.clhs.score.ui.ScoreApp
+import com.clhs.score.ui.navigation.AppLaunchTarget
 import com.clhs.score.ui.theme.ScoreTheme
 import com.clhs.score.viewmodel.ScoreViewModel
 import com.clhs.score.viewmodel.SettingsViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.Locale
+import java.io.IOException
+
+private const val KEY_LAUNCH_TARGET_TYPE = "launch_target_type"
+private const val KEY_LAUNCH_TARGET_YEAR = "launch_target_year"
+private const val KEY_LAUNCH_TARGET_EXAM = "launch_target_exam"
+private const val KEY_LAUNCH_TARGET_ANNOUNCEMENT_ID = "launch_target_announcement_id"
+private const val KEY_LAUNCH_TARGET_CATEGORY = "launch_target_category"
 
 class MainActivity : androidx.fragment.app.FragmentActivity() {
     private val checkUpdateChannel = Channel<String>(Channel.BUFFERED)
-    private val gradeReminderOpenChannel = Channel<Pair<String, String>>(Channel.BUFFERED)
-    private val pendingScheduleOpen = mutableStateOf(false)
+    private val routeAnalyticsChannel = Channel<Pair<String, Boolean>>(Channel.BUFFERED)
+    private val pendingLaunchTarget = mutableStateOf<AppLaunchTarget?>(null)
     private val isAppLocked = mutableStateOf(false)
     private val isBiometricInvalidated = mutableStateOf(false)
     private val isInitialLockResolved = mutableStateOf(false)
     private val launchSettings = mutableStateOf<AppSettings?>(null)
-    private val isSessionRestoreComplete = mutableStateOf(false)
+    private val launchSettingsFailed = mutableStateOf(false)
     private var wasInBackground = false
     private var shouldLockOnInitialReady = false
     private var isBiometricPromptShowing = false
     private lateinit var sessionStore: SessionStore
     private lateinit var analyticsLogger: AnalyticsLogger
+    private val pinAttemptLimiter by lazy(LazyThreadSafetyMode.NONE) {
+        PinAttemptLimiter.create(applicationContext)
+    }
+
+    override fun attachBaseContext(newBase: Context) {
+        val configuration = Configuration(newBase.resources.configuration).apply {
+            setLocale(Locale.forLanguageTag("zh-TW"))
+        }
+        super.attachBaseContext(newBase.createConfigurationContext(configuration))
+    }
+
+    private fun loadLaunchSettings() {
+        launchSettingsFailed.value = false
+        lifecycleScope.launch {
+            try {
+                launchSettings.value = withContext(Dispatchers.IO) {
+                    SettingsRepository(applicationContext).loadForStartup()
+                }
+            } catch (_: IOException) {
+                launchSettingsFailed.value = true
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         splashScreen.setKeepOnScreenCondition {
-            launchSettings.value == null || !isSessionRestoreComplete.value
+            launchSettings.value == null && !launchSettingsFailed.value
         }
         splashScreen.setOnExitAnimationListener { splashScreenView ->
             val iconView = runCatching { splashScreenView.iconView }.getOrNull()
@@ -93,11 +142,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         val hasBiometricSession = hasBiometricSessionForLock()
         isAppLocked.value = savedInstanceState?.getBoolean(KEY_APP_LOCKED, false) == true &&
             hasBiometricSession
-        pendingScheduleOpen.value = savedInstanceState?.getBoolean(KEY_PENDING_SCHEDULE_OPEN, false) == true
+        pendingLaunchTarget.value = savedInstanceState?.toLaunchTarget()
         shouldLockOnInitialReady = savedInstanceState == null
         isInitialLockResolved.value = !shouldLockOnInitialReady || isAppLocked.value
         applySecureWindowPolicy(hasBiometricSession)
-        NotificationChannels.ensureCreated(this)
+        lifecycleScope.launch(Dispatchers.IO) {
+            NotificationChannels.ensureCreated(applicationContext)
+        }
         enableEdgeToEdge()
         handleIntent(intent)
 
@@ -119,11 +170,17 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             }
         })
 
-        lifecycleScope.launch {
-            launchSettings.value = SettingsRepository(applicationContext).settings.first()
-        }
+        loadLaunchSettings()
 
         setContent {
+            if (launchSettingsFailed.value) {
+                ScoreTheme { SettingsLoadError(onRetry = ::loadLaunchSettings) }
+                return@setContent
+            }
+            if (launchSettings.value == null) {
+                ScoreTheme { SettingsLoadError(isLoading = true, onRetry = ::loadLaunchSettings) }
+                return@setContent
+            }
             val initialSettings = launchSettings.value ?: return@setContent
             val settingsVm: SettingsViewModel = viewModel(
                 factory = SettingsViewModel.factory(applicationContext, initialSettings),
@@ -131,10 +188,30 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             val appSettings by settingsVm.settings.collectAsStateWithLifecycle()
             val settingsUi by settingsVm.uiState.collectAsStateWithLifecycle()
             val isReady by settingsVm.isReady.collectAsStateWithLifecycle()
+            val settingsLoadFailed by settingsVm.settingsLoadFailed.collectAsStateWithLifecycle()
+
+            LaunchedEffect(settingsVm) {
+                settingsVm.checkUpdateAutomatically()
+            }
 
             LaunchedEffect(Unit) {
                 checkUpdateChannel.receiveAsFlow().collect { trigger ->
                     settingsVm.checkUpdate(trigger)
+                }
+            }
+
+            LaunchedEffect(Unit) {
+                routeAnalyticsChannel.receiveAsFlow().collect { (source, locked) ->
+                    withFrameNanos { }
+                    withContext(Dispatchers.Default) {
+                        analyticsLogger.logEvent(
+                            AnalyticsEvents.APP_OPEN_ROUTE,
+                            mapOf(
+                                AnalyticsParams.SOURCE to source,
+                                AnalyticsParams.LOCKED to locked,
+                            ),
+                        )
+                    }
                 }
             }
 
@@ -143,14 +220,28 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 dynamicColor = appSettings.dynamicColor,
                 amoledBlack = appSettings.amoledBlack,
             ) {
+                if (settingsLoadFailed) {
+                    SettingsLoadError(onRetry = settingsVm::retrySettings)
+                    return@ScoreTheme
+                }
                 if (!isReady) {
+                    SettingsLoadError(isLoading = true, onRetry = settingsVm::retrySettings)
                     return@ScoreTheme
                 }
 
-                // Avoid briefly showing the login intro before the biometric lock decision is applied.
+                // Avoid briefly showing app content before the biometric lock decision is applied.
                 LaunchedEffect(isReady) {
                     if (!isInitialLockResolved.value) {
+                        val pendingCleanup = try {
+                            sessionStore.hasPendingCleanup()
+                        } catch (_: SessionStorageException) {
+                            com.clhs.score.data.DeveloperDiagnostics.recordEvent(
+                                applicationContext, "PrivacyCleanup", "SESSION_VALIDITY_READ_FAILED",
+                            )
+                            true
+                        }
                         if (shouldLockOnInitialReady &&
+                            !pendingCleanup &&
                             hasBiometricSessionForLock()
                         ) {
                             isAppLocked.value = true
@@ -180,20 +271,17 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     factory = ScoreViewModel.factory(
                         context = applicationContext,
                         useFakeData = useFakeData,
+                        onAuthenticationExpired = {
+                            runOnUiThread {
+                                android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                                settingsVm.setBiometricEnabled(false)
+                            }
+                        },
                     ),
                 )
                 val loginState by scoreVm.loginState.collectAsStateWithLifecycle()
                 val gradesState by scoreVm.gradesState.collectAsStateWithLifecycle()
-
-                LaunchedEffect(gradesState.isRestoringSession) {
-                    isSessionRestoreComplete.value = !gradesState.isRestoringSession
-                }
-
-                LaunchedEffect(scoreVm) {
-                    gradeReminderOpenChannel.receiveAsFlow().collect { (yearValue, examValue) ->
-                        scoreVm.openGradeReminderTarget(yearValue, examValue)
-                    }
-                }
+                val authState by scoreVm.authState.collectAsStateWithLifecycle()
 
                 // 監聽鎖定狀態變化，自動彈出解鎖
                 LaunchedEffect(isAppLocked.value) {
@@ -209,48 +297,67 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             showBiometricUnlockPrompt(scoreVm, settingsVm)
                         },
                         onUnlockWithPin = { pin ->
-                            val sessionResult = runCatching { sessionStore.loadSessionWithPin(pin) }
-                            val session = sessionResult.getOrNull()
-                            if (sessionResult.exceptionOrNull() is SessionStorageException) {
+                            val remainingDelay = pinAttemptLimiter.remainingDelayMillis()
+                            if (remainingDelay > 0L) {
+                                val seconds = ((remainingDelay + 999L) / 1_000L).coerceAtLeast(1L)
                                 Toast.makeText(
                                     this@MainActivity,
-                                    "無法讀取解鎖資訊，請登出後重新登入",
-                                    Toast.LENGTH_LONG,
+                                    "嘗試次數過多，請 $seconds 秒後再試",
+                                    Toast.LENGTH_SHORT,
                                 ).show()
-                            } else if (session != null) {
-                                scoreVm.loginWithBiometricSession(session)
-                                analyticsLogger.logEvent(
-                                    AnalyticsEvents.BIOMETRIC_UNLOCK_RESULT,
-                                    mapOf(
-                                        AnalyticsParams.METHOD to AnalyticsValues.METHOD_PIN,
-                                        AnalyticsParams.RESULT to AnalyticsValues.RESULT_SUCCESS,
-                                    ),
-                                )
-                                isAppLocked.value = false
-                                if (isBiometricInvalidated.value) {
-                                    isBiometricInvalidated.value = false
-                                    showBiometricEnrollPrompt(
-                                        currentSession = session,
-                                        pin = pin,
-                                        settingsVm = settingsVm,
-                                        replaceInvalidatedKey = true,
+                                return@BiometricLockScreen
+                            }
+                            lifecycleScope.launch {
+                                val sessionResult = runCatching { sessionStore.loadSessionWithPin(pin) }
+                                sessionResult.exceptionOrNull()?.throwIfCancellation()
+                                val session = sessionResult.getOrNull()
+                                if (sessionResult.exceptionOrNull() is SessionStorageException) {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "無法讀取解鎖資訊，請登出後重新登入",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                } else if (session != null) {
+                                    pinAttemptLimiter.reset()
+                                    scoreVm.loginWithBiometricSession(session)
+                                    analyticsLogger.logEvent(
+                                        AnalyticsEvents.BIOMETRIC_UNLOCK_RESULT,
+                                        mapOf(
+                                            AnalyticsParams.METHOD to AnalyticsValues.METHOD_PIN,
+                                            AnalyticsParams.RESULT to AnalyticsValues.RESULT_SUCCESS,
+                                        ),
                                     )
+                                    isAppLocked.value = false
+                                    if (isBiometricInvalidated.value) {
+                                        isBiometricInvalidated.value = false
+                                        showBiometricEnrollPrompt(
+                                            currentSession = session,
+                                            pin = pin,
+                                            settingsVm = settingsVm,
+                                            replaceInvalidatedKey = true,
+                                        )
+                                    }
+                                } else {
+                                    val delay = pinAttemptLimiter.recordFailure()
+                                    analyticsLogger.logEvent(
+                                        AnalyticsEvents.BIOMETRIC_UNLOCK_RESULT,
+                                        mapOf(
+                                            AnalyticsParams.METHOD to AnalyticsValues.METHOD_PIN,
+                                            AnalyticsParams.RESULT to AnalyticsValues.RESULT_FAILURE,
+                                        ),
+                                    )
+                                    val message = if (delay > 0L) {
+                                        "密碼錯誤，請 ${delay / 1_000L} 秒後再試"
+                                    } else {
+                                        "密碼錯誤"
+                                    }
+                                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
                                 }
-                            } else {
-                                analyticsLogger.logEvent(
-                                    AnalyticsEvents.BIOMETRIC_UNLOCK_RESULT,
-                                    mapOf(
-                                        AnalyticsParams.METHOD to AnalyticsValues.METHOD_PIN,
-                                        AnalyticsParams.RESULT to AnalyticsValues.RESULT_FAILURE,
-                                    ),
-                                )
-                                Toast.makeText(this@MainActivity, "密碼錯誤", Toast.LENGTH_SHORT).show()
                             }
                         },
                         onLogout = {
                             android.webkit.CookieManager.getInstance().removeAllCookies(null)
                             scoreVm.logout(AnalyticsValues.SOURCE_LOCK_SCREEN)
-                            clearWidgetScheduleCache()
                             settingsVm.setBiometricEnabled(false)
                             isAppLocked.value = false
                             isBiometricInvalidated.value = false
@@ -261,19 +368,23 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                         scoreViewModel = scoreVm,
                         loginState = loginState,
                         gradesState = gradesState,
+                        authState = authState,
                         settings = appSettings,
                         settingsUiState = settingsUi,
-                        openScheduleRequested = pendingScheduleOpen.value,
-                        onScheduleOpenHandled = { pendingScheduleOpen.value = false },
+                        launchTarget = pendingLaunchTarget.value,
+                        onLaunchTargetHandled = { pendingLaunchTarget.value = null },
+                        onGradeTargetOpened = scoreVm::openGradeReminderTarget,
                         onWebViewLoginSuccess = scoreVm::loginWithWebViewCookies,
+                        onCompleteOnboarding = settingsVm::completeOnboarding,
                         onSelectYear = scoreVm::selectYear,
                         onSelectExam = scoreVm::selectExam,
                         onReload = scoreVm::reloadStructure,
                         onLogout = {
                             android.webkit.CookieManager.getInstance().removeAllCookies(null)
                             scoreVm.logout()
-                            clearWidgetScheduleCache()
+                            settingsVm.setBiometricEnabled(false)
                         },
+                        onRestartOnboarding = settingsVm::restartOnboarding,
                         onToggleSubject = scoreVm::toggleSubjectExpanded,
                         onDismissLoginError = scoreVm::clearLoginError,
                         onDismissGradesError = scoreVm::clearGradesError,
@@ -286,13 +397,18 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                         onSetDynamicColor = settingsVm::setDynamicColor,
                         onSetAmoledBlack = settingsVm::setAmoledBlack,
                         onSetNotificationsEnabled = settingsVm::setNotificationsEnabled,
+                        onSetWeatherSource = settingsVm::setWeatherSource,
+                        onSaveCwaApiKey = settingsVm::saveCwaApiKey,
+                        onClearCwaApiKey = settingsVm::clearCwaApiKey,
+                        onDismissCwaKeyMessage = settingsVm::dismissCwaKeyMessage,
                         onCheckUpdate = { settingsVm.checkUpdate() },
+                        onDownloadUpdate = settingsVm::downloadUpdateApk,
+                        onDismissUpdateDownloadResult = settingsVm::dismissUpdateDownloadResult,
                         onDismissUpdateResult = settingsVm::dismissUpdateResult,
                         onVersionTap = settingsVm::onVersionTap,
                         onDismissDeveloperToast = settingsVm::dismissDeveloperToast,
                         onSetDemoMode = settingsVm::setDemoMode,
                         onDismissRestartDialog = settingsVm::dismissRestartDialog,
-                        onDismissNotificationPrompt = settingsVm::dismissNotificationPrompt,
                         onExportGrades = { selections -> scoreVm.exportGrades(selections, applicationContext) },
                         onDismissExportResult = scoreVm::dismissExportResult,
                         analyticsLogger = analyticsLogger,
@@ -308,7 +424,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                 val currentSession = scoreVm.getCurrentSession()
                                 lifecycleScope.launch {
                                     runCatching {
-                                        if (currentSession != null) {
+                                        if (!useFakeData && currentSession != null) {
                                             // 先持久化並驗證一般 session，成功後才能刪除 biometric session。
                                             sessionStore.saveSession(currentSession)
                                         }
@@ -346,46 +462,37 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putBoolean(KEY_APP_LOCKED, isAppLocked.value)
-        outState.putBoolean(KEY_PENDING_SCHEDULE_OPEN, pendingScheduleOpen.value)
+        outState.putLaunchTarget(pendingLaunchTarget.value)
     }
 
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
         var routeSource: String? = null
 
-        val isUpdateTopic = intent.getStringExtra("from") == "/topics/app_updates" ||
-            intent.getStringExtra(ScoreFirebaseMessagingService.EXTRA_CHECK_UPDATE) == "true" ||
-            intent.getStringExtra("action") == "check_update" ||
-            intent.getBooleanExtra(ScoreFirebaseMessagingService.EXTRA_CHECK_UPDATE, false)
-
-        if (isUpdateTopic) {
-            routeSource = AnalyticsValues.SOURCE_NOTIFICATION_UPDATE
-            checkUpdateChannel.trySend(AnalyticsValues.TRIGGER_NOTIFICATION)
-            intent.removeExtra("from")
-            intent.removeExtra("action")
-            intent.removeExtra(ScoreFirebaseMessagingService.EXTRA_CHECK_UPDATE)
-        }
-
-        val isGradeReminderOpen = intent.getBooleanExtra(
-            GradeReminderNotifier.EXTRA_OPEN_GRADE_REMINDER,
-            false,
-        )
-        if (isGradeReminderOpen) {
-            routeSource = AnalyticsValues.SOURCE_GRADE_REMINDER
-            val yearValue = intent.getStringExtra(GradeReminderNotifier.EXTRA_YEAR_VALUE).orEmpty()
-            val examValue = intent.getStringExtra(GradeReminderNotifier.EXTRA_EXAM_VALUE).orEmpty()
-            if (yearValue.isNotBlank() && examValue.isNotBlank()) {
-                gradeReminderOpenChannel.trySend(yearValue to examValue)
+        when (val action = consumeNotificationAction(applicationContext, intent)) {
+            NotificationAction.CheckUpdate -> {
+                routeSource = AnalyticsValues.SOURCE_NOTIFICATION_UPDATE
+                checkUpdateChannel.trySend(AnalyticsValues.TRIGGER_NOTIFICATION)
             }
-            intent.removeExtra(GradeReminderNotifier.EXTRA_OPEN_GRADE_REMINDER)
-            intent.removeExtra(GradeReminderNotifier.EXTRA_YEAR_VALUE)
-            intent.removeExtra(GradeReminderNotifier.EXTRA_EXAM_VALUE)
+            is NotificationAction.OpenGradeReminder -> {
+                routeSource = AnalyticsValues.SOURCE_GRADE_REMINDER
+                pendingLaunchTarget.value = AppLaunchTarget.GradeExam(action.yearValue, action.examValue)
+            }
+            is NotificationAction.OpenAnnouncement -> {
+                routeSource = AnalyticsValues.SOURCE_NOTIFICATION_GENERAL
+                pendingLaunchTarget.value = AppLaunchTarget.Announcement(action.id, action.category)
+            }
+            NotificationAction.OpenAnnouncements -> {
+                routeSource = AnalyticsValues.SOURCE_NOTIFICATION_GENERAL
+                pendingLaunchTarget.value = AppLaunchTarget.Announcements
+            }
+            null -> Unit
         }
 
         val data = intent.data
         if (data?.scheme == "scoreapp" && data.host == "schedule") {
             routeSource = AnalyticsValues.SOURCE_WIDGET_SCHEDULE
-            pendingScheduleOpen.value = true
+            pendingLaunchTarget.value = AppLaunchTarget.Schedule
             intent.data = null
         }
 
@@ -397,12 +504,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         }
 
         routeSource?.let { source ->
-            analyticsLogger.logEvent(
-                AnalyticsEvents.APP_OPEN_ROUTE,
-                mapOf(
-                    AnalyticsParams.SOURCE to source,
-                    AnalyticsParams.LOCKED to (isAppLocked.value || hasBiometricSessionForLock()),
-                ),
+            routeAnalyticsChannel.trySend(
+                source to (isAppLocked.value || hasBiometricSessionForLock()),
             )
         }
     }
@@ -470,31 +573,34 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 isBiometricPromptShowing = false
                 val decryptCipher = result.cryptoObject?.cipher
                 if (decryptCipher != null) {
-                    val session = try {
-                        sessionStore.loadBiometricSession(decryptCipher)
-                    } catch (_: SessionStorageException) {
-                        handleKeyInvalidated(scoreVm, settingsVm, "無法讀取解鎖資訊，請重新登入")
-                        return
-                    }
-                    if (session != null) {
-                        scoreVm.loginWithBiometricSession(session)
-                        analyticsLogger.logEvent(
-                            AnalyticsEvents.BIOMETRIC_UNLOCK_RESULT,
-                            mapOf(
-                                AnalyticsParams.METHOD to AnalyticsValues.METHOD_BIOMETRIC,
-                                AnalyticsParams.RESULT to AnalyticsValues.RESULT_SUCCESS,
-                            ),
-                        )
-                        isAppLocked.value = false
-                    } else {
-                        analyticsLogger.logEvent(
-                            AnalyticsEvents.BIOMETRIC_UNLOCK_RESULT,
-                            mapOf(
-                                AnalyticsParams.METHOD to AnalyticsValues.METHOD_BIOMETRIC,
-                                AnalyticsParams.RESULT to AnalyticsValues.RESULT_FAILURE,
-                            ),
-                        )
-                        handleKeyInvalidated(scoreVm, settingsVm, "解析登入資訊失敗，請重新登入")
+                    lifecycleScope.launch {
+                        val session = try {
+                            sessionStore.loadBiometricSession(decryptCipher)
+                        } catch (_: SessionStorageException) {
+                            handleKeyInvalidated(scoreVm, settingsVm, "無法讀取解鎖資訊，請重新登入")
+                            return@launch
+                        }
+                        if (session != null) {
+                            pinAttemptLimiter.reset()
+                            scoreVm.loginWithBiometricSession(session)
+                            analyticsLogger.logEvent(
+                                AnalyticsEvents.BIOMETRIC_UNLOCK_RESULT,
+                                mapOf(
+                                    AnalyticsParams.METHOD to AnalyticsValues.METHOD_BIOMETRIC,
+                                    AnalyticsParams.RESULT to AnalyticsValues.RESULT_SUCCESS,
+                                ),
+                            )
+                            isAppLocked.value = false
+                        } else {
+                            analyticsLogger.logEvent(
+                                AnalyticsEvents.BIOMETRIC_UNLOCK_RESULT,
+                                mapOf(
+                                    AnalyticsParams.METHOD to AnalyticsValues.METHOD_BIOMETRIC,
+                                    AnalyticsParams.RESULT to AnalyticsValues.RESULT_FAILURE,
+                                ),
+                            )
+                            handleKeyInvalidated(scoreVm, settingsVm, "解析登入資訊失敗，請重新登入")
+                        }
                     }
                 }
             }
@@ -503,7 +609,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("已鎖定")
             .setSubtitle("請使用生物識別以解鎖")
-            .setAllowedAuthenticators(BiometricHelper.strongBiometricAuthenticators)
+            .setAllowedAuthenticators(BiometricHelper.STRONG_BIOMETRIC_AUTHENTICATORS)
             .setNegativeButtonText("取消")
             .build()
 
@@ -589,7 +695,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("啟用生物識別解鎖")
             .setSubtitle("請驗證指紋或臉部以進行安全性授權")
-            .setAllowedAuthenticators(BiometricHelper.strongBiometricAuthenticators)
+            .setAllowedAuthenticators(BiometricHelper.STRONG_BIOMETRIC_AUTHENTICATORS)
             .setNegativeButtonText("取消")
             .build()
 
@@ -616,7 +722,6 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         }
         settingsVm.setBiometricEnabled(false)
         scoreVm.logout(AnalyticsValues.SOURCE_LOCK_SCREEN)
-        clearWidgetScheduleCache()
         isAppLocked.value = false
     }
 
@@ -673,21 +778,61 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         }
     }
 
-    private fun clearWidgetScheduleCache() {
-        lifecycleScope.launch {
-            runCatching {
-                GradeCacheStore(applicationContext).clearWidgetScheduleReport()
-                com.clhs.score.widget.syncAllScheduleWidgets(applicationContext)
-            }.onFailure { error -> error.throwIfCancellation() }
-        }
-    }
-
     private fun Throwable.throwIfCancellation() {
         if (this is CancellationException) throw this
     }
 
     private companion object {
         const val KEY_APP_LOCKED = "app_locked"
-        const val KEY_PENDING_SCHEDULE_OPEN = "pending_schedule_open"
+    }
+}
+
+private fun Bundle.putLaunchTarget(target: AppLaunchTarget?) {
+    remove(KEY_LAUNCH_TARGET_TYPE)
+    when (target) {
+        AppLaunchTarget.Schedule -> putString(KEY_LAUNCH_TARGET_TYPE, "schedule")
+        is AppLaunchTarget.GradeExam -> {
+            putString(KEY_LAUNCH_TARGET_TYPE, "grade")
+            putString(KEY_LAUNCH_TARGET_YEAR, target.yearValue)
+            putString(KEY_LAUNCH_TARGET_EXAM, target.examValue)
+        }
+        is AppLaunchTarget.Announcement -> {
+            putString(KEY_LAUNCH_TARGET_TYPE, "announcement")
+            putString(KEY_LAUNCH_TARGET_ANNOUNCEMENT_ID, target.id)
+            putString(KEY_LAUNCH_TARGET_CATEGORY, target.category)
+        }
+        AppLaunchTarget.Announcements -> putString(KEY_LAUNCH_TARGET_TYPE, "announcements")
+        null -> Unit
+    }
+}
+
+private fun Bundle.toLaunchTarget(): AppLaunchTarget? = when (getString(KEY_LAUNCH_TARGET_TYPE)) {
+    "schedule" -> AppLaunchTarget.Schedule
+    "grade" -> {
+        val year = getString(KEY_LAUNCH_TARGET_YEAR)
+        val exam = getString(KEY_LAUNCH_TARGET_EXAM)
+        if (year.isNullOrBlank() || exam.isNullOrBlank()) null else AppLaunchTarget.GradeExam(year, exam)
+    }
+    "announcement" -> getString(KEY_LAUNCH_TARGET_ANNOUNCEMENT_ID)
+        ?.takeIf(String::isNotBlank)
+        ?.let { AppLaunchTarget.Announcement(it, getString(KEY_LAUNCH_TARGET_CATEGORY).orEmpty()) }
+    "announcements" -> AppLaunchTarget.Announcements
+    else -> null
+}
+
+@Composable
+private fun SettingsLoadError(isLoading: Boolean = false, onRetry: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator()
+            Text("正在讀取設定")
+        } else {
+            Text("無法讀取設定，請重試")
+            Button(onClick = onRetry) { Text("重試") }
+        }
     }
 }

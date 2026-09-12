@@ -1,5 +1,6 @@
 package com.clhs.score
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -8,6 +9,26 @@ import java.nio.file.Path
 import java.nio.file.Paths
 
 class ArchitectureBoundaryTest {
+    @Test
+    fun announcementCardsReceiveSharedUnreadState() {
+        val shell = readSource("app/src/main/java/com/clhs/score/ui/AuthenticatedApp.kt")
+        val screen = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
+
+        assertTrue(shell.contains("unreadIds = announcementReminderUiState.reminder.unreadIds"))
+        assertTrue(screen.contains("unreadIds = unreadIds"))
+        assertTrue(screen.contains("isUnread = announcement.id in unreadIds"))
+        assertTrue(screen.contains("if (isUnread)"))
+        assertTrue(screen.contains("AnnouncementBadge(\"未讀\", unread = true)"))
+    }
+
+    @Test
+    fun appUiLocaleKeepsMaterialAccessibilityStringsInTraditionalChinese() {
+        val source = readSource("app/src/main/java/com/clhs/score/MainActivity.kt")
+
+        assertTrue(source.contains("setLocale(Locale.forLanguageTag(\"zh-TW\"))"))
+        assertTrue(source.contains("newBase.createConfigurationContext(configuration)"))
+    }
+
     @Test
     fun releaseKeepsBiweeklyClassNameUsedForRelativeResourceLookup() {
         val rules = readSource("app/proguard-rules.pro")
@@ -58,12 +79,15 @@ class ArchitectureBoundaryTest {
         val extractionRules = readSource("app/src/main/res/xml/data_extraction_rules.xml")
 
         assertFalse(sessionStore.contains("import androidx.security.crypto"))
-        assertTrue(legacy.contains("EncryptedSharedPreferencesLegacySessionSource"))
+        assertFalse(legacy.contains("androidx.security.crypto"))
+        assertTrue(legacy.contains("deleteSharedPreferences(\"score_session\")"))
         assertTrue(crypto.contains("AES/GCM/NoPadding"))
         assertTrue(crypto.contains("setKeySize(256)"))
         assertTrue(sessionStore.contains("app/session/general/v1"))
         assertTrue(sessionStore.contains("app/session/reminder/v1"))
-        assertTrue(sessionStore.contains("generalWriteGeneration"))
+        assertTrue(sessionStore.contains("runtime.generation"))
+        assertFalse(sessionStore.contains("legacySource.readGeneral()"))
+        assertFalse(sessionStore.contains("legacySource.readReminder()"))
         assertTrue(sessionStore.contains("reminderWriteGeneration"))
         assertFalse(proto.contains("token"))
         assertFalse(proto.contains("cookie"))
@@ -103,6 +127,8 @@ class ArchitectureBoundaryTest {
         assertTrue(source.contains("目前沒有接下來的活動"))
         assertTrue(source.contains("PullToRefreshBox"))
         assertTrue(source.contains("PullToRefreshDefaults.LoadingIndicator"))
+        assertTrue(source.contains("OutlinedTextField("))
+        assertTrue(source.contains("item(key = \"calendar-search\")"))
         assertFalse(source.contains("CalendarSummaryCard"))
         assertFalse(source.contains("更新於"))
         assertTrue(source.contains("animateScrollToItem(0)"))
@@ -187,16 +213,24 @@ class ArchitectureBoundaryTest {
     fun singleTaskScheduleDeepLinkIsHeldUntilScheduleScreenCanOpen() {
         val activitySource = readSource("app/src/main/java/com/clhs/score/MainActivity.kt")
         val appSource = readSource("app/src/main/java/com/clhs/score/ui/ScoreApp.kt")
+        val authenticatedSource = readSource("app/src/main/java/com/clhs/score/ui/AuthenticatedApp.kt")
+        val manifest = readSource("app/src/main/AndroidManifest.xml")
 
-        assertTrue(activitySource.contains("private val pendingScheduleOpen = mutableStateOf(false)"))
+        assertTrue(manifest.contains("android:scheme=\"scoreapp\""))
+        assertTrue(manifest.contains("android:host=\"schedule\""))
+        assertTrue(manifest.contains("android.intent.category.BROWSABLE"))
+        assertTrue(activitySource.contains("private val pendingLaunchTarget = mutableStateOf<AppLaunchTarget?>(null)"))
         assertTrue(activitySource.contains("data?.scheme == \"scoreapp\" && data.host == \"schedule\""))
-        assertTrue(activitySource.contains("pendingScheduleOpen.value = true"))
-        assertTrue(activitySource.contains("openScheduleRequested = pendingScheduleOpen.value"))
-        assertTrue(activitySource.contains("onScheduleOpenHandled = { pendingScheduleOpen.value = false }"))
-        assertTrue(appSource.contains("LaunchedEffect(openScheduleRequested, navController)"))
-        assertTrue(appSource.contains("if (openScheduleRequested)"))
-        assertTrue(appSource.contains("navController.navigate(ScheduleRoute)"))
-        assertTrue(appSource.contains("onScheduleOpenHandled()"))
+        assertTrue(activitySource.contains("pendingLaunchTarget.value = AppLaunchTarget.Schedule"))
+        assertTrue(activitySource.contains("launchTarget = pendingLaunchTarget.value"))
+        assertTrue(activitySource.contains("onLaunchTargetHandled = { pendingLaunchTarget.value = null }"))
+        assertTrue(activitySource.contains("outState.putLaunchTarget(pendingLaunchTarget.value)"))
+        assertTrue(authenticatedSource.contains("LaunchedEffect(launchTarget, navigator, settings.hasCompletedOnboarding)"))
+        assertTrue(authenticatedSource.contains("if (!settings.hasCompletedOnboarding) return@LaunchedEffect"))
+        assertTrue(authenticatedSource.contains("AppLaunchTarget.Schedule ->"))
+        assertTrue(authenticatedSource.contains("navigator.selectTopLevel(TopLevelDestination.Schedule)"))
+        assertTrue(authenticatedSource.contains("onLaunchTargetHandled()"))
+        assertTrue(appSource.contains("launchTarget = launchTarget"))
         assertFalse("Composable must not mutate Activity intent data", appSource.contains("intent?.data = null"))
     }
 
@@ -213,6 +247,17 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
+    fun logoutDisablesBiometricSettingWhenItsSessionIsDeleted() {
+        val logoutBlock = readSource("app/src/main/java/com/clhs/score/MainActivity.kt")
+            .substringAfter("ScoreApp(")
+            .substringAfter("onLogout = {")
+            .substringBefore("onToggleSubject")
+
+        assertTrue(logoutBlock.contains("scoreVm.logout()"))
+        assertTrue(logoutBlock.contains("settingsVm.setBiometricEnabled(false)"))
+    }
+
+    @Test
     fun widgetAlarmUsesThePlatformWidgetBootLifecycle() {
         val manifest = readSource("app/src/main/AndroidManifest.xml")
         val widgetReceiver = readSource("app/src/main/java/com/clhs/score/widget/ScheduleWidgetReceiver.kt")
@@ -220,24 +265,47 @@ class ArchitectureBoundaryTest {
         assertFalse(manifest.contains("android.permission.RECEIVE_BOOT_COMPLETED"))
         assertFalse(manifest.contains("android.intent.action.BOOT_COMPLETED"))
         assertTrue(widgetReceiver.contains("override fun onEnabled(context: Context)"))
-        assertTrue(widgetReceiver.contains("WidgetUpdateReceiver.scheduleNextUpdate(context)"))
+        assertTrue(widgetReceiver.contains("WidgetUpdateReceiver.scheduleNextUpdate(context, report = null)"))
+        assertFalse(widgetReceiver.contains("goAsync()"))
+    }
+
+    @Test
+    fun widgetAlarmCanWakeAndUpdateWhileIdleWithoutExactAlarmPermission() {
+        val source = readSource("app/src/main/java/com/clhs/score/widget/WidgetUpdateReceiver.kt")
+
+        assertTrue(source.contains("alarmManager.setAndAllowWhileIdle("))
+        assertTrue(source.contains("AlarmManager.RTC_WAKEUP,"))
+        assertFalse(source.contains("alarmManager.set("))
+        assertFalse(source.contains("setExact"))
+        val manifest = readSource("app/src/main/AndroidManifest.xml")
+        assertFalse(manifest.contains("android.permission.SCHEDULE_EXACT_ALARM"))
+        assertFalse(manifest.contains("android.permission.USE_EXACT_ALARM"))
+        assertTrue(source.contains("GradeCacheStore(context).loadWidgetScheduleReport()"))
     }
 
     @Test
     fun coroutineCancellationIsNotConvertedToUiOrWorkerErrors() {
         val mainActivity = readSource("app/src/main/java/com/clhs/score/MainActivity.kt")
         val scoreViewModel = readSource("app/src/main/java/com/clhs/score/viewmodel/ScoreViewModel.kt")
+        val subjectTrendOwner = readSource(
+            "app/src/main/java/com/clhs/score/viewmodel/SubjectTrendStateOwner.kt",
+        )
         val scheduleViewModel = readSource("app/src/main/java/com/clhs/score/viewmodel/ScheduleViewModel.kt")
         val schoolClient = readSource("app/src/main/java/com/clhs/score/data/SchoolGradeClient.kt")
         val reminderWorker = readSource("app/src/main/java/com/clhs/score/reminders/GradeReminderWorker.kt")
         val updateChecker = readSource("app/src/main/java/com/clhs/score/data/UpdateChecker.kt")
-        val updateDialog = readSource("app/src/main/java/com/clhs/score/ui/UpdateResultDialog.kt")
+        val settingsViewModel = readSource("app/src/main/java/com/clhs/score/viewmodel/SettingsViewModel.kt")
 
         assertTrue(mainActivity.countOccurrences("error.throwIfCancellation()") >= 3)
         assertTrue(mainActivity.contains("private fun Throwable.throwIfCancellation()"))
         assertTrue(scoreViewModel.contains("import kotlinx.coroutines.CancellationException"))
-        assertTrue(scoreViewModel.countOccurrences("error.throwIfCancellation()") >= 8)
+        assertTrue(
+            scoreViewModel.countOccurrences("error.throwIfCancellation()") +
+                subjectTrendOwner.countOccurrences("error.throwIfCancellation()") >= 8,
+        )
         assertTrue(scoreViewModel.contains("private fun Throwable.throwIfCancellation()"))
+        assertTrue(subjectTrendOwner.contains("import kotlinx.coroutines.CancellationException"))
+        assertTrue(subjectTrendOwner.contains("private fun Throwable.throwIfCancellation()"))
 
         assertTrue(scheduleViewModel.contains("import kotlinx.coroutines.CancellationException"))
         assertTrue(scheduleViewModel.countOccurrences("e.throwIfCancellation()") >= 4)
@@ -249,8 +317,74 @@ class ArchitectureBoundaryTest {
 
         assertTrue(updateChecker.contains("catch (e: CancellationException)"))
         assertTrue(updateChecker.contains("throw e"))
-        assertTrue(updateDialog.contains("catch (error: CancellationException)"))
-        assertTrue(updateDialog.contains("throw error"))
+        assertTrue(settingsViewModel.contains("catch (error: CancellationException)"))
+        assertTrue(settingsViewModel.contains("throw error"))
+    }
+
+    @Test
+    fun gradeExportBuildAndMediaStoreWriteRunOnIoDispatcher() {
+        val source = readSource("app/src/main/java/com/clhs/score/viewmodel/ScoreViewModel.kt")
+        val exportBlock = source
+            .substringAfter("fun exportGrades(")
+            .substringBefore("fun dismissExportResult()")
+
+        assertTrue(exportBlock.contains("withContext(Dispatchers.IO)"))
+        assertTrue(exportBlock.indexOf("withContext(Dispatchers.IO)") < exportBlock.indexOf("GradeExporter.buildCsvContent"))
+        assertTrue(exportBlock.indexOf("withContext(Dispatchers.IO)") < exportBlock.indexOf("GradeExporter.saveCsvToDownloads"))
+    }
+
+    @Test
+    fun gradeBatchesCancelOldJobsAndUseBoundedHttpDispatcher() {
+        val viewModel = readSource("app/src/main/java/com/clhs/score/viewmodel/ScoreViewModel.kt")
+        val subjectTrendOwner = readSource(
+            "app/src/main/java/com/clhs/score/viewmodel/SubjectTrendStateOwner.kt",
+        )
+        val client = readSource("app/src/main/java/com/clhs/score/data/SchoolGradeClient.kt")
+
+        assertTrue(viewModel.contains("exportJob?.cancel()"))
+        assertTrue(viewModel.contains("historyJob?.cancel()"))
+        assertTrue(subjectTrendOwner.contains("loadJob?.cancel()"))
+        assertTrue(client.contains("maxRequests = MAX_CONCURRENT_SCHOOL_REQUESTS"))
+        assertTrue(client.contains("maxRequestsPerHost = MAX_CONCURRENT_SCHOOL_REQUESTS"))
+    }
+
+    @Test
+    fun notificationOnlyActionsRequireOneTimeCapability() {
+        val mainActivity = readSource("app/src/main/java/com/clhs/score/MainActivity.kt")
+        val capabilities = readSource(
+            "app/src/main/java/com/clhs/score/notifications/NotificationActionCapabilities.kt",
+        )
+        val messagingService = readSource(
+            "app/src/main/java/com/clhs/score/notifications/ScoreFirebaseMessagingService.kt",
+        )
+        val reminderNotifier = readSource(
+            "app/src/main/java/com/clhs/score/reminders/GradeReminderNotifier.kt",
+        )
+
+        val handler = mainActivity.substringAfter("private fun handleIntent(").substringBefore("private fun showBiometricUnlockPrompt(")
+        assertTrue(handler.contains("consumeNotificationAction(applicationContext, intent)"))
+        assertFalse(handler.contains("getStringExtra(\"from\")"))
+        assertFalse(handler.contains("getBooleanExtra"))
+        assertTrue(capabilities.contains("UUID.randomUUID()"))
+        assertTrue(capabilities.contains(".remove(\"\${prefix}type\")"))
+        assertTrue(messagingService.contains("NotificationActionCapabilities.issueUpdate(this)"))
+        assertTrue(reminderNotifier.contains("NotificationActionCapabilities.issueGradeReminder"))
+    }
+
+    @Test
+    fun exportedDebugToolsRequireShellPermissionAndCaptureIsSingleFlight() {
+        val debugManifest = readSource("app/src/debug/AndroidManifest.xml")
+        val releaseManifest = readSource("app/src/main/AndroidManifest.xml")
+        val captureActivity = readSource(
+            "app/src/debug/java/com/clhs/score/widget/ScheduleWidgetPreviewCaptureActivity.kt",
+        )
+
+        assertEquals(2, debugManifest.countOccurrences("android:permission=\"android.permission.DUMP\""))
+        assertFalse(releaseManifest.contains("GradeReminderDebugReceiver"))
+        assertFalse(releaseManifest.contains("ScheduleWidgetPreviewCaptureActivity"))
+        assertTrue(captureActivity.contains("AtomicBoolean(false)"))
+        assertTrue(captureActivity.contains("captureInProgress.compareAndSet(false, true)"))
+        assertTrue(captureActivity.contains("captureInProgress.set(false)"))
     }
 
     @Test
@@ -287,28 +421,29 @@ class ArchitectureBoundaryTest {
         )
         val announcementState = announcementSource
             .substringAfter("private fun AnnouncementMessageState(")
-            .substringBefore("@Composable")
+            .substringBefore("private fun AnnouncementsLoadingList(")
         val calendarState = calendarSource
             .substringAfter("private fun CalendarMessageState(")
             .substringBefore("@Composable")
 
         assertFalse(announcementState.contains("Row(horizontalArrangement"))
-        assertTrue(announcementState.countOccurrences("modifier = Modifier.fillMaxWidth()") >= 3)
+        assertTrue(announcementState.countOccurrences("fillMaxWidth()") >= 3)
         assertFalse(calendarState.contains("Row(horizontalArrangement"))
-        assertTrue(calendarState.countOccurrences("modifier = Modifier.fillMaxWidth()") >= 3)
+        assertTrue(calendarState.countOccurrences("fillMaxWidth()") >= 3)
     }
 
     @Test
     fun authenticatedSchoolWebsiteUsesActiveSessionAndTrustedDomain() {
         val webViewSource = readSource("app/src/main/java/com/clhs/score/ui/WebViewLoginScreen.kt")
-        val appSource = readSource("app/src/main/java/com/clhs/score/ui/ScoreApp.kt")
-        val gradesSource = readSource("app/src/main/java/com/clhs/score/ui/GradesScreen.kt")
+        val appSource = readSource("app/src/main/java/com/clhs/score/ui/AuthenticatedApp.kt")
+        val campusSource = readSource("app/src/main/java/com/clhs/score/ui/HubScreens.kt")
 
-        assertTrue(gradesSource.contains("contentDescription = \"開啟校務系統\""))
-        assertTrue(appSource.contains("scoreViewModel.getCurrentSession() ?: return@composable"))
+        assertTrue(campusSource.contains("title = \"欣河智慧校園平台\""))
+        assertTrue(appSource.contains("AuthGate("))
+        assertTrue(appSource.contains("scoreViewModel.getCurrentSession()?.let"))
         assertTrue(webViewSource.contains("session.cookies.forEach"))
         assertTrue(webViewSource.contains("return !isTrustedSchoolUrl(url)"))
-        assertTrue(webViewSource.contains("clearSchoolWebData(clearCookies = true)"))
+        assertTrue(webViewSource.contains("clearSchoolWebData()"))
         assertFalse(webViewSource.contains("SessionStore"))
     }
 
@@ -321,7 +456,6 @@ class ArchitectureBoundaryTest {
 
         assertTrue(dataSource.contains("CookieJar.NO_COOKIES"))
         assertTrue(dataSource.contains("followRedirects(false)"))
-        assertTrue(dataSource.contains(".add(\"flock\", \"\")"))
         listOf("SchoolGradeClient", "SessionStore", "AuthenticatedSession", "SchoolCookieJar").forEach { term ->
             assertFalse("Public announcements must not access school authentication: $term", combined.contains(term))
         }
@@ -336,6 +470,23 @@ class ArchitectureBoundaryTest {
         assertTrue(screenSource.contains("PullToRefreshBox"))
         assertFalse(screenSource.contains("AnnouncementSummaryCard"))
         assertFalse(screenSource.contains("更新於"))
+    }
+
+    @Test
+    fun announcementSearchFieldStaysBelowTitleWithoutSearchToggle() {
+        val source = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
+        val listSource = source
+            .substringAfter("private fun AnnouncementList(")
+            .substringBefore("private fun AnnouncementCard(")
+
+        assertTrue(source.contains("more_vert"))
+        assertFalse(source.contains("isSearchExpanded"))
+        assertTrue(source.contains("title = \"學校公告\""))
+        assertTrue(source.contains("OutlinedTextField("))
+        val searchFieldIndex = listSource.indexOf("item(key = \"announcement-search\") { searchField(Modifier) }")
+        val stateSwitchIndex = listSource.indexOf("when {", searchFieldIndex)
+        assertTrue(searchFieldIndex >= 0)
+        assertTrue(searchFieldIndex < stateSwitchIndex)
     }
 
     @Test
@@ -362,42 +513,195 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    fun drawerOwnsSchoolWebsiteAnnouncementAndCalendarEntrances() {
+    fun campusAndPersonalDestinationsOwnFormerDrawerEntrances() {
         val gradesSource = readSource("app/src/main/java/com/clhs/score/ui/GradesScreen.kt")
-        val drawerActions = gradesSource.substringAfter("private fun DrawerSchoolActions(")
-            .substringBefore("private fun TopFadeOverlay(")
+        val hubSource = readSource("app/src/main/java/com/clhs/score/ui/HubScreens.kt")
+        val personalSource = readSource("app/src/main/java/com/clhs/score/ui/PersonalScreen.kt")
+        val navigationSource = readSource("app/src/main/java/com/clhs/score/ui/navigation/AppNavigation.kt")
         val settingsSource = readSource("app/src/main/java/com/clhs/score/ui/SettingsScreen.kt")
         val advancedSource = readSource("app/src/main/java/com/clhs/score/ui/AdvancedComponents.kt")
 
-        assertTrue(drawerActions.contains("icon = \"school\""))
-        assertTrue(drawerActions.contains("icon = \"campaign\""))
-        assertTrue(drawerActions.contains("onClick = onOpenSchoolAnnouncements"))
-        assertTrue(drawerActions.contains("contentDescription = \"查看學校最新消息\""))
-        assertFalse(drawerActions.contains("enabled = false"))
-        assertTrue(drawerActions.contains("icon = \"calendar_today\""))
-        assertTrue(drawerActions.contains("text = \"校務\""))
-        assertTrue(drawerActions.contains("text = \"公告\""))
-        assertTrue(drawerActions.contains("text = \"行事曆\""))
-        assertTrue(drawerActions.contains("Calendar.getInstance().get(Calendar.DAY_OF_MONTH)"))
-        assertTrue(drawerActions.contains("contentDescription = \"開啟學校行事曆，今天 ${'$'}today 日\""))
+        assertTrue(hubSource.contains("title = \"欣河智慧校園平台\""))
+        assertTrue(hubSource.contains("\"學校公告\""))
+        assertTrue(hubSource.contains("title = \"行事曆\""))
+        assertTrue(hubSource.contains("OverviewItemKind.Announcement"))
+        assertTrue(hubSource.contains("OverviewItemKind.CalendarEvent"))
+        assertFalse(hubSource.contains("CampusDestination("))
+        assertTrue(personalSource.contains("LazyColumn("))
+        assertTrue(personalSource.contains("SettingsSection(\"外觀\""))
+        assertTrue(personalSource.contains("SettingsSection(\"關於\""))
+        assertTrue(personalSource.contains("Text(\"登出帳號\")"))
+        assertFalse(navigationSource.contains("data object SettingsRoute"))
+        assertFalse(navigationSource.contains("data object AboutRoute"))
+        assertTrue(navigationSource.contains("Overview(OverviewRoute, \"總覽\""))
+        assertTrue(navigationSource.contains("Schedule(ScheduleRoute, \"課表\""))
+        assertTrue(navigationSource.contains("Grades(GradesRoute, \"成績\""))
+        assertTrue(navigationSource.contains("Campus(CampusRoute, \"校園\""))
+        assertFalse(gradesSource.contains("ModalNavigationDrawer"))
+        assertFalse(gradesSource.contains("WideNavigationRail"))
+        assertFalse(gradesSource.contains("ShortNavigationBar"))
+        assertFalse(gradesSource.contains("BuildConfig.VERSION_NAME"))
+        assertTrue(personalSource.contains("title = \"App 更新\""))
+        assertTrue(personalSource.contains("title = \"開源授權\""))
+        val dataPrivacySection = personalSource
+            .substringAfter("SettingsSection(\"資料與隱私\")")
+            .substringBefore("SettingsSection(\"關於\")")
+        assertTrue(dataPrivacySection.contains("title = \"使用統計\""))
+        assertTrue(
+            dataPrivacySection.indexOf("title = \"使用統計\"") >
+                dataPrivacySection.lastIndexOf("title = \"生物識別解鎖\""),
+        )
+        assertFalse(
+            personalSource.substringAfter("SettingsSection(\"關於\")")
+                .substringBefore("SettingsSection(\"開發者選項\")")
+                .contains("title = \"使用統計\""),
+        )
         assertFalse(gradesSource.contains("鍥而不舍，金石可鏤。"))
         assertFalse(settingsSource.contains("title = \"開啟校務系統\""))
         assertFalse(advancedSource.contains("SchoolCalendarEntryCard"))
+        assertFalse(advancedSource.contains("ScheduleEntryCard"))
+        assertFalse(advancedSource.contains("我的課表"))
     }
 
     @Test
-    fun predictiveBackUsesPlatformNavigationOwners() {
-        val manifest = readSource("app/src/main/AndroidManifest.xml")
+    fun announcementReminderEntryLivesInAnnouncementsOverflowMenu() {
+        val announcementsSource = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
+        val personalSource = readSource("app/src/main/java/com/clhs/score/ui/PersonalScreen.kt")
+        val reminderMenu = announcementsSource
+            .substringAfter("DropdownMenuItem(")
+            .substringBefore("onClick = {")
+
+        assertTrue(announcementsSource.contains("more_vert"))
+        assertTrue(announcementsSource.contains("DropdownMenuItem("))
+        assertTrue(announcementsSource.contains("text = { Text(\"公告更新提醒\") }"))
+        assertFalse(reminderMenu.contains("leadingIcon"))
+        assertTrue(announcementsSource.contains("onOpenAnnouncementReminder()"))
+        assertFalse(personalSource.contains("公告更新提醒"))
+        assertFalse(personalSource.contains("onOpenAnnouncementReminder"))
+    }
+
+    @Test
+    fun gradesPagerSupportsSwipeAndKeepsTabsInSync() {
+        val source = readSource("app/src/main/java/com/clhs/score/ui/GradesScreen.kt")
+
+        assertFalse(source.contains("userScrollEnabled = false"))
+        assertFalse(source.contains("snapshotFlow { pagerState.settledPage }"))
+        assertTrue(source.contains("selectedTabIndex = pagerState.currentPage"))
+        assertTrue(source.contains("beyondViewportPageCount = GradesDestination.entries.lastIndex"))
+    }
+
+    @Test
+    fun announcementReminderWorkerUsesOnlyPublicAnnouncementData() {
+        val worker = readSource("app/src/main/java/com/clhs/score/reminders/AnnouncementReminderWorker.kt")
+
+        assertTrue(worker.contains("NetworkSchoolAnnouncementsRepository"))
+        assertTrue(worker.contains("AnnouncementReminderRepository"))
+        assertTrue(worker.contains("school_announcement_poll"))
+        listOf("SessionStore", "SchoolGradeClient", "SchoolCookieJar", "AuthenticatedSession").forEach { term ->
+            assertFalse("Announcement reminder must not access login state: $term", worker.contains(term))
+        }
+    }
+
+    @Test
+    fun announcementReminderScheduleUpdatesExistingPeriodicWork() {
+        val worker = readSource("app/src/main/java/com/clhs/score/reminders/AnnouncementReminderWorker.kt")
+
+        assertTrue(worker.contains("ExistingPeriodicWorkPolicy.UPDATE"))
+        assertFalse(worker.contains("ExistingPeriodicWorkPolicy.KEEP"))
+    }
+
+    @Test
+    fun announcementReminderAppliesEnableAndUnitChangesOnlyAfterSuccessfulSync() {
+        val viewModel = readSource("app/src/main/java/com/clhs/score/viewmodel/AnnouncementReminderViewModel.kt")
+
+        assertTrue(viewModel.indexOf("val announcements = loadSnapshot") < viewModel.indexOf("repository.enableWithBaseline"))
+        assertTrue(viewModel.indexOf("val announcements = loadSnapshot", viewModel.indexOf("fun applyUnits")) < viewModel.indexOf("repository.applySelectedUnitIds"))
+    }
+
+    @Test
+    fun workManagerInfoShowsEveryAppWorkWithoutTagFiltering() {
+        val screen = readSource("app/src/main/java/com/clhs/score/ui/WorkManagerInfoScreen.kt")
+
+        assertTrue(screen.contains("WorkQuery.fromStates(WorkInfo.State.entries)"))
+        assertTrue(screen.contains("getWorkInfosFlow(query)"))
+        assertFalse(screen.contains("getWorkInfosByTagFlow"))
+    }
+
+    @Test
+    fun predictiveBackUsesNavigation3DisplayWithoutCompetingHandlers() {
         val appSource = readSource("app/src/main/java/com/clhs/score/ui/ScoreApp.kt")
+        val authenticatedSource = readSource("app/src/main/java/com/clhs/score/ui/AuthenticatedApp.kt")
+        val navigationMotionSource = readSource("app/src/main/java/com/clhs/score/ui/navigation/AppNavigationMotion.kt")
         val loginSource = readSource("app/src/main/java/com/clhs/score/ui/WebViewLoginScreen.kt")
         val gradesSource = readSource("app/src/main/java/com/clhs/score/ui/GradesScreen.kt")
-        val drawerSheet = gradesSource.substringAfter("ModalDrawerSheet(").substringBefore(") {")
 
-        assertTrue(appSource.contains("composable(WebViewLoginRoute)"))
-        assertTrue(appSource.contains("onBack = { loginNavController.popBackStack() }"))
+        assertTrue(authenticatedSource.contains("entry<WebViewLoginRoute>"))
+        assertTrue(authenticatedSource.contains("onBack = { navigator.goBack() }"))
+        assertFalse(appSource.contains("rememberNavBackStack"))
+        assertFalse(appSource.contains("AnimatedContent"))
         assertFalse(loginSource.contains("BackHandler"))
-        assertTrue(drawerSheet.contains("drawerState = drawerState"))
+        assertTrue(authenticatedSource.contains("NavDisplay("))
+        assertTrue(authenticatedSource.contains("entryProvider<NavKey>"))
+        assertFalse(authenticatedSource.contains("NavController"))
+        assertTrue(authenticatedSource.contains("topLevelNavigationMetadata(navigationMotion)"))
+        assertTrue(navigationMotionSource.contains("defaultSpatialSpec()"))
+        assertTrue(navigationMotionSource.contains("defaultEffectsSpec()"))
+        assertTrue(navigationMotionSource.contains("fastEffectsSpec()"))
+        assertTrue(navigationMotionSource.contains("scaleIn("))
+        assertTrue(navigationMotionSource.contains("NavDisplay.PredictivePopTransitionKey"))
+        assertFalse(navigationMotionSource.contains("tween("))
         assertFalse(gradesSource.contains("BackHandler"))
+    }
+
+    @Test
+    fun successfulScheduleQueryRefreshesSharedOverview() {
+        val source = readSource("app/src/main/java/com/clhs/score/ui/AuthenticatedApp.kt")
+        val reportEffect = source
+            .substringAfter("LaunchedEffect(uiState.report)")
+            .substringBefore("com.clhs.score.ui.schedule.ScheduleScreen")
+
+        assertTrue(reportEffect.contains("overviewViewModel.refresh()"))
+    }
+
+    @Test
+    fun onboardingAndLoginRoutesHaveSeparateEntryPoints() {
+        val appSource = readSource("app/src/main/java/com/clhs/score/ui/AuthenticatedApp.kt")
+            .replace("\r\n", "\n")
+        val navigationSource = readSource("app/src/main/java/com/clhs/score/ui/navigation/AppNavigation.kt")
+
+        assertTrue(appSource.contains("entry<WelcomeRoute>"))
+        assertTrue(appSource.contains("entry<AccountRoute>"))
+        assertTrue(appSource.contains("fun requestLogin() = navigator.openWebViewLogin()"))
+        assertTrue(appSource.contains("onLogin = { navigator.openWebViewLogin() }"))
+        assertTrue(navigationSource.contains("@Serializable data object WebViewLoginRoute"))
+        assertTrue(navigationSource.contains("@Serializable data object WelcomeRoute"))
+    }
+
+    @Test
+    fun developerSettingsCanRestartOnboardingWithoutChangingSessionOwnership() {
+        val developerSource = readSource("app/src/main/java/com/clhs/score/ui/DeveloperSettingsScreen.kt")
+        val settingsSource = readSource("app/src/main/java/com/clhs/score/viewmodel/SettingsViewModel.kt")
+        val appSource = readSource("app/src/main/java/com/clhs/score/ui/AuthenticatedApp.kt")
+
+        assertTrue(developerSource.contains("重跑 onboarding"))
+        assertTrue(developerSource.contains("onRestartOnboarding"))
+        assertTrue(settingsSource.contains("fun restartOnboarding()"))
+        assertTrue(appSource.contains("navigator.restartOnboarding()"))
+    }
+
+    @Test
+    fun webViewProcessingOverlayStaysBelowNavigationBar() {
+        val source = readSource("app/src/main/java/com/clhs/score/ui/WebViewLoginScreen.kt")
+            .replace("\r\n", "\n")
+
+        assertFalse(
+            source.contains(
+                "            }\n        }\n\n        androidx.compose.animation.AnimatedVisibility(\n            visible = isProcessingLogin",
+            ),
+        )
+        assertTrue(source.contains(
+            "                androidx.compose.animation.AnimatedVisibility(\n                    visible = isProcessingLogin",
+        ))
     }
 
     @Test
@@ -463,12 +767,74 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
+    fun automaticUpdateCheckIsRootOwnedAndNonIntrusive() {
+        val activity = readSource("app/src/main/java/com/clhs/score/MainActivity.kt")
+        val personal = readSource("app/src/main/java/com/clhs/score/ui/PersonalScreen.kt")
+        val settingsRepository = readSource("app/src/main/java/com/clhs/score/data/SettingsRepository.kt")
+        val settingsViewModel = readSource("app/src/main/java/com/clhs/score/viewmodel/SettingsViewModel.kt")
+        val uiUtils = readSource("app/src/main/java/com/clhs/score/ui/UiUtils.kt")
+
+        assertTrue(activity.contains("LaunchedEffect(settingsVm)"))
+        assertTrue(activity.contains("settingsVm.checkUpdateAutomatically()"))
+        assertTrue(settingsRepository.contains("longPreferencesKey(\"lastUpdateCheckTime\")"))
+        assertTrue(settingsRepository.contains("setLastKnownUpdate"))
+        assertTrue(settingsRepository.contains("getLastKnownUpdate"))
+        assertTrue(settingsViewModel.contains("showResult = false"))
+        assertTrue(settingsViewModel.contains("restoreLastKnownUpdate"))
+        assertTrue(uiUtils.contains("tint = MaterialTheme.colorScheme.onSurfaceVariant"))
+        assertTrue(personal.contains("iconBadge = updateState is UpdateState.UpdateAvailable"))
+        assertTrue(personal.contains("value = updateValue"))
+        assertFalse(personal.contains("trailingBadge ="))
+        assertTrue(personal.contains("MaterialTheme.colorScheme.error"))
+    }
+
+    @Test
+    fun demoBiometricDisableDoesNotPersistFakeSession() {
+        val source = readSource("app/src/main/java/com/clhs/score/MainActivity.kt")
+
+        assertTrue(source.contains("if (!useFakeData && currentSession != null)"))
+        assertTrue(source.contains("sessionStore.clearBiometricSession()"))
+    }
+
+    @Test
     fun emptyScheduleReportShowsActionableState() {
         val source = readSource("app/src/main/java/com/clhs/score/ui/schedule/ScheduleScreen.kt")
 
         assertTrue(source.contains("uiState.report.items.isEmpty()"))
         assertTrue(source.contains("\"查無課表資料\""))
         assertTrue(source.contains("onClick = onClearSelection"))
+    }
+
+    @Test
+    fun scheduleUsesFixedSubjectAccentsWithoutPostProcessing() {
+        val modelSource = readSource("app/src/main/java/com/clhs/score/data/ScheduleModels.kt")
+        val screenSource = readSource("app/src/main/java/com/clhs/score/ui/schedule/ScheduleScreen.kt")
+
+        assertTrue(modelSource.contains("darkPredefinedColors"))
+        assertTrue(modelSource.contains("isDarkTheme: Boolean"))
+        assertTrue(screenSource.contains("val isDarkTheme = scheduleColorScheme.background.luminance() < 0.5f"))
+        assertTrue(screenSource.contains("accent = Color(subjectColor)"))
+        assertFalse(screenSource.contains("rawBgColor"))
+        assertFalse(screenSource.contains("accentColor"))
+    }
+
+    @Test
+    fun gradeComparisonTextShowsUnsignedDifference() {
+        val source = readSource("app/src/main/java/com/clhs/score/ui/GradesScreen.kt")
+        val comparisonText = source
+            .substringAfter("private fun diffSentence(")
+            .substringBefore("@Composable")
+
+        assertFalse(comparisonText.contains("signedValue"))
+        assertTrue(comparisonText.contains("abs(diff)"))
+    }
+
+    @Test
+    fun gradesOverviewDoesNotRenderLearningAdvice() {
+        val source = readSource("app/src/main/java/com/clhs/score/ui/GradesScreen.kt")
+
+        assertFalse(source.contains("PriorityInsightCard"))
+        assertFalse(source.contains("學習建議"))
     }
 
     @Test
@@ -513,9 +879,22 @@ class ArchitectureBoundaryTest {
         assertTrue(activitySource.contains("initialValue = configuration.settings"))
         assertTrue(activitySource.contains("loadScheduleWidgetPreferences(applicationContext, appWidgetId)"))
         assertTrue(activitySource.contains("saveScheduleWidgetPreferences("))
-        assertTrue(activitySource.contains("syncScheduleWidget(applicationContext, appWidgetId)"))
+        assertTrue(activitySource.contains("syncScheduleWidget(applicationContext, appWidgetId, preferences)"))
+        assertTrue(activitySource.contains("val glanceAppWidgetManager = GlanceAppWidgetManager(applicationContext)"))
+        assertTrue(activitySource.contains("val glanceId = glanceAppWidgetManager.getGlanceIdBy(appWidgetId)"))
+        assertTrue(activitySource.contains("ScheduleWidget().update(applicationContext, glanceId)"))
         assertTrue(widgetSource.contains("getGlanceIdBy(appWidgetId)"))
-        assertTrue(widgetSource.contains("ScheduleWidget().update(context, glanceId)"))
+    }
+
+    @Test
+    fun widgetConfigurationRefreshUsesTheNewPreferencesImmediately() {
+        val activitySource = readSource("app/src/main/java/com/clhs/score/widget/WidgetConfigurationActivity.kt")
+        val widgetSource = readSource("app/src/main/java/com/clhs/score/widget/ScheduleWidget.kt")
+
+        assertTrue(activitySource.contains("syncScheduleWidget(applicationContext, appWidgetId, preferences)"))
+        assertTrue(widgetSource.contains("preferences: ScheduleWidgetPreferences? = null"))
+        assertTrue(widgetSource.contains("preferences?.let { selected ->"))
+        assertTrue(activitySource.contains("ScheduleWidget().update(applicationContext, glanceId)"))
     }
 
     @Test
@@ -571,7 +950,7 @@ class ArchitectureBoundaryTest {
         val source = readSource("app/src/main/java/com/clhs/score/ui/schedule/ScheduleScreen.kt")
 
         assertTrue(source.contains("var scheduleNow by remember(uiState.report)"))
-        assertTrue(source.contains("delay(Duration.between(scheduleNow, refreshAt).toMillis())"))
+        assertTrue(source.contains("delay(Duration.between(scheduleNow, refreshAt).toMillis().milliseconds)"))
         assertFalse(source.contains("shouldRefreshAt(LocalDateTime.now())"))
     }
 
@@ -579,7 +958,9 @@ class ArchitectureBoundaryTest {
     fun widgetScheduleCacheOmitsUnusedComparisonDetails() {
         val source = readSource("app/src/main/java/com/clhs/score/data/GradeCacheStore.kt")
 
-        assertTrue(source.countOccurrences("copy(changes = null)") >= 2)
+        assertTrue(source.contains("fun ScheduleReport.toWidgetReportOrNull()"))
+        assertTrue(source.contains("scope == ScheduleScope.CURRENT_WEEK"))
+        assertTrue(source.contains("copy(changes = null)"))
     }
 
     @Test
@@ -608,8 +989,9 @@ class ArchitectureBoundaryTest {
         val readyGateIndex = activitySource.indexOf("if (!isReady)", scoreThemeIndex)
 
         assertTrue("MainActivity must use the Android SplashScreen API while loading settings", activitySource.contains("installSplashScreen()"))
-        assertTrue(activitySource.contains("launchSettings.value == null || !isSessionRestoreComplete.value"))
-        assertTrue(activitySource.contains("isSessionRestoreComplete.value = !gradesState.isRestoringSession"))
+        assertTrue(activitySource.contains("launchSettings.value == null"))
+        assertFalse(activitySource.contains("isSessionRestoreComplete"))
+        assertTrue(activitySource.contains("val authState by scoreVm.authState.collectAsStateWithLifecycle()"))
         assertTrue(activitySource.contains("splashScreen.setOnExitAnimationListener"))
         assertTrue(activitySource.contains("val iconView = runCatching { splashScreenView.iconView }.getOrNull()"))
         assertTrue(activitySource.contains("if (iconView == null)"))
@@ -755,7 +1137,7 @@ class ArchitectureBoundaryTest {
     fun developerDiagnosticsAreNotSharedThroughBroadTextIntent() {
         val source = readSource("app/src/main/java/com/clhs/score/ui/DeveloperSettingsScreen.kt")
 
-        assertTrue(source.contains("copyText(\"CLHS Pocket 診斷包\""))
+        assertTrue(source.contains("ClipData.newPlainText(\"CLHS Pocket 診斷包\", text)"))
         assertFalse("Diagnostic reports must not be sent through ACTION_SEND", source.contains("ACTION_SEND"))
         assertFalse("Diagnostic reports must not be embedded in EXTRA_TEXT", source.contains("EXTRA_TEXT"))
         assertFalse("Diagnostic reports must not keep a broad share helper", source.contains("shareText("))
@@ -765,8 +1147,8 @@ class ArchitectureBoundaryTest {
     fun recurringOnlyCalendarStillExplainsSkippedEvents() {
         val source = readSource("app/src/main/java/com/clhs/score/ui/calendar/SchoolCalendarScreen.kt")
         val emptyState = source
-            .substringAfter("uiState.events.isEmpty() ->")
-            .substringBefore("else -> CalendarAgenda")
+            .substringAfter("private fun CalendarAgenda(")
+            .substringBefore("private fun CalendarEventCard(")
 
         assertTrue(emptyState.contains("uiState.skippedRecurringEvents"))
         assertTrue(emptyState.contains("部分重複活動"))

@@ -7,8 +7,12 @@ import com.google.firebase.analytics.FirebaseAnalytics
 class FirebaseAnalyticsLogger(
     context: Context,
 ) : AnalyticsLogger {
-    private val analytics = FirebaseAnalytics.getInstance(context.applicationContext)
-    private val usageStatistics = UsageStatisticsStore(context)
+    private val analytics by lazy {
+        FirebaseAnalytics.getInstance(context.applicationContext)
+    }
+    private val usageStatistics by lazy {
+        UsageStatisticsStore(context)
+    }
 
     override fun logEvent(name: String, parameters: Map<String, Any?>) {
         if (!isValidEventName(name)) {

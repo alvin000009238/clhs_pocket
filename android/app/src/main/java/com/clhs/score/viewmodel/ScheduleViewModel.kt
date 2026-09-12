@@ -18,10 +18,13 @@ import com.clhs.score.data.ScheduleClassOption
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleRepository
 import com.clhs.score.data.ScheduleScope
+import com.clhs.score.data.ScheduleSubjectOverride
 import com.clhs.score.data.ScheduleYearTermOption
 import com.clhs.score.data.SchoolGradeClient
 import com.clhs.score.data.SessionStore
 import com.clhs.score.data.parseYearTermOrNull
+import com.clhs.score.data.normalizedOrNull
+import com.clhs.score.data.normalizedSubjectOverrides
 import com.clhs.score.data.refreshTargetDateAt
 import com.clhs.score.data.shouldRefreshAt
 import kotlinx.coroutines.CancellationException
@@ -46,6 +49,7 @@ data class ScheduleUiState(
     val selectedScope: ScheduleScope = ScheduleScope.SEMESTER,
     val report: ScheduleReport? = null,
     val noticeMessage: String? = null,
+    val isSavingSubjectOverride: Boolean = false,
 )
 
 private data class ScheduleQuery(
@@ -68,6 +72,18 @@ class ScheduleViewModel(
     val uiState: StateFlow<ScheduleUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            try {
+                repository.subjectOverridesFlow().collect { overrides ->
+                    _uiState.update { state ->
+                        state.copy(report = state.report?.copy(subjectOverrides = overrides))
+                    }
+                }
+            } catch (error: Exception) {
+                error.throwIfCancellation()
+                _uiState.update { it.copy(noticeMessage = SUBJECT_OVERRIDE_LOAD_ERROR) }
+            }
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, isInitialLoading = true, isError = false) }
             try {
@@ -199,6 +215,43 @@ class ScheduleViewModel(
 
     fun consumeNotice() {
         _uiState.update { it.copy(noticeMessage = null) }
+    }
+
+    fun saveSubjectOverride(
+        override: ScheduleSubjectOverride,
+        onSaved: () -> Unit = {},
+    ) {
+        val current = _uiState.value.report?.subjectOverrides.orEmpty()
+        val normalized = override.normalizedOrNull()
+        val updated = (
+            current.filterNot { it.originalSubjectName == override.originalSubjectName.trim() } +
+                listOfNotNull(normalized)
+            ).normalizedSubjectOverrides()
+        if (updated == current) {
+            onSaved()
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSavingSubjectOverride = true) }
+            try {
+                repository.saveSubjectOverrides(updated)
+                _uiState.update { state ->
+                    state.copy(
+                        isSavingSubjectOverride = false,
+                        report = state.report?.copy(subjectOverrides = updated),
+                    )
+                }
+                onSaved()
+            } catch (error: Exception) {
+                error.throwIfCancellation()
+                _uiState.update {
+                    it.copy(
+                        isSavingSubjectOverride = false,
+                        noticeMessage = SUBJECT_OVERRIDE_SAVE_ERROR,
+                    )
+                }
+            }
+        }
     }
 
     fun confirmSelection() {
@@ -351,17 +404,20 @@ class ScheduleViewModel(
     companion object {
         const val CURRENT_WEEK_FALLBACK_NOTICE = "無法取得週課表，已改顯示學期課表"
         const val CURRENT_WEEK_COMPARISON_NOTICE = "已取得週課表，但無法確認是否有調課"
+        const val SUBJECT_OVERRIDE_LOAD_ERROR = "無法載入自訂科目，請稍後再試"
+        const val SUBJECT_OVERRIDE_SAVE_ERROR = "無法儲存自訂科目，請稍後再試"
 
         fun factory(
             context: Context,
             useFakeData: Boolean,
             activeSessionProvider: () -> AuthenticatedSession? = { null },
+            sharedScheduleRepository: ScheduleRepository? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val appContext = context.applicationContext
-                val repository = if (useFakeData) {
-                    FakeScheduleRepository()
+                val repository = sharedScheduleRepository ?: if (useFakeData) {
+                    FakeScheduleRepository(GradeCacheStore(appContext))
                 } else {
                     NetworkScheduleRepository(
                         SchoolGradeClient(),

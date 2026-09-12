@@ -1,6 +1,8 @@
 package com.clhs.score.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
@@ -18,7 +20,7 @@ internal suspend fun <T> runInterruptibleHttp(block: () -> T): T = try {
     throw error
 }
 
-internal suspend fun <T> Call.executeCancellable(block: (Response) -> T): T =
+internal suspend fun Call.executeCancellable(): Response =
     suspendCancellableCoroutine { continuation ->
         continuation.invokeOnCancellation { cancel() }
         enqueue(object : Callback {
@@ -31,7 +33,30 @@ internal suspend fun <T> Call.executeCancellable(block: (Response) -> T): T =
                     response.close()
                     return
                 }
-                continuation.resumeWith(runCatching { response.use(block) })
+                continuation.resume(response) { _, unconsumedResponse, _ ->
+                    unconsumedResponse.close()
+                }
             }
         })
     }
+
+@OptIn(InternalCoroutinesApi::class)
+internal suspend fun <T> Call.executeCancellable(block: suspend (Response) -> T): T {
+    val cancellationHandle = currentCoroutineContext()[Job]?.invokeOnCompletion(
+        onCancelling = true,
+        invokeImmediately = true,
+    ) { cause ->
+        if (cause is kotlinx.coroutines.CancellationException) cancel()
+    }
+    return try {
+        executeCancellable().use { response ->
+            currentCoroutineContext().ensureActive()
+            block(response)
+        }
+    } catch (error: IOException) {
+        currentCoroutineContext().ensureActive()
+        throw error
+    } finally {
+        cancellationHandle?.dispose()
+    }
+}

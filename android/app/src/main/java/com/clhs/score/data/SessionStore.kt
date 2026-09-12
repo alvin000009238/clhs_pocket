@@ -1,15 +1,24 @@
 package com.clhs.score.data
 
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import android.content.Context
 import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.DataStore
 import com.clhs.score.data.proto.EncryptedSessionPayload
 import com.clhs.score.data.proto.SessionStorage
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
+import java.util.UUID
+import java.util.WeakHashMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import javax.crypto.Cipher
 
 private data class SessionStoreDependencies(
@@ -17,21 +26,23 @@ private data class SessionStoreDependencies(
     val cipher: SessionCipher,
     val legacySource: LegacySessionSource,
     val biometricStorage: BiometricSessionStorage,
+    val recordFailure: (SessionCleanupFailure) -> Unit = {},
 )
 
 private fun productionSessionStoreDependencies(context: Context): SessionStoreDependencies {
     val appContext = context.applicationContext
-    val legacySource = EncryptedSharedPreferencesLegacySessionSource(appContext)
+    val legacySource = LegacySessionPreferences(appContext)
     return SessionStoreDependencies(
         dataStore = appContext.sessionDataStore,
         cipher = AesGcmSessionCipher(AndroidKeystoreSessionKeyProvider()),
         legacySource = legacySource,
         biometricStorage = SharedPreferencesBiometricSessionStorage(appContext, legacySource),
+        recordFailure = { DeveloperDiagnostics.recordEvent(appContext, "PrivacyCleanup", it.name) },
     )
 }
 
 class SessionStore private constructor(
-    private val dependencies: SessionStoreDependencies,
+    dependencies: SessionStoreDependencies,
 ) {
     constructor(context: Context) : this(productionSessionStoreDependencies(context))
 
@@ -40,245 +51,285 @@ class SessionStore private constructor(
         cipher: SessionCipher,
         legacySource: LegacySessionSource,
         biometricStorage: BiometricSessionStorage,
-    ) : this(SessionStoreDependencies(dataStore, cipher, legacySource, biometricStorage))
+        recordFailure: (SessionCleanupFailure) -> Unit = {},
+    ) : this(SessionStoreDependencies(dataStore, cipher, legacySource, biometricStorage, recordFailure))
 
     private val dataStore = dependencies.dataStore
     private val cipher = dependencies.cipher
     private val legacySource = dependencies.legacySource
     private val biometricStorage = dependencies.biometricStorage
+    private val recordFailure = dependencies.recordFailure
 
-    suspend fun saveSession(session: AuthenticatedSession) {
-        val generation = generalWriteGeneration.get()
-        storageMutex.withLock {
-            if (generation != generalWriteGeneration.get()) return@withLock
-            migrateGeneralLegacyIfNeeded()
-            val payload = cipher.encrypt(SessionSerializer.serialize(session), GENERAL_AAD)
-            if (generation != generalWriteGeneration.get()) return@withLock
-            updateStorage { storage -> storage.toBuilder().setGeneralSession(payload.toProto()).build() }
+    private val runtime = synchronized(runtimes) { runtimes.getOrPut(dataStore) { RuntimeValidity() } }
+
+    internal val authorizationRevoked: StateFlow<Boolean> get() = runtime.blocked
+
+    internal fun requestGeneration(): Long = runtime.generation.get()
+
+    /** Called only after a new school login; persistence and biometric unlock cannot grant authority. */
+    internal suspend fun establishSession(
+        session: AuthenticatedSession,
+        generation: Long = requestGeneration(),
+    ): AuthenticatedSession = persistSession(session, generation, newLogin = true)
+
+    suspend fun saveSession(session: AuthenticatedSession): AuthenticatedSession =
+        persistSession(session, requestGeneration(), newLogin = false)
+
+    private suspend fun persistSession(
+        session: AuthenticatedSession,
+        generation: Long,
+        newLogin: Boolean,
+    ): AuthenticatedSession {
+        return storageMutex.withLock {
+            val storage = readStorage()
+            if (storage.cleanupPending) throw SessionStorageUnavailableException()
+            val authenticated = if (newLogin) {
+                session.copy(authorizationId = UUID.randomUUID().toString())
+            } else {
+                requireValid(storage, session)
+                session
+            }
+            val payload = cipher.encrypt(SessionSerializer.serialize(authenticated), GENERAL_AAD)
+            if (generation != runtime.generation.get()) throw CancellationException("Session revoked")
+            val saved = updateStorage { current ->
+                current.toBuilder()
+                    .setGeneralSession(payload.toProto())
+                    .setValidity(SessionStorage.Validity.VALID)
+                    .setAuthorizationId(authenticated.authorizationId)
+                    .setLegacyMigrationComplete(true)
+                    .setGeneralLegacyMigrationComplete(true)
+                    .setReminderLegacyMigrationComplete(true)
+                    .setReminderRevoked(current.authorizationId != authenticated.authorizationId || current.reminderRevoked)
+                    .build()
+            }
+            synchronized(runtime) {
+                if (generation != runtime.generation.get()) {
+                    throw CancellationException("Session revoked")
+                }
+                runtime.authorizationId = saved.authorizationId
+                runtime.blocked.value = false
+            }
+            authenticated
         }
     }
 
     suspend fun loadSession(): AuthenticatedSession? = storageMutex.withLock {
-        migrateGeneralLegacyIfNeeded()
         val storage = readStorage()
-        if (!storage.hasGeneralSession()) return@withLock null
-        decodeGeneral(storage.generalSession)
+        if (!canRestore(storage) || !storage.hasGeneralSession()) return@withLock null
+        decodeGeneral(storage.generalSession).also { requireValid(storage, it) }
+    }
+
+    suspend fun validateSession(session: AuthenticatedSession) = storageMutex.withLock {
+        requireValid(readStorage(), session)
+    }
+
+    internal val privateSnapshotAccess = combine(dataStore.data, runtime.blocked) { storage, blocked ->
+        !blocked && !storage.cleanupPending && storage.validity == SessionStorage.Validity.VALID &&
+            storage.authorizationId.isNotBlank()
+    }.retryWhen { error, _ ->
+        if (error !is IOException) return@retryWhen false
+        recordFailure(SessionCleanupFailure.SESSION_VALIDITY_READ_FAILED)
+        try {
+            failClosed()
+        } catch (failure: SessionCleanupException) {
+            failure.failures.forEach(recordFailure)
+        }
+        emit(false)
+        // Retry only after a fresh login has committed authority, never on a timer.
+        runtime.blocked.first { !it }
+        true
+    }
+
+    internal fun <T> withReminderAuthorization(session: AuthenticatedSession, block: () -> T): T =
+        synchronized(runtime) {
+            if (!isAuthorized(session) || runtime.reminderBlocked) throw CancellationException("Reminder revoked")
+            block()
+        }
+
+    internal fun isAuthorized(session: AuthenticatedSession): Boolean =
+        !runtime.blocked.value && session.authorizationId.isNotEmpty() && runtime.authorizationId == session.authorizationId
+
+    /** Synchronous, shared by all SessionStore instances using the application DataStore. */
+    fun revoke() {
+        synchronized(runtime) {
+            runtime.blocked.value = true
+            runtime.authorizationId = null
+            runtime.reminderBlocked = true
+            runtime.generation.incrementAndGet()
+            reminderWriteGeneration.incrementAndGet()
+        }
     }
 
     suspend fun saveReminderSession(session: AuthenticatedSession, expiresAtMillis: Long) {
         val generation = reminderWriteGeneration.get()
         storageMutex.withLock {
-            if (generation != reminderWriteGeneration.get()) return@withLock
-            migrateReminderLegacyIfNeeded()
-            val payload = cipher.encrypt(
-                SessionSerializer.serialize(session, expiresAtMillis),
-                REMINDER_AAD,
-            )
-            if (generation != reminderWriteGeneration.get()) return@withLock
-            updateStorage { storage -> storage.toBuilder().setReminderSession(payload.toProto()).build() }
+            requireValid(readStorage(), session)
+            val payload = cipher.encrypt(SessionSerializer.serialize(session, expiresAtMillis), REMINDER_AAD)
+            if (generation != reminderWriteGeneration.get() || !isAuthorized(session)) {
+                throw CancellationException("Session revoked")
+            }
+            updateStorage { current ->
+                current.toBuilder().setReminderSession(payload.toProto()).setReminderRevoked(false)
+                    .setReminderCleanupPending(false).build()
+            }
+            synchronized(runtime) {
+                if (generation != reminderWriteGeneration.get()) throw CancellationException("Reminder revoked")
+                runtime.reminderBlocked = false
+            }
         }
     }
 
     suspend fun loadReminderSession(
         nowMillis: Long = System.currentTimeMillis(),
         expectedStudentNo: String? = null,
-    ): AuthenticatedSession? =
-        storageMutex.withLock {
-            migrateReminderLegacyIfNeeded()
-            val storage = readStorage()
-            if (!storage.hasReminderSession()) return@withLock null
-            val reminder = decodeReminder(storage.reminderSession)
-            if (reminder.expiresAtMillis!! <= nowMillis) {
-                reminderWriteGeneration.incrementAndGet()
-                updateStorage { current -> current.toBuilder().clearReminderSession().build() }
-                return@withLock null
-            }
-            if (expectedStudentNo != null && reminder.session.studentNo != expectedStudentNo) {
-                reminderWriteGeneration.incrementAndGet()
-                updateStorage { current -> current.toBuilder().clearReminderSession().build() }
-                return@withLock null
-            }
-            reminder.session
+    ): AuthenticatedSession? = storageMutex.withLock {
+        val storage = readStorage()
+        if (!canRestore(storage) || runtime.reminderBlocked || storage.reminderRevoked || !storage.hasReminderSession()) return@withLock null
+        val reminder = decodeReminder(storage.reminderSession)
+        requireValid(storage, reminder.session)
+        if (reminder.expiresAtMillis!! <= nowMillis ||
+            (expectedStudentNo != null && reminder.session.studentNo != expectedStudentNo)
+        ) {
+            clearReminderLocked()
+            return@withLock null
         }
-
-    suspend fun clearReminderSession() {
-        reminderWriteGeneration.incrementAndGet()
-        storageMutex.withLock {
-            legacySource.clearReminder()
-            updateStorage { storage ->
-                storage.toBuilder()
-                    .clearReminderSession()
-                    .setReminderLegacyMigrationComplete(true)
-                    .build()
-            }
-        }
+        reminder.session
     }
 
-    fun saveBiometricSession(session: AuthenticatedSession, pin: String, cipher: Cipher) {
+    suspend fun clearReminderSession() {
+        runtime.reminderBlocked = true
+        reminderWriteGeneration.incrementAndGet()
+        withContext(NonCancellable) { storageMutex.withLock { clearReminderLocked() } }
+    }
+
+    private suspend fun clearReminderLocked() {
+        runtime.reminderBlocked = true
+        val failures = linkedSetOf<SessionCleanupFailure>()
+        cleanupStep(failures, SessionCleanupFailure.REMINDER_REVOCATION_FAILED) {
+            updateStorage { it.toBuilder().setReminderRevoked(true).setReminderCleanupPending(true).build() }
+        }
+        cleanupStep(failures, SessionCleanupFailure.REMINDER_SESSION_DELETE_FAILED) {
+            updateStorage { it.toBuilder().clearReminderSession().setReminderLegacyMigrationComplete(true).build() }
+        }
+        cleanupStep(failures, SessionCleanupFailure.LEGACY_SESSION_DELETE_FAILED) { legacySource.clearReminder() }
+        if (failures.isEmpty()) {
+            cleanupStep(failures, SessionCleanupFailure.CLEANUP_STATUS_WRITE_FAILED) {
+                updateStorage { it.toBuilder().setReminderCleanupPending(false).build() }
+            }
+        }
+        if (failures.isNotEmpty()) throw SessionCleanupException(failures)
+    }
+
+    suspend fun retryReminderCleanup() {
+        if (readStorage().reminderCleanupPending) clearReminderSession()
+    }
+
+    suspend fun saveBiometricSession(session: AuthenticatedSession, pin: String, cipher: Cipher) = storageMutex.withLock {
+        requireValid(readStorage(), session)
         biometricStorage.save(session, pin, cipher)
     }
 
-    fun loadBiometricSession(cipher: Cipher): AuthenticatedSession? = biometricStorage.load(cipher)
+    suspend fun loadBiometricSession(cipher: Cipher): AuthenticatedSession? = storageMutex.withLock {
+        val storage = readStorage()
+        if (!canRestore(storage)) throw SessionCorruptedException("Session authority cannot be verified")
+        biometricStorage.load(cipher)?.also { requireValid(storage, it) }
+    }
 
-    fun loadSessionWithPin(pin: String): AuthenticatedSession? = biometricStorage.loadWithPin(pin)
+    suspend fun loadSessionWithPin(pin: String): AuthenticatedSession? = storageMutex.withLock {
+        val storage = readStorage()
+        if (!canRestore(storage)) throw SessionCorruptedException("Session authority cannot be verified")
+        biometricStorage.loadWithPin(pin)?.also { requireValid(storage, it) }
+    }
 
+    // Presence is only a lock-screen hint. It never establishes authenticated authority.
     fun hasBiometricSession(): Boolean = biometricStorage.hasSession()
-
     fun getBiometricIv(): ByteArray? = biometricStorage.pinIv()
-
     fun clearBiometricSession() = biometricStorage.clear()
 
     suspend fun clearNormalSession() {
-        generalWriteGeneration.incrementAndGet()
+        runtime.generation.incrementAndGet()
         storageMutex.withLock {
-            legacySource.clearGeneral()
-            updateStorage { storage ->
-                storage.toBuilder()
-                    .clearGeneralSession()
-                    .setGeneralLegacyMigrationComplete(true)
-                    .build()
+            val failures = linkedSetOf<SessionCleanupFailure>()
+            cleanupStep(failures, SessionCleanupFailure.SESSION_DELETE_FAILED) {
+                updateStorage { it.toBuilder().clearGeneralSession().setGeneralLegacyMigrationComplete(true).build() }
             }
+            cleanupStep(failures, SessionCleanupFailure.LEGACY_SESSION_DELETE_FAILED) { legacySource.clearGeneral() }
+            if (failures.isNotEmpty()) throw SessionCleanupException(failures)
         }
     }
 
     suspend fun clear() {
-        generalWriteGeneration.incrementAndGet()
-        reminderWriteGeneration.incrementAndGet()
-        storageMutex.withLock {
-            updateStorage {
-                SessionStorage.newBuilder()
-                    .setLegacyMigrationComplete(true)
-                    .setGeneralLegacyMigrationComplete(true)
-                    .setReminderLegacyMigrationComplete(true)
-                    .build()
+        revoke()
+        withContext(NonCancellable) {
+            storageMutex.withLock {
+                val failures = linkedSetOf<SessionCleanupFailure>()
+                cleanupStep(failures, SessionCleanupFailure.REVOCATION_WRITE_FAILED) {
+                    updateStorage { it.toBuilder().setValidity(SessionStorage.Validity.REVOKED).setCleanupPending(true).build() }
+                }
+                cleanupStep(failures, SessionCleanupFailure.SESSION_DELETE_FAILED) {
+                    updateStorage {
+                        it.toBuilder().clearGeneralSession().clearReminderSession()
+                            .setValidity(SessionStorage.Validity.REVOKED).setReminderRevoked(true)
+                            .setCleanupPending(true).setLegacyMigrationComplete(true)
+                            .setGeneralLegacyMigrationComplete(true).setReminderLegacyMigrationComplete(true).build()
+                    }
+                }
+                cleanupStep(failures, SessionCleanupFailure.LEGACY_SESSION_DELETE_FAILED) { legacySource.clearAll() }
+                cleanupStep(failures, SessionCleanupFailure.BIOMETRIC_DELETE_FAILED) { biometricStorage.clear() }
+
+                if (failures.isNotEmpty()) throw SessionCleanupException(failures)
             }
-            var failure: SessionStorageException? = null
-            try {
-                legacySource.clearAll()
-            } catch (error: SessionStorageException) {
-                failure = error
-            }
-            try {
-                biometricStorage.clear()
-            } catch (error: SessionStorageException) {
-                failure = failure?.also { it.addSuppressed(error) } ?: error
-            }
-            failure?.let { throw it }
         }
     }
 
-    private suspend fun migrateGeneralLegacyIfNeeded() {
-        var storage = readStorage()
-        if (storage.legacyMigrationComplete || storage.generalLegacyMigrationComplete) return
+    suspend fun hasPendingCleanup(): Boolean = readStorage().let {
+        it.cleanupPending || it.validity == SessionStorage.Validity.UNKNOWN
+    }
 
-        var generalToVerify: AuthenticatedSession? = null
-        val builder = storage.toBuilder()
+    internal suspend fun completeCleanup() = storageMutex.withLock {
+        updateStorage { it.toBuilder().setCleanupPending(false).build() }
+        Unit
+    }
 
-        if (storage.hasGeneralSession()) {
-            try {
-                decodeGeneral(storage.generalSession)
-                try {
-                    legacySource.clearGeneral()
-                } catch (_: SessionStorageException) {
-                    return
-                }
-            } catch (error: SessionStorageException) {
-                val legacy = legacySource.readGeneral() ?: throw error
-                builder.generalSession = cipher.encrypt(
-                    SessionSerializer.serialize(legacy),
-                    GENERAL_AAD,
-                ).toProto()
-                generalToVerify = legacy
-            }
-        } else {
-            legacySource.readGeneral()?.let { legacy ->
-                builder.generalSession = cipher.encrypt(
-                    SessionSerializer.serialize(legacy),
-                    GENERAL_AAD,
-                ).toProto()
-                generalToVerify = legacy
-            }
-        }
+    private fun canRestore(storage: SessionStorage): Boolean {
+        if (runtime.blocked.value || storage.cleanupPending || storage.validity != SessionStorage.Validity.VALID || storage.authorizationId.isBlank()) return false
+        runtime.authorizationId = storage.authorizationId
+        return true
+    }
 
-        if (generalToVerify != null) {
-            updateStorage { builder.build() }
-            storage = readStorage()
-            if (!storage.hasGeneralSession() || decodeGeneral(storage.generalSession) != generalToVerify) {
-                throw SessionMigrationException()
-            }
-            try {
-                legacySource.clearGeneral()
-            } catch (_: SessionStorageException) {
-                return
-            }
-        }
-
-        updateStorage { current ->
-            current.toBuilder().setGeneralLegacyMigrationComplete(true).build()
+    private fun requireValid(storage: SessionStorage, session: AuthenticatedSession) {
+        if (!canRestore(storage) || session.authorizationId != storage.authorizationId) {
+            throw SessionCorruptedException("Session authority cannot be verified")
         }
     }
 
-    private suspend fun migrateReminderLegacyIfNeeded() {
-        var storage = readStorage()
-        if (storage.legacyMigrationComplete || storage.reminderLegacyMigrationComplete) return
-
-        var reminderToVerify: LegacyReminderSession? = null
-        val builder = storage.toBuilder()
-
-        if (storage.hasReminderSession()) {
-            try {
-                decodeReminder(storage.reminderSession)
-                try {
-                    legacySource.clearReminder()
-                } catch (_: SessionStorageException) {
-                    return
-                }
-            } catch (error: SessionStorageException) {
-                val legacy = legacySource.readReminder() ?: throw error
-                builder.reminderSession = cipher.encrypt(
-                    SessionSerializer.serialize(legacy.session, legacy.expiresAtMillis),
-                    REMINDER_AAD,
-                ).toProto()
-                reminderToVerify = legacy
-            }
-        } else {
-            legacySource.readReminder()?.let { legacy ->
-                builder.reminderSession = cipher.encrypt(
-                    SessionSerializer.serialize(legacy.session, legacy.expiresAtMillis),
-                    REMINDER_AAD,
-                ).toProto()
-                reminderToVerify = legacy
-            }
-        }
-
-        if (reminderToVerify != null) {
-            updateStorage { builder.build() }
-            storage = readStorage()
-            if (!storage.hasReminderSession()) throw SessionMigrationException()
-            val actual = decodeReminder(storage.reminderSession)
-            if (actual.session != reminderToVerify.session ||
-                actual.expiresAtMillis != reminderToVerify.expiresAtMillis
-            ) {
-                throw SessionMigrationException()
-            }
-            try {
-                legacySource.clearReminder()
-            } catch (_: SessionStorageException) {
-                return
-            }
-        }
-
-        updateStorage { current ->
-            current.toBuilder().setReminderLegacyMigrationComplete(true).build()
+    internal suspend fun cleanupStep(
+        failures: MutableSet<SessionCleanupFailure>,
+        category: SessionCleanupFailure,
+        block: suspend () -> Unit,
+    ) {
+        try {
+            block()
+        } catch (error: SessionCleanupException) {
+            failures += error.failures
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            failures += category
         }
     }
 
     private suspend fun decodeGeneral(payload: EncryptedSessionPayload): AuthenticatedSession {
-        val decoded = SessionSerializer.deserialize(cipher.decrypt(payload.toDomain(), GENERAL_AAD))
-        if (decoded.expiresAtMillis != null) {
-            throw SessionCorruptedException("General session contains reminder metadata")
+        try {
+            val decoded = SessionSerializer.deserialize(cipher.decrypt(payload.toDomain(), GENERAL_AAD))
+            if (decoded.expiresAtMillis != null) {
+                throw SessionCorruptedException("General session contains reminder metadata")
+            }
+            return decoded.session
+        } catch (error: SessionStorageException) {
+            failClosed()
+            throw error
         }
-        return decoded.session
     }
 
     private suspend fun decodeReminder(payload: EncryptedSessionPayload): DecodedSession {
@@ -292,26 +343,75 @@ class SessionStore private constructor(
     private suspend fun readStorage(): SessionStorage = try {
         dataStore.data.first()
     } catch (error: CorruptionException) {
+        failClosed()
         throw SessionCorruptedException("Encrypted session DataStore is corrupted", error)
     } catch (error: IOException) {
+        failClosed()
         throw SessionStorageUnavailableException(error)
     }
 
     private suspend fun updateStorage(transform: (SessionStorage) -> SessionStorage): SessionStorage = try {
         dataStore.updateData(transform)
     } catch (error: CorruptionException) {
+        revoke()
         throw SessionCorruptedException("Encrypted session DataStore is corrupted", error)
     } catch (error: IOException) {
+        revoke()
         throw SessionStorageUnavailableException(error)
+    }
+
+    private suspend fun failClosed() {
+        revoke()
+        withContext(NonCancellable) {
+            try {
+                dataStore.updateData {
+                    it.toBuilder()
+                        .setValidity(
+                            if (it.validity == SessionStorage.Validity.REVOKED) it.validity
+                            else SessionStorage.Validity.UNKNOWN,
+                        )
+                        .setCleanupPending(true).build()
+                }
+            } catch (_: IOException) {
+                throw SessionCleanupException(setOf(SessionCleanupFailure.REVOCATION_WRITE_FAILED))
+            } finally {
+                // A concurrent login must not publish while this failure's invalidation is finishing.
+                revoke()
+            }
+        }
+    }
+
+    private class RuntimeValidity {
+        val generation = AtomicLong()
+        val blocked = MutableStateFlow(false)
+        @Volatile var authorizationId: String? = null
+        @Volatile var reminderBlocked = false
     }
 
     private companion object {
         val GENERAL_AAD = "app/session/general/v1".encodeToByteArray()
         val REMINDER_AAD = "app/session/reminder/v1".encodeToByteArray()
-
-        // ponytail: one process-wide lock keeps migration/logout atomic; split only if measured contention appears.
         val storageMutex = Mutex()
-        val generalWriteGeneration = AtomicLong()
+        val runtimes = WeakHashMap<DataStore<SessionStorage>, RuntimeValidity>()
         val reminderWriteGeneration = AtomicLong()
     }
 }
+
+internal enum class SessionCleanupFailure {
+    SESSION_VALIDITY_READ_FAILED,
+    REVOCATION_WRITE_FAILED,
+    SESSION_DELETE_FAILED,
+    PRIVATE_CACHE_DELETE_FAILED,
+    REMINDER_STATE_DELETE_FAILED,
+    BACKGROUND_WORK_CANCEL_FAILED,
+    WIDGET_REFRESH_FAILED,
+    LEGACY_SESSION_DELETE_FAILED,
+    BIOMETRIC_DELETE_FAILED,
+    BIOMETRIC_KEY_DELETE_FAILED,
+    REMINDER_REVOCATION_FAILED,
+    REMINDER_SESSION_DELETE_FAILED,
+    CLEANUP_STATUS_WRITE_FAILED,
+}
+
+internal class SessionCleanupException(val failures: Set<SessionCleanupFailure>) :
+    SessionStorageException(failures.joinToString(",") { it.name })

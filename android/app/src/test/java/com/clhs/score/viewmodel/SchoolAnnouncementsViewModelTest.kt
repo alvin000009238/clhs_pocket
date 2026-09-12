@@ -4,6 +4,7 @@ import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.SchoolAnnouncementPage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -37,7 +38,7 @@ class SchoolAnnouncementsViewModelTest {
     fun failedUpdateKeepsCachedMessagesAndShowsNotice() = runTest(dispatcher) {
         val viewModel = SchoolAnnouncementsViewModel(
             loadCached = { page(announcement("cached"), totalPages = 2) },
-            loadPage = { throw IOException("offline") },
+            loadPage = { _, _ -> throw IOException("offline") },
         )
 
         runCurrent()
@@ -53,7 +54,7 @@ class SchoolAnnouncementsViewModelTest {
     fun loadMoreAppendsInServerOrderAndRemovesDuplicateIds() = runTest(dispatcher) {
         val viewModel = SchoolAnnouncementsViewModel(
             loadCached = { null },
-            loadPage = { index ->
+            loadPage = { index, _ ->
                 if (index == 0) {
                     page(announcement("first"), announcement("duplicate"), totalPages = 2)
                 } else {
@@ -76,7 +77,7 @@ class SchoolAnnouncementsViewModelTest {
     fun firstLoadFailureShowsFixedActionableError() = runTest(dispatcher) {
         val viewModel = SchoolAnnouncementsViewModel(
             loadCached = { null },
-            loadPage = { throw IOException("server response with secret details") },
+            loadPage = { _, _ -> throw IOException("server response with secret details") },
         )
 
         runCurrent()
@@ -89,7 +90,7 @@ class SchoolAnnouncementsViewModelTest {
     fun loadMoreFailureKeepsExistingMessagesAndShowsInlineRetry() = runTest(dispatcher) {
         val viewModel = SchoolAnnouncementsViewModel(
             loadCached = { null },
-            loadPage = { index ->
+            loadPage = { index, _ ->
                 if (index == 0) page(announcement("first"), totalPages = 2)
                 else throw IOException("offline")
             },
@@ -114,6 +115,115 @@ class SchoolAnnouncementsViewModelTest {
 
         assertTrue(viewModel.uiState.value.errorMessage?.contains("請檢查網路") == true)
         assertFalse(viewModel.uiState.value.errorMessage.orEmpty().contains("private"))
+    }
+
+    @Test
+    fun searchTrimsKeywordAndUsesItForRefreshAndPagination() = runTest(dispatcher) {
+        val calls = mutableListOf<Pair<Int, String>>()
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { index, keyword ->
+                calls += index to keyword
+                if (keyword.isEmpty()) {
+                    page(announcement("default"))
+                } else {
+                    page(
+                        announcement("search-$index"),
+                        pageIndex = index,
+                        totalPages = 2,
+                    )
+                }
+            },
+        )
+        runCurrent()
+
+        viewModel.search("  模擬考  ")
+        runCurrent()
+        viewModel.loadMore()
+        runCurrent()
+        viewModel.refresh()
+        runCurrent()
+
+        assertEquals("模擬考", viewModel.uiState.value.searchQuery)
+        assertEquals(listOf(0 to "", 0 to "模擬考", 1 to "模擬考", 0 to "模擬考"), calls)
+    }
+
+    @Test
+    fun clearingSearchRestoresDefaultCacheAndNetworkFeed() = runTest(dispatcher) {
+        val calls = mutableListOf<String>()
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { page(announcement("cached")) },
+            loadPage = { _, keyword ->
+                calls += keyword
+                page(announcement(if (keyword.isEmpty()) "default" else "search"))
+            },
+        )
+        runCurrent()
+
+        viewModel.search("模擬考")
+        runCurrent()
+        viewModel.clearSearch()
+        runCurrent()
+
+        assertEquals("", viewModel.uiState.value.searchQuery)
+        assertEquals(listOf("", "模擬考", ""), calls)
+        assertEquals(listOf("default"), viewModel.uiState.value.announcements.map(SchoolAnnouncement::id))
+    }
+
+    @Test
+    fun newSearchCancelsThePreviousSearchAndLimitsTheKeyword() = runTest(dispatcher) {
+        var firstSearchCancelled = false
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { _, keyword ->
+                when (keyword) {
+                    "first" -> try {
+                        awaitCancellation()
+                    } finally {
+                        firstSearchCancelled = true
+                    }
+                    else -> page(announcement(keyword.ifEmpty { "default" }))
+                }
+            },
+        )
+        runCurrent()
+
+        viewModel.search("first")
+        runCurrent()
+        viewModel.search("x".repeat(101))
+        runCurrent()
+
+        assertTrue(firstSearchCancelled)
+        assertEquals(100, viewModel.uiState.value.searchQuery.length)
+        assertEquals(listOf("x".repeat(100)), viewModel.uiState.value.announcements.map(SchoolAnnouncement::id))
+    }
+
+    @Test
+    fun emptySearchResultAndRefreshFailureKeepSafeState() = runTest(dispatcher) {
+        var failRefresh = false
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { _, keyword ->
+                if (failRefresh) throw IOException("private response")
+                if (keyword == "找不到") page() else page(announcement(keyword.ifEmpty { "default" }))
+            },
+        )
+        runCurrent()
+
+        viewModel.search("找不到")
+        runCurrent()
+        assertTrue(viewModel.uiState.value.announcements.isEmpty())
+        assertEquals("找不到", viewModel.uiState.value.searchQuery)
+
+        viewModel.search("模擬考")
+        runCurrent()
+        failRefresh = true
+        viewModel.refresh()
+        runCurrent()
+
+        assertEquals(listOf("模擬考"), viewModel.uiState.value.announcements.map(SchoolAnnouncement::id))
+        assertEquals("無法更新，暫時顯示已儲存的學校消息", viewModel.uiState.value.noticeMessage)
+        assertFalse(viewModel.uiState.value.noticeMessage.orEmpty().contains("private"))
     }
 
     private fun announcement(id: String) = SchoolAnnouncement(

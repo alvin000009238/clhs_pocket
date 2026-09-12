@@ -1,17 +1,6 @@
 package com.clhs.score.ui
 
-import android.Manifest
-import android.content.Context
-import android.content.Intent
-import android.os.Build
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,86 +8,46 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MotionScheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SegmentedListItem
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.clhs.score.BuildConfig
 import com.clhs.score.R
 import com.clhs.score.analytics.UsageMetric
 import com.clhs.score.analytics.UsageStatistics
-import com.clhs.score.data.AppSettings
-import com.clhs.score.data.BiometricHelper
-import com.clhs.score.data.ExamSelection
-import com.clhs.score.data.ThemeMode
-import com.clhs.score.data.YearTermOption
-import com.clhs.score.notifications.canPostNotifications
-import com.clhs.score.notifications.hasPostNotificationsPermission
-import com.clhs.score.notifications.openAppNotificationSettings
-import com.clhs.score.notifications.shouldShowPostNotificationsRationale
-import com.clhs.score.ui.components.PinSetupDialog
-import com.clhs.score.ui.theme.OutfitFontFamily
-import com.clhs.score.viewmodel.SettingsUiState
-import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import java.net.URI
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-
-private const val SourceCodeUrl = "https://github.com/alvin000009238/clhs_score"
-private const val FeedbackFormUrlKey = "feedback_form_url"
 
 private val MIT_LICENSE_TEXT = """
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
@@ -183,6 +132,7 @@ private val APACHE_COMPONENTS = listOf(
     "AndroidX Biometric",
     "AndroidX Compose Foundation",
     "AndroidX Compose Material 3",
+    "AndroidX Compose Material 3 Adaptive Navigation Suite",
     "AndroidX Compose Runtime",
     "AndroidX Compose UI",
     "AndroidX Compose UI Graphics",
@@ -194,8 +144,7 @@ private val APACHE_COMPONENTS = listOf(
     "AndroidX Glance Material 3",
     "AndroidX Lifecycle Runtime Compose",
     "AndroidX Lifecycle ViewModel Compose",
-    "AndroidX Navigation Compose",
-    "AndroidX Security Crypto",
+    "AndroidX Navigation 3",
     "AndroidX WorkManager Runtime KTX",
     "Apache Commons Codec subset (bundled with biweekly)",
     "Coil Compose",
@@ -228,251 +177,6 @@ internal fun buildThirdPartyLicenses(outfitLicenseText: String): List<LicenseEnt
         LicenseEntry("Vinnie", "MIT License", MIT_LICENSE_TEXT),
     )).sortedBy { it.componentName.lowercase() }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SettingsScreen(
-    settings: AppSettings,
-    uiState: SettingsUiState,
-    structure: List<YearTermOption>,
-    isExporting: Boolean,
-    exportResult: String?,
-    onBack: () -> Unit,
-    onSetThemeMode: (ThemeMode) -> Unit,
-    onSetDynamicColor: (Boolean) -> Unit,
-    onSetAmoledBlack: (Boolean) -> Unit,
-    onSetNotificationsEnabled: (Boolean) -> Unit,
-    onCheckUpdate: () -> Unit,
-    onDismissUpdateResult: () -> Unit,
-    onOpenAbout: () -> Unit,
-    onDismissDeveloperToast: () -> Unit,
-    onOpenDeveloperSettings: () -> Unit,
-    onExportGrades: (List<ExamSelection>) -> Unit,
-    onDismissExportResult: () -> Unit,
-    onLogout: () -> Unit,
-    onSetBiometricEnabled: (Boolean, String?) -> Unit,
-) {
-    SubpageLayout(onBack = onBack) {
-        SettingsContent(
-            settings = settings,
-            uiState = uiState,
-            structure = structure,
-            isExporting = isExporting,
-            exportResult = exportResult,
-            onSetThemeMode = onSetThemeMode,
-            onSetDynamicColor = onSetDynamicColor,
-            onSetAmoledBlack = onSetAmoledBlack,
-            onSetNotificationsEnabled = onSetNotificationsEnabled,
-            onCheckUpdate = onCheckUpdate,
-            onOpenAbout = onOpenAbout,
-            onDismissDeveloperToast = onDismissDeveloperToast,
-            onOpenDeveloperSettings = onOpenDeveloperSettings,
-            onExportGrades = onExportGrades,
-            onDismissExportResult = onDismissExportResult,
-            onLogout = onLogout,
-            onSetBiometricEnabled = onSetBiometricEnabled,
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .navigationBarsPadding(),
-            includeTopSpacer = true,
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-fun AboutScreen(
-    settings: AppSettings,
-    uiState: SettingsUiState,
-    onBack: () -> Unit,
-    onVersionTap: () -> Unit,
-    onDismissDeveloperToast: () -> Unit,
-    onOpenUsageStatistics: () -> Unit,
-    onOpenSourceLicenses: () -> Unit,
-) {
-    val context = LocalContext.current
-    val currentOnDismissDeveloperToast by rememberUpdatedState(onDismissDeveloperToast)
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val tertiaryColor = MaterialTheme.colorScheme.tertiary
-    val remoteConfig = remember {
-        FirebaseRemoteConfig.getInstance().also { config ->
-            config.setDefaultsAsync(mapOf(FeedbackFormUrlKey to ""))
-        }
-    }
-    var isFetchingFeedback by remember { mutableStateOf(false) }
-
-    LaunchedEffect(uiState.showDeveloperUnlockedToast) {
-        if (uiState.showDeveloperUnlockedToast) {
-            Toast.makeText(context, "已開啟開發者選項", Toast.LENGTH_SHORT).show()
-            currentOnDismissDeveloperToast()
-        }
-    }
-
-    SubpageLayout(
-        onBack = onBack,
-        title = "關於",
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(start = 24.dp, top = 8.dp, end = 24.dp)
-                    .navigationBarsPadding(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                // App Icon
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    primaryColor,
-                                    tertiaryColor,
-                                ),
-                            ),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Image(
-                        painter = painterResource(R.drawable.clhs_pocket_foreground),
-                        contentDescription = "CLHS Pocket",
-                        modifier = Modifier.size(80.dp),
-                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(androidx.compose.ui.graphics.Color.White),
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // App 名稱
-                Text(
-                    text = "CLHS Pocket",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontFamily = OutfitFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "壢中校園口袋工具",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
-                ) {
-                    AboutInfoRow(
-                        icon = "info",
-                        title = "版本",
-                        value = BuildConfig.VERSION_NAME,
-                        onClick = onVersionTap,
-                        index = 0,
-                        count = 5,
-                        trailing = {
-                            val remaining = 10 - uiState.versionTapCount
-                            if (remaining in 1..6 && !settings.developerEnabled) {
-                                Text(
-                                    text = "再 $remaining 次",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        },
-                    )
-                    AboutInfoRow(
-                        icon = "license",
-                        title = "授權",
-                        value = "MIT License",
-                        onClick = onOpenSourceLicenses,
-                        index = 1,
-                        count = 5,
-                        trailing = { ForwardIndicator() },
-                    )
-                    AboutInfoRow(
-                        icon = "newsstand",
-                        title = "使用統計",
-                        value = "查看",
-                        onClick = onOpenUsageStatistics,
-                        index = 2,
-                        count = 5,
-                        trailing = { ForwardIndicator() },
-                    )
-                    AboutInfoRow(
-                        icon = "thumbs_up_down",
-                        title = "回饋意見",
-                        value = if (isFetchingFeedback) "載入中" else "填寫",
-                        enabled = !isFetchingFeedback,
-                        onClick = {
-                            isFetchingFeedback = true
-                            remoteConfig.fetchAndActivate().addOnCompleteListener {
-                                isFetchingFeedback = false
-                                val url = remoteConfig.getString(FeedbackFormUrlKey)
-                                if (isAllowedFeedbackFormUrl(url)) {
-                                    openExternalUrl(context, url)
-                                } else {
-                                    Toast.makeText(
-                                        context,
-                                        "暫時無法取得回饋表單，請稍後再試",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                }
-                            }
-                        },
-                        index = 3,
-                        count = 5,
-                        trailing = {
-                            if (isFetchingFeedback) {
-                                LoadingIndicator(modifier = Modifier.size(32.dp))
-                            } else {
-                                ForwardIndicator()
-                            }
-                        },
-                    )
-                    AboutInfoRow(
-                        icon = "code",
-                        title = "原始碼",
-                        value = "GitHub",
-                        onClick = { openExternalUrl(context, SourceCodeUrl) },
-                        index = 4,
-                        count = 5,
-                        trailing = { ForwardIndicator() },
-                    )
-                }
-
-                Spacer(modifier = Modifier.weight(1f))
-                Spacer(modifier = Modifier.height(32.dp))
-
-                // Footer
-                Text(
-                    text = "© 2026 alvin000009238",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Made with ❤\uFE0F",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun UsageStatisticsScreen(
@@ -498,14 +202,9 @@ fun UsageStatisticsScreen(
                 .padding(start = 16.dp, top = 8.dp, end = 16.dp)
                 .navigationBarsPadding(),
         ) {
-            Text(
-                text = "你的使用概況",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-            )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "$trackingPeriod，以下資料只儲存在這台裝置。",
+                text = "$trackingPeriod\n以下資料只儲存在這台裝置。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -524,26 +223,27 @@ fun UsageStatisticsScreen(
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(20.dp))
-            Text(
-                text = "統計不包含學號、姓名、成績、排名或登入資訊。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
-
 private val usageStatisticRows = listOf(
-    UsageMetric.APP_OPEN to "App 開啟",
+    UsageMetric.APP_OPEN to "應用程式開啟",
+    UsageMetric.OVERVIEW_OPEN to "總覽畫面開啟",
+    UsageMetric.SCHEDULE_OPEN to "課表畫面開啟",
+    UsageMetric.GRADES_OPEN to "成績畫面開啟",
+    UsageMetric.CAMPUS_OPEN to "校園畫面開啟",
     UsageMetric.GRADE_QUERY to "讀取成績成功",
-    UsageMetric.SCHEDULE_OPEN to "課表開啟",
-    UsageMetric.SUBJECT_TREND_OPEN to "科目趨勢開啟",
+    UsageMetric.SCHEDULE_CUSTOMIZATIONS_OPEN to "課表自訂頁開啟",
+    UsageMetric.SCHOOL_CALENDAR_OPEN to "行事曆開啟",
+    UsageMetric.SCHOOL_ANNOUNCEMENTS_OPEN to "學校公告頁開啟",
+    UsageMetric.SCHOOL_ANNOUNCEMENT_DETAIL_OPEN to "公告詳情頁開啟",
+    UsageMetric.ANNOUNCEMENT_REMINDER_OPEN to "公告更新提醒設定頁開啟",
+    UsageMetric.PERSONAL_OPEN to "個人頁開啟",
+    UsageMetric.SUBJECT_TREND_OPEN to "成績折線圖開啟",
     UsageMetric.SCORE_SIMULATOR_OPEN to "成績模擬器開啟",
     UsageMetric.GRADE_EXPORT to "成績匯出成功",
-    UsageMetric.GRADE_REMINDER_START to "段考提醒啟用成功",
+    UsageMetric.GRADE_REMINDER_START to "段考更新提醒啟用成功",
+    UsageMetric.ANNOUNCEMENT_REMINDER_START to "公告更新提醒啟用成功",
 )
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -573,53 +273,6 @@ private fun UsageStatisticRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(text = label)
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun AboutInfoRow(
-    icon: String,
-    title: String,
-    value: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    index: Int,
-    count: Int,
-    trailing: @Composable (() -> Unit)? = null,
-) {
-    SegmentedListItem(
-        onClick = onClick,
-        enabled = enabled,
-        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
-        leadingContent = {
-            OutlinedRoundedSymbol(
-                icon = icon,
-                size = 24.dp,
-                contentDescription = null,
-            )
-        },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = value,
-                )
-                if (trailing != null) {
-                    Spacer(modifier = Modifier.width(4.dp))
-                    trailing()
-                }
-            }
-        },
-        colors = ListItemDefaults.segmentedColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            leadingContentColor = MaterialTheme.colorScheme.primary,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        verticalAlignment = Alignment.CenterVertically,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(text = title)
     }
 }
 
@@ -664,7 +317,6 @@ fun OpenSourceLicensesScreen(
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            SectionHeader("專案授權")
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.large,
@@ -796,281 +448,6 @@ private fun ThirdPartyLicenseCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-internal fun SettingsContent(
-    settings: AppSettings,
-    uiState: SettingsUiState,
-    structure: List<YearTermOption>,
-    isExporting: Boolean,
-    exportResult: String?,
-    onSetThemeMode: (ThemeMode) -> Unit,
-    onSetDynamicColor: (Boolean) -> Unit,
-    onSetAmoledBlack: (Boolean) -> Unit,
-    onSetNotificationsEnabled: (Boolean) -> Unit,
-    onCheckUpdate: () -> Unit,
-    onOpenAbout: () -> Unit,
-    onDismissDeveloperToast: () -> Unit,
-    onOpenDeveloperSettings: () -> Unit,
-    onExportGrades: (List<ExamSelection>) -> Unit,
-    onDismissExportResult: () -> Unit,
-    onLogout: () -> Unit,
-    onSetBiometricEnabled: (Boolean, String?) -> Unit,
-    modifier: Modifier = Modifier,
-    includeTopSpacer: Boolean = false,
-    showLogout: Boolean = true,
-) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var showLogoutDialog by remember { mutableStateOf(false) }
-    var showExportDialog by remember { mutableStateOf(false) }
-    var showPinSetupDialog by remember { mutableStateOf(false) }
-    var awaitingNotificationSettings by rememberSaveable { mutableStateOf(false) }
-    var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
-    val currentOnSetNotificationsEnabled by rememberUpdatedState(onSetNotificationsEnabled)
-    val currentOnDismissDeveloperToast by rememberUpdatedState(onDismissDeveloperToast)
-    val currentOnDismissExportResult by rememberUpdatedState(onDismissExportResult)
-
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        currentOnSetNotificationsEnabled(granted)
-        if (!granted) {
-            notificationPermissionDenied = true
-        }
-        Toast.makeText(
-            context,
-            if (granted) "已開啟推播通知" else "未取得通知權限，可再次嘗試開啟",
-            Toast.LENGTH_SHORT,
-        ).show()
-    }
-
-    DisposableEffect(lifecycleOwner, settings.notificationsEnabled) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event != Lifecycle.Event.ON_RESUME) {
-                return@LifecycleEventObserver
-            }
-            if (awaitingNotificationSettings) {
-                awaitingNotificationSettings = false
-                if (context.canPostNotifications()) {
-                    currentOnSetNotificationsEnabled(true)
-                    Toast.makeText(context, "已開啟推播通知", Toast.LENGTH_SHORT).show()
-                } else {
-                    currentOnSetNotificationsEnabled(false)
-                    Toast.makeText(context, "未取得通知權限，暫不接收推播通知", Toast.LENGTH_SHORT).show()
-                }
-            } else if (settings.notificationsEnabled && !context.canPostNotifications()) {
-                currentOnSetNotificationsEnabled(false)
-                Toast.makeText(context, "系統通知權限已關閉，已同步關閉通知", Toast.LENGTH_SHORT).show()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    val onNotificationToggle: (Boolean) -> Unit = { enabled ->
-        if (!enabled) {
-            onSetNotificationsEnabled(false)
-        } else if (context.canPostNotifications()) {
-            onSetNotificationsEnabled(true)
-        } else if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            !context.hasPostNotificationsPermission() &&
-            (
-                !notificationPermissionDenied ||
-                    context.shouldShowPostNotificationsRationale()
-            )
-        ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            awaitingNotificationSettings = true
-            if (context.openAppNotificationSettings()) {
-                Toast.makeText(context, "請在系統設定中開啟通知", Toast.LENGTH_SHORT).show()
-            } else {
-                awaitingNotificationSettings = false
-                Toast.makeText(context, "無法開啟通知設定，請手動到系統設定開啟", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    LaunchedEffect(uiState.showDeveloperUnlockedToast) {
-        if (uiState.showDeveloperUnlockedToast) {
-            Toast.makeText(context, "已開啟開發者選項", Toast.LENGTH_SHORT).show()
-            currentOnDismissDeveloperToast()
-        }
-    }
-
-    LaunchedEffect(exportResult) {
-        if (exportResult != null) {
-            Toast.makeText(context, exportResult, Toast.LENGTH_LONG).show()
-            currentOnDismissExportResult()
-        }
-    }
-
-    if (showExportDialog) {
-        ExportDialog(
-            structure = structure,
-            onConfirm = { selections ->
-                showExportDialog = false
-                onExportGrades(selections)
-            },
-            onDismiss = { showExportDialog = false },
-        )
-    }
-
-    if (showPinSetupDialog) {
-        PinSetupDialog(
-            onConfirm = { pin ->
-                showPinSetupDialog = false
-                onSetBiometricEnabled(true, pin)
-            },
-            onDismiss = { showPinSetupDialog = false }
-        )
-    }
-
-    if (showLogout && showLogoutDialog) {
-        LogoutConfirmDialog(
-            onDismiss = { showLogoutDialog = false },
-            onConfirm = {
-                showLogoutDialog = false
-                onLogout()
-            },
-        )
-    }
-
-    val utilityMotion = remember { MotionScheme.standard() }
-    MaterialTheme(motionScheme = utilityMotion) {
-        Column(
-            modifier = modifier,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            if (includeTopSpacer) {
-                Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
-                Spacer(modifier = Modifier.height(56.dp))
-            }
-
-            SectionHeader("外觀")
-            GeneralSettingsCard(
-                settings = settings,
-                onSetThemeMode = onSetThemeMode,
-                onSetDynamicColor = onSetDynamicColor,
-                onSetAmoledBlack = onSetAmoledBlack,
-            )
-
-            SectionHeader("通知與提醒")
-            SettingsSwitchListItem(
-                icon = "notifications",
-                title = "通知",
-                subtitle = "接收 app 更新與公告推播",
-                checked = settings.notificationsEnabled,
-                onCheckedChange = onNotificationToggle,
-            )
-
-            SectionHeader("資料與隱私")
-            val biometricAvailable = BiometricHelper.canAuthenticate(context)
-            val dataPrivacyItemCount = if (biometricAvailable) 2 else 1
-            Column(
-                verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
-            ) {
-                if (biometricAvailable) {
-                    val onBiometricToggle: (Boolean) -> Unit = { enabled ->
-                        if (enabled) {
-                            showPinSetupDialog = true
-                        } else {
-                            onSetBiometricEnabled(false, null)
-                        }
-                    }
-                    SettingsSwitchListItem(
-                        icon = "fingerprint",
-                        title = "生物識別解鎖",
-                        subtitle = "開啟後，每次啟動 App 均需進行驗證",
-                        checked = settings.biometricEnabled,
-                        onCheckedChange = onBiometricToggle,
-                        index = 0,
-                        count = dataPrivacyItemCount,
-                    )
-                }
-                ClickableSettingsItem(
-                    icon = "download",
-                    title = "匯出成績",
-                    subtitle = if (isExporting) "匯出中…" else "將成績資料匯出成 CSV",
-                    onClick = { if (!isExporting) showExportDialog = true },
-                    index = dataPrivacyItemCount - 1,
-                    count = dataPrivacyItemCount,
-                    trailing = {
-                        if (isExporting) {
-                            LoadingIndicator(modifier = Modifier.size(32.dp))
-                        }
-                    },
-                )
-            }
-
-            SectionHeader("關於")
-            Column(
-                verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
-            ) {
-                ClickableSettingsItem(
-                    icon = "system_update",
-                    title = "檢查更新",
-                    subtitle = if (uiState.isCheckingUpdate) "檢查中…" else "從 GitHub 取得最新版本",
-                    onClick = onCheckUpdate,
-                    index = 0,
-                    count = 2,
-                    trailing = {
-                        if (uiState.isCheckingUpdate) {
-                            LoadingIndicator(modifier = Modifier.size(32.dp))
-                        }
-                    },
-                )
-                ClickableSettingsItem(
-                    icon = "info",
-                    title = "關於",
-                    subtitle = "版本、授權與原始碼",
-                    onClick = onOpenAbout,
-                    index = 1,
-                    count = 2,
-                )
-            }
-
-            AnimatedVisibility(
-                visible = settings.developerEnabled,
-                enter = fadeIn(utilityMotion.defaultEffectsSpec()) +
-                    expandVertically(animationSpec = utilityMotion.defaultSpatialSpec()),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    SectionHeader("開發者選項")
-                    ClickableSettingsItem(
-                        icon = "science",
-                        title = "開發者選項",
-                        subtitle = "其他進階設定",
-                        onClick = onOpenDeveloperSettings,
-                    )
-                }
-            }
-
-            if (showLogout) {
-                Spacer(modifier = Modifier.height(8.dp))
-                TextButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { showLogoutDialog = true },
-                    shapes = ButtonDefaults.shapes(),
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error,
-                    ),
-                ) {
-                    Text(
-                        text = "登出",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-    }
-}
-
 @Composable
 internal fun LogoutConfirmDialog(
     onDismiss: () -> Unit,
@@ -1079,7 +456,7 @@ internal fun LogoutConfirmDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("登出") },
-        text = { Text("確定要登出嗎？登出後成績資料將被刪除。") },
+        text = { Text("確定要登出嗎？") },
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
@@ -1107,228 +484,4 @@ private fun SectionHeader(title: String) {
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
     )
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun GeneralSettingsCard(
-    settings: AppSettings,
-    onSetThemeMode: (ThemeMode) -> Unit,
-    onSetDynamicColor: (Boolean) -> Unit,
-    onSetAmoledBlack: (Boolean) -> Unit,
-) {
-    val isDarkActive = settings.themeMode == ThemeMode.DARK ||
-        (settings.themeMode == ThemeMode.SYSTEM /* assume could be dark */)
-
-    val appearanceItemCount = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 2 else 1
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
-    ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            ),
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedRoundedSymbol(
-                        icon = "brightness_medium",
-                        tint = MaterialTheme.colorScheme.primary,
-                        size = 22.dp,
-                        contentDescription = null,
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "主題",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-
-                val options = listOf("系統" to ThemeMode.SYSTEM, "淺色" to ThemeMode.LIGHT, "深色" to ThemeMode.DARK)
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    options.forEachIndexed { index, (label, mode) ->
-                        SegmentedButton(
-                            selected = settings.themeMode == mode,
-                            onClick = { onSetThemeMode(mode) },
-                            icon = {
-                                if (settings.themeMode == mode && mode != ThemeMode.SYSTEM) {
-                                    OutlinedRoundedSymbol(
-                                        icon = if (mode == ThemeMode.LIGHT) "light_mode" else "dark_mode",
-                                        size = 18.dp,
-                                        contentDescription = null,
-                                    )
-                                }
-                            },
-                            shape = SegmentedButtonDefaults.itemShape(
-                                index = index,
-                                count = options.size,
-                            ),
-                        ) {
-                            Text(label)
-                        }
-                    }
-                }
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            SettingsSwitchListItem(
-                icon = "palette",
-                title = "動態色彩",
-                subtitle = "依照桌布色彩調整",
-                checked = settings.dynamicColor,
-                onCheckedChange = onSetDynamicColor,
-                index = 0,
-                count = appearanceItemCount,
-            )
-        }
-        SettingsSwitchListItem(
-            icon = "dark_mode",
-            title = "純黑背景",
-            subtitle = "在深色模式使用純黑背景（AMOLED）",
-            checked = settings.amoledBlack,
-            onCheckedChange = onSetAmoledBlack,
-            enabled = isDarkActive,
-            index = appearanceItemCount - 1,
-            count = appearanceItemCount,
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun SettingsSwitchListItem(
-    icon: String,
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true,
-    index: Int = 0,
-    count: Int = 1,
-) {
-    SegmentedListItem(
-        checked = checked,
-        onCheckedChange = onCheckedChange,
-        enabled = enabled,
-        shapes = ListItemDefaults.segmentedShapes(
-            index = index,
-            count = count,
-            defaultShapes = if (count == 1) {
-                ListItemDefaults.shapes(shape = MaterialTheme.shapes.large)
-            } else {
-                ListItemDefaults.shapes()
-            },
-        ),
-        supportingContent = {
-            Text(
-                text = subtitle,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        },
-        leadingContent = {
-            OutlinedRoundedSymbol(
-                icon = icon,
-                size = 24.dp,
-                contentDescription = null,
-            )
-        },
-        trailingContent = {
-            Switch(
-                checked = checked,
-                onCheckedChange = null,
-                enabled = enabled,
-            )
-        },
-        colors = ListItemDefaults.segmentedColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            leadingContentColor = MaterialTheme.colorScheme.primary,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        verticalAlignment = Alignment.CenterVertically,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        modifier = Modifier
-            .fillMaxWidth(),
-    ) {
-        Text(text = title)
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun ClickableSettingsItem(
-    icon: String,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-    index: Int = 0,
-    count: Int = 1,
-    trailing: @Composable (() -> Unit)? = null,
-) {
-    SegmentedListItem(
-        onClick = onClick,
-        shapes = ListItemDefaults.segmentedShapes(
-            index = index,
-            count = count,
-            defaultShapes = if (count == 1) {
-                ListItemDefaults.shapes(shape = MaterialTheme.shapes.large)
-            } else {
-                ListItemDefaults.shapes()
-            },
-        ),
-        supportingContent = {
-            Text(
-                text = subtitle,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        },
-        leadingContent = {
-            OutlinedRoundedSymbol(
-                icon = icon,
-                size = 24.dp,
-                contentDescription = null,
-            )
-        },
-        trailingContent = {
-            if (trailing != null) {
-                trailing()
-            } else {
-                ForwardIndicator()
-            }
-        },
-        colors = ListItemDefaults.segmentedColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            leadingContentColor = MaterialTheme.colorScheme.primary,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        verticalAlignment = Alignment.CenterVertically,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        modifier = Modifier
-            .fillMaxWidth(),
-    ) {
-        Text(text = title)
-    }
-}
-
-@Composable
-private fun ForwardIndicator() {
-    OutlinedRoundedSymbol(
-        icon = "keyboard_arrow_right",
-        size = 24.dp,
-        contentDescription = null,
-    )
-}
-
-private fun openExternalUrl(context: Context, url: String) {
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
-    } catch (_: Exception) {
-        Toast.makeText(context, "無法開啟連結", Toast.LENGTH_SHORT).show()
-    }
 }

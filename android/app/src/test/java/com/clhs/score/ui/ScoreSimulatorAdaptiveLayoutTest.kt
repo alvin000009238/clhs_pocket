@@ -3,10 +3,17 @@ package com.clhs.score.ui
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScoreSimulatorAdaptiveLayoutTest {
+    @Test
+    fun targetReversalReportsRequiredAverageWithoutClamping() {
+        assertEquals(110.0, requiredUnlockedAverage(220.0, 0.0, 2.0)!!, 0.001)
+        assertNull(requiredUnlockedAverage(220.0, 0.0, 0.0))
+    }
+
     @Test
     fun wideWindowsUseSplitLayout() {
         assertFalse(scoreSimulatorUsesSplitLayout(599.dp))

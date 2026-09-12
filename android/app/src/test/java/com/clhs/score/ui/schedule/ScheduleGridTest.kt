@@ -4,9 +4,19 @@ import com.clhs.score.data.ScheduleChange
 import com.clhs.score.data.ScheduleChangeType
 import com.clhs.score.data.ScheduleItem
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScheduleGridTest {
+    @Test
+    fun changeTitlesDescribeTheActualEvent() {
+        assertEquals("加課", scheduleChangeTitle(ScheduleChangeType.ADDED))
+        assertEquals("調課", scheduleChangeTitle(ScheduleChangeType.MODIFIED))
+        assertEquals("停課", scheduleChangeTitle(ScheduleChangeType.REMOVED))
+    }
+
     @Test
     fun consecutiveIdenticalCoursesShareOneCell() {
         val items = listOf(
@@ -73,6 +83,29 @@ class ScheduleGridTest {
                 ),
             ),
         )
+    }
+
+    @Test
+    fun unchangedPrefilledFieldsRemainInheritedWhenSaved() {
+        val draft = scheduleSubjectOverrideDraft(
+            originalSubjectName = "國文",
+            originalTeacherName = "王老師",
+            originalClassroom = "101",
+            subjectName = "國語文",
+            teacherName = "王老師",
+            classroom = "101",
+        )
+
+        assertEquals("國語文", draft.customSubjectName)
+        assertNull(draft.customTeacherName)
+        assertNull(draft.customClassroom)
+    }
+
+    @Test
+    fun emptyDetailsOnlyAppearWhileEditing() {
+        assertFalse(shouldShowScheduleDetailField(value = "", isEditing = false))
+        assertTrue(shouldShowScheduleDetailField(value = "", isEditing = true))
+        assertTrue(shouldShowScheduleDetailField(value = "王老師", isEditing = false))
     }
 
     private fun lesson(period: Int, classroom: String = "101") =

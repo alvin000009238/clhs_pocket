@@ -45,6 +45,19 @@ class ActiveSessionResolverTest {
     }
 
     @Test
+    fun currentSessionDoesNotUseStoredSessionWhenSessionAccessIsNotAllowed() = runTest {
+        val stored = AuthenticatedSession("stored", "stored-token", mapOf("a" to "1"))
+        val resolver = ActiveSessionResolver(
+            activeSessionProvider = { null },
+            storedSessionProvider = { stored },
+            biometricSessionPresentProvider = { false },
+            sessionAccessAllowedProvider = { false },
+        )
+
+        assertNull(resolver.currentSession())
+    }
+
+    @Test
     fun requireSessionReportsNotLoggedInWhenNoAllowedSessionExists() = runTest {
         val resolver = ActiveSessionResolver(
             activeSessionProvider = { null },

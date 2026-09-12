@@ -4,6 +4,8 @@ import biweekly.Biweekly
 import biweekly.component.VEvent
 import biweekly.util.ICalDate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.CookieJar
 import okhttp3.OkHttpClient
@@ -11,9 +13,6 @@ import okhttp3.Request
 import okio.Buffer
 import java.io.File
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -26,6 +25,7 @@ const val SCHOOL_CALENDAR_ICS_URL =
     "https://calendar.google.com/calendar/ical/document%40clhs.tyc.edu.tw/public/basic.ics"
 const val SCHOOL_CALENDAR_WEB_URL =
     "https://calendar.google.com/calendar/u/0/r?cid=document@clhs.tyc.edu.tw"
+const val SCHOOL_CALENDAR_SEARCH_MAX_LENGTH = 100
 
 data class SchoolCalendarEvent(
     val id: String,
@@ -47,14 +47,15 @@ data class SchoolCalendarSnapshot(
 )
 
 class NetworkSchoolCalendarRepository(
-    private val cacheDirectory: File,
+    cacheDirectory: File,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .cookieJar(CookieJar.NO_COOKIES)
         .build(),
     private val feedUrl: String = SCHOOL_CALENDAR_ICS_URL,
     private val nowProvider: () -> Instant = Instant::now,
 ) {
-    private val cacheFile = File(cacheDirectory, CACHE_FILE_NAME)
+    private val cache = LatestCacheFile(cacheDirectory, CACHE_FILE_NAME)
+    private val cacheFile = cache.file
 
     suspend fun loadCached(): SchoolCalendarSnapshot? = withContext(Dispatchers.IO) {
         readCache()
@@ -68,20 +69,26 @@ class NetworkSchoolCalendarRepository(
         ) {
             return cached
         }
+        val cacheGeneration = cache.beginWrite()
+        val requestContext = currentCoroutineContext()
 
         val request = Request.Builder().url(feedUrl).get().build()
-        return client.newCall(request).executeCancellable { response ->
-            if (!response.isSuccessful) {
-                throw IOException("Calendar request failed with HTTP ${response.code}")
+        return withContext(Dispatchers.IO) {
+            client.newCall(request).executeCancellable { response ->
+                currentCoroutineContext().ensureActive()
+                if (!response.isSuccessful) {
+                    throw IOException("Calendar request failed with HTTP ${response.code}")
+                }
+                val body = response.body
+                if (body.contentLength() > MAX_FEED_BYTES) {
+                    throw IOException("Calendar response is too large")
+                }
+                val bytes = readLimited(body.source())
+                val feed = SchoolCalendarIcsParser.parse(bytes.toString(Charsets.UTF_8))
+                currentCoroutineContext().ensureActive()
+                cache.commit(bytes, now.toEpochMilli(), cacheGeneration, requestContext)
+                SchoolCalendarSnapshot(feed = feed, fetchedAt = now)
             }
-            val body = response.body
-            if (body.contentLength() > MAX_FEED_BYTES) {
-                throw IOException("Calendar response is too large")
-            }
-            val bytes = readLimited(body.source())
-            val feed = SchoolCalendarIcsParser.parse(bytes.toString(Charsets.UTF_8))
-            writeCache(bytes, now)
-            SchoolCalendarSnapshot(feed = feed, fetchedAt = now)
         }
     }
 
@@ -93,31 +100,6 @@ class NetworkSchoolCalendarRepository(
                 fetchedAt = Instant.ofEpochMilli(cacheFile.lastModified()),
             )
         }.getOrNull()
-    }
-
-    private fun writeCache(bytes: ByteArray, fetchedAt: Instant) {
-        cacheDirectory.mkdirs()
-        val temporaryFile = File(cacheDirectory, "$CACHE_FILE_NAME.tmp")
-        try {
-            temporaryFile.writeBytes(bytes)
-            try {
-                Files.move(
-                    temporaryFile.toPath(),
-                    cacheFile.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(
-                    temporaryFile.toPath(),
-                    cacheFile.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            }
-            cacheFile.setLastModified(fetchedAt.toEpochMilli())
-        } finally {
-            temporaryFile.delete()
-        }
     }
 
     private fun readLimited(source: okio.BufferedSource): ByteArray {

@@ -16,6 +16,7 @@ class ScoreFirebaseMessagingService : FirebaseMessagingService() {
         showNotification(message)
     }
 
+    @Suppress("OVERRIDE_DEPRECATION")
     override fun onNewToken(token: String) {
         // Topic subscriptions are restored by Firebase and SettingsViewModel on app launch.
     }
@@ -33,6 +34,13 @@ class ScoreFirebaseMessagingService : FirebaseMessagingService() {
         val isUpdateTopic = message.from == "/topics/${NotificationTopicManager.APP_UPDATES_TOPIC}" ||
             message.data["check_update"] == "true" ||
             message.data["action"] == "check_update"
+        val announcementId = message.data["announcement_id"]
+            ?.takeIf {
+                message.data["action"] == "open_announcement" &&
+                    it.length in 1..32 &&
+                    it.all(Char::isDigit)
+            }
+        val announcementCategory = message.data["announcement_category"].orEmpty().take(80)
 
         NotificationChannels.ensureCreated(this)
 
@@ -41,7 +49,7 @@ class ScoreFirebaseMessagingService : FirebaseMessagingService() {
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
-            .setContentIntent(buildContentIntent(url, isUpdateTopic))
+            .setContentIntent(buildContentIntent(url, isUpdateTopic, announcementId, announcementCategory))
             .setAutoCancel(true)
             .build()
 
@@ -49,8 +57,13 @@ class ScoreFirebaseMessagingService : FirebaseMessagingService() {
         manager.notify(notificationIdCounter.getAndIncrement(), notification)
     }
 
-    private fun buildContentIntent(url: String, isUpdateTopic: Boolean): PendingIntent {
-        val safeUri = if (url.isNotBlank() && !isUpdateTopic) {
+    private fun buildContentIntent(
+        url: String,
+        isUpdateTopic: Boolean,
+        announcementId: String?,
+        announcementCategory: String,
+    ): PendingIntent {
+        val safeUri = if (url.isNotBlank() && !isUpdateTopic && announcementId == null) {
             url.toUri().takeIf { it.scheme in listOf("http", "https") }
         } else {
             null
@@ -63,20 +76,31 @@ class ScoreFirebaseMessagingService : FirebaseMessagingService() {
                 ?: Intent(Intent.ACTION_MAIN).setPackage(packageName)
         }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
 
-        if (isUpdateTopic) {
-            intent.putExtra(EXTRA_CHECK_UPDATE, true)
+        val capabilityToken = when {
+            isUpdateTopic -> NotificationActionCapabilities.issueUpdate(this)
+            announcementId != null -> NotificationActionCapabilities.issueAnnouncement(
+                this,
+                announcementId,
+                announcementCategory,
+            )
+            else -> null
+        }
+        if (capabilityToken != null) {
+            intent.putExtra(
+                NotificationActionCapabilities.EXTRA_CAPABILITY,
+                capabilityToken,
+            )
         }
 
         return PendingIntent.getActivity(
             this,
-            notificationIdCounter.get(),
+            capabilityToken?.hashCode() ?: notificationIdCounter.get(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }
 
     companion object {
-        const val EXTRA_CHECK_UPDATE = "check_update"
         private val notificationIdCounter = AtomicInteger(1000)
     }
 }

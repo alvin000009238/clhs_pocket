@@ -6,6 +6,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.await
 import java.util.concurrent.TimeUnit
 
 class GradeReminderScheduler(context: Context) {
@@ -31,8 +32,8 @@ class GradeReminderScheduler(context: Context) {
         )
     }
 
-    fun cancel() {
-        workManager.cancelUniqueWork(UNIQUE_WORK_NAME)
+    suspend fun cancel() {
+        workManager.cancelUniqueWork(UNIQUE_WORK_NAME).await()
     }
 
     companion object {

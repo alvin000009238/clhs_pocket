@@ -16,4 +16,14 @@ message SessionStorage {
   bool legacy_migration_complete = 3;
   bool general_legacy_migration_complete = 4;
   bool reminder_legacy_migration_complete = 5;
+  enum Validity {
+    UNKNOWN = 0;
+    VALID = 1;
+    REVOKED = 2;
+  }
+  Validity validity = 6;
+  string authorization_id = 7;
+  bool cleanup_pending = 8;
+  bool reminder_revoked = 9;
+  bool reminder_cleanup_pending = 10;
 }

@@ -5,6 +5,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration.Companion.seconds
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -73,9 +74,105 @@ class SchoolAnnouncementsTest {
             assertEquals("POST", first.method)
             assertTrue(firstBody.contains("flock="))
             assertTrue(firstBody.contains("maxRows=20"))
+            assertFalse(firstBody.contains("unit="))
             assertNull(first.getHeader("Cookie"))
             assertNull(second.getHeader("Cookie"))
             assertTrue(second.body.readUtf8().contains("pageNum=1"))
+        } finally {
+            cacheDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun unitParserRejectsInvalidIdsAndDeduplicatesIdsAndNames() {
+        val units = SchoolAnnouncementParser.parseUnits(
+            """
+            <select class="select-unit-x">
+              <option value="-1">全部</option>
+              <option value="69">總務處官網</option>
+              <option value="69">重複 ID</option>
+              <option value="70">總務處官網</option>
+              <option value="bad">不合法</option>
+            </select>
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("-1", "69"), units.map(AnnouncementUnit::id))
+        assertEquals(listOf("全部", "總務處官網"), units.map(AnnouncementUnit::name))
+    }
+
+    @Test
+    fun unitRepositoryKeepsLastSuccessfulCacheAndCanRetryAfterFailure() = runTest {
+        server.enqueue(MockResponse().setResponseCode(500))
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                "<select class='select-unit-x'><option value='-1'>全部</option><option value='425'>首頁</option></select>",
+            ),
+        )
+        server.enqueue(MockResponse().setResponseCode(500))
+        val cacheDirectory = Files.createTempDirectory("announcement-unit-test").toFile()
+        val repository = NetworkSchoolAnnouncementsRepository(cacheDirectory, baseUrl = server.url("/"))
+
+        try {
+            assertEquals(defaultAnnouncementUnits(), repository.loadCachedUnits())
+            runCatching { repository.loadUnits() }
+            assertEquals(listOf("-1"), repository.loadCachedUnits().map(AnnouncementUnit::id))
+            assertEquals(listOf("-1", "425"), repository.loadUnits().map(AnnouncementUnit::id))
+            runCatching { repository.loadUnits() }
+            assertEquals(listOf("-1", "425"), repository.loadCachedUnits().map(AnnouncementUnit::id))
+            assertEquals("/home", server.takeRequest().path)
+        } finally {
+            cacheDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun repositoryPostsValidatedUnitWithoutCookies() = runTest {
+        server.enqueue(jsonResponse(RECORDED_LIST_JSON))
+        val cacheDirectory = Files.createTempDirectory("announcement-unit-post-test").toFile()
+        val repository = NetworkSchoolAnnouncementsRepository(cacheDirectory, baseUrl = server.url("/"))
+
+        try {
+            repository.loadPage(0, unitId = "425")
+            val request = server.takeRequest()
+            val body = request.body.readUtf8()
+            assertTrue(body.contains("flock=unit_425"))
+            assertFalse(body.contains("&unit="))
+            assertNull(request.getHeader("Cookie"))
+            assertTrue(runCatching { repository.loadPage(0, unitId = "bad") }.isFailure)
+        } finally {
+            cacheDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun repositorySearchUsesUtf8KeywordForEveryPageWithoutReplacingDefaultCache() = runTest {
+        server.enqueue(jsonResponse(RECORDED_LIST_JSON))
+        server.enqueue(jsonResponse(RECORDED_SEARCH_JSON))
+        server.enqueue(jsonResponse(RECORDED_SEARCH_JSON.replace("\"pageNum\":0", "\"pageNum\":1")))
+        val cacheDirectory = Files.createTempDirectory("school-announcement-search-test").toFile()
+        val repository = NetworkSchoolAnnouncementsRepository(
+            cacheDirectory = cacheDirectory,
+            baseUrl = server.url("/"),
+        )
+
+        try {
+            val defaultPage = repository.loadPage(0)
+            repository.loadPage(0, " 模擬考 ")
+            repository.loadPage(1, "模擬考")
+            val cached = repository.loadCached()
+
+            assertEquals(defaultPage.announcements, cached?.announcements)
+            val defaultRequest = server.takeRequest()
+            val firstSearchRequest = server.takeRequest()
+            val secondSearchRequest = server.takeRequest()
+            assertTrue(defaultRequest.body.readUtf8().contains("keyword="))
+            assertTrue(firstSearchRequest.body.readUtf8().contains("keyword=%E6%A8%A1%E6%93%AC%E8%80%83"))
+            val secondBody = secondSearchRequest.body.readUtf8()
+            assertTrue(secondBody.contains("keyword=%E6%A8%A1%E6%93%AC%E8%80%83"))
+            assertTrue(secondBody.contains("pageNum=1"))
+            assertNull(firstSearchRequest.getHeader("Cookie"))
+            assertNull(secondSearchRequest.getHeader("Cookie"))
         } finally {
             cacheDirectory.deleteRecursively()
         }
@@ -95,7 +192,7 @@ class SchoolAnnouncementsTest {
             assertTrue(server.takeRequest(2, TimeUnit.SECONDS) != null)
             load.cancel()
 
-            withTimeout(1_000L) { load.join() }
+            withTimeout(1.seconds) { load.join() }
             assertTrue(load.isCancelled)
         } finally {
             cacheDirectory.deleteRecursively()
@@ -112,6 +209,7 @@ class SchoolAnnouncementsTest {
         assertFalse(detail.htmlContent.contains("script", ignoreCase = true))
         assertFalse(detail.htmlContent.contains("javascript:", ignoreCase = true))
         assertTrue(detail.htmlContent.contains("⚠️ 此內容包含表格"))
+        assertEquals(1, detail.htmlContent.windowed("⚠️ 此內容包含表格".length).count { it == "⚠️ 此內容包含表格" })
         assertEquals(2, detail.images.size)
         assertEquals(1, detail.images.count { it.canPreview })
         assertTrue(detail.images.first { it.canPreview }.url.startsWith("https://www.clhs.tyc.edu.tw/"))
@@ -175,6 +273,30 @@ class SchoolAnnouncementsTest {
         }
     }
 
+    @Test
+    fun repositoryAllowsUidPageLargerThanLegacyViewLimit() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody(
+                    "<script>var g_news_unique_id = \"public-detail-uid\";</script>"
+                        .padEnd(600 * 1024, 'x'),
+                ),
+        )
+        server.enqueue(jsonResponse(RECORDED_DETAIL_JSON))
+        val cacheDirectory = Files.createTempDirectory("school-announcement-large-view-test").toFile()
+        val repository = NetworkSchoolAnnouncementsRepository(
+            cacheDirectory = cacheDirectory,
+            baseUrl = server.url("/"),
+        )
+
+        try {
+            assertEquals("45072", repository.loadDetail("45072", "公告").id)
+        } finally {
+            cacheDirectory.deleteRecursively()
+        }
+    }
+
     private fun jsonResponse(body: String): MockResponse = MockResponse()
         .setResponseCode(200)
         .setHeader("Content-Type", "application/json; charset=utf-8")
@@ -190,6 +312,13 @@ class SchoolAnnouncementsTest {
             ]
         """.trimIndent()
 
+        val RECORDED_SEARCH_JSON = """
+            [
+              {"pageNum":0,"maxRows":20,"totalPages":2},
+              {"newsId":"search-result","top":0,"time":"2026/08/17","attr_name":"公告","title":"高三第二次模擬考日程表","name":"教學組","content_type":"content"}
+            ]
+        """.trimIndent()
+
         val RECORDED_DETAIL_JSON = """
             [{
               "rcode":200,
@@ -198,7 +327,7 @@ class SchoolAnnouncementsTest {
               "title":"圖書館八月閉館時間異動公告",
               "unit":"圖書館官網",
               "issuer":"讀者服務組",
-              "content":"%3Cscript%3Ealert(1)%3C%2Fscript%3E%3Cp%3E%3Cstrong%3E%E9%96%89%E9%A4%A8%E6%97%A5%E6%9C%9F%3C%2Fstrong%3E%3Ca%20href%3D%22%2Fnotice%22%3E%E8%A9%B3%E6%83%85%3C%2Fa%3E%3Ca%20href%3D%22javascript%3Aalert(1)%22%3Ebad%3C%2Fa%3E%3C%2Fp%3E%3Cimg%20src%3D%22%2Fischool%2Fstatic%2Fimage%2Fnews.jpg%22%20alt%3D%22%E5%85%AC%E5%91%8A%E5%9C%96%E7%89%87%22%3E%3Cimg%20src%3D%22https%3A%2F%2Ftracker.example%2Fpixel.png%22%3E%3Ctable%3E%3Ctr%3E%3Ctd%3Edata%3C%2Ftd%3E%3C%2Ftr%3E%3C%2Ftable%3E",
+              "content":"%3Cscript%3Ealert(1)%3C%2Fscript%3E%3Cp%3E%3Cstrong%3E%E9%96%89%E9%A4%A8%E6%97%A5%E6%9C%9F%3C%2Fstrong%3E%3Ca%20href%3D%22%2Fnotice%22%3E%E8%A9%B3%E6%83%85%3C%2Fa%3E%3Ca%20href%3D%22javascript%3Aalert(1)%22%3Ebad%3C%2Fa%3E%3C%2Fp%3E%3Cimg%20src%3D%22%2Fischool%2Fstatic%2Fimage%2Fnews.jpg%22%20alt%3D%22%E5%85%AC%E5%91%8A%E5%9C%96%E7%89%87%22%3E%3Cimg%20src%3D%22https%3A%2F%2Ftracker.example%2Fpixel.png%22%3E%3Ctable%3E%3Ctr%3E%3Ctd%3Edata%3C%2Ftd%3E%3C%2Ftr%3E%3C%2Ftable%3E%3Ctable%3E%3Ctr%3E%3Ctd%3Emore%3C%2Ftd%3E%3C%2Ftr%3E%3C%2Ftable%3E",
               "content_type":"content",
               "attachedfile":"[[\"opaque\",245760,\"%u516B%u6708%u958B%u9928%u6642%u9593.pdf\"]]"
             }]

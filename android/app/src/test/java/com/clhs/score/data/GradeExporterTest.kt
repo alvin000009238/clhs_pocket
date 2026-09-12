@@ -46,4 +46,25 @@ class GradeExporterTest {
             csv,
         )
     }
+
+    @Test
+    fun csvNeutralizesSpreadsheetFormulaPrefixes() {
+        val cases = mapOf(
+            "=SUM(A1:A2)" to "'=SUM(A1:A2)",
+            "+cmd" to "'+cmd",
+            "-1" to "'-1",
+            "@SUM(A1)" to "'@SUM(A1)",
+            "\tformula" to "'\tformula",
+            "\rformula" to "\"'\rformula\"",
+            "  =SUM(A1)" to "'  =SUM(A1)",
+            "plain" to "plain",
+            "a,b" to "\"a,b\"",
+            "a\"b" to "\"a\"\"b\"",
+            "a\nb" to "\"a\nb\"",
+        )
+
+        cases.forEach { (input, expected) ->
+            assertEquals(input, expected, GradeExporter.csvEscape(input))
+        }
+    }
 }

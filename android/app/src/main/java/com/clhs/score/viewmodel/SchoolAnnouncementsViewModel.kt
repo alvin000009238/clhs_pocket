@@ -8,6 +8,7 @@ import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
 import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.SchoolAnnouncementDetail
 import com.clhs.score.data.SchoolAnnouncementPage
+import com.clhs.score.data.SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,11 +29,12 @@ data class SchoolAnnouncementsUiState(
     val errorMessage: String? = null,
     val noticeMessage: String? = null,
     val loadMoreError: String? = null,
+    val searchQuery: String = "",
 )
 
 class SchoolAnnouncementsViewModel(
     private val loadCached: suspend () -> SchoolAnnouncementPage?,
-    private val loadPage: suspend (Int) -> SchoolAnnouncementPage,
+    private val loadPage: suspend (Int, String) -> SchoolAnnouncementPage,
 ) : ViewModel() {
     private var loadJob: Job? = null
     private var loadMoreJob: Job? = null
@@ -44,7 +46,32 @@ class SchoolAnnouncementsViewModel(
     }
 
     fun refresh() {
-        loadFirstPage(includeCache = false)
+        loadFirstPage(includeCache = false, keyword = _uiState.value.searchQuery)
+    }
+
+    fun search(keyword: String) {
+        val normalizedKeyword = keyword.trim().take(SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH)
+        if (normalizedKeyword == _uiState.value.searchQuery) {
+            if (normalizedKeyword.isNotEmpty()) refresh()
+            return
+        }
+        _uiState.update {
+            it.copy(
+                announcements = emptyList(),
+                pageIndex = 0,
+                hasMore = false,
+                lastUpdatedAt = null,
+                errorMessage = null,
+                noticeMessage = null,
+                loadMoreError = null,
+                searchQuery = normalizedKeyword,
+            )
+        }
+        loadFirstPage(includeCache = normalizedKeyword.isEmpty(), keyword = normalizedKeyword)
+    }
+
+    fun clearSearch() {
+        if (_uiState.value.searchQuery.isNotEmpty()) search("")
     }
 
     fun loadMore() {
@@ -55,7 +82,7 @@ class SchoolAnnouncementsViewModel(
         loadMoreJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoadingMore = true, loadMoreError = null) }
             try {
-                val page = loadPage(nextPage)
+                val page = loadPage(nextPage, state.searchQuery)
                 _uiState.update { current ->
                     current.copy(
                         isLoadingMore = false,
@@ -82,7 +109,10 @@ class SchoolAnnouncementsViewModel(
         _uiState.update { it.copy(noticeMessage = null) }
     }
 
-    private fun loadFirstPage(includeCache: Boolean) {
+    private fun loadFirstPage(
+        includeCache: Boolean,
+        keyword: String = _uiState.value.searchQuery,
+    ) {
         loadJob?.cancel()
         loadMoreJob?.cancel()
         loadJob = viewModelScope.launch {
@@ -108,7 +138,7 @@ class SchoolAnnouncementsViewModel(
                 )
             }
             try {
-                showFirstPage(loadPage(0))
+                showFirstPage(loadPage(0, keyword))
             } catch (error: Exception) {
                 error.throwIfAnnouncementCancellation()
                 _uiState.update { state ->

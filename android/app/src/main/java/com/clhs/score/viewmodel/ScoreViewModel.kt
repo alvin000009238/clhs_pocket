@@ -1,5 +1,7 @@
 package com.clhs.score.viewmodel
 
+import java.io.IOException
+import kotlinx.coroutines.CoroutineStart
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -13,43 +15,54 @@ import com.clhs.score.analytics.FirebaseAnalyticsLogger
 import com.clhs.score.analytics.NoOpAnalyticsLogger
 import com.clhs.score.data.AuthenticatedSession
 import com.clhs.score.data.ExamSelection
+import com.clhs.score.data.FakeData
 import com.clhs.score.data.GradeAnalysis
 import com.clhs.score.data.GradeCacheStore
 import com.clhs.score.data.GradeChangeSet
 import com.clhs.score.data.GradeExporter
 import com.clhs.score.data.GradeReminderRepository
+import com.clhs.score.data.GradeReminderIdentity
 import com.clhs.score.data.GradeReminderState
 import com.clhs.score.data.GradeReport
 import com.clhs.score.data.GradeReportDiffer
 import com.clhs.score.data.GradeRepository
 import com.clhs.score.data.GradeTrend
 import com.clhs.score.data.SchoolException
+import com.clhs.score.data.SchoolAuthenticationException
 import com.clhs.score.data.SchoolGradeClient
 import com.clhs.score.data.SchoolGradeRepository
-import com.clhs.score.data.ScoreInsightSet
+import com.clhs.score.data.SessionCleanupFailure
+import com.clhs.score.data.SessionCleanupException
+import com.clhs.score.data.DeveloperDiagnostics
 import com.clhs.score.data.SessionStore
 import com.clhs.score.data.SessionStorageException
 import com.clhs.score.data.SimulationHistorySource
+import com.clhs.score.data.StudentInfo
 import com.clhs.score.data.YearTermOption
 import com.clhs.score.data.buildGradeAnalysis
-import com.clhs.score.data.buildScoreInsights
 import com.clhs.score.data.buildGradeTrend
 import com.clhs.score.data.cleanSubjectName
 import com.clhs.score.data.latestExam
 import com.clhs.score.data.latestYearTerm
-import com.clhs.score.data.parseYearTerm
+import com.clhs.score.data.identity
 import com.clhs.score.data.sameTermHistorySource
 import com.clhs.score.data.sameTermTrendSource
 import com.clhs.score.data.simulationHistorySource
 import com.clhs.score.reminders.GradeReminderScheduler
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 
 private data class HistoricalExamRequest(
     val yearValue: String,
@@ -63,9 +76,8 @@ data class LoginUiState(
 )
 
 data class GradesUiState(
-    val isLoggedIn: Boolean = false,
-    val isRestoringSession: Boolean = true,
     val studentNo: String = "",
+    val studentInfo: StudentInfo? = null,
     val isLoadingStructure: Boolean = false,
     val isLoadingGrades: Boolean = false,
     val isLoadingComparison: Boolean = false,
@@ -84,7 +96,6 @@ data class GradesUiState(
     val isLoadingSimulatorHistory: Boolean = false,
     val simulatorHistoryReports: List<GradeReport> = emptyList(),
     val simulatorHistoryLabel: String? = null,
-    val insights: ScoreInsightSet? = null,
     val analysis: GradeAnalysis? = null,
     val expandedSubjectKeys: Set<String> = emptySet(),
     val errorMessage: String? = null,
@@ -96,14 +107,6 @@ data class GradesUiState(
     val gradeReminderChangeSet: GradeChangeSet? = null,
 )
 
-data class SubjectTrendUiState(
-    val selectedYearValues: Set<String> = emptySet(),
-    val selectedSubjectKeys: Set<String> = emptySet(),
-    val isLoading: Boolean = false,
-    val reports: List<GradeReport> = emptyList(),
-    val errorMessage: String? = null,
-)
-
 class ScoreViewModel(
     private val repository: GradeRepository,
     private val appContext: Context? = null,
@@ -111,26 +114,66 @@ class ScoreViewModel(
     private val gradeReminderRepository: GradeReminderRepository? = null,
     private val gradeReminderScheduler: GradeReminderScheduler? = null,
     private val analyticsLogger: AnalyticsLogger = NoOpAnalyticsLogger,
+    private val onAuthenticationExpired: () -> Unit = {},
+    private val demoMode: Boolean = false,
 ) : ViewModel() {
     private var session: AuthenticatedSession? = null
+    private var authGeneration = 0L
     private var structureRequestId = 0
     private var gradeRequestId = 0
-    private var subjectTrendRequestId = 0
     private var pendingReminderTarget: Pair<String, String>? = null
     private var ensuredGradeReminderWorkKey: String? = null
+    private var restoreJob: Job? = null
+    private var loginJob: Job? = null
+    private var structureJob: Job? = null
+    private var studentInfoJob: Job? = null
+    private var gradeJob: Job? = null
+    private var historyJob: Job? = null
+    private var exportJob: Job? = null
+    private var reminderStartJob: Job? = null
+    private var logoutJob: Job? = null
+
+    private val _cleanupFailures = MutableStateFlow<Set<SessionCleanupFailure>>(emptySet())
+    internal val cleanupFailures: StateFlow<Set<SessionCleanupFailure>> = _cleanupFailures
 
     private val _loginState = MutableStateFlow(LoginUiState())
     val loginState: StateFlow<LoginUiState> = _loginState
 
+    private val _authState = MutableStateFlow<AuthState>(AuthState.Restoring)
+    val authState: StateFlow<AuthState> = _authState
+
     private val _gradesState = MutableStateFlow(GradesUiState())
     val gradesState: StateFlow<GradesUiState> = _gradesState
 
-    private val _subjectTrendState = MutableStateFlow(SubjectTrendUiState())
-    val subjectTrendState: StateFlow<SubjectTrendUiState> = _subjectTrendState
+    private val subjectTrendOwner = SubjectTrendStateOwner(
+        repository = repository,
+        analyticsLogger = analyticsLogger,
+        scope = viewModelScope,
+        onAuthenticationExpired = ::handleSessionExpired,
+    )
+    val subjectTrendState: StateFlow<SubjectTrendUiState> = subjectTrendOwner.state
 
     init {
+        if (!demoMode) {
+            viewModelScope.launch {
+                sessionStore?.authorizationRevoked?.collect { revoked ->
+                    if (revoked) handleSessionExpired()
+                }
+            }
+        }
         observeGradeReminderState()
-        restoreSession()
+        if (demoMode) {
+            activateDemoSession()
+        } else {
+            restoreSession()
+        }
+    }
+
+    private fun activateDemoSession() {
+        repository.activateSession(FakeData.session)
+        publishAuthenticated(FakeData.session)
+        _gradesState.update { it.copy(studentNo = FakeData.session.studentNo) }
+        loadStructure()
     }
 
     private fun observeGradeReminderState() {
@@ -140,18 +183,17 @@ class ScoreViewModel(
                 val now = System.currentTimeMillis()
                 if (reminderState.enabled && !reminderState.isActive(now)) {
                     ensuredGradeReminderWorkKey = null
-                    reminderRepository.stop("段考提醒已超過 48 小時")
-                    gradeReminderScheduler?.cancel()
-                    try {
-                        sessionStore?.clearReminderSession()
-                    } catch (_: SessionStorageException) {
-                        // State and scheduled work are already stopped; retry cleanup on a later lifecycle path.
-                    }
-                    _gradesState.update {
-                        it.copy(
-                            gradeReminderState = GradeReminderState(stoppedReason = "段考提醒已超過 48 小時"),
-                            gradeReminderChangeSet = null,
-                        )
+                    val stopped = stopGradeReminderPersistence(
+                        reason = "段考更新提醒已超過 48 小時",
+                        expectedIdentity = reminderState.identity(),
+                    )
+                    if (stopped) {
+                        _gradesState.update {
+                            it.copy(
+                                gradeReminderState = GradeReminderState(stoppedReason = "段考更新提醒已超過 48 小時"),
+                                gradeReminderChangeSet = null,
+                            )
+                        }
                     }
                     return@collect
                 }
@@ -176,6 +218,9 @@ class ScoreViewModel(
         gradeRequestId++
         if (latestExam == null) {
             structureRequestId++
+            structureJob?.cancel()
+            gradeJob?.cancel()
+            historyJob?.cancel()
             _gradesState.update {
                 it.copy(
                     selectedYearValue = value,
@@ -196,7 +241,6 @@ class ScoreViewModel(
                     simulatorHistoryLabel = null,
                     report = null,
                     analysis = null,
-                    insights = null,
                     expandedSubjectKeys = emptySet(),
                     errorMessage = null,
                     gradeReminderChangeSet = null,
@@ -235,9 +279,9 @@ class ScoreViewModel(
         val key = cleanSubjectName(subjectName)
         _gradesState.update { state ->
             val next = if (key in state.expandedSubjectKeys) {
-                state.expandedSubjectKeys - key
+                emptySet()
             } else {
-                state.expandedSubjectKeys + key
+                setOf(key)
             }
             state.copy(expandedSubjectKeys = next)
         }
@@ -250,7 +294,8 @@ class ScoreViewModel(
 
     fun exportGrades(selections: List<ExamSelection>, context: Context) {
         val currentSession = session ?: return
-        viewModelScope.launch {
+        exportJob?.cancel()
+        exportJob = viewModelScope.launch {
             _gradesState.update { it.copy(isExporting = true, exportResult = null) }
             runCatching {
                 val reports = coroutineScope {
@@ -262,13 +307,16 @@ class ScoreViewModel(
                         }
                     }.awaitAll()
                 }
-                val csvPairs = reports.map { (sel, report) -> sel.displayName to report }
-                val csv = GradeExporter.buildCsvContent(csvPairs)
-                GradeExporter.saveCsvToDownloads(
-                    context = context,
-                    csv = csv,
-                    studentNo = currentSession.studentNo,
-                ).getOrThrow()
+                withContext(Dispatchers.IO) {
+                    val csvPairs = reports.map { (sel, report) -> sel.displayName to report }
+                    val csv = GradeExporter.buildCsvContent(csvPairs)
+                    GradeExporter.saveCsvToDownloads(
+                        context = context,
+                        csv = csv,
+                        studentNo = currentSession.studentNo,
+                        shouldPublish = { session === currentSession },
+                    ).getOrThrow()
+                }
             }.onSuccess { fileName ->
                 analyticsLogger.logEvent(
                     AnalyticsEvents.EXPORT_GRADES,
@@ -282,6 +330,10 @@ class ScoreViewModel(
                 }
             }.onFailure { error ->
                 error.throwIfCancellation()
+                if (error is SchoolAuthenticationException) {
+                    handleSessionExpired()
+                    return@onFailure
+                }
                 analyticsLogger.logEvent(
                     AnalyticsEvents.EXPORT_GRADES,
                     mapOf(
@@ -308,50 +360,59 @@ class ScoreViewModel(
             AnalyticsEvents.LOGOUT,
             mapOf(AnalyticsParams.SOURCE to source),
         )
-        structureRequestId++
-        gradeRequestId++
-        ensuredGradeReminderWorkKey = null
-        resetSubjectTrendState()
-        val sessionToClear = session
-        viewModelScope.launch {
-            try {
-                repository.logout(sessionToClear)
-            } catch (_: SessionStorageException) {
-                // UI state is already logged out; continue clearing reminder state and work below.
-            }
-            gradeReminderRepository?.stop("使用者登出")
-            gradeReminderScheduler?.cancel()
-            try {
-                sessionStore?.clearReminderSession()
-            } catch (_: SessionStorageException) {
-                // Repository logout already attempted the authoritative session clear.
-            }
-        }
-        session = null
-        _gradesState.value = GradesUiState(isRestoringSession = false)
-        _loginState.value = LoginUiState()
+        clearSession("使用者登出")
     }
 
-    fun getCurrentSession(): AuthenticatedSession? = session
+    fun getCurrentSession(): AuthenticatedSession? = session?.takeIf {
+        demoMode || sessionStore?.isAuthorized(it) != false
+    }
+
+    fun handleSessionExpired() {
+        if (_authState.value !is AuthState.Authenticated) return
+        clearSession("登入狀態已失效")
+        onAuthenticationExpired()
+    }
 
     fun loginWithBiometricSession(restored: AuthenticatedSession) {
-        session = restored
-        analyticsLogger.logEvent(
-            AnalyticsEvents.LOGIN_RESULT,
-            mapOf(
-                AnalyticsParams.METHOD to AnalyticsValues.METHOD_BIOMETRIC,
-                AnalyticsParams.RESULT to AnalyticsValues.RESULT_SUCCESS,
-            ),
-        )
-        _gradesState.update {
-            it.copy(
-                isLoggedIn = true,
-                studentNo = restored.studentNo,
-                errorMessage = null,
+        restoreJob?.cancel()
+        _authState.value = AuthState.Authenticating
+        loginJob?.cancel()
+        loginJob = viewModelScope.launch {
+            logoutJob?.join()
+            try {
+                sessionStore?.validateSession(restored)
+            } catch (_: SessionStorageException) {
+                clearSession("登入狀態已失效")
+                return@launch
+            }
+            repository.activateSession(restored)
+            publishAuthenticated(restored)
+            analyticsLogger.logEvent(
+                AnalyticsEvents.LOGIN_RESULT,
+                mapOf(
+                    AnalyticsParams.METHOD to AnalyticsValues.METHOD_BIOMETRIC,
+                    AnalyticsParams.RESULT to AnalyticsValues.RESULT_SUCCESS,
+                ),
             )
+            _gradesState.update {
+                it.copy(
+                    studentNo = restored.studentNo,
+                    studentInfo = null,
+                    errorMessage = null,
+                )
+            }
+            studentInfoJob?.cancel()
+            studentInfoJob = viewModelScope.launch {
+                runCatching { repository.loadCachedStudentInfo(restored) }
+                    .onSuccess { studentInfo ->
+                        if (session == restored) {
+                            _gradesState.update { it.copy(studentInfo = studentInfo) }
+                        }
+                    }
+                    .onFailure { error -> error.throwIfCancellation() }
+            }
+            loadStructure()
         }
-        repository.activateSession(restored)
-        loadStructure()
     }
 
     fun loginWithWebViewCookies(studentNo: String, cookieString: String) {
@@ -364,21 +425,27 @@ class ScoreViewModel(
             AnalyticsEvents.LOGIN_START,
             mapOf(AnalyticsParams.METHOD to method),
         )
-        viewModelScope.launch {
+        restoreJob?.cancel()
+        _authState.value = AuthState.Authenticating
+        loginJob?.cancel()
+        loginJob = viewModelScope.launch {
+            logoutJob?.join()
             _loginState.update { it.copy(isWebViewLoginInProgress = true, errorMessage = null) }
             runCatching {
                 val cookies = parseCookieString(cookieString)
                 if (cookies.isEmpty()) throw SchoolException("未取得有效的登入 cookies")
+                if (sessionStore?.hasPendingCleanup() == true) {
+                    finishLogout(null, "登入狀態已失效")
+                }
                 repository.loginWithCookies(studentNo, cookies)
             }.onSuccess { authenticatedSession ->
                 resetSubjectTrendState()
-                session = authenticatedSession
+                publishAuthenticated(authenticatedSession)
                 _loginState.update {
                     it.copy(isWebViewLoginInProgress = false, errorMessage = null)
                 }
                 _gradesState.update {
                     it.copy(
-                        isLoggedIn = true,
                         studentNo = authenticatedSession.studentNo,
                         errorMessage = null,
                     )
@@ -393,6 +460,7 @@ class ScoreViewModel(
                 )
             }.onFailure { error ->
                 error.throwIfCancellation()
+                if (session == null) _authState.value = AuthState.Guest
                 analyticsLogger.logEvent(
                     AnalyticsEvents.LOGIN_RESULT,
                     mapOf(
@@ -456,22 +524,22 @@ class ScoreViewModel(
     fun startGradeReminder() {
         val currentSession = session ?: run {
             logGradeReminderStartFailure(AnalyticsValues.REASON_UNKNOWN)
-            setGradeReminderError("請先登入後再啟用段考提醒")
+            setGradeReminderError("請先登入後再啟用段考更新提醒")
             return
         }
         val context = appContext ?: run {
             logGradeReminderStartFailure(AnalyticsValues.REASON_UNKNOWN)
-            setGradeReminderError("目前環境不支援背景段考提醒")
+            setGradeReminderError("目前環境不支援背景段考更新提醒")
             return
         }
         val reminderRepository = gradeReminderRepository ?: run {
             logGradeReminderStartFailure(AnalyticsValues.REASON_UNKNOWN)
-            setGradeReminderError("目前環境不支援背景段考提醒")
+            setGradeReminderError("目前環境不支援背景段考更新提醒")
             return
         }
         val scheduler = gradeReminderScheduler ?: run {
             logGradeReminderStartFailure(AnalyticsValues.REASON_UNKNOWN)
-            setGradeReminderError("目前環境不支援背景段考提醒")
+            setGradeReminderError("目前環境不支援背景段考更新提醒")
             return
         }
         val state = _gradesState.value
@@ -488,7 +556,8 @@ class ScoreViewModel(
         val selectedYear = state.structure.firstOrNull { it.value == yearValue }
         val selectedExam = selectedYear?.exams?.firstOrNull { it.value == examValue }
         val requestId = ++gradeRequestId
-        viewModelScope.launch {
+        reminderStartJob?.cancel()
+        reminderStartJob = viewModelScope.launch {
             _gradesState.update {
                 it.copy(
                     isStartingGradeReminder = true,
@@ -518,23 +587,25 @@ class ScoreViewModel(
                     ).takeIf { it.hasChanges }
                 }
                 val expiresAtMillis = now + GRADE_REMINDER_DURATION_MILLIS
-                sessionStore?.saveReminderSession(currentSession, expiresAtMillis)
-                reminderRepository.saveState(
-                    GradeReminderState(
-                        enabled = true,
-                        studentNo = currentSession.studentNo,
-                        yearValue = yearValue,
-                        yearLabel = selectedYear?.text.orEmpty(),
-                        examValue = examValue,
-                        examName = selectedExam?.text ?: report.examSummary?.examName.orEmpty().ifBlank { "本次考試" },
-                        activatedAtMillis = now,
-                        expiresAtMillis = expiresAtMillis,
-                        lastCheckedAtMillis = now,
-                        snapshot = newSnapshot,
-                        latestChangeSet = changeSet,
-                    ),
+                val reminderState = GradeReminderState(
+                    enabled = true,
+                    studentNo = currentSession.studentNo,
+                    yearValue = yearValue,
+                    yearLabel = selectedYear?.text.orEmpty(),
+                    examValue = examValue,
+                    examName = selectedExam?.text ?: report.examSummary?.examName.orEmpty().ifBlank { "本次考試" },
+                    activatedAtMillis = now,
+                    expiresAtMillis = expiresAtMillis,
+                    lastCheckedAtMillis = now,
+                    snapshot = newSnapshot,
+                    latestChangeSet = changeSet,
                 )
-                scheduler.schedule()
+                reminderRepository.mutate {
+                    check(requestId == gradeRequestId) { "提醒啟用請求已過期" }
+                    sessionStore?.saveReminderSession(currentSession, expiresAtMillis)
+                    saveState(reminderState)
+                    scheduler.schedule()
+                }
                 ensuredGradeReminderWorkKey = gradeReminderWorkKey(
                     studentNo = currentSession.studentNo,
                     yearValue = yearValue,
@@ -566,15 +637,19 @@ class ScoreViewModel(
             }.onFailure { error ->
                 error.throwIfCancellation()
                 if (requestId != gradeRequestId) return@onFailure
+                if (error is SchoolAuthenticationException) {
+                    handleSessionExpired()
+                    return@onFailure
+                }
                 logGradeReminderStartFailure(AnalyticsValues.REASON_UNKNOWN)
                 _gradesState.update {
                     it.copy(
                         isStartingGradeReminder = false,
                         isLoadingGrades = false,
                         gradeReminderError = if (error is SessionStorageException) {
-                            "無法安全保存段考提醒登入資訊"
+                            "無法安全保存段考更新提醒登入資訊"
                         } else {
-                            error.message ?: "啟用段考提醒失敗"
+                            error.message ?: "啟用段考更新提醒失敗"
                         },
                     )
                 }
@@ -588,14 +663,12 @@ class ScoreViewModel(
             mapOf(AnalyticsParams.REASON to AnalyticsValues.REASON_USER),
         )
         ensuredGradeReminderWorkKey = null
+        gradeRequestId++
+        val startJob = reminderStartJob
+        startJob?.cancel()
         viewModelScope.launch {
-            gradeReminderRepository?.stop("使用者關閉")
-            gradeReminderScheduler?.cancel()
-            try {
-                sessionStore?.clearReminderSession()
-            } catch (_: SessionStorageException) {
-                // State and scheduled work are already stopped; no crypto detail belongs in UI state.
-            }
+            startJob?.cancelAndJoin()
+            stopGradeReminderPersistence("使用者關閉")
         }
         _gradesState.update {
             it.copy(
@@ -611,10 +684,10 @@ class ScoreViewModel(
         _gradesState.update {
             it.copy(gradeReminderChangeSet = it.gradeReminderState.latestChangeSet)
         }
-        openPendingReminderTargetOrLoadStructure(forceRefreshStructure = true)
+        openPendingReminderTargetOrLoadStructure()
     }
 
-    private fun openPendingReminderTargetOrLoadStructure(forceRefreshStructure: Boolean = false) {
+    private fun openPendingReminderTargetOrLoadStructure() {
         val target = pendingReminderTarget ?: return
         val structure = _gradesState.value.structure
         val year = structure.firstOrNull { it.value == target.first }
@@ -637,7 +710,6 @@ class ScoreViewModel(
                     trend = null,
                     simulatorHistoryReports = emptyList(),
                     simulatorHistoryLabel = null,
-                    insights = null,
                     expandedSubjectKeys = emptySet(),
                     errorMessage = null,
                 )
@@ -649,7 +721,7 @@ class ScoreViewModel(
                 analyticsTrigger = AnalyticsValues.TRIGGER_REMINDER_TARGET,
             )
         } else {
-            loadStructure(forceRefresh = forceRefreshStructure)
+            loadStructure(forceRefresh = true)
         }
     }
 
@@ -658,37 +730,59 @@ class ScoreViewModel(
     }
 
     private fun restoreSession() {
-        viewModelScope.launch {
-            runCatching { repository.restoreSession() }
+        restoreJob = viewModelScope.launch {
+            runCatching {
+                if (sessionStore?.hasPendingCleanup() == true) {
+                    clearSession("登入狀態已失效")
+                    return@launch
+                }
+                repository.restoreSession()
+            }
                 .onSuccess { restored ->
                     if (restored == null) {
-                        _gradesState.update { it.copy(isRestoringSession = false) }
+                        _authState.value = AuthState.Guest
                         return@onSuccess
                     }
-                    session = restored
+                    publishAuthenticated(restored)
                     _gradesState.update {
                         it.copy(
-                            isLoggedIn = true,
-                            isRestoringSession = false,
                             studentNo = restored.studentNo,
                         )
+                    }
+                    viewModelScope.launch {
+                        runCatching { repository.loadCachedStudentInfo(restored) }
+                            .onSuccess { studentInfo ->
+                                if (session == restored) {
+                                    _gradesState.update { it.copy(studentInfo = studentInfo) }
+                                }
+                            }
+                            .onFailure { error -> error.throwIfCancellation() }
                     }
                     loadStructure()
                 }
                 .onFailure { error ->
                     error.throwIfCancellation()
-                    _gradesState.update { it.copy(isRestoringSession = false) }
+                    clearSession("登入狀態已失效")
                     _loginState.update {
                         it.copy(errorMessage = "無法讀取登入資訊，請重新登入")
                     }
+                    return@launch
                 }
+            try {
+                sessionStore?.retryReminderCleanup()
+            } catch (error: SessionCleanupException) {
+                _cleanupFailures.value = _cleanupFailures.value + error.failures
+            } catch (_: SessionStorageException) {
+                _cleanupFailures.value = _cleanupFailures.value + SessionCleanupFailure.REMINDER_SESSION_DELETE_FAILED
+            }
         }
     }
 
     private fun loadStructure(forceRefresh: Boolean = false) {
         val currentSession = session ?: return
         val requestId = ++structureRequestId
-        viewModelScope.launch {
+        structureJob?.cancel()
+        structureJob = viewModelScope.launch {
             _gradesState.update { it.copy(isLoadingStructure = true, errorMessage = null) }
             runCatching { repository.loadStructure(currentSession, forceRefresh) }
                 .onSuccess { structure ->
@@ -715,7 +809,10 @@ class ScoreViewModel(
                     val currentState = _gradesState.value
                     val currentYear = structure.firstOrNull { it.value == currentState.selectedYearValue }
                     val currentExam = currentYear?.exams?.firstOrNull { it.value == currentState.selectedExamValue }
-                    val selectedYear = pendingYear ?: currentYear ?: structure.latestYearTerm()
+                    val selectedYear = pendingYear
+                        ?: currentYear
+                        ?: structure.filter { it.exams.isNotEmpty() }.latestYearTerm()
+                        ?: structure.latestYearTerm()
                     val selectedExam = when {
                         pendingYear != null -> pendingExam ?: pendingYear.latestExam()
                         currentYear != null -> currentExam ?: currentYear.latestExam()
@@ -750,6 +847,10 @@ class ScoreViewModel(
                 .onFailure { error ->
                     error.throwIfCancellation()
                     if (requestId != structureRequestId) return@onFailure
+                    if (error is SchoolAuthenticationException) {
+                        handleSessionExpired()
+                        return@onFailure
+                    }
                     analyticsLogger.logEvent(
                         AnalyticsEvents.GRADE_STRUCTURE_LOAD,
                         mapOf(AnalyticsParams.RESULT to AnalyticsValues.RESULT_FAILURE),
@@ -760,6 +861,23 @@ class ScoreViewModel(
                             errorMessage = error.message ?: "載入可查詢考試失敗",
                         )
                     }
+                }
+        }
+    }
+
+    fun refreshStudentInfo() {
+        val currentSession = session ?: return
+        studentInfoJob?.cancel()
+        studentInfoJob = viewModelScope.launch {
+            runCatching { repository.fetchStudentInfo(currentSession) }
+                .onSuccess { studentInfo ->
+                    if (session == currentSession) {
+                        _gradesState.update { it.copy(studentInfo = studentInfo) }
+                    }
+                }
+                .onFailure { error ->
+                    error.throwIfCancellation()
+                    if (error is SchoolAuthenticationException) handleSessionExpired()
                 }
         }
     }
@@ -777,7 +895,10 @@ class ScoreViewModel(
         val currentSession = session ?: return
         structureRequestId++
         val requestId = ++gradeRequestId
-        viewModelScope.launch {
+        structureJob?.cancel()
+        gradeJob?.cancel()
+        historyJob?.cancel()
+        gradeJob = viewModelScope.launch {
             _gradesState.update {
                 it.copy(
                     isLoadingStructure = false,
@@ -803,6 +924,10 @@ class ScoreViewModel(
                 .onFailure { error ->
                     error.throwIfCancellation()
                     if (requestId != gradeRequestId) return@onFailure
+                    if (error is SchoolAuthenticationException) {
+                        handleSessionExpired()
+                        return@onFailure
+                    }
                     analyticsLogger.logEvent(
                         AnalyticsEvents.GRADE_QUERY,
                         mapOf(
@@ -865,7 +990,6 @@ class ScoreViewModel(
                 simulatorHistoryReports = emptyList(),
                 simulatorHistoryLabel = null,
                 analysis = analysis,
-                insights = buildScoreInsights(report, analysis),
                 errorMessage = null,
                 gradeReminderChangeSet = gradeReminderChangeSet,
             )
@@ -887,17 +1011,11 @@ class ScoreViewModel(
         report: GradeReport,
     ) {
         val structure = _gradesState.value.structure
-        val year = structure.firstOrNull { it.value == yearValue }
-        val currentExamName = year?.exams
-            ?.firstOrNull { it.value == examValue }
-            ?.text
-            ?: report.examSummary?.examName.orEmpty().ifBlank { "本次考試" }
         val comparisonSource = structure.sameTermHistorySource(yearValue, examValue)
         val trendSource = structure.sameTermTrendSource(yearValue)
         val simulatorSource = structure.simulationHistorySource(yearValue, examValue)
         if (comparisonSource == null && trendSource == null && simulatorSource == null) {
             _gradesState.update {
-                val analysis = it.analysis ?: buildGradeAnalysis(report)
                 if (requestId != gradeRequestId) it else it.copy(
                     isLoadingComparison = false,
                     isLoadingTrend = false,
@@ -909,13 +1027,13 @@ class ScoreViewModel(
                     trendHistoryLabel = null,
                     simulatorHistoryReports = emptyList(),
                     simulatorHistoryLabel = null,
-                    insights = buildScoreInsights(report, analysis),
                 )
             }
             return
         }
 
-        viewModelScope.launch {
+        historyJob?.cancel()
+        historyJob = viewModelScope.launch {
             _gradesState.update {
                 if (requestId != gradeRequestId) it else it.copy(
                     isLoadingComparison = comparisonSource != null,
@@ -928,15 +1046,28 @@ class ScoreViewModel(
             runCatching {
                 val requests = historicalRequests(comparisonSource, trendSource, simulatorSource)
                     .filterNot { it.yearValue == yearValue && it.examValue == examValue }
-                coroutineScope {
+                val results = supervisorScope {
                     requests.map { request ->
                         async {
-                            request to repository.fetchGrades(session, request.yearValue, request.examValue, false)
+                            request to runCatching {
+                                repository.fetchGrades(session, request.yearValue, request.examValue, false)
+                            }.onFailure { error ->
+                                error.throwIfCancellation()
+                                if (error is SchoolAuthenticationException) handleSessionExpired()
+                            }
                         }
-                    }.awaitAll().toMap()
+                    }.awaitAll()
                 }
-            }.onSuccess { reportsByRequest ->
+                if (results.isNotEmpty() && results.all { (_, result) -> result.isFailure }) {
+                    error("historical batch failed")
+                }
+                results
+            }.onSuccess { results ->
                 if (requestId != gradeRequestId) return@onSuccess
+                val failedCount = results.count { (_, result) -> result.isFailure }
+                val reportsByRequest = results.mapNotNull { (request, result) ->
+                    result.getOrNull()?.let { request to it }
+                }.toMap()
                 val comparisonPairs = comparisonSource?.historyExams.orEmpty().mapNotNull { historyExam ->
                     val request = HistoricalExamRequest(historyExam.yearValue, historyExam.examValue, historyExam.examName)
                     reportsByRequest[request]?.let { historyExam.examName to it }
@@ -972,14 +1103,21 @@ class ScoreViewModel(
                         isLoadingSimulatorHistory = false,
                         comparisonReport = comparison?.second,
                         comparisonExamName = comparison?.first,
-                        comparisonError = if (comparison == null) "尚無上一考可比較" else null,
+                        comparisonError = when {
+                            failedCount > 0 -> "部分資料無法載入"
+                            comparison == null -> "尚無上一考可比較"
+                            else -> null
+                        },
                         trendReports = trendPairs.map { pair -> pair.second },
-                        trendError = if (trend == null) "尚無當學期歷次趨勢可比較" else null,
+                        trendError = when {
+                            failedCount > 0 -> "部分資料無法載入"
+                            trend == null -> "尚無當學期歷次趨勢可比較"
+                            else -> null
+                        },
                         trendHistoryLabel = trendSource?.label,
                         trend = trend,
                         simulatorHistoryReports = simulatorReports,
                         simulatorHistoryLabel = simulatorSource?.label,
-                        insights = buildScoreInsights(report, analysis, trend),
                         analysis = analysis,
                     )
                 }
@@ -987,19 +1125,17 @@ class ScoreViewModel(
                 error.throwIfCancellation()
                 if (requestId != gradeRequestId) return@onFailure
                 _gradesState.update {
-                    val analysis = it.analysis ?: buildGradeAnalysis(report)
                     it.copy(
                         isLoadingComparison = false,
                         isLoadingTrend = false,
                         isLoadingSimulatorHistory = false,
-                        comparisonError = error.message ?: "歷次資料載入失敗",
+                        comparisonError = "歷次資料載入失敗",
                         trendReports = emptyList(),
                         trend = null,
-                        trendError = error.message ?: "歷次趨勢載入失敗",
+                        trendError = "歷次趨勢載入失敗",
                         trendHistoryLabel = null,
                         simulatorHistoryReports = emptyList(),
                         simulatorHistoryLabel = null,
-                        insights = buildScoreInsights(report, analysis),
                     )
                 }
             }
@@ -1017,138 +1153,16 @@ class ScoreViewModel(
         return requests.distinctBy { it.yearValue to it.examValue }
     }
 
-    private var isSubjectTrendInitialized = false
-
     fun initSubjectTrend() {
-        if (isSubjectTrendInitialized) return
-
-        val structure = _gradesState.value.structure
-        if (structure.isEmpty()) {
-            _subjectTrendState.update {
-                it.copy(
-                    isLoading = false,
-                    reports = emptyList(),
-                    errorMessage = null,
-                )
-            }
-            return
-        }
-        isSubjectTrendInitialized = true
-
-        val allYears = structure.map { it.value }.toSet()
-        val defaultSubjects = emptySet<String>()
-        _subjectTrendState.update {
-            it.copy(
-                selectedYearValues = allYears,
-                selectedSubjectKeys = defaultSubjects,
-            )
-        }
-        fetchSubjectTrendGrades()
+        subjectTrendOwner.initialize(_gradesState.value.structure, session)
     }
 
     fun setSubjectTrendYears(yearValues: Set<String>) {
-        if (yearValues == _subjectTrendState.value.selectedYearValues) return
-        _subjectTrendState.update { it.copy(selectedYearValues = yearValues) }
-        fetchSubjectTrendGrades()
+        subjectTrendOwner.setYears(yearValues, _gradesState.value.structure, session)
     }
 
     fun toggleSubjectTrendSubject(subjectKey: String) {
-        _subjectTrendState.update { state ->
-            val next = if (subjectKey in state.selectedSubjectKeys) {
-                state.selectedSubjectKeys - subjectKey
-            } else {
-                state.selectedSubjectKeys + subjectKey
-            }
-            state.copy(selectedSubjectKeys = next)
-        }
-    }
-
-    private fun fetchSubjectTrendGrades() {
-        val currentSession = session ?: return
-        val structure = _gradesState.value.structure
-        val selectedYears = _subjectTrendState.value.selectedYearValues
-        val requestId = ++subjectTrendRequestId
-        
-        val requests = buildList {
-            structure.filter { it.value in selectedYears }
-                .sortedBy { yt ->
-                    val (y, t) = parseYearTerm(yt.value, "0", "0")
-                    (y.toIntOrNull() ?: 0) * 10 + (t.toIntOrNull() ?: 0)
-                }
-                .forEach { yearTerm ->
-                    yearTerm.exams.forEach { exam ->
-                        add(HistoricalExamRequest(yearTerm.value, exam.value, exam.text))
-                    }
-                }
-        }
-        
-        if (requests.isEmpty()) {
-            analyticsLogger.logEvent(
-                AnalyticsEvents.SUBJECT_TREND_LOAD,
-                mapOf(
-                    AnalyticsParams.RESULT to AnalyticsValues.RESULT_EMPTY,
-                    AnalyticsParams.YEAR_COUNT to selectedYears.size,
-                    AnalyticsParams.SUBJECT_COUNT to _subjectTrendState.value.selectedSubjectKeys.size,
-                ),
-            )
-            _subjectTrendState.update {
-                if (requestId != subjectTrendRequestId) {
-                    it
-                } else {
-                    it.copy(isLoading = false, reports = emptyList(), errorMessage = null)
-                }
-            }
-            return
-        }
-
-        viewModelScope.launch {
-            _subjectTrendState.update {
-                if (requestId != subjectTrendRequestId) it else it.copy(isLoading = true, errorMessage = null)
-            }
-            runCatching {
-                coroutineScope {
-                    requests.map { request ->
-                        async {
-                            repository.fetchGrades(currentSession, request.yearValue, request.examValue, false)
-                        }
-                    }.awaitAll()
-                }
-            }.onSuccess { reports ->
-                if (requestId != subjectTrendRequestId) return@onSuccess
-                analyticsLogger.logEvent(
-                    AnalyticsEvents.SUBJECT_TREND_LOAD,
-                    mapOf(
-                        AnalyticsParams.RESULT to AnalyticsValues.RESULT_SUCCESS,
-                        AnalyticsParams.YEAR_COUNT to selectedYears.size,
-                        AnalyticsParams.SUBJECT_COUNT to _subjectTrendState.value.selectedSubjectKeys.size,
-                    ),
-                )
-                _subjectTrendState.update {
-                    it.copy(
-                        isLoading = false,
-                        reports = reports,
-                        errorMessage = null,
-                    )
-                }
-            }.onFailure { error ->
-                error.throwIfCancellation()
-                if (requestId != subjectTrendRequestId) return@onFailure
-                analyticsLogger.logEvent(
-                    AnalyticsEvents.SUBJECT_TREND_LOAD,
-                    mapOf(
-                        AnalyticsParams.RESULT to AnalyticsValues.RESULT_FAILURE,
-                        AnalyticsParams.YEAR_COUNT to selectedYears.size,
-                        AnalyticsParams.SUBJECT_COUNT to _subjectTrendState.value.selectedSubjectKeys.size,
-                    ),
-                )
-                _subjectTrendState.update {
-                    it.copy(
-                        isLoading = false,
-                        errorMessage = error.message ?: "載入折線圖資料失敗",
-                    )
-                }
-            }
-        }
+        subjectTrendOwner.toggleSubject(subjectKey)
     }
 
     companion object {
@@ -1168,7 +1182,11 @@ class ScoreViewModel(
             expiresAtMillis: Long,
         ): String = listOf(studentNo, yearValue, examValue, expiresAtMillis).joinToString("|")
 
-        fun factory(context: Context, useFakeData: Boolean = false): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+        fun factory(
+            context: Context,
+            useFakeData: Boolean = false,
+            onAuthenticationExpired: () -> Unit = {},
+        ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val appContext = context.applicationContext
@@ -1177,12 +1195,14 @@ class ScoreViewModel(
                         repository = com.clhs.score.data.FakeGradeRepository(),
                         appContext = appContext,
                         analyticsLogger = FirebaseAnalyticsLogger(appContext),
+                        onAuthenticationExpired = onAuthenticationExpired,
+                        demoMode = true,
                     ) as T
                 }
                 val sessionStore = SessionStore(appContext)
                 val cookieJar = com.clhs.score.data.SchoolCookieJar()
                 val client = SchoolGradeClient(cookieJar = cookieJar)
-                val repository = SchoolGradeRepository(client, sessionStore, com.clhs.score.data.GradeCacheStore(appContext))
+                val repository = SchoolGradeRepository(client, sessionStore, GradeCacheStore(appContext))
                 return ScoreViewModel(
                     repository = repository,
                     appContext = appContext,
@@ -1190,15 +1210,134 @@ class ScoreViewModel(
                     gradeReminderRepository = GradeReminderRepository(appContext),
                     gradeReminderScheduler = GradeReminderScheduler(appContext),
                     analyticsLogger = FirebaseAnalyticsLogger(appContext),
+                    onAuthenticationExpired = onAuthenticationExpired,
                 ) as T
             }
         }
     }
 
-    private fun resetSubjectTrendState() {
-        subjectTrendRequestId++
-        isSubjectTrendInitialized = false
-        _subjectTrendState.value = SubjectTrendUiState()
+    private fun resetSubjectTrendState(): Job? = subjectTrendOwner.reset()
+
+    private fun publishAuthenticated(authenticatedSession: AuthenticatedSession) {
+        if (!demoMode && sessionStore?.isAuthorized(authenticatedSession) == false) {
+            session = null
+            _authState.value = AuthState.Guest
+            _loginState.value = LoginUiState()
+            throw CancellationException("Session revoked")
+        }
+        session = authenticatedSession
+        _authState.value = AuthState.Authenticated(++authGeneration)
+    }
+
+    private fun clearSession(reason: String) {
+        val sessionToClear = session
+        session = null
+        _authState.value = AuthState.Guest
+        sessionStore?.revoke()
+        structureRequestId++
+        gradeRequestId++
+        pendingReminderTarget = null
+        ensuredGradeReminderWorkKey = null
+        val subjectTrendJob = resetSubjectTrendState()
+        val jobs = sessionJobs() + listOfNotNull(subjectTrendJob)
+        jobs.forEach(Job::cancel)
+        val previousLogout = logoutJob
+        logoutJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) {
+                previousLogout?.join()
+                jobs.forEach { it.cancelAndJoin() }
+                finishLogout(sessionToClear, reason)
+            }
+        }
+        _gradesState.value = GradesUiState()
+        _loginState.value = LoginUiState()
+    }
+
+    private suspend fun finishLogout(sessionToClear: AuthenticatedSession?, reason: String) {
+        val failures = linkedSetOf<SessionCleanupFailure>()
+        suspend fun attempt(category: SessionCleanupFailure, block: suspend () -> Unit) {
+            try {
+                block()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: SessionCleanupException) {
+                failures += error.failures
+            } catch (_: Exception) {
+                failures += category
+            }
+        }
+        attempt(SessionCleanupFailure.SESSION_DELETE_FAILED) { repository.logout(sessionToClear) }
+        attempt(SessionCleanupFailure.REMINDER_STATE_DELETE_FAILED) {
+            gradeReminderRepository?.mutate { stop(reason) }
+        }
+        attempt(SessionCleanupFailure.BACKGROUND_WORK_CANCEL_FAILED) { gradeReminderScheduler?.cancel() }
+        attempt(SessionCleanupFailure.REMINDER_SESSION_DELETE_FAILED) { sessionStore?.clearReminderSession() }
+        attempt(SessionCleanupFailure.WIDGET_REFRESH_FAILED) {
+            appContext?.let { com.clhs.score.widget.syncAllScheduleWidgets(it) }
+        }
+        if (failures.isEmpty()) {
+            attempt(SessionCleanupFailure.CLEANUP_STATUS_WRITE_FAILED) { sessionStore?.completeCleanup() }
+        }
+        _cleanupFailures.value = failures.toSet()
+        appContext?.let { context ->
+            failures.forEach { failure ->
+                DeveloperDiagnostics.recordEvent(context, "PrivacyCleanup", failure.name)
+            }
+        }
+    }
+
+    private fun sessionJobs(): List<Job> = listOfNotNull(
+        restoreJob,
+        loginJob,
+        structureJob,
+        studentInfoJob,
+        gradeJob,
+        historyJob,
+        exportJob,
+        reminderStartJob,
+    ).distinct()
+
+    private suspend fun stopGradeReminderPersistence(
+        reason: String,
+        expectedIdentity: GradeReminderIdentity? = null,
+    ): Boolean {
+        val reminderRepository = gradeReminderRepository
+        if (reminderRepository == null) {
+            gradeReminderScheduler?.cancel()
+            return false
+        }
+        return reminderRepository.mutate {
+            if (expectedIdentity != null && loadState().identity() != expectedIdentity) {
+                return@mutate false
+            }
+            val failures = linkedSetOf<SessionCleanupFailure>()
+            try {
+                stop(reason)
+            } catch (_: IOException) {
+                failures += SessionCleanupFailure.REMINDER_STATE_DELETE_FAILED
+            }
+            try {
+                sessionStore?.clearReminderSession()
+            } catch (error: SessionCleanupException) {
+                failures += error.failures
+            } catch (_: SessionStorageException) {
+                failures += SessionCleanupFailure.REMINDER_SESSION_DELETE_FAILED
+            }
+            try {
+                gradeReminderScheduler?.cancel()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                failures += SessionCleanupFailure.BACKGROUND_WORK_CANCEL_FAILED
+            }
+            if (failures.isNotEmpty()) {
+                _cleanupFailures.value = _cleanupFailures.value + failures
+                appContext?.let { context ->
+                    failures.forEach { DeveloperDiagnostics.recordEvent(context, "PrivacyCleanup", it.name) }
+                }
+            }
+            true
+        }
     }
 
     private fun logGradeReminderStartFailure(reason: String) {

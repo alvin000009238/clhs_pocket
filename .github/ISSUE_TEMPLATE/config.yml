@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 安全性問題
+    url: https://github.com/alvin000009238/clhs_pocket/security
+    about: 請不要公開回報安全性問題。

@@ -21,11 +21,11 @@ object BiometricHelper {
     private const val PIN_DERIVATION_ITERATIONS = 100_000
     private const val PIN_KEY_SIZE_BITS = 256
 
-    val strongBiometricAuthenticators: Int = BiometricManager.Authenticators.BIOMETRIC_STRONG
+    const val STRONG_BIOMETRIC_AUTHENTICATORS = BiometricManager.Authenticators.BIOMETRIC_STRONG
 
     fun canAuthenticate(context: Context): Boolean {
         val biometricManager = BiometricManager.from(context)
-        return biometricManager.canAuthenticate(strongBiometricAuthenticators) == BiometricManager.BIOMETRIC_SUCCESS
+        return biometricManager.canAuthenticate(STRONG_BIOMETRIC_AUTHENTICATORS) == BiometricManager.BIOMETRIC_SUCCESS
     }
 
     private fun getSecretKey(): SecretKey {

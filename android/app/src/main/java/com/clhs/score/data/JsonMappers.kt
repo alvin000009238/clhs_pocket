@@ -69,7 +69,7 @@ internal fun parseGradeReport(raw: String): GradeReport {
             absent = subject.boolean("Is缺考"),
             cheating = subject.boolean("Is作弊"),
         )
-    }.orEmpty()
+    }
     val standards = result["成績五標List"].asArrayOrNull()?.mapNotNull { item ->
         val standard = item.asObjectOrNull() ?: return@mapNotNull null
         GradeStandard(

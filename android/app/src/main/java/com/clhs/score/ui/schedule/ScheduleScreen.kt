@@ -8,17 +8,21 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.view.View
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -56,6 +60,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -81,10 +86,13 @@ import com.clhs.score.data.ScheduleChangeType
 import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleScope
+import com.clhs.score.data.ScheduleSubjectOverride
+import com.clhs.score.data.applySubjectOverrides
 import com.clhs.score.data.getSubjectColors
 import com.clhs.score.data.refreshAt
 import com.clhs.score.data.shouldRefreshAt
 import com.clhs.score.ui.OutlinedRoundedSymbol
+import com.clhs.score.ui.AccountIconButton
 import com.clhs.score.viewmodel.ScheduleUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -94,6 +102,7 @@ import java.io.IOException
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import java.time.LocalDateTime
 import java.util.Date
 import java.util.Locale
@@ -102,7 +111,10 @@ import java.util.Locale
 @Composable
 fun ScheduleScreen(
     uiState: ScheduleUiState,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
+    onOpenPersonal: () -> Unit = {},
+    showUpdateBadge: Boolean = false,
+    onOpenSubjectCustomizations: () -> Unit = {},
     onRefresh: () -> Unit,
     onYearSelected: (String) -> Unit,
     onClassSelected: (String) -> Unit,
@@ -110,6 +122,7 @@ fun ScheduleScreen(
     onConfirmSelection: () -> Unit,
     onClearSelection: () -> Unit,
     onNoticeShown: () -> Unit,
+    onSaveSubjectOverride: (ScheduleSubjectOverride, () -> Unit) -> Unit = { _, onSaved -> onSaved() },
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -121,7 +134,7 @@ fun ScheduleScreen(
         val report = uiState.report ?: return@LaunchedEffect
         val refreshAt = report.refreshAt() ?: return@LaunchedEffect
         if (scheduleNow.isBefore(refreshAt)) {
-            delay(Duration.between(scheduleNow, refreshAt).toMillis())
+            delay(Duration.between(scheduleNow, refreshAt).toMillis().milliseconds)
             scheduleNow = LocalDateTime.now()
         }
     }
@@ -148,11 +161,11 @@ fun ScheduleScreen(
                 title = {
                     Column {
                         Text(
-                            text = "我的課表",
+                            text = "課表",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
                         )
-                        uiState.report?.let { report ->
+                        uiState.report?.takeIf { it.scope == ScheduleScope.CURRENT_WEEK }?.let { report ->
                             Text(
                                 text = scheduleSubtitle(
                                     report = report,
@@ -172,11 +185,13 @@ fun ScheduleScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(
-                        onClick = onBack,
-                        shapes = IconButtonDefaults.shapes(),
-                    ) {
-                        OutlinedRoundedSymbol(icon = "arrow_back", contentDescription = "返回")
+                    if (onBack != null) {
+                        IconButton(
+                            onClick = onBack,
+                            shapes = IconButtonDefaults.shapes(),
+                        ) {
+                            OutlinedRoundedSymbol(icon = "arrow_back", contentDescription = "返回")
+                        }
                     }
                 },
                 actions = {
@@ -209,6 +224,13 @@ fun ScheduleScreen(
                                     onClearSelection()
                                     showMoreMenu = false
                                 }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("自訂科目") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    onOpenSubjectCustomizations()
+                                },
                             )
                             DropdownMenuItem(
                                 text = { Text("另存為圖片") },
@@ -249,6 +271,7 @@ fun ScheduleScreen(
                             )
                         }
                     }
+                    AccountIconButton(onClick = onOpenPersonal, showUpdateBadge = showUpdateBadge)
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -260,6 +283,9 @@ fun ScheduleScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = 1200.dp)
+                .fillMaxWidth()
         ) {
             if (uiState.isInitialLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -289,9 +315,10 @@ fun ScheduleScreen(
                             colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                             singleLine = true
                         )
-                        ExposedDropdownMenu(
+                        DropdownMenu(
                             expanded = yearExpanded,
-                            onDismissRequest = { yearExpanded = false }
+                            onDismissRequest = { yearExpanded = false },
+                            modifier = Modifier.exposedDropdownSize(),
                         ) {
                             uiState.availableYears.forEach { option ->
                                 DropdownMenuItem(
@@ -320,9 +347,10 @@ fun ScheduleScreen(
                             colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                             singleLine = true
                         )
-                        ExposedDropdownMenu(
+                        DropdownMenu(
                             expanded = classExpanded,
-                            onDismissRequest = { classExpanded = false }
+                            onDismissRequest = { classExpanded = false },
+                            modifier = Modifier.exposedDropdownSize(),
                         ) {
                             if (uiState.availableClasses.isEmpty()) {
                                 DropdownMenuItem(text = { Text("無可用班級") }, onClick = { classExpanded = false })
@@ -418,32 +446,53 @@ fun ScheduleScreen(
             } else {
                 // Grid Screen
                 uiState.report.let { report ->
+                    val gridReport = remember { mutableStateOf(report) }
+                    val gridIsSavingSubjectOverride = remember {
+                        mutableStateOf(uiState.isSavingSubjectOverride)
+                    }
+                    val gridColorScheme = remember { mutableStateOf(scheduleColorScheme) }
+                    val gridShapes = remember { mutableStateOf(scheduleShapes) }
+                    val gridTypography = remember { mutableStateOf(scheduleTypography) }
+                    val gridMotionScheme = remember { mutableStateOf(scheduleMotionScheme) }
+                    val currentOnSaveSubjectOverride = rememberUpdatedState(onSaveSubjectOverride)
                     AndroidView(
                         factory = { ctx ->
                             ComposeView(ctx).apply {
                                 setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+                                setContent {
+                                    val currentReport = gridReport.value
+                                    MaterialTheme(
+                                        colorScheme = gridColorScheme.value,
+                                        shapes = gridShapes.value,
+                                        typography = gridTypography.value,
+                                        motionScheme = gridMotionScheme.value,
+                                    ) {
+                                        Surface {
+                                            ScheduleGrid(
+                                                items = currentReport.items,
+                                                changes = currentReport.changes.orEmpty(),
+                                                subjectOverrides = currentReport.subjectOverrides,
+                                                isSavingSubjectOverride = gridIsSavingSubjectOverride.value,
+                                                onSaveSubjectOverride = { override, onSaved ->
+                                                    currentOnSaveSubjectOverride.value(override, onSaved)
+                                                },
+                                                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                                            )
+                                        }
+                                    }
+                                }
                                 doOnLayout {
                                     captureView = this
                                 }
                             }
                         },
-                        update = { composeView ->
-                            composeView.setContent {
-                                MaterialTheme(
-                                    colorScheme = scheduleColorScheme,
-                                    shapes = scheduleShapes,
-                                    typography = scheduleTypography,
-                                    motionScheme = scheduleMotionScheme,
-                                ) {
-                                    Surface {
-                                        ScheduleGrid(
-                                            items = report.items,
-                                            changes = report.changes.orEmpty(),
-                                            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-                                        )
-                                    }
-                                }
-                            }
+                        update = {
+                            gridReport.value = report
+                            gridIsSavingSubjectOverride.value = uiState.isSavingSubjectOverride
+                            gridColorScheme.value = scheduleColorScheme
+                            gridShapes.value = scheduleShapes
+                            gridTypography.value = scheduleTypography
+                            gridMotionScheme.value = scheduleMotionScheme
                         },
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -525,13 +574,13 @@ internal data class ScheduleGridCell(
     val change: ScheduleChange?,
 )
 
-private val WEEKDAY_LABELS = listOf("週一", "週二", "週三", "週四", "週五")
+private val WEEKDAY_LABELS = listOf("一", "二", "三", "四", "五")
 
 internal fun scheduleCellContentDescription(
     dayOfWeek: Int,
     cell: ScheduleGridCell,
 ): String = buildList {
-    add(WEEKDAY_LABELS.getOrElse(dayOfWeek - 1) { "星期 $dayOfWeek" })
+    add(WEEKDAY_LABELS.getOrNull(dayOfWeek - 1)?.let { "週$it" } ?: "星期 $dayOfWeek")
     add(
         if (cell.periodCount == 1) {
             "第 ${cell.period} 節"
@@ -612,20 +661,33 @@ fun ScheduleGrid(
     items: List<ScheduleItem>,
     modifier: Modifier = Modifier,
     changes: List<ScheduleChange> = emptyList(),
+    subjectOverrides: List<ScheduleSubjectOverride> = emptyList(),
+    isSavingSubjectOverride: Boolean = false,
+    onSaveSubjectOverride: (ScheduleSubjectOverride, () -> Unit) -> Unit = { _, onSaved -> onSaved() },
 ) {
-    val days = listOf("時間") + WEEKDAY_LABELS
-    val periods = remember(items, changes) { scheduleGridPeriods(items, changes) }
-    val cellsByDay = remember(items, changes, periods) {
-        (1..5).associateWith { day -> scheduleGridCells(items, changes, day, periods) }
+    val scheduleColorScheme = MaterialTheme.colorScheme
+    val displayedItems = remember(items, subjectOverrides) {
+        items.applySubjectOverrides(subjectOverrides)
     }
-    val subjectColors = remember(items, changes) {
+    val displayedChanges = remember(changes, subjectOverrides) {
+        changes.applySubjectOverrides(subjectOverrides)
+    }
+    val days = listOf("時間") + WEEKDAY_LABELS
+    val periods = remember(displayedItems, displayedChanges) {
+        scheduleGridPeriods(displayedItems, displayedChanges)
+    }
+    val cellsByDay = remember(displayedItems, displayedChanges, periods) {
+        (1..5).associateWith { day -> scheduleGridCells(displayedItems, displayedChanges, day, periods) }
+    }
+    val originalItemsBySlot = remember(items) { items.associateBy { it.dayOfWeek to it.period } }
+    val isDarkTheme = scheduleColorScheme.background.luminance() < 0.5f
+    val subjectColors = remember(displayedItems, displayedChanges, isDarkTheme) {
         getSubjectColors(
-            items.map { it.subjectName } +
-                changes.mapNotNull { it.weekItem?.subjectName },
+            displayedItems.map { it.subjectName } +
+                displayedChanges.mapNotNull { it.weekItem?.subjectName },
+            isDarkTheme = isDarkTheme,
         )
     }
-    val isDarkSurface = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val changeBorderColor = if (isDarkSurface) Color.White else Color.Black
     var selectedItem by remember { mutableStateOf<ScheduleItem?>(null) }
     var selectedChange by remember { mutableStateOf<ScheduleChange?>(null) }
 
@@ -635,7 +697,7 @@ fun ScheduleGrid(
                 .fillMaxWidth()
                 .padding(vertical = 8.dp)
         ) {
-            days.forEachIndexed { index, day ->
+            days.forEach { day ->
                 Text(
                     text = day,
                     modifier = Modifier.weight(1f),
@@ -702,10 +764,9 @@ fun ScheduleGrid(
                                         ),
                                     shape = RoundedCornerShape(8.dp),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                                     ),
-                                    border = BorderStroke(2.dp, changeBorderColor),
                                 ) {
                                     Column(
                                         modifier = Modifier
@@ -724,7 +785,16 @@ fun ScheduleGrid(
                             } else if (item != null) {
                                 val tileColors = scheduleTileColors(
                                     subjectColors.getValue(item.subjectName),
-                                    isDarkSurface,
+                                    if (change == null) {
+                                        MaterialTheme.colorScheme.surfaceContainerLow
+                                    } else {
+                                        MaterialTheme.colorScheme.tertiaryContainer
+                                    },
+                                    if (change == null) {
+                                        MaterialTheme.colorScheme.onSurface
+                                    } else {
+                                        MaterialTheme.colorScheme.onTertiaryContainer
+                                    },
                                 )
                                 val shortName = item.subjectName.split("-")[0]
                                 Card(
@@ -737,31 +807,42 @@ fun ScheduleGrid(
                                             role = Role.Button,
                                             onClickLabel = "查看課程詳情",
                                             onClick = {
-                                                if (change != null) selectedChange = change else selectedItem = item
+                                                if (change != null) {
+                                                    selectedChange = change
+                                                } else {
+                                                    selectedItem = originalItemsBySlot[item.dayOfWeek to item.period]
+                                                        ?: item
+                                                }
                                             },
                                         ),
                                     shape = RoundedCornerShape(8.dp),
                                     colors = CardDefaults.cardColors(containerColor = tileColors.container),
-                                    border = change?.let {
-                                        BorderStroke(2.dp, changeBorderColor)
-                                    },
                                 ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(4.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
-                                    ) {
-                                        Text(
-                                            text = shortName,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            textAlign = TextAlign.Center,
-                                            maxLines = 2,
-                                            color = tileColors.content,
-                                            overflow = TextOverflow.Ellipsis
+                                    Row(modifier = Modifier.fillMaxSize()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxHeight()
+                                                .width(4.dp)
+                                                .background(tileColors.accent),
                                         )
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                                .padding(4.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center,
+                                        ) {
+                                            Text(
+                                                text = shortName,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                textAlign = TextAlign.Center,
+                                                maxLines = 2,
+                                                color = tileColors.content,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -773,8 +854,12 @@ fun ScheduleGrid(
     }
 
     selectedItem?.let { item ->
+        val override = subjectOverrides.firstOrNull { it.originalSubjectName == item.subjectName }
         ScheduleDetailSheet(
             item = item,
+            existingOverride = override,
+            isSaving = isSavingSubjectOverride,
+            onSave = onSaveSubjectOverride,
             onDismiss = { selectedItem = null },
         )
     }
@@ -789,87 +874,44 @@ fun ScheduleGrid(
 private data class ScheduleTileColors(
     val container: Color,
     val content: Color,
+    val accent: Color,
 )
 
-private fun scheduleTileColors(subjectColor: Long, isDarkSurface: Boolean): ScheduleTileColors {
-    val rawBgColor = Color(subjectColor)
-    if (isDarkSurface) {
-        return ScheduleTileColors(
-            container = rawBgColor.copy(alpha = 0.15f),
-            content = rawBgColor,
-        )
-    }
-
-    val darkenedTextColor = Color(
-        red = (rawBgColor.red * 0.3f).coerceIn(0f, 1f),
-        green = (rawBgColor.green * 0.3f).coerceIn(0f, 1f),
-        blue = (rawBgColor.blue * 0.3f).coerceIn(0f, 1f),
-    )
-    return ScheduleTileColors(
-        container = rawBgColor,
-        content = darkenedTextColor,
-    )
-}
+private fun scheduleTileColors(
+    subjectColor: Long,
+    containerColor: Color,
+    contentColor: Color,
+): ScheduleTileColors = ScheduleTileColors(
+    container = containerColor,
+    content = contentColor,
+    accent = Color(subjectColor),
+)
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 private fun ScheduleDetailSheet(
     item: ScheduleItem,
+    existingOverride: ScheduleSubjectOverride?,
+    isSaving: Boolean,
+    onSave: (ScheduleSubjectOverride, () -> Unit) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val hasTeacher = hasScheduleDetail(item.teacherName)
-    val hasClassroom = hasScheduleDetail(item.classroom)
-
+    var isEditing by remember(item.subjectName, existingOverride) { mutableStateOf(false) }
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isSaving) onDismiss() },
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         dragHandle = { BottomSheetDefaults.DragHandle() },
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 24.dp, end = 24.dp, bottom = 36.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(
-                text = item.subjectName,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            if (hasTeacher || hasClassroom) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    if (hasTeacher) {
-                        ScheduleDetailRow(
-                            icon = "person",
-                            label = "教師",
-                            value = item.teacherName,
-                        )
-                    }
-                    if (hasClassroom) {
-                        ScheduleDetailRow(
-                            icon = "meeting_room",
-                            label = "教室",
-                            value = item.classroom,
-                        )
-                    }
-                }
-            } else {
-                Text(
-                    text = "無詳細資訊",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-        }
+        ScheduleSubjectOverrideEditor(
+            originalSubjectName = item.subjectName,
+            originalItems = listOf(item),
+            existingOverride = existingOverride,
+            isEditing = isEditing,
+            isSaving = isSaving,
+            onEdit = { isEditing = true },
+            onCancel = { isEditing = false },
+            onSave = { override -> onSave(override) { isEditing = false } },
+        )
     }
 }
 
@@ -891,7 +933,7 @@ private fun ScheduleChangeDetailSheet(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                text = "課表差異",
+                text = scheduleChangeTitle(change.type),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
@@ -914,13 +956,19 @@ private fun ScheduleChangeDetailSheet(
                 ScheduleComparisonCard(
                     title = "本週課表",
                     item = change.weekItem,
-                    emptyText = "停課",
+                    emptyText = "無",
                     modifier = Modifier.weight(1f),
                 )
             }
 
         }
     }
+}
+
+internal fun scheduleChangeTitle(type: ScheduleChangeType): String = when (type) {
+    ScheduleChangeType.ADDED -> "加課"
+    ScheduleChangeType.MODIFIED -> "調課"
+    ScheduleChangeType.REMOVED -> "停課"
 }
 
 @Composable
@@ -975,37 +1023,3 @@ private fun dayName(dayOfWeek: Int): String =
     listOf("", "一", "二", "三", "四", "五", "六", "日").getOrElse(dayOfWeek) { dayOfWeek.toString() }
 
 private fun hasScheduleDetail(value: String): Boolean = value.isNotBlank() && value != "null"
-
-@Composable
-private fun ScheduleDetailRow(
-    icon: String,
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        OutlinedRoundedSymbol(
-            icon = icon,
-            tint = MaterialTheme.colorScheme.primary,
-            size = 24.dp
-        )
-        Column {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-    }
-}

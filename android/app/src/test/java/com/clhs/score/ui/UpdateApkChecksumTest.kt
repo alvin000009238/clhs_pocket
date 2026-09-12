@@ -1,5 +1,8 @@
 package com.clhs.score.ui
 
+import com.clhs.score.data.ChecksumMismatchException
+import com.clhs.score.data.UpdateApkTooLargeException
+import com.clhs.score.data.writeVerifiedApk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse

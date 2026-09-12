@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.clhs.score.data.NetworkSchoolCalendarRepository
 import com.clhs.score.data.SchoolCalendarEvent
 import com.clhs.score.data.SchoolCalendarSnapshot
+import com.clhs.score.data.SCHOOL_CALENDAR_SEARCH_MAX_LENGTH
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,12 +26,24 @@ data class SchoolCalendarUiState(
     val skippedRecurringEvents: Int = 0,
     val errorMessage: String? = null,
     val noticeMessage: String? = null,
-)
+    val searchQuery: String = "",
+) {
+    val visibleEvents: List<SchoolCalendarEvent>
+        get() = if (searchQuery.isEmpty()) {
+            events
+        } else {
+            events.filter { event ->
+                event.title.contains(searchQuery, ignoreCase = true) ||
+                    event.location?.contains(searchQuery, ignoreCase = true) == true
+            }
+        }
+}
 
 class SchoolCalendarViewModel(
     private val loadCached: suspend () -> SchoolCalendarSnapshot?,
     private val loadSnapshot: suspend (forceRefresh: Boolean) -> SchoolCalendarSnapshot,
     private val todayProvider: () -> LocalDate = LocalDate::now,
+    private val targetEventId: String? = null,
 ) : ViewModel() {
     private var loadJob: Job? = null
     private val _uiState = MutableStateFlow(SchoolCalendarUiState())
@@ -46,6 +59,16 @@ class SchoolCalendarViewModel(
 
     fun consumeNotice() {
         _uiState.update { it.copy(noticeMessage = null) }
+    }
+
+    fun search(keyword: String) {
+        val normalizedKeyword = keyword.trim().take(SCHOOL_CALENDAR_SEARCH_MAX_LENGTH)
+        if (normalizedKeyword == _uiState.value.searchQuery) return
+        _uiState.update { it.copy(searchQuery = normalizedKeyword) }
+    }
+
+    fun clearSearch() {
+        search("")
     }
 
     private fun load(forceRefresh: Boolean, includeCache: Boolean) {
@@ -101,7 +124,7 @@ class SchoolCalendarViewModel(
                 isInitialLoading = false,
                 isRefreshing = false,
                 events = snapshot.feed.events
-                    .filter { event -> event.endExclusive.isAfter(startOfToday) }
+                    .filter { event -> event.id == targetEventId || event.endExclusive.isAfter(startOfToday) }
                     .sortedBy(SchoolCalendarEvent::start),
                 lastUpdatedAt = snapshot.fetchedAt,
                 skippedRecurringEvents = snapshot.feed.skippedRecurringEvents,
@@ -115,11 +138,12 @@ class SchoolCalendarViewModel(
     }
 
     companion object {
-        fun factory(context: Context): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+        fun factory(context: Context, targetEventId: String? = null): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val repository = NetworkSchoolCalendarRepository(context.applicationContext.cacheDir)
                 return SchoolCalendarViewModel(
+                    targetEventId = targetEventId,
                     loadCached = repository::loadCached,
                     loadSnapshot = repository::load,
                 ) as T

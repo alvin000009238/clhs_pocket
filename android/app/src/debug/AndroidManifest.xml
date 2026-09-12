@@ -7,12 +7,13 @@
         <receiver
             android:name=".reminders.GradeReminderDebugReceiver"
             android:exported="true"
-            tools:ignore="ExportedReceiver" />
+            android:permission="android.permission.DUMP" />
         <activity
             android:name=".widget.ScheduleWidgetPreviewCaptureActivity"
             android:exported="true"
+            android:permission="android.permission.DUMP"
             android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar"
-            tools:ignore="ExportedActivity" />
+            tools:ignore="CustomSplashScreen" />
     </application>
 
 </manifest>

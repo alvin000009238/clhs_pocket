@@ -7,15 +7,8 @@ import org.junit.Test
 
 class DeveloperDiagnosticsTest {
     @Test
-    fun defaultClearableCategoriesDoNotIncludeSettings() {
-        val clearableCategories = defaultClearableLocalDataCategories()
-
-        assertFalse(LocalDataCategory.Settings in clearableCategories)
-        assertTrue(LocalDataCategory.GradeCache in clearableCategories)
-        assertTrue(LocalDataCategory.Session in clearableCategories)
-        assertTrue(LocalDataCategory.WebView in clearableCategories)
-        assertTrue(LocalDataCategory.Cache in clearableCategories)
-        assertTrue(LocalDataCategory.NoBackupWebView in clearableCategories)
+    fun defaultSelectedCategoriesAreEmpty() {
+        assertTrue(defaultSelectedLocalDataCategories().isEmpty())
     }
 
     @Test
