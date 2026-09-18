@@ -2,9 +2,9 @@ name: Android CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
   push:
-    branches: [main]
+    branches: [main, dev]
 
 permissions:
   contents: read
@@ -46,5 +46,9 @@ jobs:
           set -o pipefail
           sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
 
+      - name: Test release guards
+        working-directory: .
+        run: python3 -m unittest discover -s .github/scripts -p "test_*.py"
+
       - name: Verify Android app
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --warning-mode all

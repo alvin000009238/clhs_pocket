@@ -12,6 +12,7 @@ jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       # required for all workflows
       security-events: write
@@ -30,7 +31,7 @@ jobs:
         - language: actions
           build-mode: none
         - language: java-kotlin
-          build-mode: autobuild
+          build-mode: manual
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -52,16 +53,22 @@ jobs:
           android/**/*.gradle*
           android/gradle/wrapper/gradle-wrapper.properties
 
-    - name: Run manual build steps
-      if: matrix.build-mode == 'manual'
-      shell: bash
+    - name: Set up Android SDK
+      if: matrix.language == 'java-kotlin'
+      uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+
+    - name: Install Android SDK packages
+      if: matrix.language == 'java-kotlin'
       run: |
-        echo 'If you are using a "manual" build mode for one or more of the' \
-          'languages you are analyzing, replace this with the commands to build' \
-          'your code, for example:'
-        echo '  make bootstrap'
-        echo '  make release'
-        exit 1
+        set +o pipefail
+        yes | sdkmanager --licenses > /dev/null
+        set -o pipefail
+        sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+
+    - name: Compile Android app for CodeQL
+      if: matrix.language == 'java-kotlin'
+      working-directory: android
+      run: ./gradlew --no-daemon --no-build-cache --no-configuration-cache --rerun-tasks :app:assembleDebug
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4

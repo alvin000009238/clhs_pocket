@@ -24,4 +24,15 @@
 - 改 Compose UI：跑 `lint`、`assembleDebug`，有明確裝置驗證要求時，再以 fake data 做截圖或互動檢查。
 - 改 workflow／文件：檢查 YAML 或 Markdown links，並保留既有 release 流程的 secrets 邊界。
 
-CI 會在 `main` push 與 PR 執行 Debug unit tests、lint 和 Debug assemble；它不是裝置測試的替代品。
+CI 在 `dev`／`main` push，以及目標為兩者的 PR 執行 `:app:testDebugUnitTest :app:lintDebug :app:assembleDebug --warning-mode all`。固定 check 名稱為 `Test, lint, and assemble Debug APK`；沒有 workflow path filter 或 job 條件跳過，文件 PR 也會回報。CI 使用 JDK 25、Android API 37、contents read 權限，不讀取 release secrets；它不是裝置測試的替代品。
+
+CI 也執行 release guard 的離線測試。從 repository root 執行：
+
+```powershell
+python -m unittest discover -s .github/scripts -p "test_*.py" -v
+actionlint
+```
+
+測試只在暫存 Git repository 建立 tag，覆蓋 main tag、未合併 dev tag、非法版本、缺少／空白 changelog，以及 versionCode 退版。
+
+CodeQL 保留 main push、PR 與每週掃描。2026-09-13 run `34747861031` 的註記確認 java-kotlin autobuild 失敗，因此改成安裝 Android SDK，從 `android/` 手動 `:app:assembleDebug`；停用 build/configuration cache 並強制重建，讓 CodeQL 擷取 Kotlin 編譯，不重跑 unit tests／Lint。必須在 GitHub 實際確認 Kotlin 覆蓋與 SARIF 上傳成功後，才考慮將 `Analyze (java-kotlin)` 設為 required check；本機 assemble 成功不能代替掃描驗證。

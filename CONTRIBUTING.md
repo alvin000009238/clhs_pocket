@@ -27,14 +27,16 @@ Set-Location clhs_pocket
 在 `android/` 執行與改動相符的最小檢查；送 PR 前至少跑：
 
 ```powershell
-.\gradlew.bat test
-.\gradlew.bat lint
-.\gradlew.bat assembleDebug
+.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --warning-mode all
 ```
 
 若觸及裝置功能（Widget、通知、WebView、檔案匯出），再於模擬器或裝置驗證該流程。詳見 [測試指南](docs/development/testing.md)。
 
 ## 分支與 commit
+
+日常開發整合到 `dev`；功能分支從 `dev` 建立並以 PR 合回 `dev`。`dev`／`main` push 與目標為這兩個分支的 PR 都會執行 Android CI。
+
+交付時開啟 `dev → main` PR，等待 `Test, lint, and assemble Debug APK` 通過並保持分支最新，再以 **Create a merge commit** 合併，保留長期分支的共同歷史。一般功能 PR 可依需要 squash。合併後才依 [Release 流程](docs/development/release.md) 在 main 已包含的 commit 標記版本。
 
 使用描述用途的短分支，例如 `feat/schedule-cache`、`fix/webview-cleanup` 或 `docs/onboarding`。commit 使用 Conventional Commits：
 
