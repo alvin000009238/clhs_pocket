@@ -2,6 +2,7 @@ package com.clhs.score.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -110,7 +111,7 @@ class NetworkSchoolAnnouncementsRepository(
             null
         }
         val requestContext = currentCoroutineContext()
-        return runInterruptibleHttp {
+        return withContext(Dispatchers.IO) {
             val requestBody = FormBody.Builder()
                 .add("auth_type", "user")
                 .add("field", "time")
@@ -127,13 +128,18 @@ class NetworkSchoolAnnouncementsRepository(
                 .url(endpoint("ischool/widget/site_news/news_query_json.php"))
                 .post(requestBody)
                 .build()
-            val bytes = executeLimited(request, MAX_LIST_BYTES, "Announcement list")
-            val fetchedAt = nowProvider()
-            val page = SchoolAnnouncementParser.parsePage(bytes.toString(Charsets.UTF_8), fetchedAt)
-            if (cacheGeneration != null) {
-                cache.commit(bytes, fetchedAt.toEpochMilli(), cacheGeneration, requestContext)
+            client.newCall(request).executeCancellable { response ->
+                currentCoroutineContext().ensureActive()
+                val bytes = readResponseLimited(response, MAX_LIST_BYTES, "Announcement list")
+                currentCoroutineContext().ensureActive()
+                val fetchedAt = nowProvider()
+                val page = SchoolAnnouncementParser.parsePage(bytes.toString(Charsets.UTF_8), fetchedAt)
+                currentCoroutineContext().ensureActive()
+                if (cacheGeneration != null) {
+                    cache.commit(bytes, fetchedAt.toEpochMilli(), cacheGeneration, requestContext)
+                }
+                page
             }
-            page
         }
     }
 
@@ -144,22 +150,30 @@ class NetworkSchoolAnnouncementsRepository(
     suspend fun loadUnits(): List<AnnouncementUnit> {
         val generation = unitsCache.beginWrite()
         val requestContext = currentCoroutineContext()
-        return runInterruptibleHttp {
+        return withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint("home")).get().build()
-            val bytes = executeLimited(request, MAX_HOME_BYTES, "Announcement units")
-            val units = SchoolAnnouncementParser.parseUnits(bytes.toString(Charsets.UTF_8))
-            unitsCache.commit(bytes, nowProvider().toEpochMilli(), generation, requestContext)
-            units
+            client.newCall(request).executeCancellable { response ->
+                currentCoroutineContext().ensureActive()
+                val bytes = readResponseLimited(response, MAX_HOME_BYTES, "Announcement units")
+                currentCoroutineContext().ensureActive()
+                val units = SchoolAnnouncementParser.parseUnits(bytes.toString(Charsets.UTF_8))
+                currentCoroutineContext().ensureActive()
+                unitsCache.commit(bytes, nowProvider().toEpochMilli(), generation, requestContext)
+                units
+            }
         }
     }
 
     suspend fun loadDetail(id: String, categoryHint: String = ""): SchoolAnnouncementDetail =
-        runInterruptibleHttp {
+        withContext(Dispatchers.IO) {
             require(id.isNotBlank()) { "Announcement id is required" }
             val officialUrl = announcementUrl(id, baseUrl)
             val viewRequest = Request.Builder().url(officialUrl).get().build()
-            val viewHtml = executeLimited(viewRequest, MAX_VIEW_BYTES, "Announcement page")
-                .toString(Charsets.UTF_8)
+            val viewHtml = client.newCall(viewRequest).executeCancellable { response ->
+                currentCoroutineContext().ensureActive()
+                readResponseLimited(response, MAX_VIEW_BYTES, "Announcement page")
+            }.toString(Charsets.UTF_8)
+            currentCoroutineContext().ensureActive()
             val uid = UNIQUE_ID_REGEX.find(viewHtml)?.groupValues?.getOrNull(1)
                 ?.takeIf(String::isNotBlank)
                 ?: throw IOException("Announcement identifier is missing")
@@ -170,20 +184,21 @@ class NetworkSchoolAnnouncementsRepository(
                 .addQueryParameter("uid", uid)
                 .build()
             val contentRequest = Request.Builder().url(contentUrl).get().build()
-            val contentJson = executeLimited(contentRequest, MAX_DETAIL_BYTES, "Announcement detail")
-                .toString(Charsets.UTF_8)
+            val contentJson = client.newCall(contentRequest).executeCancellable { response ->
+                currentCoroutineContext().ensureActive()
+                readResponseLimited(response, MAX_DETAIL_BYTES, "Announcement detail")
+            }.toString(Charsets.UTF_8)
+            currentCoroutineContext().ensureActive()
             SchoolAnnouncementParser.parseDetail(contentJson, id, categoryHint)
         }
 
     private fun endpoint(path: String): HttpUrl = baseUrl.newBuilder().addPathSegments(path).build()
 
-    private fun executeLimited(request: Request, maxBytes: Long, label: String): ByteArray {
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("$label request failed with HTTP ${response.code}")
-            val body = response.body
-            if (body.contentLength() > maxBytes) throw IOException("$label response is too large")
-            return readLimited(body.source(), maxBytes, label)
-        }
+    private fun readResponseLimited(response: okhttp3.Response, maxBytes: Long, label: String): ByteArray {
+        if (!response.isSuccessful) throw IOException("$label request failed with HTTP ${response.code}")
+        val body = response.body
+        if (body.contentLength() > maxBytes) throw IOException("$label response is too large")
+        return readLimited(body.source(), maxBytes, label)
     }
 
     private fun readCache(): SchoolAnnouncementPage? {

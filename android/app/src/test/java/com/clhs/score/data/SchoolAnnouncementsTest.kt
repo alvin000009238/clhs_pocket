@@ -180,22 +180,24 @@ class SchoolAnnouncementsTest {
 
     @Test
     fun cancellingPageLoadStopsTheBlockingHttpCall() = runBlocking {
-        server.enqueue(jsonResponse(RECORDED_LIST_JSON).setBodyDelay(5, TimeUnit.SECONDS))
-        val cacheDirectory = Files.createTempDirectory("school-announcement-cancel-test").toFile()
-        val repository = NetworkSchoolAnnouncementsRepository(
-            cacheDirectory = cacheDirectory,
-            baseUrl = server.url("/"),
-        )
+        repeat(20) {
+            server.enqueue(jsonResponse(RECORDED_LIST_JSON).setBodyDelay(5, TimeUnit.SECONDS))
+            val cacheDirectory = Files.createTempDirectory("school-announcement-cancel-test").toFile()
+            val repository = NetworkSchoolAnnouncementsRepository(
+                cacheDirectory = cacheDirectory,
+                baseUrl = server.url("/"),
+            )
 
-        try {
-            val load = launch(Dispatchers.Default) { repository.loadPage(0) }
-            assertTrue(server.takeRequest(2, TimeUnit.SECONDS) != null)
-            load.cancel()
+            try {
+                val load = launch(Dispatchers.Default) { repository.loadPage(0) }
+                assertTrue(server.takeRequest(2, TimeUnit.SECONDS) != null)
+                load.cancel()
 
-            withTimeout(1.seconds) { load.join() }
-            assertTrue(load.isCancelled)
-        } finally {
-            cacheDirectory.deleteRecursively()
+                withTimeout(1.seconds) { load.join() }
+                assertTrue(load.isCancelled)
+            } finally {
+                cacheDirectory.deleteRecursively()
+            }
         }
     }
 
