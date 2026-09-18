@@ -60,6 +60,7 @@ data class OverviewState(
     val hasPartialFailure: Boolean = false,
     val weather: OverviewWeatherState = OverviewWeatherState.Loading,
     val hero: OverviewHero? = null,
+    val isScheduleRefreshing: Boolean = false,
 )
 
 data class OverviewHero(

@@ -147,9 +147,16 @@ class OverviewCoordinatorTest {
         val report = weekReport()
         assertEquals(0f, scheduleOverviewHero(report, monday.withMinute(10))!!.courseProgress!!, 0.001f)
         assertEquals(0.4f, scheduleOverviewHero(report, monday)!!.courseProgress!!, 0.001f)
+        assertEquals(0.41f, scheduleOverviewHero(report, monday.withSecond(30))!!.courseProgress!!, 0.001f)
         assertEquals(0.5f, scheduleOverviewHero(report, monday.withMinute(35))!!.courseProgress!!, 0.001f)
         assertNull(scheduleOverviewHero(report, monday.withHour(9).withMinute(0))!!.courseProgress)
         assertNull(scheduleOverviewHero(report, monday.withHour(17))!!.courseProgress)
+    }
+
+    @Test
+    fun overviewClockTicksOnSecondBoundaries() {
+        assertEquals(1_000L, overviewClockDelayMillis(monday))
+        assertEquals(500L, overviewClockDelayMillis(monday.withNano(500_000_000)))
     }
 
     @Test
@@ -296,6 +303,24 @@ class OverviewCoordinatorTest {
         assertTrue(item.title.contains("尚未有可用的課表"))
     }
 
+    @Test
+    fun changesFollowHeroDateIncludingPreparedNextWeekAndExpiredReports() {
+        val friday = LocalDateTime.parse("2026-09-18T17:00")
+        val report = weekReport().copy(
+            weekStartDate = "2026-09-20",
+            weekEndDate = "2026-09-26",
+            changes = listOf(1, 5).map { day ->
+                ScheduleChange(ScheduleChangeType.MODIFIED, day, 1,
+                    weekItem = ScheduleItem(day, 1, "異動$day"))
+            },
+        )
+        val changes = scheduleOverviewItems(report, friday).filter { it.kind == OverviewItemKind.ScheduleChange }
+        assertEquals(listOf("異動1"), changes.map { it.supportingText })
+        assertTrue(changes.single().id.contains("2026-09-21"))
+        assertTrue(scheduleOverviewItems(report, friday.plusWeeks(2)).none { it.kind == OverviewItemKind.ScheduleChange })
+        val nextDay = scheduleOverviewItems(weekReport(withChange = true), monday.withHour(17))
+        assertTrue(nextDay.none { it.kind == OverviewItemKind.ScheduleChange })
+    }
     private fun weekReport(withChange: Boolean = false) = ScheduleReport(
         yearTermValue = "114_2",
         classNo = "230",

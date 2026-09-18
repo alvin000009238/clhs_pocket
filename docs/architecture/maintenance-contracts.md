@@ -25,8 +25,8 @@
 入口：`data/SchoolAnnouncements.kt`、`data/SchoolCalendar.kt`、`data/WeatherRepository.kt`、`data/LatestCacheFile.kt`、`domain/overview/`。
 
 - 公告、行事曆與天氣使用無 Cookie client；總覽先顯示 cache，來源各自更新與降級，成績只讀提醒 change set，不因開啟總覽另查成績 API。
-- 總覽自訂沿用 `app_settings`，保存區塊開關、六個區塊的排列順序、行程／公告各自 1–20 筆的上限與公開行事曆事件 ID 集合（相容原單一事件設定，寫入時移除舊 key）；由 `OverviewViewModel` 合併偏好與總覽狀態，不以跨來源總數截斷資料。近期行程仍限未來 14 天，置頂公告限已載入頁面；倒數可多選任意尚未結束事件，不受 14 天限制，沿用每分鐘時鐘，全天事件按日期差計算，結束時間不包含在活動期間。事件移除時保留選擇並提示重選，儲存失敗保留草稿供重試。區塊順序略過未知或重複值，缺少的區塊依預設順序補齊；拖曳與無障礙上移／下移只改草稿，恢復預設與復原也涵蓋順序。
-- 總覽課程進度由 `OverviewCoordinator` 依 `PERIOD_TIMES` 計算，隨既有每分鐘時鐘更新；只有上課中的 Hero 提供 `courseProgress`，畫面使用 `LinearWavyProgressIndicator`。下一個上課日依日期差顯示「明天／後天／N 天後」，保留課表有效日期限制。
+- 總覽自訂沿用 `app_settings`，保存區塊開關、六個區塊的排列順序、行程／公告各自 1–20 筆的上限與公開行事曆事件 ID 集合（相容原單一事件設定，寫入時移除舊 key）；由 `OverviewViewModel` 合併偏好與總覽狀態，不以跨來源總數截斷資料。近期行程仍限未來 14 天，置頂公告限已載入頁面；倒數可多選任意尚未結束事件，不受 14 天限制，沿用總覽時鐘，全天事件按日期差計算，結束時間不包含在活動期間。事件移除時保留選擇並提示重選，儲存失敗保留草稿供重試。區塊順序略過未知或重複值，缺少的區塊依預設順序補齊；拖曳與無障礙上移／下移只改草稿，恢復預設與復原也涵蓋順序。
+- 總覽課程進度由 `OverviewCoordinator` 依 `PERIOD_TIMES` 計算，隨既有每秒時鐘更新；只有上課中的 Hero 提供 `courseProgress`，畫面使用 `LinearWavyProgressIndicator`。下一個上課日依日期差顯示「明天／後天／N 天後」，保留課表有效日期限制。課程異動跟隨 Hero 日期篩選，不以今天的星期套用其他週的異動；課表區塊使用獨立的 `isScheduleRefreshing` 顯示更新狀態。
 - `LatestCacheFile` 同 canonical path 的 instance 共用 generation／提交鎖。網路開始前取得 generation，每次用唯一 temp，只有最新 generation 可 atomic replace。
 - 公告全部單位的 `flock` 為空，限定單位用 `unit_<ID>`；獨立 `unit` 參數無效。列表首筆是分頁 metadata；只有無關鍵字、全部單位的第一頁寫入離線 cache。
 - 詳情先由 `show.php` 取 `g_news_unique_id` 再取 content。HTML 移除主動內容與危險 scheme；只有 HTTPS 校網圖片自動載入，其他連結由使用者開啟。詳情限制 2 MiB。

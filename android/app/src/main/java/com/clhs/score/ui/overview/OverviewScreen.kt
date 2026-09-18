@@ -142,6 +142,7 @@ fun OverviewScreen(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 private fun OverviewContent(
     state: OverviewState,
     authState: AuthState,
@@ -178,13 +179,24 @@ private fun OverviewContent(
                 restoring = { AuthRestoringPlaceholder() },
                 fallback = { OverviewLoginPrompt(authState, onRequestLogin) },
             ) {
-                HeroCard(
-                    hero = state.hero,
-                    needsSetup = visibleItems.any { it.kind == OverviewItemKind.ScheduleSetup },
-                    nextClass = visibleItems.firstOrNull {
-                        state.context == OverviewContext.InClass && it.kind == OverviewItemKind.UpcomingClass
-                    },
-                ) { onOpenDestination(OverviewDestination.Schedule) }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (state.isScheduleRefreshing) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            LoadingIndicator(Modifier.size(24.dp))
+                            Text("課表更新中…", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    HeroCard(
+                        hero = state.hero,
+                        needsSetup = visibleItems.any { it.kind == OverviewItemKind.ScheduleSetup },
+                        nextClass = visibleItems.firstOrNull {
+                            state.context == OverviewContext.InClass && it.kind == OverviewItemKind.UpcomingClass
+                        },
+                    ) { onOpenDestination(OverviewDestination.Schedule) }
+                }
             }
             "weather" -> Surface(
                 shape = MaterialTheme.shapes.large,

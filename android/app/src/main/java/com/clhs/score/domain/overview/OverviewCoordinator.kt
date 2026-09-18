@@ -159,8 +159,7 @@ class OverviewCoordinator(
         while (true) {
             emit(OverviewUpdate.Clock)
             val now = nowProvider()
-            val nextMinute = now.truncatedTo(ChronoUnit.MINUTES).plusMinutes(1)
-            delay(Duration.between(now, nextMinute).toMillis().coerceAtLeast(1_000L).milliseconds)
+            delay(overviewClockDelayMillis(now).milliseconds)
         }
     }
 
@@ -191,6 +190,7 @@ class OverviewCoordinator(
             items = sorted,
             isInitialLoading = completed < OverviewSource.entries.size && sorted.isEmpty(),
             isRefreshing = accumulator.refreshingSources.isNotEmpty(),
+            isScheduleRefreshing = OverviewSource.Schedule in accumulator.refreshingSources,
             hasPartialFailure = accumulator.failedSources.isNotEmpty(),
             weather = accumulator.weather.toOverviewWeatherState(),
             hero = accumulator.schedule?.let { scheduleOverviewHero(it, now) },
@@ -232,6 +232,11 @@ internal fun scheduleRefreshDelayMillis(
     ?.takeIf { it > 0 }
     ?: 0L
 
+internal fun overviewClockDelayMillis(now: LocalDateTime): Long {
+    val nextSecond = now.truncatedTo(ChronoUnit.SECONDS).plusSeconds(1)
+    return Duration.between(now, nextSecond).toMillis().coerceAtLeast(100L)
+}
+
 internal fun overviewContext(report: ScheduleReport?, now: LocalDateTime): OverviewContext {
     val todayItems = report?.itemsForDate(now.toLocalDate()).orEmpty()
     if (todayItems.isEmpty()) return OverviewContext.NonSchoolDay
@@ -251,10 +256,11 @@ internal fun scheduleOverviewItems(report: ScheduleReport, now: LocalDateTime): 
     val upcoming = todayItems.filter { it.startsAfter(now.toLocalTime()) }.take(3)
     val result = mutableListOf<OverviewItem>()
 
+    val displayDate = scheduleOverviewHero(report, now)?.date?.toLocalDate()
     report.displayChanges()
-        .filter { it.dayOfWeek == today.dayOfWeek.value }
+        .filter { displayDate != null && report.isValidOn(displayDate) && it.dayOfWeek == displayDate.dayOfWeek.value }
         .sortedBy(ScheduleChange::period)
-        .forEach { change -> result += change.toOverviewItem(today) }
+        .forEach { change -> result += change.toOverviewItem(requireNotNull(displayDate)) }
 
     current?.let { item ->
         result += item.toCourseOverviewItem(
@@ -575,7 +581,7 @@ private fun ScheduleChange.toOverviewItem(date: LocalDate): OverviewItem {
         priority = OverviewPriority.P0,
         kind = OverviewItemKind.ScheduleChange,
         title = title,
-        supportingText = supporting.ifBlank { "今日課表已更新" },
+        supportingText = supporting.ifBlank { "課表已更新" },
         label = "課程異動",
         icon = "notifications_active",
         destination = OverviewDestination.Schedule,
