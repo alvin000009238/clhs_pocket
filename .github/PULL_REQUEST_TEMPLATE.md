@@ -8,9 +8,9 @@
 
 ## 驗證
 
-- [ ] `android\\gradlew.bat test`
-- [ ] `android\\gradlew.bat lint`
-- [ ] `android\\gradlew.bat assembleDebug`
+- [ ] `android\\gradlew.bat :app:testDemoDebugUnitTest`
+- [ ] `android\\gradlew.bat :app:lintDemoDebug`
+- [ ] `android\\gradlew.bat :app:assembleDemoDebug :app:assembleProductionDebug`
 - [ ] 已在模擬器／裝置驗證（若觸及 UI、Widget、通知、WebView 或匯出）
 
 <!-- 請附實際命令、結果與未執行項目的原因。 -->

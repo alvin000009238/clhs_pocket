@@ -2,6 +2,7 @@ package com.clhs.score.analytics
 
 import android.content.Context
 import android.os.Bundle
+import com.clhs.score.BuildConfig
 import com.google.firebase.analytics.FirebaseAnalytics
 
 class FirebaseAnalyticsLogger(
@@ -19,8 +20,10 @@ class FirebaseAnalyticsLogger(
             return
         }
         runCatching { usageStatistics.recordEvent(name, parameters) }
-        runCatching {
-            analytics.logEvent(name, AnalyticsParameterSanitizer.sanitize(parameters).toBundle())
+        if (!BuildConfig.USE_FAKE_DATA) {
+            runCatching {
+                analytics.logEvent(name, AnalyticsParameterSanitizer.sanitize(parameters).toBundle())
+            }
         }
     }
 

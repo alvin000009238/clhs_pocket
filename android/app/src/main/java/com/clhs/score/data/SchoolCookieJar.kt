@@ -6,6 +6,22 @@ import okhttp3.HttpUrl
 
 class SchoolCookieJar : CookieJar {
     private val cookies = mutableListOf<Cookie>()
+    private var generation = 0L
+
+    internal fun forCurrentGeneration(): CookieJar = synchronized(this) {
+        val expectedGeneration = generation
+        object : CookieJar {
+            override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+                synchronized(this@SchoolCookieJar) {
+                    if (generation == expectedGeneration) this@SchoolCookieJar.saveFromResponse(url, cookies)
+                }
+            }
+
+            override fun loadForRequest(url: HttpUrl): List<Cookie> = synchronized(this@SchoolCookieJar) {
+                if (generation == expectedGeneration) this@SchoolCookieJar.loadForRequest(url) else emptyList()
+            }
+        }
+    }
 
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
         synchronized(this) {
@@ -35,6 +51,7 @@ class SchoolCookieJar : CookieJar {
 
     fun replace(cookieValues: Map<String, String>, domain: String = "shcloud2.k12ea.gov.tw") {
         synchronized(this) {
+            generation++
             cookies.clear()
             cookieValues.forEach { (name, value) ->
                 if (name.isNotBlank()) {
@@ -53,6 +70,7 @@ class SchoolCookieJar : CookieJar {
 
     fun clear() {
         synchronized(this) {
+            generation++
             cookies.clear()
         }
     }

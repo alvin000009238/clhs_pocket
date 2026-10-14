@@ -17,17 +17,21 @@ data class WeatherConfiguration(
 )
 
 data class AppSettings(
+    val backgroundPause: BackgroundPause = BackgroundPause(),
     val overview: OverviewPreferences = OverviewPreferences(),
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = false,
     val amoledBlack: Boolean = false,
     val notificationsEnabled: Boolean = false,
+    val preferExactCourseAlarms: Boolean = false,
     val developerEnabled: Boolean = false,
-    val demoMode: Boolean = false,
     val biometricEnabled: Boolean = false,
     val weatherSource: WeatherSource = WeatherSource.OPEN_METEO,
     val weatherCredentialRevision: Long = 0L,
+    val startOnSchedule: Boolean = false,
+    val profileAvatarShapeIndex: Int = 0,
     val hasCompletedOnboarding: Boolean = false,
+    val hasSeenYouBikeWidget: Boolean = false,
 )
 
 /** Device-wide presentation preferences; calendar selections contain only public event IDs. */
@@ -53,6 +57,6 @@ data class OverviewPreferences(
     }
 
     companion object {
-        val DEFAULT_SECTION_ORDER = listOf("schedule", "weather", "alerts", "countdown", "calendar", "announcements")
+        val DEFAULT_SECTION_ORDER = listOf("schedule", "weather", "alerts", "countdown", "calendar", "announcements", "youbike")
     }
 }

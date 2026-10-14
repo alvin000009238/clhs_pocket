@@ -2,6 +2,7 @@ package com.clhs.score.notifications
 
 import android.Manifest
 import android.app.Activity
+import android.app.NotificationManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -27,6 +28,15 @@ internal fun Context.areNotificationsEnabled(): Boolean =
 internal fun Context.canPostNotifications(): Boolean =
     hasPostNotificationsPermission() && areNotificationsEnabled()
 
+internal fun Context.canPostNotifications(channelId: String): Boolean {
+    if (!canPostNotifications()) return false
+    val manager = getSystemService(NotificationManager::class.java)
+    // A channel that has not been created yet uses the app's default availability.
+    val channel = manager.getNotificationChannel(channelId) ?: return true
+    return channel.importance != NotificationManager.IMPORTANCE_NONE &&
+        channel.group?.let(manager::getNotificationChannelGroup)?.isBlocked != true
+}
+
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 internal fun Context.shouldShowPostNotificationsRationale(): Boolean =
     findActivity()?.let { activity ->
@@ -46,6 +56,17 @@ internal fun Context.openAppNotificationSettings(): Boolean {
                 data = "package:$packageName".toUri()
             },
         )
+}
+
+internal fun Context.openNotificationChannelSettings(channelId: String): Boolean {
+    if (!canPostNotifications()) return openAppNotificationSettings()
+    NotificationChannels.ensureCreated(this)
+    return startSettingsActivity(
+        Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
+        },
+    ) || openAppNotificationSettings()
 }
 
 private fun Context.startSettingsActivity(intent: Intent): Boolean =

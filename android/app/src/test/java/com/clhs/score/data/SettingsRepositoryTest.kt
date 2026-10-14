@@ -4,6 +4,9 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -16,15 +19,73 @@ import org.junit.rules.TemporaryFolder
 
 class SettingsRepositoryTest {
     @Test
+    fun profileAvatarChoiceSurvivesDataStoreRecreationAndWraps() = runTest {
+        val file = temporaryFolder.newFile("profile-avatar.preferences_pb")
+        val storeJob = Job(backgroundScope.coroutineContext[Job])
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = CoroutineScope(backgroundScope.coroutineContext + storeJob),
+            produceFile = { file },
+        )
+        try {
+            val repository = SettingsRepository(dataStore)
+            repository.setHasCompletedOnboarding(true)
+            assertFalse(repository.settings.first().hasSeenYouBikeWidget)
+            repository.markYouBikeWidgetSeen()
+            repository.markYouBikeWidgetSeen()
+            assertEquals(0, repository.settings.first().profileAvatarShapeIndex)
+            for (expected in listOf(1, 2, 3, 0, 1)) {
+                repository.cycleProfileAvatarShape()
+                assertEquals(expected, repository.settings.first().profileAvatarShapeIndex)
+            }
+        } finally {
+            storeJob.cancelAndJoin()
+        }
+        val restoredStore = PreferenceDataStoreFactory.create(scope = backgroundScope, produceFile = { file })
+        val restoredRepository = SettingsRepository(restoredStore)
+        assertEquals(1, restoredRepository.loadForStartup().profileAvatarShapeIndex)
+        assertTrue(restoredRepository.settings.first().hasSeenYouBikeWidget)
+        restoredRepository.cycleProfileAvatarShape()
+        assertEquals(2, restoredRepository.settings.first().profileAvatarShapeIndex)
+    }
+
+    @Test
+    fun backgroundPauseDefaultsOffAndPersistsTogether() = runTest {
+        val file = temporaryFolder.newFile("pause.preferences_pb")
+        val dataStore = PreferenceDataStoreFactory.create(scope = backgroundScope, produceFile = { file })
+        val repository = SettingsRepository(dataStore)
+        assertEquals(BackgroundPause(), repository.settings.first().backgroundPause)
+        val pause = BackgroundPause(true, 22 * 60, 6 * 60 + 30)
+        repository.setBackgroundPause(pause)
+        assertEquals(pause, SettingsRepository(dataStore).settings.first().backgroundPause)
+        repository.setBackgroundPause(pause.copy(enabled = false))
+        assertEquals(pause.copy(enabled = false), repository.settings.first().backgroundPause)
+    }
+
+    @Test
+    fun exactAlarmOptInDefaultsOffAndPersistsExplicitChoice() = runTest {
+        val file = temporaryFolder.newFile("exact-alarm-preference.preferences_pb")
+        val dataStore = PreferenceDataStoreFactory.create(scope = backgroundScope, produceFile = { file })
+        val repository = SettingsRepository(dataStore)
+
+        assertFalse(repository.settings.first().preferExactCourseAlarms)
+        repository.setPreferExactCourseAlarms(true)
+        assertTrue(SettingsRepository(dataStore).settings.first().preferExactCourseAlarms)
+        repository.setPreferExactCourseAlarms(false)
+        assertFalse(repository.settings.first().preferExactCourseAlarms)
+    }
+
+    @Test
     fun overviewSectionOrderMovesNormalizesAndPersists() = runTest {
         val defaults = OverviewPreferences()
         assertEquals(defaults, defaults.moveSection("schedule", -1))
         assertEquals(defaults, defaults.moveSection("unknown", 1))
-        val moved = defaults.moveSection("announcements", -5)
+        val moved = defaults.moveSection("announcements", -defaults.orderedSections().lastIndex)
         assertEquals("announcements", moved.orderedSections().first())
-        assertEquals(defaults, moved.moveSection("announcements", 5))
+        assertEquals(defaults, moved.moveSection("announcements", defaults.orderedSections().indexOf("announcements")))
         val malformed = defaults.copy(sectionOrder = listOf("weather", "unknown", "weather"))
-        assertEquals(listOf("weather", "schedule", "alerts", "countdown", "calendar", "announcements"), malformed.orderedSections())
+        assertEquals(listOf("weather", "schedule", "alerts", "countdown", "calendar", "announcements", "youbike"), malformed.orderedSections())
+        val legacyOrder = listOf("announcements", "calendar", "schedule", "weather", "alerts", "countdown")
+        assertEquals(legacyOrder + "youbike", defaults.copy(sectionOrder = legacyOrder).orderedSections())
         val file = temporaryFolder.newFile("overview-order.preferences_pb")
         val dataStore = PreferenceDataStoreFactory.create(scope = backgroundScope, produceFile = { file })
         val repository = SettingsRepository(dataStore)
@@ -35,6 +96,9 @@ class SettingsRepositoryTest {
         assertEquals(defaults, repository.settings.first().overview)
         repository.setOverviewPreferences(malformed)
         assertEquals(malformed.orderedSections(), repository.settings.first().overview.sectionOrder)
+        val hiddenYouBike = defaults.copy(hiddenSections = setOf("youbike"))
+        repository.setOverviewPreferences(hiddenYouBike)
+        assertEquals(hiddenYouBike, repository.settings.first().overview)
     }
 
     @get:Rule

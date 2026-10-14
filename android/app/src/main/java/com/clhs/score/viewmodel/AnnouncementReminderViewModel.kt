@@ -10,6 +10,7 @@ import com.clhs.score.analytics.AnalyticsParams
 import com.clhs.score.analytics.AnalyticsValues
 import com.clhs.score.analytics.NoOpAnalyticsLogger
 import com.clhs.score.data.AnnouncementReminderRepository
+import com.clhs.score.data.AnnouncementReadRepository
 import com.clhs.score.data.AnnouncementReminderState
 import com.clhs.score.data.AnnouncementUnit
 import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.IOException
@@ -39,6 +41,10 @@ data class AnnouncementReminderUiState(
     val checkResult: AnnouncementReminderCheckResult? = null,
     val isApplyingUnits: Boolean = false,
     val unitApplySucceeded: Boolean? = null,
+    val unreadIds: Set<String> = emptySet(),
+    val isReadingAvailable: Boolean = false,
+    val isMarkingAllRead: Boolean = false,
+    val readingError: String? = null,
 )
 
 data class AnnouncementReminderCheckResult(
@@ -52,6 +58,7 @@ class AnnouncementReminderViewModel internal constructor(
     private val schedule: (Int) -> Unit,
     private val cancel: () -> Unit,
     private val analyticsLogger: AnalyticsLogger = NoOpAnalyticsLogger,
+    private val readRepository: AnnouncementReadRepository? = null,
 ) : ViewModel() {
     constructor(
         repository: AnnouncementReminderRepository,
@@ -68,6 +75,24 @@ class AnnouncementReminderViewModel internal constructor(
     private var scheduledState: Pair<Boolean, Int>? = null
 
     init {
+        readRepository?.let { reading ->
+            viewModelScope.launch {
+                combine(reading.unreadIds, reading.discoveryAvailable) { ids, available -> ids to available }
+                    .retryWhen { error, _ ->
+                        if (error is CancellationException) throw error
+                        _uiState.update { it.copy(isReadingAvailable = false, readingError = "公告閱讀狀態暫時無法取得，請稍後再試。") }
+                        delay(5_000.milliseconds)
+                        true
+                    }.collect { (ids, available) ->
+                        _uiState.update { it.copy(unreadIds = ids, isReadingAvailable = available) }
+                    }
+            }
+            viewModelScope.launch {
+                reading.errorMessage.collect { message ->
+                    if (message != null) _uiState.update { it.copy(readingError = message) }
+                }
+            }
+        }
         viewModelScope.launch {
             repository.state.retryWhen { error, _ ->
                 if (error !is IOException) return@retryWhen false
@@ -115,6 +140,7 @@ class AnnouncementReminderViewModel internal constructor(
             try {
                 val state = repository.loadState()
                 val announcements = loadSnapshot(state.selectedUnitIds, emptySet())
+                readRepository?.discover(announcements)
                 repository.enableWithBaseline(announcements, System.currentTimeMillis())
                 analyticsLogger.logEvent(
                     AnalyticsEvents.ANNOUNCEMENT_REMINDER_START,
@@ -144,6 +170,7 @@ class AnnouncementReminderViewModel internal constructor(
             _uiState.update { it.copy(isApplyingUnits = true, unitApplySucceeded = null) }
             try {
                 val announcements = loadSnapshot(unitIds, emptySet())
+                readRepository?.discover(announcements)
                 repository.applySelectedUnitIds(unitIds, announcements, System.currentTimeMillis())
                 _uiState.update { it.copy(isApplyingUnits = false, unitApplySucceeded = true) }
             } catch (error: Exception) {
@@ -157,7 +184,40 @@ class AnnouncementReminderViewModel internal constructor(
         _uiState.update { it.copy(unitApplySucceeded = null) }
     }
 
-    fun markRead(id: String) = launchUpdate { repository.markRead(id) }
+    fun markRead(id: String) {
+        val reading = readRepository ?: return
+        viewModelScope.launch {
+            try {
+                reading.markRead(id)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                _uiState.update { it.copy(readingError = "無法標記公告為已讀，請稍後再試。") }
+            }
+        }
+    }
+
+    fun markAllRead() {
+        val reading = readRepository ?: return
+        val current = _uiState.value
+        if (!current.isReadingAvailable || current.isMarkingAllRead || current.unreadIds.isEmpty()) return
+        val snapshot = current.unreadIds.toSet()
+        _uiState.update { it.copy(isMarkingAllRead = true) }
+        viewModelScope.launch {
+            try {
+                reading.markAllRead(snapshot)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                _uiState.update { it.copy(readingError = "無法將公告全部標為已讀，請稍後再試。") }
+            } finally {
+                _uiState.update { it.copy(isMarkingAllRead = false) }
+            }
+        }
+    }
+
+    fun consumeReadingError() {
+        readRepository?.errorMessage?.value = null
+        _uiState.update { it.copy(readingError = null) }
+    }
 
     fun consumeCheckResult() {
         _uiState.update { it.copy(checkResult = null) }
@@ -178,7 +238,8 @@ class AnnouncementReminderViewModel internal constructor(
         viewModelScope.launch {
             try {
                 block()
-            } catch (_: IOException) {
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 _uiState.update {
                     it.copy(checkResult = AnnouncementReminderCheckResult(null, System.currentTimeMillis()))
                 }
@@ -194,11 +255,14 @@ class AnnouncementReminderViewModel internal constructor(
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val appContext = context.applicationContext
+                val scheduler = AnnouncementReminderScheduler(appContext)
                 return AnnouncementReminderViewModel(
                     repository = AnnouncementReminderRepository(appContext),
                     announcementsRepository = NetworkSchoolAnnouncementsRepository(appContext.cacheDir),
-                    scheduler = AnnouncementReminderScheduler(appContext),
+                    schedule = scheduler::schedule,
+                    cancel = scheduler::cancel,
                     analyticsLogger = analyticsLogger,
+                    readRepository = AnnouncementReadRepository.get(appContext),
                 ) as T
             }
         }

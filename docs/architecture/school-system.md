@@ -8,6 +8,7 @@
 - 目前版本不以舊版 `EncryptedSharedPreferences` 還原登入狀態；找不到 `has_completed_onboarding_v2` 時重新進入首次設定並要求重新登入，舊版資料只由清理路徑處理。
 - `SchoolGradeClient.prepareSession(session)` 是校務 API 使用 session/cookie 的唯一準備路徑；不要在每個 API 方法直接覆寫 cookie jar。
 - `SchoolCookieJar` 的讀、寫、取代與清除都必須同步，避免平行請求互相覆蓋。
+- Client 以完整 session 判斷授權更替，不只比較學號；每條請求鏈固定 generation。舊 token／回應不得提交，CookieJar 的 generation view 不允許舊請求寫入新 Cookie 或在 redirect 中借用新 Cookie。每個 generation 的衍生 client 共用原 dispatcher 與連線池，保留四個請求上限。
 - 登出、學生切換與提醒停止必須清除對應資料；清除失敗不能假裝成功。
 
 ## WebView
@@ -19,7 +20,7 @@
 ## 公開資料與 Widget
 
 - 學校公告、校務行事曆與公告更新提醒使用固定公開 HTTPS URL 和 `CookieJar.NO_COOKIES`，不得讀取登入 session；公告更新提醒的背景工作也不使用 FCM topic。
-- 總覽天氣使用固定的中壢高中座標，不取得定位；Open-Meteo 與中央氣象署使用不同 cache，中央氣象署授權碼由 Keystore 保護並只放在 Authorization header。
+- 首頁天氣使用固定的中壢高中座標，不取得定位；Open-Meteo 與中央氣象署使用不同 cache，中央氣象署授權碼由 Keystore 保護並只放在 Authorization header。
 - Widget 只讀 `GradeCacheStore` 的 widget 專用課表快照，沒有登入或 API 查詢權限。
 - 深連結與通知 action 必須經過既有 capability 與生物識別鎖，不能直接觸發受保護查詢。
 

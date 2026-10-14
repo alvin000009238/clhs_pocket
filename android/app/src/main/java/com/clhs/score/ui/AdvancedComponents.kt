@@ -40,7 +40,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -83,6 +82,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.clhs.score.ui.theme.PocketMotion
 import com.clhs.score.data.GradeAnalysis
 import com.clhs.score.data.GradeReport
 import com.clhs.score.data.GradeTrend
@@ -393,7 +393,6 @@ internal fun ScoreSimulatorScreen(
     var showAdvancedModes by rememberSaveable(reportIdentity) {
         mutableStateOf(isCustomGroupEnabled || isTargetReversalEnabled)
     }
-    val utilityMotion = remember { MotionScheme.standard() }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val usesSplitLayout = scoreSimulatorUsesSplitLayout(maxWidth)
@@ -444,6 +443,9 @@ internal fun ScoreSimulatorScreen(
             }
         ) {
             LazyColumn(
+                contentPadding = com.clhs.score.ui.navigation.navigationContentPadding(
+                    androidx.compose.foundation.layout.PaddingValues(0.dp),
+                ),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(
@@ -489,7 +491,7 @@ internal fun ScoreSimulatorScreen(
                     }
                     Column(
                         modifier = Modifier.animateContentSize(
-                            animationSpec = utilityMotion.defaultSpatialSpec(),
+                            animationSpec = PocketMotion.contentReflow(),
                         ),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
@@ -1008,16 +1010,10 @@ private fun FlameSlider(
     modifier: Modifier = Modifier,
     isFlameActive: Boolean = false,
 ) {
-    val utilityMotion = remember { MotionScheme.standard() }
-    val trackColor by animateColorAsState(
+    val flameColor by animateColorAsState(
         targetValue = if (isFlameActive) Color(0xFFFF5722) else MaterialTheme.colorScheme.primary,
-        animationSpec = utilityMotion.defaultEffectsSpec(),
-        label = "trackColor",
-    )
-    val thumbColor by animateColorAsState(
-        targetValue = if (isFlameActive) Color(0xFFFF5722) else MaterialTheme.colorScheme.primary,
-        animationSpec = utilityMotion.defaultEffectsSpec(),
-        label = "thumbColor",
+        animationSpec = PocketMotion.stateChange(),
+        label = "score-simulator-flame-color",
     )
 
     val sliderState = remember { SliderState(value = value, trackRange = 0f..100f) }
@@ -1028,9 +1024,9 @@ private fun FlameSlider(
         state = sliderState,
         onValueChange = onValueChange,
         colors = SliderDefaults.colors(
-            thumbColor = thumbColor,
-            activeTrackColor = trackColor,
-            inactiveTrackColor = trackColor.copy(alpha = 0.24f),
+            thumbColor = flameColor,
+            activeTrackColor = flameColor,
+            inactiveTrackColor = flameColor.copy(alpha = 0.24f),
         ),
     )
 }

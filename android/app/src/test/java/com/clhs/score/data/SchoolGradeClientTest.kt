@@ -62,6 +62,29 @@ class SchoolGradeClientTest {
     }
 
     @Test
+    fun malformedGradeEnvelopeIsRejectedInsteadOfBecomingAnEmptyReport() = runTest {
+        for (body in listOf("{}", "{\"Result\":{}}", "{\"Result\":[]}")) {
+            server.enqueue(jsonResponse(body))
+            val error = runCatching { client.fetchGrades(testSession(), "114_1", "期末考") }.exceptionOrNull()
+            assertTrue("Invalid envelope must fail: $body", error is SchoolException)
+            assertFalse("Invalid data must not expire the current login", error is SchoolAuthenticationException)
+        }
+    }
+
+    @Test
+    fun mismatchedGradeAccountIsRejectedAndTheCurrentAccountCanRetry() = runTest {
+        server.enqueue(jsonResponse(gradeJson.replace("DEMO-001", "DEMO-OTHER")))
+        val error = runCatching { client.fetchGrades(testSession(), "114_1", "期末考") }.exceptionOrNull()
+        assertTrue(error is SchoolException)
+        assertFalse("A wrong-account response must not log out the current account", error is SchoolAuthenticationException)
+
+        server.enqueue(jsonResponse("""{"Result":{"StudentNo":"DEMO-001","SubjectExamInfoList":[]}}"""))
+        val report = client.fetchGrades(testSession(), "114_1", "期末考")
+        assertEquals("DEMO-001", report.studentInfo.studentNo)
+        assertTrue("A valid empty subject list remains a usable report", report.subjects.isEmpty())
+    }
+
+    @Test
     fun fetchStudentInfoMapsHomePageUserInfo() = runTest {
         server.enqueue(
             htmlResponse(
@@ -79,7 +102,7 @@ class SchoolGradeClientTest {
         assertEquals("範例學生", student.studentName)
         assertEquals("高二 30 班", student.className)
         assertEquals("12", student.seatNo)
-        assertEquals("/CLHSTYC/ICampus/Home/Index2", server.takeRequest().path)
+        assertEquals("/CLHSTYC/ICampus/Home/Index2", server.awaitRequest().path)
     }
 
     @Test
@@ -247,8 +270,8 @@ class SchoolGradeClientTest {
         assertEquals("數學", report.items.first().subjectName)
         assertEquals(ScheduleScope.SEMESTER, report.scope)
 
-        assertEquals("/CLHSTYC/ClassTableV2/ClassTable", server.takeRequest().path)
-        val timetableRequest = server.takeRequest()
+        assertEquals("/CLHSTYC/ClassTableV2/ClassTable", server.awaitRequest().path)
+        val timetableRequest = server.awaitRequest()
         assertEquals("/CLHSTYC/ClassTableV2/ClassTable/GetTimeTable", timetableRequest.path)
         val form = timetableRequest.body.readUtf8()
         assertTrue(form.contains("__RequestVerificationToken=schedule-token"))
@@ -468,16 +491,16 @@ class SchoolGradeClientTest {
         assertEquals("4", report.weekNo)
         assertEquals("2026-07-19", report.weekStartDate)
         assertEquals("2026-07-25", report.weekEndDate)
-        server.takeRequest()
-        val weekRequest = server.takeRequest()
+        server.awaitRequest()
+        val weekRequest = server.awaitRequest()
         assertEquals("/CLHSTYC/ClassTableV2/ClassTable/GetWeekNoList", weekRequest.path)
         assertTrue(weekRequest.body.readUtf8().contains("Year=115"))
-        val timetableRequest = server.takeRequest()
+        val timetableRequest = server.awaitRequest()
         val form = timetableRequest.body.readUtf8()
         assertEquals("/CLHSTYC/ClassTableV2/ClassTable/GetTimeTable", timetableRequest.path)
         assertTrue(form.contains("WeekNo=4"))
         assertEquals(1, Regex("(?:^|&)WeekNo=").findAll(form).count())
-        val semesterRequest = server.takeRequest()
+        val semesterRequest = server.awaitRequest()
         val semesterForm = semesterRequest.body.readUtf8()
         assertEquals("/CLHSTYC/ClassTableV2/ClassTable/GetTimeTable", semesterRequest.path)
         assertTrue(semesterForm.contains("WeekNo=&"))
@@ -508,10 +531,10 @@ class SchoolGradeClientTest {
         assertEquals(ScheduleScope.CURRENT_WEEK, report.scope)
         assertEquals(2, report.items.size)
         assertEquals(null, report.changes)
-        server.takeRequest()
-        server.takeRequest()
-        assertTrue(server.takeRequest().body.readUtf8().contains("WeekNo=4"))
-        assertTrue(server.takeRequest().body.readUtf8().contains("WeekNo=&"))
+        server.awaitRequest()
+        server.awaitRequest()
+        assertTrue(server.awaitRequest().body.readUtf8().contains("WeekNo=4"))
+        assertTrue(server.awaitRequest().body.readUtf8().contains("WeekNo=&"))
     }
 
     @Test
@@ -558,9 +581,9 @@ class SchoolGradeClientTest {
 
         assertEquals(ScheduleScope.CURRENT_WEEK, report.scope)
         assertEquals("4", report.weekNo)
-        server.takeRequest()
-        server.takeRequest()
-        val form = server.takeRequest().body.readUtf8()
+        server.awaitRequest()
+        server.awaitRequest()
+        val form = server.awaitRequest().body.readUtf8()
         assertEquals(1, Regex("(?:^|&)WeekNo=").findAll(form).count())
         assertTrue(form.contains("WeekNo=4"))
     }
@@ -585,9 +608,9 @@ class SchoolGradeClientTest {
 
         assertEquals(ScheduleScope.CURRENT_WEEK, report.scope)
         assertEquals("5", report.weekNo)
-        server.takeRequest()
-        server.takeRequest()
-        assertTrue(server.takeRequest().body.readUtf8().contains("WeekNo=5"))
+        server.awaitRequest()
+        server.awaitRequest()
+        assertTrue(server.awaitRequest().body.readUtf8().contains("WeekNo=5"))
     }
 
     @Test
@@ -608,9 +631,9 @@ class SchoolGradeClientTest {
         )
 
         assertEquals(ScheduleScope.SEMESTER, report.scope)
-        server.takeRequest()
-        assertEquals("/CLHSTYC/ClassTableV2/ClassTable/GetWeekNoList", server.takeRequest().path)
-        assertEquals("/CLHSTYC/ClassTableV2/ClassTable/GetTimeTable", server.takeRequest().path)
+        server.awaitRequest()
+        assertEquals("/CLHSTYC/ClassTableV2/ClassTable/GetWeekNoList", server.awaitRequest().path)
+        assertEquals("/CLHSTYC/ClassTableV2/ClassTable/GetTimeTable", server.awaitRequest().path)
     }
 
     @Test
@@ -655,10 +678,10 @@ class SchoolGradeClientTest {
         )
 
         assertEquals(ScheduleScope.SEMESTER, report.scope)
-        server.takeRequest()
-        server.takeRequest()
-        val failedWeeklyForm = server.takeRequest().body.readUtf8()
-        val semesterForm = server.takeRequest().body.readUtf8()
+        server.awaitRequest()
+        server.awaitRequest()
+        val failedWeeklyForm = server.awaitRequest().body.readUtf8()
+        val semesterForm = server.awaitRequest().body.readUtf8()
         assertTrue(failedWeeklyForm.contains("WeekNo=4"))
         assertTrue(semesterForm.contains("WeekNo=&"))
     }
@@ -684,10 +707,10 @@ class SchoolGradeClientTest {
         client.restoreSession(restoredSession)
         client.fetchSchedule(restoredSession, "114_1", "114", "1", "230", ScheduleScope.SEMESTER)
 
-        server.takeRequest()
-        server.takeRequest()
-        assertEquals("/CLHSTYC/ClassTableV2/ClassTable", server.takeRequest().path)
-        val secondTimetableRequest = server.takeRequest()
+        server.awaitRequest()
+        server.awaitRequest()
+        assertEquals("/CLHSTYC/ClassTableV2/ClassTable", server.awaitRequest().path)
+        val secondTimetableRequest = server.awaitRequest()
         assertEquals("/CLHSTYC/ClassTableV2/ClassTable/GetTimeTable", secondTimetableRequest.path)
         assertTrue(secondTimetableRequest.body.readUtf8().contains("__RequestVerificationToken=schedule-token-2"))
     }

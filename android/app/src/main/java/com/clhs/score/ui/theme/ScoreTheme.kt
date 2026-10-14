@@ -219,6 +219,7 @@ fun ScoreTheme(
             colorScheme = colorScheme,
             motionScheme = MotionScheme.expressive(),
             shapes = ScoreShapes,
+            typography = PocketTypography,
         ) {
             Surface(
                 modifier = Modifier.fillMaxSize(),

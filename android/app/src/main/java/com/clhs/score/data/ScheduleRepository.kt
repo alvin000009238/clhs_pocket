@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CancellationException
+import java.time.ZoneId
 
 interface ScheduleRepository {
     suspend fun getScheduleYears(): List<ScheduleYearTermOption>
@@ -20,12 +22,16 @@ interface ScheduleRepository {
         classNo: String,
         scope: ScheduleScope,
         targetDate: LocalDate,
+        expectedSession: AuthenticatedSession? = null,
     ): ScheduleReport
     suspend fun getLatestSchedule(): ScheduleReport?
     suspend fun getLatestScheduleSnapshot(): CachedScheduleReport? =
         getLatestSchedule()?.let { CachedScheduleReport(it, null) }
     fun subjectOverridesFlow(): Flow<List<ScheduleSubjectOverride>> = flowOf(emptyList())
     suspend fun saveSubjectOverrides(overrides: List<ScheduleSubjectOverride>) = Unit
+    suspend fun restoreSubjectOverrides(overrides: List<ScheduleSubjectOverride>, expectedSession: AuthenticatedSession) {
+        throw UnsupportedOperationException("Account-bound restore is not supported")
+    }
 }
 
 class NetworkScheduleRepository(
@@ -45,7 +51,7 @@ class NetworkScheduleRepository(
     private val fetchMutex = Mutex()
 
     override suspend fun getScheduleYears(): List<ScheduleYearTermOption> {
-        return withSession(client::getScheduleYears)
+        return withSession(block = client::getScheduleYears)
     }
 
     override suspend fun getScheduleClasses(year: String, term: String): List<ScheduleClassOption> {
@@ -59,10 +65,12 @@ class NetworkScheduleRepository(
         classNo: String,
         scope: ScheduleScope,
         targetDate: LocalDate,
+        expectedSession: AuthenticatedSession?,
     ): ScheduleReport {
-        return withSession { session ->
+        return withSession(expectedSession) { session ->
             val requestStartedAt = System.currentTimeMillis()
             fetchMutex.withLock {
+                validateCurrentSession(session)
                 val semesterCacheKey = if (classNo.isNotBlank()) "${yearValue}_${classNo}" else yearValue
                 val cacheKey = if (scope == ScheduleScope.CURRENT_WEEK) {
                     "${semesterCacheKey}_current_week"
@@ -118,6 +126,7 @@ class NetworkScheduleRepository(
         val displayedReport = snapshot.report.copy(
             subjectOverrides = cacheStore.loadScheduleSubjectOverrides(session.studentNo),
         )
+        validateCurrentSession(session)
         return snapshot.copy(report = displayedReport)
     }
 
@@ -132,19 +141,35 @@ class NetworkScheduleRepository(
 
     override suspend fun saveSubjectOverrides(overrides: List<ScheduleSubjectOverride>) {
         withSession { session ->
-            cacheStore.saveScheduleSubjectOverrides(session.studentNo, overrides)
+            cacheStore.saveScheduleSubjectOverrides(session.studentNo, overrides) { sessionStore.isAuthorized(session) }
         }
     }
 
-    private suspend fun <T> withSession(block: suspend (AuthenticatedSession) -> T): T {
+    override suspend fun restoreSubjectOverrides(overrides: List<ScheduleSubjectOverride>, expectedSession: AuthenticatedSession) {
+        withSession(expectedSession) { session ->
+            cacheStore.saveScheduleSubjectOverrides(session.studentNo, overrides) { sessionStore.isAuthorized(session) }
+        }
+    }
+
+    private suspend fun <T> withSession(
+        expectedSession: AuthenticatedSession? = null,
+        block: suspend (AuthenticatedSession) -> T,
+    ): T {
         val session = sessionResolver.requireSession()
-        sessionStore.validateSession(session)
+        if (expectedSession != null && session != expectedSession) throw CancellationException("Session changed")
+        validateCurrentSession(session)
         return try {
-            block(session).also { sessionStore.validateSession(session) }
+            block(session).also { validateCurrentSession(session) }
         } catch (error: SchoolAuthenticationException) {
-            onAuthenticationExpired()
+            if (sessionResolver.currentSession() == session) onAuthenticationExpired()
             throw error
         }
+    }
+
+    private suspend fun validateCurrentSession(session: AuthenticatedSession) {
+        if (sessionResolver.currentSession() != session) throw CancellationException("Session changed")
+        sessionStore.validateSession(session)
+        if (sessionResolver.currentSession() != session) throw CancellationException("Session changed")
     }
 
     private fun cacheKeyFor(report: ScheduleReport, semesterCacheKey: String): String =
@@ -164,7 +189,7 @@ class NetworkScheduleRepository(
             this.classNo == classNo &&
             this.scope == scope &&
             (scope != ScheduleScope.CURRENT_WEEK ||
-                (isValidOn(targetDate) && !shouldRefreshAt(LocalDateTime.now())))
+                (isValidOn(targetDate) && !shouldRefreshAt(LocalDateTime.now(ZoneId.of("Asia/Taipei")))))
 
 }
 
@@ -178,7 +203,10 @@ internal class ActiveSessionResolver(
         if (!sessionAccessAllowedProvider()) return null
         activeSessionProvider()?.let { return it }
         if (biometricSessionPresentProvider()) return null
-        return storedSessionProvider()
+        val stored = storedSessionProvider()
+        if (!sessionAccessAllowedProvider()) return null
+        if (biometricSessionPresentProvider()) return activeSessionProvider()
+        return activeSessionProvider() ?: stored
     }
 
     suspend fun requireSession(): AuthenticatedSession =
@@ -187,14 +215,38 @@ internal class ActiveSessionResolver(
 
 class FakeScheduleRepository(
     private val cacheStore: GradeCacheStore? = null,
+    private val activeSessionProvider: () -> AuthenticatedSession? = { null },
+    private val sessionStore: SessionStore? = null,
 ) : ScheduleRepository {
     private val inMemoryOverrides = MutableStateFlow<List<ScheduleSubjectOverride>>(emptyList())
 
-    private suspend fun report(yearValue: String, classNo: String, scope: ScheduleScope = ScheduleScope.SEMESTER) =
-        FakeScheduleData.report(yearValue, classNo, scope).copy(
+    private suspend fun report(
+        yearValue: String,
+        classNo: String,
+        scope: ScheduleScope = ScheduleScope.SEMESTER,
+        targetDate: LocalDate = LocalDate.now(SCHOOL_COURSE_ZONE),
+    ): ScheduleReport {
+        val session = activeSessionProvider()
+        val report = FakeScheduleData.report(yearValue, classNo, scope, targetDate).copy(
             subjectOverrides = cacheStore?.loadScheduleSubjectOverrides(DEMO_STUDENT_NO)
                 ?: inMemoryOverrides.value,
         )
+        if (session != null && sessionStore != null) {
+            val shouldCommit = { activeSessionProvider() == session && sessionStore.isAuthorized(session) }
+            val semesterKey = "${yearValue}_$classNo"
+            if (scope == ScheduleScope.CURRENT_WEEK) {
+                cacheStore?.saveScheduleReport(
+                    session.studentNo, semesterKey,
+                    FakeScheduleData.report(yearValue, classNo, ScheduleScope.SEMESTER, targetDate),
+                    shouldCommit,
+                )
+            }
+            val cacheKey = if (scope == ScheduleScope.CURRENT_WEEK) "${semesterKey}_current_week" else semesterKey
+            cacheStore?.saveScheduleReport(session.studentNo, cacheKey, report.copy(subjectOverrides = emptyList()), shouldCommit)
+            cacheStore?.saveWidgetScheduleReport(session.studentNo, report, shouldCommit)
+        }
+        return report
+    }
 
     override suspend fun getScheduleYears(): List<ScheduleYearTermOption> {
         return FakeScheduleData.years
@@ -211,16 +263,37 @@ class FakeScheduleRepository(
         classNo: String,
         scope: ScheduleScope,
         targetDate: LocalDate,
+        expectedSession: AuthenticatedSession?,
     ): ScheduleReport {
-        return report(yearValue, classNo, scope)
+        if (expectedSession != null && activeSessionProvider() != expectedSession) {
+            throw CancellationException("Session changed")
+        }
+        return report(yearValue, classNo, scope, targetDate)
     }
 
-    override suspend fun getLatestSchedule(): ScheduleReport {
-        return report("114_2", "230")
-    }
+    override suspend fun getLatestSchedule(): ScheduleReport = getLatestScheduleSnapshot().report
 
-    override suspend fun getLatestScheduleSnapshot(): CachedScheduleReport =
-        CachedScheduleReport(report("114_2", "230"), System.currentTimeMillis())
+    override suspend fun getLatestScheduleSnapshot(): CachedScheduleReport {
+        val session = activeSessionProvider()
+        if (session != null && sessionStore != null) {
+            sessionStore.validateSession(session)
+            val cached = cacheStore?.loadLatestScheduleSnapshot(session.studentNo)
+            sessionStore.validateSession(session)
+            if (activeSessionProvider() != session) throw CancellationException("Session changed")
+            if (cached != null) {
+                val displayed = cached.report.copy(
+                    subjectOverrides = cacheStore.loadScheduleSubjectOverrides(DEMO_STUDENT_NO),
+                )
+                cacheStore.saveWidgetScheduleReport(session.studentNo, displayed) {
+                    activeSessionProvider() == session && sessionStore.isAuthorized(session)
+                }
+                return cached.copy(report = displayed)
+            }
+        }
+        return CachedScheduleReport(
+            report(FakeScheduleData.currentYearValue(), "230"), System.currentTimeMillis(),
+        )
+    }
 
     override fun subjectOverridesFlow(): Flow<List<ScheduleSubjectOverride>> =
         cacheStore?.scheduleSubjectOverridesFlow(DEMO_STUDENT_NO) ?: inMemoryOverrides
@@ -231,6 +304,15 @@ class FakeScheduleRepository(
             inMemoryOverrides.value = normalized
         } else {
             cacheStore.saveScheduleSubjectOverrides(DEMO_STUDENT_NO, normalized)
+        }
+    }
+
+    override suspend fun restoreSubjectOverrides(overrides: List<ScheduleSubjectOverride>, expectedSession: AuthenticatedSession) {
+        if (activeSessionProvider() != expectedSession) throw CancellationException("Session changed")
+        val normalized = overrides.normalizedSubjectOverrides()
+        if (cacheStore == null) inMemoryOverrides.value = normalized
+        else cacheStore.saveScheduleSubjectOverrides(DEMO_STUDENT_NO, normalized) {
+            activeSessionProvider() == expectedSession && (sessionStore?.isAuthorized(expectedSession) != false)
         }
     }
 

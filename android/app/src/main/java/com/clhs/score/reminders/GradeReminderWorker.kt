@@ -19,8 +19,13 @@ import com.clhs.score.data.SessionStore
 import com.clhs.score.data.SessionStorageException
 import com.clhs.score.data.SessionStorageUnavailableException
 import com.clhs.score.data.identity
+import com.clhs.score.notifications.NotificationChannels
+import com.clhs.score.notifications.canPostNotifications
 import kotlinx.coroutines.CancellationException
 import java.io.IOException
+import java.time.Instant
+import kotlinx.coroutines.flow.first
+import com.clhs.score.data.SettingsRepository
 
 internal enum class ReminderFailureAction(val message: String) {
     STOP("登入狀態已失效，段考更新提醒已停止"),
@@ -86,6 +91,17 @@ class GradeReminderWorker(
             return Result.success()
         }
 
+        if (!applicationContext.canPostNotifications(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)) {
+            return Result.success()
+        }
+
+        val pause = try {
+            SettingsRepository(applicationContext).settings.first().backgroundPause
+        } catch (_: IOException) {
+            return Result.retry()
+        }
+        if (pause.contains(Instant.now())) return Result.success()
+
         return runCatching {
             val repository = SchoolGradeRepository(
                 client = SchoolGradeClient(cookieJar = SchoolCookieJar()),
@@ -110,6 +126,11 @@ class GradeReminderWorker(
                 checkedAtMillis = now,
             )
             reminderRepository.mutate {
+                // Permission can change while the request is in flight. Keep the previous
+                // snapshot so a later permitted check can still report these changes.
+                if (!applicationContext.canPostNotifications(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)) {
+                    return@mutate
+                }
                 val updated = updateIfCurrent(identity) { current ->
                     sessionStore.withReminderAuthorization(session) {
                         current.copy(

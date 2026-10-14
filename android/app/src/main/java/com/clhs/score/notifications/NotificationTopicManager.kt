@@ -1,5 +1,6 @@
 package com.clhs.score.notifications
 
+import com.clhs.score.BuildConfig
 import com.google.firebase.messaging.FirebaseMessaging
 
 interface TopicSubscriptionClient {
@@ -17,8 +18,14 @@ object FirebaseTopicSubscriptionClient : TopicSubscriptionClient {
     }
 }
 
+private object NoOpTopicSubscriptionClient : TopicSubscriptionClient {
+    override fun subscribe(topic: String) = Unit
+    override fun unsubscribe(topic: String) = Unit
+}
+
 class NotificationTopicManager(
-    private val client: TopicSubscriptionClient = FirebaseTopicSubscriptionClient,
+    private val client: TopicSubscriptionClient =
+        if (BuildConfig.USE_FAKE_DATA) NoOpTopicSubscriptionClient else FirebaseTopicSubscriptionClient,
 ) {
     fun setNotificationsEnabled(enabled: Boolean) {
         TOPICS.forEach { topic ->

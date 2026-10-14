@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -18,11 +19,33 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 import kotlin.math.floor
+
+/** Keep count badges circular, including multi-digit counts and larger font scales. */
+@Composable
+internal fun CountBadge(text: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.error, CircleShape)
+            .layout { measurable, constraints ->
+                val content = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+                val diameter = maxOf(content.width, content.height, 16.dp.roundToPx())
+                layout(diameter, diameter) {
+                    content.placeRelative((diameter - content.width) / 2, (diameter - content.height) / 2)
+                }
+            }
+            .padding(horizontal = 1.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onError, maxLines = 1, softWrap = false)
+    }
+}
 
 fun formatRank(rank: Double?, count: Int?, showCount: Boolean): String {
     if (rank == null) return "--"
@@ -47,8 +70,10 @@ fun subjectPercentLabel(rank: Int?, count: Int?, scope: String = "班級"): Stri
 fun AccountIconButton(
     onClick: () -> Unit,
     showUpdateBadge: Boolean = false,
+    animateShape: Boolean = true,
 ) {
-    IconButton(onClick = onClick, shapes = IconButtonDefaults.shapes()) {
+    IconButton(onClick = hapticClick(onClick), shapes = if (animateShape) IconButtonDefaults.shapes() else
+        androidx.compose.material3.IconButtonShapes(CircleShape, CircleShape)) {
         Box {
             OutlinedRoundedSymbol(
                 icon = "account_circle",
@@ -89,8 +114,9 @@ fun RootTopAppBar(
             Column {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.headlineSmallEmphasized,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 subtitle?.let {
                     Text(

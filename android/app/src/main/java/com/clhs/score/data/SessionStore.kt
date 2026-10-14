@@ -27,6 +27,7 @@ private data class SessionStoreDependencies(
     val legacySource: LegacySessionSource,
     val biometricStorage: BiometricSessionStorage,
     val recordFailure: (SessionCleanupFailure) -> Unit = {},
+    val onRevoked: () -> Unit = {},
 )
 
 private fun productionSessionStoreDependencies(context: Context): SessionStoreDependencies {
@@ -38,6 +39,7 @@ private fun productionSessionStoreDependencies(context: Context): SessionStoreDe
         legacySource = legacySource,
         biometricStorage = SharedPreferencesBiometricSessionStorage(appContext, legacySource),
         recordFailure = { DeveloperDiagnostics.recordEvent(appContext, "PrivacyCleanup", it.name) },
+        onRevoked = { com.clhs.score.notifications.CurrentCourseNotifications.get(appContext).invalidate() },
     )
 }
 
@@ -59,6 +61,7 @@ class SessionStore private constructor(
     private val legacySource = dependencies.legacySource
     private val biometricStorage = dependencies.biometricStorage
     private val recordFailure = dependencies.recordFailure
+    private val onRevoked = dependencies.onRevoked
 
     private val runtime = synchronized(runtimes) { runtimes.getOrPut(dataStore) { RuntimeValidity() } }
 
@@ -150,6 +153,11 @@ class SessionStore private constructor(
         !runtime.blocked.value && session.authorizationId.isNotEmpty() && runtime.authorizationId == session.authorizationId
 
     /** Synchronous, shared by all SessionStore instances using the application DataStore. */
+    internal fun withSnapshotGeneration(generation: Long, block: () -> Unit): Boolean = synchronized(runtime) {
+        if (runtime.blocked.value || runtime.generation.get() != generation) false
+        else { block(); true }
+    }
+
     fun revoke() {
         synchronized(runtime) {
             runtime.blocked.value = true
@@ -158,6 +166,7 @@ class SessionStore private constructor(
             runtime.generation.incrementAndGet()
             reminderWriteGeneration.incrementAndGet()
         }
+        onRevoked()
     }
 
     suspend fun saveReminderSession(session: AuthenticatedSession, expiresAtMillis: Long) {

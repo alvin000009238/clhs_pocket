@@ -5,6 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
+import com.clhs.score.data.ALL_UNITS_ID
+import com.clhs.score.data.AnnouncementFilterOptions
+import com.clhs.score.data.ANNOUNCEMENT_UNIT_ID_REGEX
 import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.SchoolAnnouncementDetail
 import com.clhs.score.data.SchoolAnnouncementPage
@@ -30,14 +33,24 @@ data class SchoolAnnouncementsUiState(
     val noticeMessage: String? = null,
     val loadMoreError: String? = null,
     val searchQuery: String = "",
-)
+    val unitId: String = ALL_UNITS_ID,
+    val categoryId: String = ALL_UNITS_ID,
+    val filterOptions: AnnouncementFilterOptions = AnnouncementFilterOptions(),
+    val isLoadingFilters: Boolean = false,
+    val filterLoadFailed: Boolean = false,
+) {
+    val hasFilters: Boolean get() = unitId != ALL_UNITS_ID || categoryId != ALL_UNITS_ID
+}
 
 class SchoolAnnouncementsViewModel(
     private val loadCached: suspend () -> SchoolAnnouncementPage?,
-    private val loadPage: suspend (Int, String) -> SchoolAnnouncementPage,
+    private val loadPage: suspend (Int, String, String, String) -> SchoolAnnouncementPage,
+    private val loadCachedFilters: suspend () -> AnnouncementFilterOptions = { AnnouncementFilterOptions() },
+    private val loadFilters: suspend () -> AnnouncementFilterOptions = { AnnouncementFilterOptions() },
 ) : ViewModel() {
     private var loadJob: Job? = null
     private var loadMoreJob: Job? = null
+    private var filterJob: Job? = null
     private val _uiState = MutableStateFlow(SchoolAnnouncementsUiState())
     val uiState: StateFlow<SchoolAnnouncementsUiState> = _uiState.asStateFlow()
 
@@ -67,7 +80,38 @@ class SchoolAnnouncementsViewModel(
                 searchQuery = normalizedKeyword,
             )
         }
-        loadFirstPage(includeCache = normalizedKeyword.isEmpty(), keyword = normalizedKeyword)
+        loadFirstPage(includeCache = normalizedKeyword.isEmpty() && !_uiState.value.hasFilters, keyword = normalizedKeyword)
+    }
+
+    fun refreshFilters() {
+        filterJob?.cancel()
+        filterJob = viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingFilters = true, filterLoadFailed = false) }
+            try {
+                val cached = loadCachedFilters()
+                _uiState.update { it.copy(filterOptions = cached) }
+                val options = loadFilters()
+                _uiState.update { it.copy(filterOptions = options, isLoadingFilters = false) }
+            } catch (error: Exception) {
+                error.throwIfAnnouncementCancellation()
+                _uiState.update { it.copy(isLoadingFilters = false, filterLoadFailed = true) }
+            }
+        }
+    }
+
+    fun setFilters(unitId: String, categoryId: String) {
+        require(ANNOUNCEMENT_UNIT_ID_REGEX.matches(unitId))
+        require(ANNOUNCEMENT_UNIT_ID_REGEX.matches(categoryId))
+        val state = _uiState.value
+        if (state.unitId == unitId && state.categoryId == categoryId) return
+        _uiState.update {
+            it.copy(
+                unitId = unitId, categoryId = categoryId,
+                announcements = emptyList(), pageIndex = 0, hasMore = false,
+                lastUpdatedAt = null, errorMessage = null, noticeMessage = null, loadMoreError = null,
+            )
+        }
+        loadFirstPage(includeCache = !_uiState.value.hasFilters && state.searchQuery.isEmpty())
     }
 
     fun clearSearch() {
@@ -82,7 +126,7 @@ class SchoolAnnouncementsViewModel(
         loadMoreJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoadingMore = true, loadMoreError = null) }
             try {
-                val page = loadPage(nextPage, state.searchQuery)
+                val page = loadPage(nextPage, state.searchQuery, state.unitId, state.categoryId)
                 _uiState.update { current ->
                     current.copy(
                         isLoadingMore = false,
@@ -115,6 +159,7 @@ class SchoolAnnouncementsViewModel(
     ) {
         loadJob?.cancel()
         loadMoreJob?.cancel()
+        val filters = _uiState.value
         loadJob = viewModelScope.launch {
             if (includeCache) {
                 val cached = try {
@@ -138,7 +183,7 @@ class SchoolAnnouncementsViewModel(
                 )
             }
             try {
-                showFirstPage(loadPage(0, keyword))
+                showFirstPage(loadPage(0, keyword, filters.unitId, filters.categoryId))
             } catch (error: Exception) {
                 error.throwIfAnnouncementCancellation()
                 _uiState.update { state ->
@@ -180,10 +225,15 @@ class SchoolAnnouncementsViewModel(
         fun factory(context: Context): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                val repository = NetworkSchoolAnnouncementsRepository(context.applicationContext.cacheDir)
+                val repository = NetworkSchoolAnnouncementsRepository(
+                    context.applicationContext.cacheDir,
+                    readRepository = com.clhs.score.data.AnnouncementReadRepository.get(context),
+                )
                 return SchoolAnnouncementsViewModel(
                     loadCached = repository::loadCached,
                     loadPage = repository::loadPage,
+                    loadCachedFilters = repository::loadCachedFilterOptions,
+                    loadFilters = repository::loadFilterOptions,
                 ) as T
             }
         }

@@ -4,15 +4,15 @@ import androidx.benchmark.macro.MacrobenchmarkScope
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Until
 
-internal const val TARGET_PACKAGE = "com.clhs.score"
+internal const val TARGET_PACKAGE = "com.clhs.score.demo"
 internal const val UI_TIMEOUT_MILLIS = 5_000L
 private const val DEMO_SKIP_TIMEOUT_MILLIS = 3_000L
 
 internal fun MacrobenchmarkScope.ensureDemoSession() {
     startActivityAndWait()
-    if (device.findObject(By.desc("總覽")) == null) {
+    if (device.findObject(By.desc("首頁")) == null) {
         device.wait(Until.findObject(By.text("跳過")), DEMO_SKIP_TIMEOUT_MILLIS)?.click()
-        device.wait(Until.hasObject(By.desc("總覽")), UI_TIMEOUT_MILLIS)
+        device.wait(Until.hasObject(By.desc("首頁")), UI_TIMEOUT_MILLIS)
     }
     pressHome()
 }

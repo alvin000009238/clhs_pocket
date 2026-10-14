@@ -4,7 +4,11 @@ import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.notifications.NotificationAction
 import com.clhs.score.reminders.announcementNotificationAction
 import com.clhs.score.ui.announcements.orderAnnouncements
+import com.clhs.score.ui.announcements.shouldPrefetchAnnouncements
+import com.clhs.score.viewmodel.SchoolAnnouncementsUiState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AnnouncementPresentationTest {
@@ -31,5 +35,20 @@ class AnnouncementPresentationTest {
         assertEquals(detail, announcementNotificationAction(listOf(ordinary, ordinary)))
         assertEquals(NotificationAction.OpenAnnouncements, announcementNotificationAction(listOf(ordinary, unread)))
         assertEquals(NotificationAction.OpenAnnouncements, announcementNotificationAction(emptyList()))
+    }
+
+    @Test
+    fun announcementPrefetchStartsNearTheEndAndHonorsLoadState() {
+        val state = SchoolAnnouncementsUiState(
+            isInitialLoading = false,
+            hasMore = true,
+        )
+
+        assertFalse(shouldPrefetchAnnouncements(state, lastVisibleItemIndex = 17, totalItemsCount = 22))
+        assertTrue(shouldPrefetchAnnouncements(state, lastVisibleItemIndex = 18, totalItemsCount = 22))
+        assertFalse(shouldPrefetchAnnouncements(state.copy(hasMore = false), 21, 22))
+        assertFalse(shouldPrefetchAnnouncements(state.copy(isLoadingMore = true), 21, 22))
+        assertFalse(shouldPrefetchAnnouncements(state.copy(isRefreshing = true), 21, 22))
+        assertFalse(shouldPrefetchAnnouncements(state.copy(loadMoreError = "offline"), 21, 22))
     }
 }

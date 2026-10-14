@@ -4,6 +4,12 @@ import kotlinx.serialization.json.JsonObject
 import java.time.Instant
 import java.time.LocalDate
 
+internal fun fakeYouBikeSnapshot(now: Instant): YouBikeSnapshot = YouBikeSnapshot(
+    availableBikes = 4, emptyDocks = 44, totalDocks = 52,
+    ordinaryBikes = 2, electricBikes = 2, isOperating = true,
+    updatedAt = now, fetchedAt = now,
+)
+
 enum class StudentScenario {
     NORMAL, EXCELLENT, STRUGGLING, SPECIAL
 }
@@ -175,7 +181,7 @@ object FakeData {
     val session = AuthenticatedSession(
         studentNo = "DEMO-000",
         apiToken = "fake-token",
-        cookies = emptyMap(),
+        cookies = mapOf("fake" to "cookie"),
     )
     val structure: List<YearTermOption> = listOf(
         YearTermOption(
@@ -308,7 +314,10 @@ object FakeData {
     )
 }
 
-class FakeGradeRepository : GradeRepository {
+class FakeGradeRepository(
+    private val sessionStore: SessionStore? = null,
+    private val cacheStore: GradeCacheStore? = null,
+) : GradeRepository {
     private var activeSession: AuthenticatedSession? = null
 
     override suspend fun restoreSession(): AuthenticatedSession? = activeSession
@@ -331,19 +340,46 @@ class FakeGradeRepository : GradeRepository {
 
     override suspend fun logout(currentSession: AuthenticatedSession?) {
         activeSession = null
+        val failures = linkedSetOf<SessionCleanupFailure>()
+        if (sessionStore != null) {
+            sessionStore.cleanupStep(failures, SessionCleanupFailure.SESSION_DELETE_FAILED) { sessionStore.clear() }
+            sessionStore.cleanupStep(failures, SessionCleanupFailure.PRIVATE_CACHE_DELETE_FAILED) {
+                cacheStore?.clearAll(preserveSubjectOverrides = true)
+            }
+        } else {
+            cacheStore?.clearAll(preserveSubjectOverrides = true)
+        }
+        if (failures.isNotEmpty()) throw SessionCleanupException(failures)
     }
 
     override suspend fun loginWithCookies(
         studentNo: String,
         cookies: Map<String, String>,
-    ): AuthenticatedSession = FakeData.session.also { activeSession = it }
+    ): AuthenticatedSession {
+        val authenticated = sessionStore?.establishSession(FakeData.session) ?: FakeData.session
+        activeSession = authenticated
+        FakeScheduleRepository(cacheStore, { activeSession }, sessionStore).getLatestSchedule()
+        return authenticated
+    }
 }
 
 object FakeScheduleData {
-    val years = listOf(
-        ScheduleYearTermOption("113學年度第1學期", "113_1"),
-        ScheduleYearTermOption("113學年度第2學期", "113_2")
-    )
+    fun currentYearValue(today: LocalDate = LocalDate.now(SCHOOL_COURSE_ZONE)): String {
+        val year = today.year - 1911 - if (today.monthValue < 8) 1 else 0
+        val term = if (today.monthValue >= 8 || today.monthValue == 1) 1 else 2
+        return "${year}_$term"
+    }
+
+    val years: List<ScheduleYearTermOption>
+        get() {
+            val current = currentYearValue()
+            val (year, term) = requireNotNull(parseYearTermOrNull(current))
+            val previous = if (term == "2") "${year}_1" else "${year.toInt() - 1}_2"
+            return listOf(current, previous).map { value ->
+                val (academicYear, academicTerm) = requireNotNull(parseYearTermOrNull(value))
+                ScheduleYearTermOption("${academicYear}學年度第${academicTerm}學期", value)
+            }
+        }
 
     val classes = listOf(
         ScheduleClassOption("高二 30 班", "230"),
@@ -354,9 +390,20 @@ object FakeScheduleData {
         yearValue: String,
         classNo: String,
         scope: ScheduleScope = ScheduleScope.SEMESTER,
-        today: LocalDate = LocalDate.now(),
+        today: LocalDate = LocalDate.now(SCHOOL_COURSE_ZONE),
     ): ScheduleReport {
         val weekStart = today.minusDays((today.dayOfWeek.value - 1).toLong())
+        val (academicYear, academicTerm) = requireNotNull(parseYearTermOrNull(yearValue))
+        val semesterStart = if (academicTerm == "1") {
+            LocalDate.of(academicYear.toInt() + 1911, 8, 1)
+        } else {
+            LocalDate.of(academicYear.toInt() + 1912, 2, 1)
+        }
+        val firstWeekStart = semesterStart.minusDays((semesterStart.dayOfWeek.value - 1).toLong())
+        val weekNo = (java.time.temporal.ChronoUnit.WEEKS.between(firstWeekStart, weekStart) + 1)
+            .coerceAtLeast(1).toString()
+        val classroom = classes.firstOrNull { it.value == classNo }?.text
+            ?.replace(" ", "")?.removeSuffix("班") ?: classNo
         val semesterReport = ScheduleReport(
             yearTermValue = yearValue,
             classNo = classNo,
@@ -402,7 +449,9 @@ object FakeScheduleData {
                 ScheduleItem(dayOfWeek = 5, period = 6, subjectName = "地理", teacherName = "鄭十", classroom = "高二30"),
                 ScheduleItem(dayOfWeek = 5, period = 7, subjectName = "公民", teacherName = "陳二", classroom = "高二30"),
                 ScheduleItem(dayOfWeek = 5, period = 8, subjectName = "生涯規劃", teacherName = "代理教師", classroom = "專題教室")
-            )
+            ).map { item ->
+                if (item.classroom == "高二30") item.copy(classroom = classroom) else item
+            },
         )
         if (scope == ScheduleScope.SEMESTER) return semesterReport
 
@@ -424,7 +473,7 @@ object FakeScheduleData {
 
         return semesterReport.copy(
             scope = ScheduleScope.CURRENT_WEEK,
-            weekNo = "4",
+            weekNo = weekNo,
             weekStartDate = weekStart.toString(),
             weekEndDate = weekStart.plusDays(6).toString(),
             items = weekItems,

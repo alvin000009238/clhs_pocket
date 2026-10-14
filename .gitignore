@@ -40,8 +40,12 @@ venv.bak/
 # Application Data & Temporary Files
 .agent/skills/
 .codex/
+android/.artifacts/
+.qa/
 *.json
+!android/app/src/main/assets/weather_locations.json
 !android/app/google-services.json
+!android/app/schemas/**/*.json
 *.md
 !README.md
 !README.en.md
@@ -49,7 +53,6 @@ venv.bak/
 !DESIGN.md
 !CHANGELOG.md
 !CONTRIBUTING.md
-!CODE_OF_CONDUCT.md
 !SECURITY.md
 !docs/**
 !.github/PULL_REQUEST_TEMPLATE.md
@@ -62,6 +65,9 @@ venv.bak/
 
 # Local extraction scratch
 extracted_aar/
+
+# Local Android verification artifacts
+/android/.artifacts/
 
 # Logs
 *.log
@@ -80,3 +86,9 @@ public/dist/
 # bat
 *.bat
 *.ps1
+
+# Versioned, project-specific agent skill and templates
+!.agents/skills/clhs-overview-widget/**
+
+# Versioned, project-specific agent skill and templates
+!.agents/skills/clhs-overview-widget/**

@@ -14,12 +14,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -158,11 +168,17 @@ class ScoreUiTest {
         }
         settleUi()
 
-        composeRule.onNodeWithText("總覽").assertIsDisplayed()
-        composeRule.onNodeWithText("科目").assertIsDisplayed()
-        composeRule.onNodeWithText("分析").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
+        settleUi()
+        val tab = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)
+        composeRule.onNode(hasText("摘要") and tab).assertIsDisplayed()
+        composeRule.onNode(hasText("科目") and tab).assertIsDisplayed()
+        composeRule.onNode(hasText("分析") and tab).assertIsDisplayed()
+        composeRule.onAllNodesWithText("114-上").assertCountEquals(0)
+        composeRule.onNodeWithContentDescription("選擇成績").performClick()
         composeRule.onNodeWithText("114-上").assertIsDisplayed()
-        composeRule.onNodeWithText("期末考").assertIsDisplayed()
+        composeRule.onNode(hasText("期末考") and hasClickAction()).assertIsDisplayed()
+        androidx.test.espresso.Espresso.pressBack()
         composeRule.onAllNodesWithText("全部科目").assertCountEquals(0)
         composeRule.onAllNodesWithText("圖表").assertCountEquals(0)
         composeRule.onAllNodesWithText("加權平均").assertCountEquals(1)
@@ -188,7 +204,9 @@ class ScoreUiTest {
         }
         settleUi()
 
-        composeRule.onNodeWithText("期末考").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("選擇成績").performClick()
+        composeRule.onNode(hasText("期末考") and hasClickAction()).assertIsDisplayed()
+        androidx.test.espresso.Espresso.pressBack()
         composeRule.onAllNodesWithText("班級前", substring = true)[0].performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("類組前", substring = true).performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("表現亮點").performScrollTo().assertIsDisplayed()
@@ -206,20 +224,22 @@ class ScoreUiTest {
             }
         }
 
-        composeRule.onNodeWithText("科目").performClick()
+        composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
+        settleUi()
+        composeRule.onNode(hasText("科目") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick()
         settleUi()
         composeRule.onAllNodesWithText("班級五標").assertCountEquals(0)
-        composeRule.onNodeWithText("國文").performScrollTo().performClick()
+        clickSubjectCard("國文")
         settleUi()
         composeRule.onNodeWithText("班級五標").assertIsDisplayed()
         composeRule.onNodeWithText("分數分布").assertIsDisplayed()
         composeRule.onNodeWithText("上次成績").assertIsDisplayed()
 
-        composeRule.onNodeWithText("數學").performScrollTo().performClick()
+        clickSubjectCard("數學")
         settleUi()
         composeRule.onAllNodesWithText("班級五標").assertCountEquals(1)
 
-        composeRule.onNodeWithText("數學").performScrollTo().performClick()
+        clickSubjectCard("數學")
         settleUi()
         composeRule.onAllNodesWithText("班級五標").assertCountEquals(0)
     }
@@ -233,11 +253,15 @@ class ScoreUiTest {
         }
         settleUi()
 
-        composeRule.onNodeWithText("科目").performClick()
+        composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
+        settleUi()
+        composeRule.onNode(hasText("科目") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick()
         settleUi()
         composeRule.onNodeWithText("國文").performScrollTo().assertIsDisplayed()
 
-        composeRule.onNodeWithText("分析").performClick()
+        composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
+        settleUi()
+        composeRule.onNode(hasText("分析") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick()
         settleUi()
         composeRule.onNodeWithText("成績模擬器").performScrollTo().assertIsDisplayed()
     }
@@ -265,7 +289,7 @@ class ScoreUiTest {
             trendError = "尚無歷次趨勢可比較"
         }
         settleUi()
-        composeRule.onNodeWithText("尚無歷次趨勢可比較").performScrollTo().assertIsDisplayed()
+        composeRule.onAllNodesWithText("尚無歷次趨勢可比較")[0].performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -282,6 +306,23 @@ class ScoreUiTest {
         composeRule.onNodeWithText("雷達分析").assertIsDisplayed()
         composeRule.onNodeWithText("成績比較").assertIsDisplayed()
         composeRule.onNodeWithText("五標分析").performScrollTo().assertIsDisplayed()
+    }
+
+    private fun clickSubjectCard(name: String) {
+        val card = composeRule.onNode(hasText(name) and hasClickAction())
+        card.performScrollTo()
+        val headerBottom = composeRule.onNodeWithContentDescription("更多選項")
+            .fetchSemanticsNode().boundsInRoot.bottom
+        val tabsTop = composeRule.onNodeWithTag("gradesPageNavigation")
+            .fetchSemanticsNode().boundsInRoot.top
+        val offset = card.fetchSemanticsNode().boundsInRoot.center.y - (headerBottom + tabsTop) / 2
+        // Scroll into the unobstructed body before injecting a real touch on the card.
+        composeRule.onNode(hasScrollAction() and
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange) and
+            hasAnyDescendant(hasText(name) and hasClickAction()))
+            .performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, offset) }
+        settleUi()
+        card.performClick()
     }
 
     private fun settleUi() {

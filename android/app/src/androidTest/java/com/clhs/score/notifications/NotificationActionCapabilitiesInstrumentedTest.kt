@@ -66,4 +66,17 @@ class NotificationActionCapabilitiesInstrumentedTest {
         assertEquals(NotificationAction.OpenAnnouncements, consumeNotificationAction(context, intent))
         assertNull(consumeNotificationAction(context, intent))
     }
+
+    @Test
+    fun issuingScheduleCapabilityInvalidatesThePreviousToken() {
+        context.deleteSharedPreferences("notification_action_capabilities")
+        val first = NotificationActionCapabilities.issueSchedule(context)
+        val second = NotificationActionCapabilities.issueSchedule(context)
+
+        assertNull(NotificationActionCapabilities.consume(context, first))
+        assertEquals(NotificationAction.OpenSchedule, NotificationActionCapabilities.consume(context, second))
+        val third = NotificationActionCapabilities.issueSchedule(context)
+        assertEquals(NotificationAction.OpenSchedule, NotificationActionCapabilities.consume(context, third))
+        assertNull(NotificationActionCapabilities.consume(context, third))
+    }
 }

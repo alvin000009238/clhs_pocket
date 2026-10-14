@@ -116,7 +116,7 @@ internal fun OverviewCustomizationDialog(
     }
     AlertDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text("自訂總覽") },
+        title = { Text("自訂首頁") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(
@@ -128,7 +128,7 @@ internal fun OverviewCustomizationDialog(
                     HorizontalDivider()
                     Text("倒數 (${draft.countdownEventIds.size})", style = MaterialTheme.typography.titleSmall)
                     if (draft.countdownEventIds.isEmpty()) {
-                        Text("選擇想關注的活動，總覽會顯示剩餘時間。", style = MaterialTheme.typography.bodySmall)
+                        Text("選擇想關注的活動，首頁會顯示剩餘時間。", style = MaterialTheme.typography.bodySmall)
                     }
                     val eventsById = state.calendarEvents.associateBy { it.id }
                     draft.countdownEventIds.sortedBy { eventsById[it]?.start ?: java.time.LocalDateTime.MAX }.forEach { id ->

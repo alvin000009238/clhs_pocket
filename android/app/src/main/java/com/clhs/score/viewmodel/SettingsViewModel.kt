@@ -26,13 +26,16 @@ import com.clhs.score.data.UpdateChecker
 import com.clhs.score.data.UpdateResult
 import com.clhs.score.data.isNewerVersion
 import com.clhs.score.notifications.NotificationTopicManager
+import com.clhs.score.reminders.AlarmReliabilityCoordinator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,6 +78,7 @@ data class SettingsUiState(
     val cwaKeyConfigured: Boolean = false,
     val isSavingCwaKey: Boolean = false,
     val cwaKeyMessage: String? = null,
+    val settingsSaveMessage: String? = null,
 ) {
     val isCheckingUpdate: Boolean get() = updateState is UpdateState.Checking
 }
@@ -88,6 +92,7 @@ class SettingsViewModel internal constructor(
     initialSettings: AppSettings = AppSettings(),
     private val cwaApiKeyStore: CwaApiKeyStore? = null,
     private val weatherRepository: WeatherRepository? = null,
+    private val appContext: Context? = null,
 ) : ViewModel() {
     private var lastNotificationsEnabled: Boolean? = null
     private var updateDownloadJob: Job? = null
@@ -148,6 +153,29 @@ class SettingsViewModel internal constructor(
         viewModelScope.launch { repository.setThemeMode(mode) }
     }
 
+    fun setStartOnSchedule(enabled: Boolean) {
+        viewModelScope.launch { saveSetting { repository.setStartOnSchedule(enabled) } }
+    }
+
+    fun cycleProfileAvatarShape() {
+        viewModelScope.launch { saveSetting { repository.cycleProfileAvatarShape() } }
+    }
+
+    private suspend fun saveSetting(save: suspend () -> Unit): Boolean {
+        _uiState.update { it.copy(settingsSaveMessage = null) }
+        return try {
+            save()
+            true
+        } catch (_: IOException) {
+            _uiState.update { it.copy(settingsSaveMessage = "設定儲存失敗，請重試") }
+            false
+        }
+    }
+
+    fun dismissSettingsSaveMessage() {
+        _uiState.update { it.copy(settingsSaveMessage = null) }
+    }
+
     fun setDynamicColor(enabled: Boolean) {
         viewModelScope.launch { repository.setDynamicColor(enabled) }
     }
@@ -162,6 +190,36 @@ class SettingsViewModel internal constructor(
             mapOf(AnalyticsParams.ENABLED to enabled),
         )
         viewModelScope.launch { repository.setNotificationsEnabled(enabled) }
+    }
+
+    suspend fun saveBackgroundPause(value: com.clhs.score.data.BackgroundPause): Boolean = viewModelScope.async {
+        try {
+            repository.setBackgroundPause(value)
+            true
+        } catch (_: java.io.IOException) {
+            false
+        }
+    }.await()
+
+    fun setPreferExactCourseAlarms(enabled: Boolean) {
+        viewModelScope.launch {
+            val currentPreference = try {
+                repository.settings.first().preferExactCourseAlarms
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                null
+            }
+            if (currentPreference == enabled) return@launch
+            if (!saveSetting { repository.setPreferExactCourseAlarms(enabled) }) return@launch
+            appContext?.let { AlarmReliabilityCoordinator.onPreferenceChanged(it) }
+        }
+    }
+
+    fun refreshAlarmSystemState() {
+        appContext?.let { context ->
+            viewModelScope.launch { AlarmReliabilityCoordinator.onSystemStateChanged(context) }
+        }
     }
 
     fun checkUpdate(trigger: String = AnalyticsValues.TRIGGER_MANUAL) {
@@ -331,13 +389,6 @@ class SettingsViewModel internal constructor(
         _uiState.update { it.copy(showDeveloperUnlockedToast = false) }
     }
 
-    fun setDemoMode(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.setDemoMode(enabled)
-            _uiState.update { it.copy(showRestartDialog = true) }
-        }
-    }
-
     fun setBiometricEnabled(enabled: Boolean) {
         viewModelScope.launch {
             repository.setBiometricEnabled(enabled)
@@ -440,6 +491,7 @@ class SettingsViewModel internal constructor(
                         initialSettings,
                         keyStore,
                         WeatherRepository(appContext.cacheDir, keyStore),
+                        appContext,
                     ) as T
                 }
             }

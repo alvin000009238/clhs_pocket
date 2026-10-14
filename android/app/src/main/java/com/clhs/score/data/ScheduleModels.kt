@@ -290,6 +290,38 @@ internal fun selectScheduleWeek(
 
 internal fun parseScheduleItems(timetableJson: String): List<ScheduleItem> {
     val root = runCatching { SchoolJson.parseToJsonElement(timetableJson) }.getOrNull() ?: return emptyList()
+    return parseScheduleItems(root)
+}
+
+internal fun parseScheduleItemsOrNull(timetableJson: String): List<ScheduleItem>? {
+    val root = runCatching { SchoolJson.parseToJsonElement(timetableJson) }.getOrNull() ?: return null
+    val items = parseScheduleItems(root)
+    return items.takeIf { it.isNotEmpty() || root.isRecognizedEmptySchedule() }
+}
+
+private fun JsonElement.isRecognizedEmptySchedule(): Boolean = when (this) {
+    is JsonArray -> all { it.isRecognizedEmptySchedule() }
+    is JsonObject -> {
+        val subject = listOf("SubjectName", "subjectName", "CourseName", "SubjectDisplay")
+            .firstNotNullOfOrNull { (this[it] as? JsonPrimitive)?.contentOrNull }
+        val day = intField("WeekDay", "weekDay", "DayOfWeek")
+        val period = intField("SectionSeq", "sectionSeq", "Section", "Period")
+        if (subject != null && subject.isBlank() && day != null && day in 1..7 && period != null && period > 0) {
+            true
+        } else {
+            // Only documented option envelopes and the existing timetable fixture containers
+            // can establish an empty result. Unrelated arrays and unknown objects cannot.
+            isNotEmpty() && all { (name, value) ->
+                name in EMPTY_SCHEDULE_CONTAINERS && value.isRecognizedEmptySchedule()
+            }
+        }
+    }
+    else -> false
+}
+
+private val EMPTY_SCHEDULE_CONTAINERS = setOf("Data", "data", "Result", "result", "items", "payload", "weeks")
+
+private fun parseScheduleItems(root: JsonElement): List<ScheduleItem> {
     val items = mutableListOf<ScheduleItem>()
 
     fun extractClasses(element: JsonElement) {

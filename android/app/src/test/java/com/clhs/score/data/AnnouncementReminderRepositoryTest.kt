@@ -249,22 +249,6 @@ class AnnouncementReminderRepositoryTest {
         assertTrue(error is IOException)
     }
 
-    @Test
-    fun markingReadAlsoMakesIdKnownAtomically() {
-        val state = markAnnouncementRead(
-            AnnouncementReminderState(
-                enabled = true,
-                baselineInitialized = true,
-                knownIds = setOf("old"),
-                unreadIds = setOf("announcement", "old"),
-            ),
-            "announcement",
-        )
-
-        assertTrue("announcement" in state.knownIds)
-        assertEquals(setOf("old"), state.unreadIds)
-    }
-
     private fun announcement(id: String, isPinned: Boolean = false) = SchoolAnnouncement(
         id = id,
         title = "公告 $id",

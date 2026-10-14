@@ -40,6 +40,116 @@ class GradeCacheStoreTest {
     }
 
     @Test
+    fun courseNotificationSnapshotFlowPreservesIoFailureForRecovery() = runTest {
+        val store = GradeCacheStore(
+            FailingDataStore(IOException("disk unavailable")),
+            {},
+            kotlinx.coroutines.flow.flowOf(true),
+        )
+
+        assertTrue(runCatching { store.courseNotificationScheduleReportFlow().first() }.exceptionOrNull() is IOException)
+        assertNull(store.widgetScheduleReportFlow().first())
+    }
+
+    @Test
+    fun courseNotificationFlowFallsBackToCachedSemesterReportAfterWeeklyRefreshPoint() = runTest {
+        val file = temporaryFolder.root.resolve("notification-semester-fallback.preferences_pb")
+        val dataStore = PreferenceDataStoreFactory.create(
+            corruptionHandler = gradeCacheCorruptionHandler,
+            scope = backgroundScope,
+            produceFile = { file },
+        )
+        val store = GradeCacheStore(dataStore) {}
+        val semester = scheduleReport("230", ScheduleScope.SEMESTER).copy(
+            items = listOf(ScheduleItem(1, 1, "學期國文")),
+        )
+        val oldWeek = scheduleReport(
+            "230",
+            ScheduleScope.CURRENT_WEEK,
+            weekStartDate = "2026-08-10",
+            weekEndDate = "2026-08-16",
+        ).copy(items = listOf(ScheduleItem(1, 1, "週課程")))
+
+        store.saveScheduleReport("student", "114_2_230", semester)
+        store.saveScheduleReport("student", "114_2_230_current_week", oldWeek)
+        store.saveScheduleSubjectOverrides("student", listOf(ScheduleSubjectOverride("學期國文", "自訂國文")))
+
+        val selected = store.courseNotificationScheduleReportFlow().first()
+        assertEquals(ScheduleScope.SEMESTER, selected?.scope)
+        assertEquals("自訂國文", selected?.displayItems()?.first()?.subjectName)
+    }
+
+    @Test
+    fun courseNotificationFlowPrefersUsableFreshWeekAndFallsBackWhenItHasNoUsableItems() = runTest {
+        val file = temporaryFolder.root.resolve("notification-week-priority.preferences_pb")
+        val dataStore = PreferenceDataStoreFactory.create(
+            corruptionHandler = gradeCacheCorruptionHandler,
+            scope = backgroundScope,
+            produceFile = { file },
+        )
+        val store = GradeCacheStore(dataStore) {}
+        val semester = scheduleReport("230", ScheduleScope.SEMESTER)
+        val weekStart = LocalDate.now(SCHOOL_COURSE_ZONE).with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.MONDAY))
+        val week = scheduleReport(
+            "230",
+            ScheduleScope.CURRENT_WEEK,
+            weekStartDate = weekStart.toString(),
+            weekEndDate = weekStart.plusDays(6).toString(),
+        ).copy(items = listOf(ScheduleItem(1, 1, "週課程")))
+
+        store.saveScheduleReport("student", "114_2_230", semester)
+        store.saveScheduleReport("student", "114_2_230_current_week", week)
+
+        assertEquals(week, store.courseNotificationScheduleReportFlow().first())
+
+        store.saveScheduleReport("student", "114_2_230_current_week", week.copy(items = emptyList()))
+        assertEquals(ScheduleScope.SEMESTER, store.courseNotificationScheduleReportFlow().first()?.scope)
+
+        store.saveScheduleReport(
+            "student", "114_2_230_current_week",
+            week.copy(weekEndDate = weekStart.plusDays(7).toString()),
+        )
+        assertEquals(ScheduleScope.SEMESTER, store.courseNotificationScheduleReportFlow().first()?.scope)
+    }
+
+    @Test
+    fun currentWeekRemainsAuthoritativeAfterItsLastClassAndWhenEmpty() = runTest {
+        val file = temporaryFolder.root.resolve("authoritative-current-week.preferences_pb")
+        val dataStore = PreferenceDataStoreFactory.create(
+            corruptionHandler = gradeCacheCorruptionHandler,
+            scope = backgroundScope,
+            produceFile = { file },
+        )
+        val store = GradeCacheStore(dataStore) {}
+        val today = LocalDate.now(SCHOOL_COURSE_ZONE)
+        val yesterday = today.minusDays(1)
+        val week = scheduleReport("230", ScheduleScope.CURRENT_WEEK,
+            weekStartDate = yesterday.toString(), weekEndDate = today.plusDays(1).toString(),
+        ).copy(items = listOf(ScheduleItem(yesterday.dayOfWeek.value, 1, "週課程")))
+        val semester = scheduleReport("230", ScheduleScope.SEMESTER)
+
+        store.saveScheduleReport("student", "114_2_230_current_week", week)
+        store.saveScheduleReport("student", "114_2_230", semester)
+        assertEquals(week.copy(changes = null), store.courseNotificationScheduleReportFlow().first())
+        assertEquals(week.copy(changes = null), store.loadWidgetScheduleReport())
+
+        store.saveScheduleReport("student", "114_2_230_current_week", week.copy(items = emptyList()))
+        assertEquals(emptyList<ScheduleItem>(), store.courseNotificationScheduleReportFlow().first()?.items)
+        assertEquals(emptyList<ScheduleItem>(), store.loadWidgetScheduleReport()?.items)
+    }
+
+    @Test
+    fun revokedSnapshotAuthoritySkipsPrivateSnapshotReads() = runTest {
+        val store = GradeCacheStore(
+            FailingDataStore(IOException("private snapshot must not be read")),
+            {},
+            kotlinx.coroutines.flow.flowOf(false),
+        )
+
+        assertNull(store.courseNotificationScheduleReportFlow().first())
+    }
+
+    @Test
     fun cancellationIsNotConvertedToCacheMiss() {
         val store = GradeCacheStore(FailingDataStore(CancellationException("cancelled"))) {}
 
@@ -152,22 +262,19 @@ class GradeCacheStoreTest {
     }
 
     @Test
-    fun semesterReplacesCurrentWeekWidgetAfterItsLastClass() {
-        val today = LocalDate.now()
+    fun semesterDoesNotReplaceCurrentWeekWidgetAfterItsLastClass() {
+        val today = LocalDate.now(SCHOOL_COURSE_ZONE)
         val currentWeek = scheduleReport(
             "week",
             ScheduleScope.CURRENT_WEEK,
-            weekStartDate = today.minusWeeks(2).toString(),
-            weekEndDate = today.toString(),
+            weekStartDate = today.minusDays(1).toString(),
+            weekEndDate = today.plusDays(1).toString(),
         ).copy(
-            items = listOf(ScheduleItem(today.dayOfWeek.value, 1, "本週課程")),
+            items = listOf(ScheduleItem(today.minusDays(1).dayOfWeek.value, 1, "本週課程")),
         )
         val semester = scheduleReport("semester", ScheduleScope.SEMESTER)
 
-        assertEquals(
-            semester.copy(changes = null),
-            semester.toWidgetReportOrNull(currentWeek, today),
-        )
+        assertNull(semester.toWidgetReportOrNull(currentWeek, today))
     }
 
     @Test

@@ -24,6 +24,9 @@ import com.clhs.score.notifications.NotificationAction
 import com.clhs.score.notifications.NotificationChannels
 import com.clhs.score.notifications.canPostNotifications
 import java.io.IOException
+import java.time.Instant
+import kotlinx.coroutines.flow.first
+import com.clhs.score.data.SettingsRepository
 import java.util.concurrent.TimeUnit
 
 class AnnouncementReminderScheduler(context: Context) {
@@ -65,6 +68,7 @@ class AnnouncementReminderWorker(
 ) : CoroutineWorker(appContext, params) {
     private val reminderRepository = AnnouncementReminderRepository(appContext)
     private val announcementsRepository = NetworkSchoolAnnouncementsRepository(appContext.cacheDir)
+    private val readRepository = com.clhs.score.data.AnnouncementReadRepository.get(appContext)
     private val notifier = AnnouncementReminderNotifier(appContext)
 
     override suspend fun doWork(): Result {
@@ -80,6 +84,15 @@ class AnnouncementReminderWorker(
                 AnnouncementReminderScheduler(applicationContext).cancel()
                 return Result.success()
             }
+            if (!applicationContext.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)) {
+                return Result.success()
+            }
+            val pause = try {
+                SettingsRepository(applicationContext).settings.first().backgroundPause
+            } catch (_: IOException) {
+                return Result.retry()
+            }
+            if (pause.contains(Instant.now())) return Result.success()
             val announcements = loadAnnouncementReminderSnapshot(
                 selectedUnitIds = state.selectedUnitIds,
                 knownIds = state.knownIds,
@@ -87,6 +100,13 @@ class AnnouncementReminderWorker(
                     announcementsRepository.loadPage(pageIndex = pageIndex, unitId = unitId)
                 },
             )
+            if (!applicationContext.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)) {
+                return Result.success()
+            }
+            readRepository.discover(announcements)
+            if (!applicationContext.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)) {
+                return Result.success()
+            }
             val newAnnouncements = reminderRepository.recordCheck(
                 expectedUnitIds = state.selectedUnitIds,
                 announcements = announcements,
@@ -94,6 +114,8 @@ class AnnouncementReminderWorker(
             )
             if (newAnnouncements.isNotEmpty()) notifier.show(newAnnouncements)
             Result.success()
+        } catch (_: android.database.sqlite.SQLiteException) {
+            Result.retry()
         } catch (_: IOException) {
             Result.retry()
         }
@@ -104,8 +126,8 @@ private class AnnouncementReminderNotifier(context: Context) {
     private val appContext = context.applicationContext
 
     fun show(announcements: List<SchoolAnnouncement>) {
-        if (!appContext.canPostNotifications()) return
         NotificationChannels.ensureCreated(appContext)
+        if (!appContext.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)) return
         val distinct = announcements.distinctBy(SchoolAnnouncement::id)
         val title = "${distinct.size} 則新學校公告"
         val notification = Notification.Builder(

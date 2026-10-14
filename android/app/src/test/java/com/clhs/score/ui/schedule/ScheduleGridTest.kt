@@ -3,13 +3,46 @@ package com.clhs.score.ui.schedule
 import com.clhs.score.data.ScheduleChange
 import com.clhs.score.data.ScheduleChangeType
 import com.clhs.score.data.ScheduleItem
+import com.clhs.score.data.ScheduleReport
+import com.clhs.score.data.ScheduleScope
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
 class ScheduleGridTest {
+    @Test
+    fun currentWeekHighlightsOnlyTheActualWeekday() {
+        val report = ScheduleReport(
+            yearTermValue = "115_1",
+            classNo = "101",
+            scope = ScheduleScope.CURRENT_WEEK,
+            weekStartDate = "2026-09-21",
+            weekEndDate = "2026-09-27",
+            items = emptyList(),
+        )
+
+        assertEquals(1, scheduleCurrentDayOfWeek(report, LocalDate.parse("2026-09-21")))
+        assertEquals(5, scheduleCurrentDayOfWeek(report, LocalDate.parse("2026-09-25")))
+        assertNull(scheduleCurrentDayOfWeek(report, LocalDate.parse("2026-09-20")))
+        assertNull(scheduleCurrentDayOfWeek(report, LocalDate.parse("2026-09-28")))
+    }
+
+    @Test
+    fun semesterScheduleHighlightsWeekdayButNotWeekend() {
+        val report = ScheduleReport(
+            yearTermValue = "115_1",
+            classNo = "101",
+            scope = ScheduleScope.SEMESTER,
+            items = emptyList(),
+        )
+
+        assertEquals(1, scheduleCurrentDayOfWeek(report, LocalDate.parse("2026-09-21")))
+        assertNull(scheduleCurrentDayOfWeek(report, LocalDate.parse("2026-09-20")))
+    }
+
     @Test
     fun changeTitlesDescribeTheActualEvent() {
         assertEquals("加課", scheduleChangeTitle(ScheduleChangeType.ADDED))

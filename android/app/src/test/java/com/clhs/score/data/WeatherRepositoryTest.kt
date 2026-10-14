@@ -35,6 +35,59 @@ class WeatherRepositoryTest {
     val temporaryFolder = TemporaryFolder()
 
     @Test
+    fun openMeteoDailyExtremaMatchTheLocalDateAndAllowMissingValues() = runTest {
+        MockWebServer().use { server ->
+            val response = OPEN_METEO_RESPONSE.replace("\"hourly\": {", """
+                "daily": {
+                  "time": ["2026-08-29", "2026-08-30", "2026-08-31"],
+                  "temperature_2m_max": [99, 32.6, 40],
+                  "temperature_2m_min": [null, null, 20]
+                },
+                "hourly": {
+            """.trimIndent())
+            server.enqueue(MockResponse().setBody(response))
+            val weather = repository(server).observe(WeatherSource.OPEN_METEO).toList().last().snapshot!!
+
+            assertEquals(33, weather.maximumTemperatureCelsius)
+            assertNull(weather.minimumTemperatureCelsius)
+            assertEquals("temperature_2m_max,temperature_2m_min", server.awaitRequest().requestUrl?.queryParameter("daily"))
+        }
+    }
+
+    @Test
+    fun oldOpenMeteoCacheWithoutDailyDataRemainsUsable() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody(OPEN_METEO_RESPONSE))
+            val repository = repository(server)
+            repository.observe(WeatherSource.OPEN_METEO).toList()
+            val cached = repository.observe(WeatherSource.OPEN_METEO).toList().last().snapshot!!
+
+            assertNull(cached.maximumTemperatureCelsius)
+            assertNull(cached.minimumTemperatureCelsius)
+            assertEquals(27, cached.temperatureCelsius)
+            assertEquals(1, server.requestCount)
+        }
+    }
+
+    @Test
+    fun cwaExtremaUseOnlyValidPointsWithinTheNext24Hours() = runTest {
+        MockWebServer().use { server ->
+            val response = CWA_RESPONSE.replace("\"ElementName\":\"溫度\",\"Time\":[", """
+                    "ElementName":"溫度","Time":[
+                    {"DataTime":"2026-08-30T09:00:00+08:00","ElementValue":[{"Temperature":"40"}]},
+                    {"DataTime":"2026-08-31T06:00:00+08:00","ElementValue":[{"Temperature":"22"}]},
+                    {"DataTime":"2026-08-31T12:00:00+08:00","ElementValue":[{"Temperature":"-"}]},
+                    {"DataTime":"2026-08-31T12:30:00+08:00","ElementValue":[{"Temperature":"50"}]},
+                """.trimIndent())
+            server.enqueue(MockResponse().setBody(response))
+            val weather = repository(server, cwaKey = SECRET).observe(WeatherSource.CWA).toList().last().snapshot!!
+
+            assertEquals(28, weather.maximumTemperatureCelsius)
+            assertEquals(22, weather.minimumTemperatureCelsius)
+        }
+    }
+
+    @Test
     fun cwaValidationReadsResponseBodyOffTheCallingThread() = runTest {
         val callingThread = Thread.currentThread()
         MockWebServer().use { server ->
@@ -111,7 +164,7 @@ class WeatherRepositoryTest {
             val repository = repository(server)
 
             val states = repository.observe(WeatherSource.OPEN_METEO).toList()
-            val request = server.takeRequest()
+            val request = server.awaitRequest()
             val weather = states.last().snapshot!!
 
             assertTrue(request.path.orEmpty().contains("latitude=24.9621"))
@@ -130,7 +183,7 @@ class WeatherRepositoryTest {
             val repository = repository(server, cwaKey = SECRET)
 
             val weather = repository.observe(WeatherSource.CWA).toList().last().snapshot!!
-            val request = server.takeRequest()
+            val request = server.awaitRequest()
 
             assertEquals(SECRET, request.getHeader("Authorization"))
             assertFalse(request.path.orEmpty().contains(SECRET))

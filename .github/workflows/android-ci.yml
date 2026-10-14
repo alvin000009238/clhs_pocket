@@ -2,9 +2,9 @@ name: Android CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
   push:
-    branches: [main]
+    branches: [main, dev]
 
 permissions:
   contents: read
@@ -38,6 +38,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: 'platform-tools'
 
       - name: Install Android SDK packages
         run: |
@@ -46,5 +48,9 @@ jobs:
           set -o pipefail
           sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
 
+      - name: Test release guards
+        working-directory: .
+        run: python3 -m unittest discover -s .github/scripts -p "test_*.py"
+
       - name: Verify Android app
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+        run: ./gradlew --no-daemon :app:testDemoDebugUnitTest :app:testProductionDebugUnitTest --tests com.clhs.score.FlavorConfigurationTest :app:lintDemoDebug :app:assembleDemoDebug :app:assembleProductionDebug --warning-mode all

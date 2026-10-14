@@ -150,6 +150,35 @@ class SettingsIoRecoveryTest {
         assertFalse(repository.loadForStartup().hasCompletedOnboarding)
     }
 
+    @Test fun pauseSaveFailurePreservesSettingsAndCanRetry() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        var writable = false
+        val preferences = kotlinx.coroutines.flow.MutableStateFlow<Preferences>(mutablePreferencesOf())
+        val store = object : DataStore<Preferences> {
+            override val data = preferences
+            override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences {
+                if (!writable) throw IOException()
+                return transform(preferences.value).also { preferences.value = it }
+            }
+        }
+        val vm = SettingsViewModel(
+            SettingsRepository(store), UpdateChecker(), UpdateApkDownloader(temporaryFolder.root),
+            NotificationTopicManager(object : TopicSubscriptionClient {
+                override fun subscribe(topic: String) = Unit
+                override fun unsubscribe(topic: String) = Unit
+            }),
+        )
+        viewModels.put("pause", vm)
+        runCurrent()
+        val desired = com.clhs.score.data.BackgroundPause(true, 1320, 390)
+        assertFalse(vm.saveBackgroundPause(desired))
+        assertFalse(vm.settings.value.backgroundPause.enabled)
+        writable = true
+        assertTrue(vm.saveBackgroundPause(desired))
+        runCurrent()
+        assertEquals(desired, vm.settings.value.backgroundPause)
+    }
+
     private class TestStore(block: suspend kotlinx.coroutines.flow.FlowCollector<Preferences>.() -> Unit) : DataStore<Preferences> {
         override val data = flow(block)
         override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences = error("unused")

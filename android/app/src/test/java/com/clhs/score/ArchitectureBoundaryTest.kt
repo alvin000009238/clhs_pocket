@@ -10,11 +10,67 @@ import java.nio.file.Paths
 
 class ArchitectureBoundaryTest {
     @Test
+    fun alarmFallbackPreservesUserPreference() {
+        for (path in listOf(
+            "notifications/CurrentCourseNotifications.kt",
+            "widget/WidgetUpdateReceiver.kt",
+        )) {
+            val source = readSource("app/src/main/java/com/clhs/score/$path")
+            assertFalse(path, source.contains("setPreferExactCourseAlarms(false)"))
+            assertFalse(path, source.contains("exactUserPreference = false"))
+            assertTrue(path, source.contains("exactSystemAccess = false"))
+        }
+    }
+
+    @Test
+    fun widgetAlarmRegistrationFailureReachesRecovery() {
+        val source = readSource("app/src/main/java/com/clhs/score/widget/WidgetUpdateReceiver.kt")
+        val scheduling = source.substringAfter("suspend fun scheduleNextUpdate(")
+            .substringBefore("private fun logSchedule(")
+        assertTrue(scheduling.substringAfter("} catch (error: Exception) {").contains("throw error"))
+        assertTrue(source.contains("scheduleRecoveryUpdate(context, \"sync_failure\")"))
+    }
+
+    @Test
+    fun alarmCapabilityReceiverBoundsRearmAndRecoversOnTimeout() {
+        val source = readSource("app/src/main/java/com/clhs/score/reminders/AlarmCapabilityChangedReceiver.kt")
+        assertTrue(source.contains("withTimeout(8_000)"))
+        assertTrue(source.contains("catch (_: TimeoutCancellationException)"))
+        assertTrue(source.contains("withTimeoutOrNull(1_000)"))
+        assertTrue(source.contains("receiverTimedOut(fromRecovery = false)"))
+        assertTrue(source.contains("WidgetUpdateReceiver.scheduleRecoveryUpdate("))
+        assertTrue(source.contains("pending.finish()"))
+    }
+
+    @Test
+    fun backgroundPauseSkipsOnlyNetworkChecksAfterCleanup() {
+        val grade = readSource("app/src/main/java/com/clhs/score/reminders/GradeReminderWorker.kt")
+        val announcement = readSource("app/src/main/java/com/clhs/score/reminders/AnnouncementReminderWorker.kt")
+        val gate = "if (pause.contains(Instant.now())) return Result.success()"
+        for (source in listOf(grade, announcement)) {
+            assertTrue(source.contains(gate))
+            assertTrue(source.contains("SettingsRepository(applicationContext).settings.first().backgroundPause"))
+            val load = source.substringAfter("val pause = try {").substringBefore(gate)
+            assertTrue(load.contains("catch (_: IOException)"))
+            assertTrue(load.contains("return Result.retry()"))
+        }
+        assertTrue(grade.indexOf("retryReminderCleanup()") < grade.indexOf(gate))
+        assertTrue(grade.indexOf("now >= state.expiresAtMillis") < grade.indexOf(gate))
+        assertTrue(grade.indexOf("if (session == null)") < grade.indexOf(gate))
+        assertTrue(grade.indexOf(gate) < grade.indexOf("repository.fetchGrades("))
+        assertTrue(grade.indexOf(gate) < grade.indexOf("reminderRepository.mutate"))
+        assertTrue(announcement.indexOf("canPostNotifications()") < announcement.indexOf(gate))
+        assertTrue(announcement.indexOf(gate) < announcement.indexOf("val announcements = loadAnnouncementReminderSnapshot("))
+        assertTrue(announcement.indexOf(gate) < announcement.indexOf("reminderRepository.recordCheck("))
+    }
+
+    @Test
     fun announcementCardsReceiveSharedUnreadState() {
         val shell = readSource("app/src/main/java/com/clhs/score/ui/AuthenticatedApp.kt")
         val screen = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
 
-        assertTrue(shell.contains("unreadIds = announcementReminderUiState.reminder.unreadIds"))
+        assertTrue(shell.contains("unreadIds = announcementReminderUiState.unreadIds"))
+        assertFalse(shell.contains("announcementReminderUiState.reminder.unreadIds"))
         assertTrue(screen.contains("unreadIds = unreadIds"))
         assertTrue(screen.contains("isUnread = announcement.id in unreadIds"))
         assertTrue(screen.contains("if (isUnread)"))
@@ -118,9 +174,11 @@ class ArchitectureBoundaryTest {
     @Test
     fun schoolCalendarHasLoadingEmptyErrorAndCachedStates() {
         val source = readSource("app/src/main/java/com/clhs/score/ui/calendar/SchoolCalendarScreen.kt")
+        val shimmerSource = readSource("app/src/main/java/com/clhs/score/ui/LoadingShimmer.kt")
 
         assertTrue(source.contains("uiState.isInitialLoading"))
-        assertTrue(source.contains("rememberInfiniteTransition"))
+        assertTrue(source.contains("CalendarLoadingList()"))
+        assertTrue(shimmerSource.contains("rememberInfiniteTransition"))
         assertTrue(source.contains("Brush.linearGradient"))
         assertTrue(source.contains("contentDescription = \"正在載入行事曆\""))
         assertTrue(source.contains("暫時無法取得行事曆"))
@@ -258,29 +316,90 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    fun widgetAlarmUsesThePlatformWidgetBootLifecycle() {
+    fun widgetAlarmRearmsForSystemChangesAndHasOneOwner() {
         val manifest = readSource("app/src/main/AndroidManifest.xml")
         val widgetReceiver = readSource("app/src/main/java/com/clhs/score/widget/ScheduleWidgetReceiver.kt")
+        val updateReceiver = readSource("app/src/main/java/com/clhs/score/widget/WidgetUpdateReceiver.kt")
+        val widgetSource = readSource("app/src/main/java/com/clhs/score/widget/ScheduleWidget.kt")
 
-        assertFalse(manifest.contains("android.permission.RECEIVE_BOOT_COMPLETED"))
-        assertFalse(manifest.contains("android.intent.action.BOOT_COMPLETED"))
-        assertTrue(widgetReceiver.contains("override fun onEnabled(context: Context)"))
-        assertTrue(widgetReceiver.contains("WidgetUpdateReceiver.scheduleNextUpdate(context, report = null)"))
-        assertFalse(widgetReceiver.contains("goAsync()"))
+        val courseReceiver = manifest.substringAfter("<receiver android:name=\".notifications.CourseNotificationReceiver\"")
+            .substringBefore("</receiver>")
+        val widgetUpdateReceiver = manifest.substringAfter("<receiver\n            android:name=\".widget.WidgetUpdateReceiver\"")
+            .substringBefore("</receiver>")
+        assertTrue(courseReceiver.contains("android:exported=\"false\""))
+        assertTrue(courseReceiver.contains("android.intent.action.BOOT_COMPLETED"))
+        assertTrue(widgetUpdateReceiver.contains("android.intent.action.BOOT_COMPLETED"))
+        assertTrue(widgetUpdateReceiver.contains("android.intent.action.MY_PACKAGE_REPLACED"))
+        assertTrue(widgetUpdateReceiver.contains("android.intent.action.TIME_SET"))
+        assertTrue(widgetUpdateReceiver.contains("android.intent.action.TIMEZONE_CHANGED"))
+        assertEquals(2, manifest.countOccurrences("android.intent.action.BOOT_COMPLETED"))
+        assertTrue(widgetReceiver.contains("override fun onDisabled(context: Context)"))
+        assertTrue(widgetReceiver.contains("WidgetUpdateReceiver.cancelUpdate(context)"))
+        assertTrue(widgetReceiver.contains("context.sendBroadcast(Intent(context, WidgetUpdateReceiver::class.java)"))
+        val provideGlance = widgetSource.substringAfter("override suspend fun provideGlance")
+            .substringBefore("override suspend fun providePreview")
+        val fullSync = widgetSource.substringAfter("suspend fun syncAllScheduleWidgets")
+            .substringBefore("internal fun shouldRefreshScheduleWidgetPreview")
+        assertFalse(provideGlance.contains("scheduleNextUpdate"))
+        assertEquals(1, fullSync.countOccurrences("scheduleNextUpdate("))
+        assertTrue(updateReceiver.contains("Intent.ACTION_BOOT_COMPLETED"))
+        assertTrue(updateReceiver.contains("syncAllScheduleWidgets(context)"))
     }
 
     @Test
-    fun widgetAlarmCanWakeAndUpdateWhileIdleWithoutExactAlarmPermission() {
+    fun currentCourseUsesExactAlarmsOnlyForUserOptedInBoundaries() {
+        val source = readSource("app/src/main/java/com/clhs/score/notifications/CurrentCourseNotifications.kt")
+        val manifest = readSource("app/src/main/AndroidManifest.xml")
+        listOf("setExact(", "setAlarmClock(", "setRepeating(",
+            "startForeground", "WorkManager", "SchoolGradeClient", "loadSession(", "WidgetUpdateReceiver")
+            .forEach { assertFalse(it, source.contains(it)) }
+        assertTrue(source.contains("setExactAndAllowWhileIdle("))
+        assertTrue(source.contains("CourseAlarmPurpose.RECOVERY"))
+        assertTrue(source.contains("selectCourseAlarmPrecision("))
+        assertTrue(manifest.contains("android.permission.SCHEDULE_EXACT_ALARM"))
+        assertFalse(manifest.contains("android.permission.USE_EXACT_ALARM"))
+        assertTrue(manifest.contains("android.permission.POST_PROMOTED_NOTIFICATIONS"))
+        assertTrue(source.contains("getBroadcast(context, REQUEST_CODE"))
+        assertTrue(source.contains("setAction(BOUNDARY)"))
+        assertTrue(source.contains("EXTRA_RECOVERY"))
+    }
+
+    @Test
+    fun widgetAlarmUsesOptionalExactPolicyAndKeepsOnePendingIntent() {
         val source = readSource("app/src/main/java/com/clhs/score/widget/WidgetUpdateReceiver.kt")
 
-        assertTrue(source.contains("alarmManager.setAndAllowWhileIdle("))
+        assertTrue(source.contains(".setAndAllowWhileIdle("))
         assertTrue(source.contains("AlarmManager.RTC_WAKEUP,"))
         assertFalse(source.contains("alarmManager.set("))
-        assertFalse(source.contains("setExact"))
+        assertTrue(source.contains("setExactAndAllowWhileIdle("))
+        assertTrue(source.contains("CourseAlarmPurpose.BOUNDARY"))
+        assertTrue(source.contains("selectCourseAlarmPrecision("))
         val manifest = readSource("app/src/main/AndroidManifest.xml")
-        assertFalse(manifest.contains("android.permission.SCHEDULE_EXACT_ALARM"))
+        assertTrue(manifest.contains("android.permission.SCHEDULE_EXACT_ALARM"))
         assertFalse(manifest.contains("android.permission.USE_EXACT_ALARM"))
-        assertTrue(source.contains("GradeCacheStore(context).loadWidgetScheduleReport()"))
+        assertTrue(source.contains("syncAllScheduleWidgets(context)"))
+        assertTrue(source.contains("FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE"))
+        assertTrue(source.contains("FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE"))
+        assertTrue(source.contains("synchronized(alarmLock)"))
+        assertTrue(source.contains("activeWidgetIds(context)"))
+        assertTrue(source.contains("shouldScheduleWidgetAlarm(activeCount)"))
+        val widgetSource = readSource("app/src/main/java/com/clhs/score/widget/ScheduleWidget.kt")
+        assertTrue(widgetSource.contains("cacheStore.loadWidgetScheduleReport()"))
+    }
+
+    @Test
+    fun batteryExemptionRequestIsUserTriggeredAndUsesDeclaredSystemCapability() {
+        val screen = readSource("app/src/main/java/com/clhs/score/ui/ScheduleReliabilitySettingsScreen.kt")
+        val helper = readSource("app/src/main/java/com/clhs/score/reminders/BatteryOptimizationHelper.kt")
+        val manifest = readSource("app/src/main/AndroidManifest.xml")
+        val clickAction = screen.substringAfter("onManageBattery = {").substringBefore("snackbarHost =")
+
+        assertTrue(clickAction.contains("BatteryOptimizationHelper.openBatteryOptimizationRequest(context)"))
+        assertTrue(clickAction.contains("if (batteryExempt)"))
+        assertTrue(helper.contains("Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"))
+        assertTrue(helper.contains("package:\${context.packageName}"))
+        assertTrue(helper.contains("isIgnoringBatteryOptimizations(context.packageName)"))
+        assertTrue(manifest.contains("android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"))
     }
 
     @Test
@@ -366,7 +485,7 @@ class ArchitectureBoundaryTest {
         assertFalse(handler.contains("getStringExtra(\"from\")"))
         assertFalse(handler.contains("getBooleanExtra"))
         assertTrue(capabilities.contains("UUID.randomUUID()"))
-        assertTrue(capabilities.contains(".remove(\"\${prefix}type\")"))
+        assertTrue(capabilities.contains("removeToken(token)"))
         assertTrue(messagingService.contains("NotificationActionCapabilities.issueUpdate(this)"))
         assertTrue(reminderNotifier.contains("NotificationActionCapabilities.issueGradeReminder"))
     }
@@ -533,7 +652,7 @@ class ArchitectureBoundaryTest {
         assertTrue(personalSource.contains("Text(\"登出帳號\")"))
         assertFalse(navigationSource.contains("data object SettingsRoute"))
         assertFalse(navigationSource.contains("data object AboutRoute"))
-        assertTrue(navigationSource.contains("Overview(OverviewRoute, \"總覽\""))
+        assertTrue(navigationSource.contains("Overview(OverviewRoute, \"首頁\""))
         assertTrue(navigationSource.contains("Schedule(ScheduleRoute, \"課表\""))
         assertTrue(navigationSource.contains("Grades(GradesRoute, \"成績\""))
         assertTrue(navigationSource.contains("Campus(CampusRoute, \"校園\""))
@@ -643,11 +762,18 @@ class ArchitectureBoundaryTest {
         assertTrue(authenticatedSource.contains("NavDisplay("))
         assertTrue(authenticatedSource.contains("entryProvider<NavKey>"))
         assertFalse(authenticatedSource.contains("NavController"))
-        assertTrue(authenticatedSource.contains("topLevelNavigationMetadata(navigationMotion)"))
-        assertTrue(navigationMotionSource.contains("defaultSpatialSpec()"))
-        assertTrue(navigationMotionSource.contains("defaultEffectsSpec()"))
-        assertTrue(navigationMotionSource.contains("fastEffectsSpec()"))
-        assertTrue(navigationMotionSource.contains("scaleIn("))
+        assertTrue(authenticatedSource.contains("topLevelNavigationMetadata()"))
+        val pocketMotionSource = readSource("app/src/main/java/com/clhs/score/ui/theme/PocketMotion.kt")
+        assertTrue(navigationMotionSource.contains("PocketMotion.Navigation"))
+        assertTrue(navigationMotionSource.contains("position"))
+        assertTrue(pocketMotionSource.contains("defaultSpatialSpec()"))
+        assertTrue(pocketMotionSource.contains("defaultEffectsSpec()"))
+        assertTrue(pocketMotionSource.contains("fastEffectsSpec()"))
+        assertFalse(navigationMotionSource.contains("scaleIn("))
+        assertTrue(navigationMotionSource.contains("EnterTransition.None togetherWith ExitTransition.None"))
+        val rootScaffold = readSource("app/src/main/java/com/clhs/score/ui/RootFloatingScaffold.kt")
+        assertTrue(rootScaffold.contains("LocalNavAnimatedContentScope.current"))
+        assertTrue(rootScaffold.contains("this@rootBodyMotion.animateEnterExit("))
         assertTrue(navigationMotionSource.contains("NavDisplay.PredictivePopTransitionKey"))
         assertFalse(navigationMotionSource.contains("tween("))
         assertFalse(gradesSource.contains("BackHandler"))
@@ -671,8 +797,9 @@ class ArchitectureBoundaryTest {
 
         assertTrue(appSource.contains("entry<WelcomeRoute>"))
         assertTrue(appSource.contains("entry<AccountRoute>"))
-        assertTrue(appSource.contains("fun requestLogin() = navigator.openWebViewLogin()"))
-        assertTrue(appSource.contains("onLogin = { navigator.openWebViewLogin() }"))
+        assertTrue(appSource.contains("if (!useFakeData) navigator.openWebViewLogin()"))
+        assertTrue(appSource.contains("onLogin = ::requestLogin"))
+        assertTrue(appSource.contains("if (!useFakeData && authState is AuthState.Authenticated && schoolWebsiteInBackStack)"))
         assertTrue(navigationSource.contains("@Serializable data object WebViewLoginRoute"))
         assertTrue(navigationSource.contains("@Serializable data object WelcomeRoute"))
     }
@@ -722,11 +849,14 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    fun subjectCardExpansionKeepsTheValidatedTweenTransition() {
-        val source = readSource("app/src/main/java/com/clhs/score/ui/SubjectComponents.kt")
-        val visibilityTransition = source
-            .substringAfter("AnimatedVisibility(")
-            .substringBefore("            ) {")
+    fun subjectCardExpansionKeepsTheValidatedCentralTweenTransition() {
+        val componentSource = readSource("app/src/main/java/com/clhs/score/ui/SubjectComponents.kt")
+        assertTrue(componentSource.contains("enter = PocketMotion.subjectDisclosureEnter()"))
+        assertTrue(componentSource.contains("exit = PocketMotion.subjectDisclosureExit()"))
+
+        val source = readSource("app/src/main/java/com/clhs/score/ui/theme/PocketMotion.kt")
+        val visibilityTransition = source.substringAfter("internal fun subjectDisclosureEnter()")
+            .substringBefore("data class Navigation")
 
         assertTrue(visibilityTransition.contains("durationMillis = 140"))
         assertTrue(visibilityTransition.contains("delayMillis = 40"))
@@ -853,7 +983,7 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    fun widgetConfigurationUsesTargetedGlanceUpdateWithoutBlockingComposition() {
+    fun widgetConfigurationUsesFullGlanceSyncWithoutBlockingComposition() {
         val activitySource = readSource("app/src/main/java/com/clhs/score/widget/WidgetConfigurationActivity.kt")
         val widgetSource = readSource("app/src/main/java/com/clhs/score/widget/ScheduleWidget.kt")
 
@@ -879,22 +1009,11 @@ class ArchitectureBoundaryTest {
         assertTrue(activitySource.contains("initialValue = configuration.settings"))
         assertTrue(activitySource.contains("loadScheduleWidgetPreferences(applicationContext, appWidgetId)"))
         assertTrue(activitySource.contains("saveScheduleWidgetPreferences("))
-        assertTrue(activitySource.contains("syncScheduleWidget(applicationContext, appWidgetId, preferences)"))
-        assertTrue(activitySource.contains("val glanceAppWidgetManager = GlanceAppWidgetManager(applicationContext)"))
-        assertTrue(activitySource.contains("val glanceId = glanceAppWidgetManager.getGlanceIdBy(appWidgetId)"))
-        assertTrue(activitySource.contains("ScheduleWidget().update(applicationContext, glanceId)"))
+        assertTrue(activitySource.contains("syncAllScheduleWidgets(applicationContext)"))
+        assertFalse(activitySource.contains("ScheduleWidget().update(applicationContext, glanceId)"))
         assertTrue(widgetSource.contains("getGlanceIdBy(appWidgetId)"))
-    }
-
-    @Test
-    fun widgetConfigurationRefreshUsesTheNewPreferencesImmediately() {
-        val activitySource = readSource("app/src/main/java/com/clhs/score/widget/WidgetConfigurationActivity.kt")
-        val widgetSource = readSource("app/src/main/java/com/clhs/score/widget/ScheduleWidget.kt")
-
-        assertTrue(activitySource.contains("syncScheduleWidget(applicationContext, appWidgetId, preferences)"))
-        assertTrue(widgetSource.contains("preferences: ScheduleWidgetPreferences? = null"))
-        assertTrue(widgetSource.contains("preferences?.let { selected ->"))
-        assertTrue(activitySource.contains("ScheduleWidget().update(applicationContext, glanceId)"))
+        assertTrue(widgetSource.contains("if (this[WidgetShowTeacherKey] == null)"))
+        assertFalse(widgetSource.contains("preferences: ScheduleWidgetPreferences? = null"))
     }
 
     @Test
@@ -955,19 +1074,13 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    fun widgetScheduleCacheOmitsUnusedComparisonDetails() {
-        val source = readSource("app/src/main/java/com/clhs/score/data/GradeCacheStore.kt")
-
-        assertTrue(source.contains("fun ScheduleReport.toWidgetReportOrNull()"))
-        assertTrue(source.contains("scope == ScheduleScope.CURRENT_WEEK"))
-        assertTrue(source.contains("copy(changes = null)"))
-    }
-
-    @Test
     fun widgetSynchronizationRunsOffTheMainThread() {
         val source = readSource("app/src/main/java/com/clhs/score/widget/ScheduleWidget.kt")
 
-        assertTrue(source.countOccurrences("= withContext(Dispatchers.IO) {") >= 2)
+        val syncEntry = source.substringAfter("suspend fun syncAllScheduleWidgets(")
+        assertTrue(syncEntry.startsWith("\n    context: Context,"))
+        assertTrue(syncEntry.contains(") = withContext(Dispatchers.IO) {"))
+        assertTrue(syncEntry.contains("scheduleWidgetSyncMutex.withLock"))
     }
 
     @Test
@@ -1056,7 +1169,7 @@ class ArchitectureBoundaryTest {
         assertTrue("Widget theme mode must be part of Glance state", source.contains("WidgetThemeModeKey"))
         assertTrue("Widget dynamic color setting must be part of Glance state", source.contains("WidgetDynamicColorKey"))
         assertTrue("Widget AMOLED setting must be part of Glance state", source.contains("WidgetAmoledBlackKey"))
-        assertTrue("Widget colors must use the current Glance theme settings", source.contains("getWidgetColorProviders(context, currentWidgetSettings(appSettings))"))
+        assertTrue("Widget colors must use the current Glance theme settings", source.contains("getWidgetColorProviders(context, currentWidgetSettings(AppSettings()))"))
     }
 
     @Test
@@ -1156,7 +1269,7 @@ class ArchitectureBoundaryTest {
 
     private fun readSource(relativePath: String): String {
         val root = findAndroidRoot()
-        return Files.readString(root.resolve(relativePath))
+        return Files.readString(root.resolve(relativePath)).replace("\r\n", "\n")
     }
 
     private fun findAndroidRoot(): Path {

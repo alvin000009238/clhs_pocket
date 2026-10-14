@@ -1,0 +1,4 @@
+interface:
+  display_name: "CLHS Overview Widget"
+  short_description: "Add Overview widgets with existing owners and templates"
+  default_prompt: "Use $clhs-overview-widget to add the requested Overview dashboard widget with the existing configuration, layout, and data owners."

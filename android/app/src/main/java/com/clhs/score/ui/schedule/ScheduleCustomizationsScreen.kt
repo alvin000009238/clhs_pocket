@@ -1,5 +1,7 @@
 package com.clhs.score.ui.schedule
 
+import com.clhs.score.ui.navigation.navigationContentPadding
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.drawBehind
@@ -129,7 +131,7 @@ fun ScheduleCustomizationsScreen(
             state.overrides.isEmpty() -> EmptyCustomizationList()
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                contentPadding = navigationContentPadding(androidx.compose.foundation.layout.PaddingValues(16.dp)),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(state.overrides, key = ScheduleSubjectOverride::originalSubjectName) { override ->

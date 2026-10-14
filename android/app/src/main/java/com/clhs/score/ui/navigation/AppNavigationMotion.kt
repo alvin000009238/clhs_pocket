@@ -5,49 +5,44 @@ package com.clhs.score.ui.navigation
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.material3.MotionScheme
 import androidx.navigation3.runtime.metadata
 import androidx.navigation3.ui.NavDisplay
+import com.clhs.score.ui.theme.PocketMotion
 
 private const val DrillDownIncomingDisplacementDivisor = 12
 private const val ParentOutgoingDisplacementDivisor = 24
-private const val TopLevelFadeThroughInitialScale = 0.98f
 
-internal fun topLevelNavigationMetadata(motionScheme: MotionScheme) = metadata {
-    val fadeThrough = motionScheme.topLevelFadeThrough()
-    put(NavDisplay.TransitionKey) { fadeThrough }
-    put(NavDisplay.PopTransitionKey) { fadeThrough }
-    put(NavDisplay.PredictivePopTransitionKey) { _ -> fadeThrough }
+internal fun topLevelNavigationMetadata() = metadata {
+    // Root chrome stays still; only the body opts into the NavDisplay transition.
+    val transition = EnterTransition.None togetherWith ExitTransition.None
+    put(NavDisplay.TransitionKey) { transition }
+    put(NavDisplay.PopTransitionKey) { transition }
+    put(NavDisplay.PredictivePopTransitionKey) { _ -> transition }
 }
 
-internal fun MotionScheme.drillDownNavigationTransition(): ContentTransform =
+internal fun PocketMotion.Navigation.drillDownNavigationTransition(): ContentTransform =
     (slideInHorizontally(
-        animationSpec = defaultSpatialSpec(),
+        animationSpec = position,
         initialOffsetX = { width -> width / DrillDownIncomingDisplacementDivisor },
-    ) + fadeIn(defaultEffectsSpec())).togetherWith(
+    ) + fadeIn(enterEffects)).togetherWith(
         slideOutHorizontally(
-            animationSpec = defaultSpatialSpec(),
+            animationSpec = position,
             targetOffsetX = { width -> -width / ParentOutgoingDisplacementDivisor },
-        ) + fadeOut(fastEffectsSpec()),
+        ) + fadeOut(exitEffects),
     )
 
-internal fun MotionScheme.drillUpNavigationTransition(): ContentTransform =
+internal fun PocketMotion.Navigation.drillUpNavigationTransition(): ContentTransform =
     (slideInHorizontally(
-        animationSpec = defaultSpatialSpec(),
+        animationSpec = position,
         initialOffsetX = { width -> -width / ParentOutgoingDisplacementDivisor },
-    ) + fadeIn(defaultEffectsSpec())).togetherWith(
+    ) + fadeIn(enterEffects)).togetherWith(
         slideOutHorizontally(
-            animationSpec = defaultSpatialSpec(),
+            animationSpec = position,
             targetOffsetX = { width -> width / DrillDownIncomingDisplacementDivisor },
-        ) + fadeOut(fastEffectsSpec()),
+        ) + fadeOut(exitEffects),
     )
-
-private fun MotionScheme.topLevelFadeThrough(): ContentTransform =
-    (fadeIn(defaultEffectsSpec()) + scaleIn(
-        initialScale = TopLevelFadeThroughInitialScale,
-        animationSpec = defaultSpatialSpec(),
-    )) togetherWith fadeOut(fastEffectsSpec())

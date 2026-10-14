@@ -8,10 +8,16 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+  queue: max
+
 jobs:
   release:
     name: Build signed release APK
     runs-on: ubuntu-latest
+    timeout-minutes: 75
 
     defaults:
       run:
@@ -20,6 +26,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag provenance and release notes
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          python3 .github/scripts/release_guard.py provenance
 
       - name: Set up JDK
         uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
@@ -29,6 +42,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: 'platform-tools'
 
       - name: Install Android SDK packages
         run: |
@@ -41,6 +56,11 @@ jobs:
         uses: gradle/actions/setup-gradle@017a9effdb900e5b5b2fddfb590a105619dca3c3 # v4.4.2
         with:
           cache-read-only: false
+
+      - name: Validate published versionCode history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/release_guard.py history
 
       - name: Decode release keystore
         env:
@@ -68,55 +88,25 @@ jobs:
         working-directory: android
         run: chmod +x gradlew
 
-      - name: Extract release notes
+      - name: Enable emulator acceleration
+        run: sudo chmod 666 /dev/kvm
+
+      - name: Generate release Baseline and Startup Profiles
+        working-directory: android
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import os
-          import re
-          import sys
-
-          tag = os.environ["GITHUB_REF_NAME"]
-          version = tag.removeprefix("v")
-          changelog = Path("CHANGELOG.md")
-          if not changelog.exists():
-              print("::error::CHANGELOG.md is missing.")
-              sys.exit(1)
-
-          lines = changelog.read_text(encoding="utf-8").splitlines()
-          heading = re.compile(rf"^## \[{re.escape(version)}\](?:\s+-\s+.*)?\s*$")
-          next_heading = re.compile(r"^## \[")
-          start = None
-          for index, line in enumerate(lines):
-              if heading.match(line):
-                  start = index + 1
-                  break
-
-          if start is None:
-              print(f"::error::CHANGELOG.md has no section for version {version}.")
-              sys.exit(1)
-
-          end = len(lines)
-          for index in range(start, len(lines)):
-              if next_heading.match(lines[index]):
-                  end = index
-                  break
-
-          notes = "\n".join(lines[start:end]).strip()
-          if not notes:
-              print(f"::error::CHANGELOG.md section for version {version} is empty.")
-              sys.exit(1)
-
-          output = Path(os.environ["RUNNER_TEMP"]) / "release-notes.md"
-          output.write_text(notes + "\n", encoding="utf-8")
-          print(f"Release notes written to {output}")
-          PY
+          ./gradlew --no-daemon :app:generateDemoReleaseBaselineProfile --warning-mode all
+          profile_dir=app/src/demoRelease/generated/baselineProfiles
+          test -s "$profile_dir/baseline-prof.txt"
+          test -s "$profile_dir/startup-prof.txt"
+          grep -F 'Lcom/clhs/score/' "$profile_dir/baseline-prof.txt" > /dev/null
+          mkdir -p app/src/productionRelease/generated/baselineProfiles
+          cp "$profile_dir/baseline-prof.txt" "$profile_dir/startup-prof.txt" app/src/productionRelease/generated/baselineProfiles/
 
       - name: Build signed release APK
         working-directory: android
         run: |
           version_name="${GITHUB_REF_NAME#v}"
-          ./gradlew --no-daemon test :app:compileDebugAndroidTestKotlin assembleRelease \
+          ./gradlew --no-daemon :app:testDemoDebugUnitTest :app:compileProductionDebugKotlin :app:compileDemoDebugAndroidTestKotlin :app:assembleProductionRelease \
             -PversionName="$version_name" \
             -PversionCode="${GITHUB_RUN_NUMBER}"
 
@@ -125,47 +115,23 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           apk_name="clhs-pocket-${tag}-arm64-v8a-release.apk"
           apk_path="$RUNNER_TEMP/$apk_name"
-          cp android/app/build/outputs/apk/release/app-release.apk "$apk_path"
+          cp android/app/build/outputs/apk/production/release/app-production-release.apk "$apk_path"
+          unzip -Z1 "$apk_path" | grep -Fx 'assets/dexopt/baseline.prof' > /dev/null
           echo "APK_PATH=$apk_path" >> "$GITHUB_ENV"
           echo "APK_NAME=$apk_name" >> "$GITHUB_ENV"
 
-      - name: Verify APK signature and ABI
-        run: |
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$APK_PATH"
-          python3 - <<'PY'
-          from zipfile import ZipFile
-          import os
-          import sys
-
-          apk_path = os.environ["APK_PATH"]
-          allowed_abis = {"arm64-v8a"}
-          with ZipFile(apk_path) as apk:
-              abis = {
-                  name.split("/")[1]
-                  for name in apk.namelist()
-                  if name.startswith("lib/") and len(name.split("/")) > 2
-              }
-
-          invalid_abis = abis - allowed_abis
-          if invalid_abis:
-              print(f"::error::APK contains unsupported native ABIs: {sorted(invalid_abis)}")
-              sys.exit(1)
-
-          print(f"Native ABIs in APK: {sorted(abis) or 'none'}")
-          PY
+      - name: Verify APK identity, versions, signature and ABI
+        run: python3 .github/scripts/release_guard.py verify
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" \
-              --title "CLHS Pocket $GITHUB_REF_NAME" \
-              --notes-file "$RUNNER_TEMP/release-notes.md"
-            gh release upload "$GITHUB_REF_NAME" "$APK_PATH" --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" "$APK_PATH" \
-              --verify-tag \
-              --title "CLHS Pocket $GITHUB_REF_NAME" \
-              --notes-file "$RUNNER_TEMP/release-notes.md"
-          fi
+          gh release create "$GITHUB_REF_NAME" "$APK_PATH" \
+            --verify-tag \
+            --title "CLHS Pocket $GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+
+      - name: Remove signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/android-signing/release.jks"

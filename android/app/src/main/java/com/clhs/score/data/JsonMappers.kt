@@ -47,7 +47,9 @@ internal fun JsonObject.double(key: String): Double? {
 
 internal fun parseGradeReport(raw: String): GradeReport {
     val root = SchoolJson.parseToJsonElement(raw).jsonObject
-    val result = root["Result"].asObjectOrNull() ?: JsonObject(emptyMap())
+    val result = root["Result"].asObjectOrNull()
+        ?.takeIf { it.isNotEmpty() }
+        ?: throw SchoolException("學校系統成績資料格式錯誤")
     val examItem = result["ExamItem"].asObjectOrNull()
     val subjectItems = result["SubjectExamInfoList"].asArrayOrNull().orEmpty()
     val firstSubject = subjectItems.firstNotNullOfOrNull { it.asObjectOrNull() }

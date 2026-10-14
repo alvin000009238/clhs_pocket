@@ -2,6 +2,7 @@ package com.clhs.score.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -45,6 +46,13 @@ data class AnnouncementUnit(
     val name: String,
 )
 
+data class AnnouncementCategory(val id: String, val name: String)
+
+data class AnnouncementFilterOptions(
+    val units: List<AnnouncementUnit> = defaultAnnouncementUnits(),
+    val categories: List<AnnouncementCategory> = listOf(AnnouncementCategory(ALL_UNITS_ID, "全部")),
+)
+
 data class SchoolAnnouncementPage(
     val announcements: List<SchoolAnnouncement>,
     val pageIndex: Int,
@@ -85,6 +93,7 @@ class NetworkSchoolAnnouncementsRepository(
         .build(),
     private val baseUrl: HttpUrl = SCHOOL_BASE_URL,
     private val nowProvider: () -> Instant = Instant::now,
+    private val readRepository: AnnouncementReadRepository? = null,
 ) {
     private val cache = LatestCacheFile(cacheDirectory, CACHE_FILE_NAME)
     private val cacheFile = cache.file
@@ -92,29 +101,38 @@ class NetworkSchoolAnnouncementsRepository(
     private val unitsCacheFile = unitsCache.file
 
     suspend fun loadCached(): SchoolAnnouncementPage? = withContext(Dispatchers.IO) {
-        readCache()
+        readCache()?.also { readRepository?.discoverForDisplay(it.announcements) }
     }
 
-    suspend fun loadPage(pageIndex: Int, keyword: String = "", unitId: String = ALL_UNITS_ID): SchoolAnnouncementPage {
+    suspend fun loadPage(
+        pageIndex: Int,
+        keyword: String = "",
+        unitId: String = ALL_UNITS_ID,
+        categoryId: String = ALL_UNITS_ID,
+    ): SchoolAnnouncementPage {
         require(pageIndex >= 0) { "pageIndex must not be negative" }
         val normalizedKeyword = keyword.trim()
         require(normalizedKeyword.length <= SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH) {
             "keyword is too long"
         }
         require(ANNOUNCEMENT_UNIT_ID_REGEX.matches(unitId)) { "Invalid announcement unit" }
+        require(ANNOUNCEMENT_UNIT_ID_REGEX.matches(categoryId)) { "Invalid announcement category" }
         val cacheGeneration = if (
-            pageIndex == 0 && normalizedKeyword.isEmpty() && unitId == ALL_UNITS_ID
+            pageIndex == 0 && normalizedKeyword.isEmpty() && unitId == ALL_UNITS_ID && categoryId == ALL_UNITS_ID
         ) {
             cache.beginWrite()
         } else {
             null
         }
         val requestContext = currentCoroutineContext()
-        return runInterruptibleHttp {
+        return withContext(Dispatchers.IO) {
             val requestBody = FormBody.Builder()
                 .add("auth_type", "user")
                 .add("field", "time")
-                .add("flock", if (unitId == ALL_UNITS_ID) "" else "unit_$unitId")
+                .add("flock", listOfNotNull(
+                    unitId.takeUnless { it == ALL_UNITS_ID }?.let { "unit_$it" },
+                    categoryId.takeUnless { it == ALL_UNITS_ID }?.let { "attr_$it" },
+                ).joinToString("-"))
                 .add("keyword", normalizedKeyword)
                 .add("maxRows", PAGE_SIZE.toString())
                 .add("order", "DESC")
@@ -127,39 +145,59 @@ class NetworkSchoolAnnouncementsRepository(
                 .url(endpoint("ischool/widget/site_news/news_query_json.php"))
                 .post(requestBody)
                 .build()
-            val bytes = executeLimited(request, MAX_LIST_BYTES, "Announcement list")
-            val fetchedAt = nowProvider()
-            val page = SchoolAnnouncementParser.parsePage(bytes.toString(Charsets.UTF_8), fetchedAt)
-            if (cacheGeneration != null) {
-                cache.commit(bytes, fetchedAt.toEpochMilli(), cacheGeneration, requestContext)
+            client.newCall(request).executeCancellable { response ->
+                currentCoroutineContext().ensureActive()
+                val bytes = readResponseLimited(response, MAX_LIST_BYTES, "Announcement list")
+                currentCoroutineContext().ensureActive()
+                val fetchedAt = nowProvider()
+                val page = SchoolAnnouncementParser.parsePage(bytes.toString(Charsets.UTF_8), fetchedAt)
+                currentCoroutineContext().ensureActive()
+                if (cacheGeneration != null) {
+                    cache.commit(bytes, fetchedAt.toEpochMilli(), cacheGeneration, requestContext)
+                }
+                readRepository?.discoverForDisplay(page.announcements)
+                page
             }
-            page
         }
     }
 
     suspend fun loadCachedUnits(): List<AnnouncementUnit> = withContext(Dispatchers.IO) {
-        readUnitsCache()
+        readFilterCache().units
     }
 
-    suspend fun loadUnits(): List<AnnouncementUnit> {
+    suspend fun loadUnits(): List<AnnouncementUnit> = loadFilterOptions().units
+
+    suspend fun loadCachedFilterOptions(): AnnouncementFilterOptions = withContext(Dispatchers.IO) {
+        readFilterCache()
+    }
+
+    suspend fun loadFilterOptions(): AnnouncementFilterOptions {
         val generation = unitsCache.beginWrite()
         val requestContext = currentCoroutineContext()
-        return runInterruptibleHttp {
+        return withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint("home")).get().build()
-            val bytes = executeLimited(request, MAX_HOME_BYTES, "Announcement units")
-            val units = SchoolAnnouncementParser.parseUnits(bytes.toString(Charsets.UTF_8))
-            unitsCache.commit(bytes, nowProvider().toEpochMilli(), generation, requestContext)
-            units
+            client.newCall(request).executeCancellable { response ->
+                currentCoroutineContext().ensureActive()
+                val bytes = readResponseLimited(response, MAX_HOME_BYTES, "Announcement units")
+                currentCoroutineContext().ensureActive()
+                val options = SchoolAnnouncementParser.parseFilterOptions(bytes.toString(Charsets.UTF_8))
+                currentCoroutineContext().ensureActive()
+                unitsCache.commit(bytes, nowProvider().toEpochMilli(), generation, requestContext)
+                options
+            }
         }
     }
 
     suspend fun loadDetail(id: String, categoryHint: String = ""): SchoolAnnouncementDetail =
-        runInterruptibleHttp {
+        withContext(Dispatchers.IO) {
             require(id.isNotBlank()) { "Announcement id is required" }
             val officialUrl = announcementUrl(id, baseUrl)
             val viewRequest = Request.Builder().url(officialUrl).get().build()
-            val viewHtml = executeLimited(viewRequest, MAX_VIEW_BYTES, "Announcement page")
-                .toString(Charsets.UTF_8)
+            val viewHtml = client.newCall(viewRequest).executeCancellable { response ->
+                currentCoroutineContext().ensureActive()
+                readResponseLimited(response, MAX_VIEW_BYTES, "Announcement page")
+            }.toString(Charsets.UTF_8)
+            currentCoroutineContext().ensureActive()
             val uid = UNIQUE_ID_REGEX.find(viewHtml)?.groupValues?.getOrNull(1)
                 ?.takeIf(String::isNotBlank)
                 ?: throw IOException("Announcement identifier is missing")
@@ -170,20 +208,21 @@ class NetworkSchoolAnnouncementsRepository(
                 .addQueryParameter("uid", uid)
                 .build()
             val contentRequest = Request.Builder().url(contentUrl).get().build()
-            val contentJson = executeLimited(contentRequest, MAX_DETAIL_BYTES, "Announcement detail")
-                .toString(Charsets.UTF_8)
+            val contentJson = client.newCall(contentRequest).executeCancellable { response ->
+                currentCoroutineContext().ensureActive()
+                readResponseLimited(response, MAX_DETAIL_BYTES, "Announcement detail")
+            }.toString(Charsets.UTF_8)
+            currentCoroutineContext().ensureActive()
             SchoolAnnouncementParser.parseDetail(contentJson, id, categoryHint)
         }
 
     private fun endpoint(path: String): HttpUrl = baseUrl.newBuilder().addPathSegments(path).build()
 
-    private fun executeLimited(request: Request, maxBytes: Long, label: String): ByteArray {
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("$label request failed with HTTP ${response.code}")
-            val body = response.body
-            if (body.contentLength() > maxBytes) throw IOException("$label response is too large")
-            return readLimited(body.source(), maxBytes, label)
-        }
+    private fun readResponseLimited(response: okhttp3.Response, maxBytes: Long, label: String): ByteArray {
+        if (!response.isSuccessful) throw IOException("$label request failed with HTTP ${response.code}")
+        val body = response.body
+        if (body.contentLength() > maxBytes) throw IOException("$label response is too large")
+        return readLimited(body.source(), maxBytes, label)
     }
 
     private fun readCache(): SchoolAnnouncementPage? {
@@ -196,13 +235,13 @@ class NetworkSchoolAnnouncementsRepository(
         }.getOrNull()
     }
 
-    private fun readUnitsCache(): List<AnnouncementUnit> {
+    private fun readFilterCache(): AnnouncementFilterOptions {
         if (!unitsCacheFile.isFile || unitsCacheFile.length() !in 1..MAX_HOME_BYTES) {
-            return defaultAnnouncementUnits()
+            return AnnouncementFilterOptions()
         }
         return runCatching {
-            SchoolAnnouncementParser.parseUnits(unitsCacheFile.readText(Charsets.UTF_8))
-        }.getOrElse { defaultAnnouncementUnits() }
+            SchoolAnnouncementParser.parseFilterOptions(unitsCacheFile.readText(Charsets.UTF_8))
+        }.getOrElse { AnnouncementFilterOptions() }
     }
 
     private fun readLimited(source: okio.BufferedSource, maxBytes: Long, label: String): ByteArray {
@@ -287,6 +326,20 @@ internal object SchoolAnnouncementParser {
         return (defaultAnnouncementUnits() + units)
             .distinctBy(AnnouncementUnit::id)
             .distinctBy(AnnouncementUnit::name)
+    }
+
+    fun parseFilterOptions(source: String): AnnouncementFilterOptions {
+        val categories = Jsoup.parse(source).select("select.select-attr-x option[value]")
+            .mapNotNull { option ->
+                val id = option.attr("value").trim()
+                val name = option.text().trim()
+                if (!ANNOUNCEMENT_UNIT_ID_REGEX.matches(id) || name.isBlank()) null
+                else AnnouncementCategory(id, name)
+            }
+        return AnnouncementFilterOptions(
+            units = parseUnits(source),
+            categories = (AnnouncementFilterOptions().categories + categories).distinctBy(AnnouncementCategory::id),
+        )
     }
 
     fun parseDetail(source: String, requestedId: String, categoryHint: String = ""): SchoolAnnouncementDetail {

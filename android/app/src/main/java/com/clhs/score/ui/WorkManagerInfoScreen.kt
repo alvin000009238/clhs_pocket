@@ -1,5 +1,7 @@
 package com.clhs.score.ui
 
+import com.clhs.score.ui.navigation.navigationContentPadding
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -79,7 +81,7 @@ fun WorkManagerInfoScreen(onBack: () -> Unit) {
     SubpageLayout(title = "執行資訊", onBack = onBack) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            contentPadding = navigationContentPadding(PaddingValues(horizontal = 16.dp, vertical = 16.dp)),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             WorkManagerSection.entries.forEach { section ->

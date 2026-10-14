@@ -4,6 +4,7 @@ import com.clhs.score.analytics.AnalyticsEvents
 import com.clhs.score.analytics.AnalyticsLogger
 import com.clhs.score.analytics.AnalyticsParams
 import com.clhs.score.analytics.AnalyticsValues
+import com.clhs.score.analytics.NoOpAnalyticsLogger
 import com.clhs.score.data.AuthenticatedSession
 import com.clhs.score.data.ExamOption
 import com.clhs.score.data.FakeData
@@ -33,6 +34,17 @@ import org.junit.Test
 class ScoreViewModelTest {
     private val dispatcher = StandardTestDispatcher()
 
+    private fun createViewModel(
+        repository: GradeRepository,
+        analyticsLogger: AnalyticsLogger = NoOpAnalyticsLogger,
+        demoMode: Boolean = false,
+    ) = ScoreViewModel(
+        repository = repository,
+        analyticsLogger = analyticsLogger,
+        demoMode = demoMode,
+        analysisDispatcher = dispatcher,
+    )
+
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
@@ -46,7 +58,7 @@ class ScoreViewModelTest {
     @Test
     fun sessionRestoreRemainsPendingUntilRepositoryReturns() = runTest(dispatcher) {
         val restoreDeferred = CompletableDeferred<AuthenticatedSession?>()
-        val viewModel = ScoreViewModel(ControllableGradeRepository(restoreDeferred))
+        val viewModel = createViewModel(ControllableGradeRepository(restoreDeferred))
         runCurrent()
 
         assertEquals(AuthState.Restoring, viewModel.authState.value)
@@ -60,7 +72,7 @@ class ScoreViewModelTest {
     @Test
     fun explicitLoginCancelsPendingStartupRestore() = runTest(dispatcher) {
         val restore = CompletableDeferred<AuthenticatedSession?>()
-        val viewModel = ScoreViewModel(ControllableGradeRepository(restore))
+        val viewModel = createViewModel(ControllableGradeRepository(restore))
         runCurrent()
         assertEquals(AuthState.Restoring, viewModel.authState.value)
         viewModel.loginWithWebViewCookies("DEMO-000", "fake=cookie")
@@ -74,7 +86,7 @@ class ScoreViewModelTest {
 
     @Test
     fun fakeDataModeStartsAuthenticatedWithoutLogin() = runTest(dispatcher) {
-        val viewModel = ScoreViewModel(
+        val viewModel = createViewModel(
             repository = FakeGradeRepository(),
             demoMode = true,
         )
@@ -88,7 +100,7 @@ class ScoreViewModelTest {
     @Test
     fun sessionRestoreLoadsStudentInfoOnlyWhenRequested() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
 
         runCurrent()
 
@@ -106,7 +118,7 @@ class ScoreViewModelTest {
     fun sessionRestoreUsesCachedStudentInfoWithoutNetworkRequest() = runTest(dispatcher) {
         val cachedStudentInfo = FakeData.latestReport().studentInfo
         val repository = ControllableGradeRepository(cachedStudentInfo = cachedStudentInfo)
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
 
         runCurrent()
 
@@ -121,7 +133,7 @@ class ScoreViewModelTest {
         val repository = ControllableGradeRepository(
             cachedStudentInfoDeferred = cachedInfoDeferred,
         )
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
 
         runCurrent()
 
@@ -137,7 +149,7 @@ class ScoreViewModelTest {
     @Test
     fun repeatedStudentInfoRefreshCancelsThePreviousRequest() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         viewModel.refreshStudentInfo()
@@ -155,7 +167,7 @@ class ScoreViewModelTest {
     @Test
     fun logoutCancelsStudentInfoRefreshBeforeClearingSession() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         viewModel.refreshStudentInfo()
@@ -172,7 +184,7 @@ class ScoreViewModelTest {
     @Test
     fun initialLoadSkipsLatestYearWithoutExams() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(
@@ -199,7 +211,7 @@ class ScoreViewModelTest {
     @Test
     fun initialLoadKeepsLatestYearWhenEveryYearIsEmpty() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(
@@ -218,7 +230,7 @@ class ScoreViewModelTest {
     @Test
     fun selectingAnotherExamInvalidatesStaleFetchResult() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(
@@ -253,7 +265,7 @@ class ScoreViewModelTest {
     @Test
     fun selectingExamKeepsCurrentReportUntilFetchCompletes() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(FakeData.structure)
@@ -279,7 +291,7 @@ class ScoreViewModelTest {
     @Test
     fun refreshingStructureKeepsSelectedExam() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(FakeData.structure)
@@ -303,7 +315,7 @@ class ScoreViewModelTest {
     @Test
     fun refreshingWhileExamLoadsDoesNotCancelSelection() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(FakeData.structure)
@@ -325,7 +337,7 @@ class ScoreViewModelTest {
     @Test
     fun refreshingOnlyForcesSelectedExam() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(FakeData.structure)
@@ -351,7 +363,7 @@ class ScoreViewModelTest {
     @Test
     fun selectingFirstExamStillBuildsSameTermTrend() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(
@@ -388,7 +400,7 @@ class ScoreViewModelTest {
     @Test
     fun historicalGradesKeepSuccessfulReportsWhenOneRequestFails() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
         repository.structureDeferred.complete(
             listOf(
@@ -424,7 +436,7 @@ class ScoreViewModelTest {
     @Test
     fun subjectTrendReportsPartialAndTotalFailuresWithoutRawErrors() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
         repository.structureDeferred.complete(
             listOf(
@@ -444,7 +456,7 @@ class ScoreViewModelTest {
         assertEquals("部分資料無法載入", viewModel.subjectTrendState.value.errorMessage)
 
         val totalFailureRepository = ControllableGradeRepository()
-        val totalFailureViewModel = ScoreViewModel(totalFailureRepository)
+        val totalFailureViewModel = createViewModel(totalFailureRepository)
         runCurrent()
         totalFailureRepository.structureDeferred.complete(
             listOf(YearTermOption("113 學年度 第 2 學期", "113_2", listOf(ExamOption("第一次段考", "113_2_E1")))),
@@ -461,7 +473,7 @@ class ScoreViewModelTest {
     @Test
     fun logoutProvidesActiveSessionToRepository() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
 
         repository.structureDeferred.complete(emptyList())
         runCurrent()
@@ -475,7 +487,7 @@ class ScoreViewModelTest {
     @Test
     fun selectingYearWithoutExamsClearsCurrentReport() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(
@@ -510,7 +522,7 @@ class ScoreViewModelTest {
     @Test
     fun selectingYearWithoutExamsCancelsPendingGradeRequest() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
         repository.structureDeferred.complete(
             listOf(
@@ -531,7 +543,7 @@ class ScoreViewModelTest {
     @Test
     fun selectingYearWithExamsKeepsCurrentReportUntilFetchCompletes() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(FakeData.structure)
@@ -561,7 +573,7 @@ class ScoreViewModelTest {
     @Test
     fun subjectTrendIgnoresStaleFetchResultAfterYearSelectionChanges() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(
@@ -599,7 +611,7 @@ class ScoreViewModelTest {
     @Test
     fun subjectTrendYearSelectionLoadsOnceAndSkipsUnchangedSelection() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(
@@ -642,7 +654,7 @@ class ScoreViewModelTest {
     @Test
     fun subjectTrendSubjectSelectionOnlyUpdatesLocalFilter() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(FakeData.structure)
@@ -670,7 +682,7 @@ class ScoreViewModelTest {
     @Test
     fun expandedSubjectSelectionIsSingleAndClearsWhenExamChanges() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(FakeData.structure)
@@ -693,7 +705,7 @@ class ScoreViewModelTest {
     @Test
     fun logoutClearsSubjectTrendState() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(
@@ -724,7 +736,7 @@ class ScoreViewModelTest {
     @Test
     fun logoutIgnoresStaleStructureResult() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         viewModel.logout()
@@ -738,7 +750,7 @@ class ScoreViewModelTest {
     @Test
     fun logoutWaitsForInFlightSessionRequests() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         viewModel.logout()
@@ -751,7 +763,7 @@ class ScoreViewModelTest {
     @Test
     fun authenticationFailureDowngradesToGuestAndClearsPrivateState() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
 
         repository.structureDeferred.complete(
@@ -777,7 +789,7 @@ class ScoreViewModelTest {
     fun loginWithWebViewCookiesLogsAnonymousAnalytics() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
         val analytics = RecordingAnalyticsLogger()
-        val viewModel = ScoreViewModel(repository, analyticsLogger = analytics)
+        val viewModel = createViewModel(repository, analyticsLogger = analytics)
         runCurrent()
 
         viewModel.loginWithWebViewCookies("SENSITIVE-STUDENT", "SESSION_ID=secret")
@@ -795,7 +807,7 @@ class ScoreViewModelTest {
     fun gradeQuerySuccessLogsTriggerAndSubjectBucket() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
         val analytics = RecordingAnalyticsLogger()
-        ScoreViewModel(repository, analyticsLogger = analytics)
+        createViewModel(repository, analyticsLogger = analytics)
         runCurrent()
 
         repository.structureDeferred.complete(
@@ -826,7 +838,7 @@ class ScoreViewModelTest {
             com.clhs.score.data.SessionCleanupFailure.BIOMETRIC_DELETE_FAILED,
         )
         val repository = ControllableGradeRepository(logoutFailure = com.clhs.score.data.SessionCleanupException(failures))
-        val viewModel = ScoreViewModel(repository)
+        val viewModel = createViewModel(repository)
         runCurrent()
         assertTrue(viewModel.authState.value is AuthState.Authenticated)
         viewModel.logout()
