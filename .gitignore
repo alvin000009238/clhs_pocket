@@ -43,6 +43,7 @@ venv.bak/
 android/.artifacts/
 .qa/
 *.json
+!android/app/src/main/assets/weather_locations.json
 !android/app/google-services.json
 !android/app/schemas/**/*.json
 *.md
