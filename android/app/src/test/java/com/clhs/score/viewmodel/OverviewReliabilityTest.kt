@@ -322,6 +322,9 @@ class OverviewReliabilityTest {
     }
 
     @Test fun guestYouBikeHonorsVisibilityHiddenPreferenceAndTargetedRefresh() = runBlocking<Unit> {
+        val scheduler = TestCoroutineScheduler()
+        dispatcher = UnconfinedTestDispatcher(scheduler)
+        Dispatchers.setMain(dispatcher)
         auth.value = AuthState.Guest
         val fetches = AtomicInteger()
         val preferences = MutableStateFlow<Preferences>(emptyPreferences())
@@ -329,38 +332,46 @@ class OverviewReliabilityTest {
             youBikeRepository = YouBikeRepository(useFakeData = true, now = { instant.plusSeconds(fetches.incrementAndGet().toLong()) }),
             preferences = preferences,
         )
-        awaitState(vm) { !it.isInitialLoading && it.calendarEvents.isNotEmpty() }
+        // Initial loading ends on the first content, before all public requests finish.
+        withContext(Dispatchers.Default) {
+            awaitState(vm) { !it.calendarLoading && !it.announcementsLoading && !it.isRefreshing && it.calendarEvents.isNotEmpty() }
+        }
         assertEquals(0, fetches.get())
         vm.setClockEnabled(true)
-        val first = awaitState(vm) { it.youBike.snapshot != null && !it.youBike.isRefreshing }
+        scheduler.runCurrent()
+        val first = withContext(Dispatchers.Default) {
+            awaitState(vm) { it.youBike.snapshot != null && !it.youBike.isRefreshing && !it.isRefreshing }
+        }
         assertEquals(0, scheduleReads.get())
         val otherRequests = publicRequests.get()
         val fetchesBeforeRefresh = fetches.get()
         vm.refreshYouBike()
         repeat(5) { vm.refreshYouBike() }
+        scheduler.runCurrent()
         awaitState(vm) { it.youBike.snapshot?.fetchedAt != first.youBike.snapshot?.fetchedAt && !it.youBike.isRefreshing }
-        assertEquals(1, fetches.get() - fetchesBeforeRefresh)
-        assertEquals(otherRequests, publicRequests.get())
+        assertEquals("Repeated targeted refreshes must coalesce", 1, fetches.get() - fetchesBeforeRefresh)
+        assertEquals("YouBike refresh must not restart other public sources", otherRequests, publicRequests.get())
         assertEquals(0, scheduleReads.get())
         val refreshedFetches = fetches.get()
-        delay(100)
+        scheduler.runCurrent()
         assertEquals(refreshedFetches, fetches.get())
 
         preferences.value = mutablePreferencesOf(stringSetPreferencesKey("overview_hidden_sections") to setOf("youbike"))
+        scheduler.runCurrent()
         awaitState(vm) { !it.preferences.shows("youbike") }
-        delay(100)
         val hiddenFetches = fetches.get()
         vm.refreshYouBike()
-        delay(100)
-        assertEquals(hiddenFetches, fetches.get())
+        scheduler.runCurrent()
+        assertEquals("Hidden YouBike must not fetch", hiddenFetches, fetches.get())
         preferences.value = emptyPreferences()
+        scheduler.runCurrent()
         awaitState(vm) { it.preferences.shows("youbike") && it.youBike.snapshot?.fetchedAt == instant.plusSeconds(hiddenFetches + 1L) }
         vm.setClockEnabled(false)
-        delay(100)
+        scheduler.runCurrent()
         val inactiveFetches = fetches.get()
         vm.refreshYouBike()
-        delay(100)
-        assertEquals(inactiveFetches, fetches.get())
+        scheduler.runCurrent()
+        assertEquals("Inactive Overview must not fetch YouBike", inactiveFetches, fetches.get())
     }
 
     @Test fun unavailableYouBikeDoesNotBlockOtherPublicSources() = runBlocking<Unit> {
@@ -389,7 +400,7 @@ class OverviewReliabilityTest {
             override fun instant(): Instant = Instant.ofEpochMilli(millis.get())
         }
         val vm = viewModel()
-        awaitState(vm) { it.hero != null && !it.isRefreshing }
+        awaitState(vm) { it.hero != null && !it.calendarLoading && !it.announcementsLoading && !it.isRefreshing }
         vm.setClockEnabled(true)
         awaitState(vm) { !it.isRefreshing }
         vm.setClockEnabled(false)
