@@ -94,7 +94,7 @@ cd clhs_pocket/android
 
 ## 參與貢獻
 
-請先閱讀 [貢獻指南](CONTRIBUTING.md)與 [安全性回報政策](SECURITY.md)。Issue、log、PR 與截圖都不得包含學號、姓名、Cookie、token、密碼或真實成績資料。
+請先閱讀 [貢獻指南](CONTRIBUTING.md) 與 [安全性回報政策](SECURITY.md)。Issue、log、PR 與截圖都不得包含學號、姓名、Cookie、token、密碼或真實成績資料。
 
 ## License
 
