@@ -335,12 +335,14 @@ class OverviewReliabilityTest {
         val first = awaitState(vm) { it.youBike.snapshot != null && !it.youBike.isRefreshing }
         assertEquals(0, scheduleReads.get())
         val otherRequests = publicRequests.get()
+        val fetchesBeforeRefresh = fetches.get()
         vm.refreshYouBike()
+        repeat(5) { vm.refreshYouBike() }
         awaitState(vm) { it.youBike.snapshot?.fetchedAt != first.youBike.snapshot?.fetchedAt && !it.youBike.isRefreshing }
+        assertEquals(1, fetches.get() - fetchesBeforeRefresh)
         assertEquals(otherRequests, publicRequests.get())
         assertEquals(0, scheduleReads.get())
         val refreshedFetches = fetches.get()
-        repeat(5) { vm.refreshYouBike() }
         delay(100)
         assertEquals(refreshedFetches, fetches.get())
 
