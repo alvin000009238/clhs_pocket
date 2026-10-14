@@ -8,8 +8,8 @@
 | `ui/navigation/` | `AppRoute`、Nav3 entry 與頂層 stack | feature 資料載入邏輯 |
 | `viewmodel/` | UI state、使用者 action、取消與資料協調 | Android View 直接操作 |
 | `data/` | model、repository、client、cache、加密 session | Composable state |
-| `domain/overview/` | 跨資料來源的總覽聚合 | UI navigation |
-| `ui/overview/` | 總覽畫面與公開／私人內容的呈現 | 直接查 repository |
+| `domain/overview/` | 跨資料來源的首頁聚合 | UI navigation |
+| `ui/overview/` | 首頁畫面與公開／私人內容的呈現 | 直接查 repository |
 | `ui/announcements/`、`ui/calendar/` | 公開公告、公告更新提醒入口與行事曆畫面 | 校務 Session |
 | `widget/` | Glance widget 與各 Widget 偏好 | 一般登入 session |
 | `reminders/` | WorkManager 段考更新提醒與公告更新提醒 | 原始成績、公告回應或例外文字對外送出 |

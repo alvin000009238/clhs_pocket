@@ -6,6 +6,7 @@ import com.clhs.score.data.ScheduleRepository
 import com.clhs.score.data.ScheduleScope
 import com.clhs.score.data.ScheduleSubjectOverride
 import com.clhs.score.data.ScheduleYearTermOption
+import androidx.lifecycle.ViewModelStore
 import java.io.IOException
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
@@ -25,12 +26,17 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScheduleCustomizationsViewModelTest {
     private val dispatcher = StandardTestDispatcher()
+    private val viewModels = ViewModelStore()
 
     @Before
     fun setUp() = Dispatchers.setMain(dispatcher)
 
     @After
-    fun tearDown() = Dispatchers.resetMain()
+    fun tearDown() {
+        viewModels.clear()
+        dispatcher.scheduler.advanceUntilIdle()
+        Dispatchers.resetMain()
+    }
 
     @Test
     fun restoreOnePersistsTheRemainingOverrides() = runTest(dispatcher) {
@@ -38,6 +44,7 @@ class ScheduleCustomizationsViewModelTest {
         val math = ScheduleSubjectOverride("數學", customClassroom = "201")
         val repository = CustomizationsRepository(listOf(chinese, math))
         val viewModel = ScheduleCustomizationsViewModel(repository)
+        viewModels.put("scheduleCustomizations", viewModel)
         runCurrent()
 
         viewModel.removeOverride("國文")
@@ -54,6 +61,7 @@ class ScheduleCustomizationsViewModelTest {
             saveFailure = IOException("private location")
         }
         val viewModel = ScheduleCustomizationsViewModel(repository)
+        viewModels.put("scheduleCustomizations", viewModel)
         runCurrent()
 
         viewModel.replaceOverrides(emptyList())
@@ -91,6 +99,7 @@ class ScheduleCustomizationsViewModelTest {
             classNo: String,
             scope: ScheduleScope,
             targetDate: LocalDate,
+            expectedSession: com.clhs.score.data.AuthenticatedSession?,
         ) = error("Not used")
     }
 }

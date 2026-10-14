@@ -1,4 +1,14 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.clhs.score.ui
+
+import com.clhs.score.ui.navigation.navigationContentPadding
+
+import com.clhs.score.ui.theme.PocketVisual
+import androidx.compose.material3.SegmentedListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.toShape
 
 import android.Manifest
 import android.content.Intent
@@ -6,11 +16,10 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -36,10 +45,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
+import com.clhs.score.ui.navigation.PocketScaffold as Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -62,25 +70,29 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.clhs.score.ui.theme.PocketMotion
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.clhs.score.BuildConfig
 import com.clhs.score.R
 import com.clhs.score.data.AppSettings
 import com.clhs.score.data.BiometricHelper
 import com.clhs.score.data.ThemeMode
-import com.clhs.score.data.WeatherSource
 import com.clhs.score.notifications.canPostNotifications
 import com.clhs.score.notifications.hasPostNotificationsPermission
 import com.clhs.score.notifications.openAppNotificationSettings
@@ -107,14 +119,12 @@ fun PersonalScreen(
     uiState: SettingsUiState,
     onBack: () -> Unit,
     onSetThemeMode: (ThemeMode) -> Unit,
+    onSetStartOnSchedule: (Boolean) -> Unit,
+    onCycleProfileAvatarShape: () -> Unit,
     onSetDynamicColor: (Boolean) -> Unit,
     onSetAmoledBlack: (Boolean) -> Unit,
     onSetNotificationsEnabled: (Boolean) -> Unit,
     onSetBiometricEnabled: (Boolean, String?) -> Unit,
-    onSetWeatherSource: (WeatherSource) -> Unit,
-    onSaveCwaApiKey: (String) -> Unit,
-    onClearCwaApiKey: () -> Unit,
-    onDismissCwaKeyMessage: () -> Unit,
     onCheckUpdate: () -> Unit,
     onVersionTap: () -> Unit,
     onDismissDeveloperToast: () -> Unit,
@@ -122,21 +132,22 @@ fun PersonalScreen(
     onOpenSourceLicenses: () -> Unit,
     onOpenDeveloperSettings: () -> Unit,
     onOpenWorkManagerInfo: () -> Unit,
+    onOpenBackgroundPauseSettings: () -> Unit = {},
+    onOpenScheduleReliabilitySettings: () -> Unit = {},
     onLogout: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val utilityMotion = remember { MotionScheme.standard() }
+    val rootMotionScheme = MaterialTheme.motionScheme
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showPinSetupDialog by remember { mutableStateOf(false) }
-    var showCwaKeyDialog by remember { mutableStateOf(false) }
     var awaitingNotificationSettings by rememberSaveable { mutableStateOf(false) }
     var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
     val currentOnSetNotificationsEnabled by rememberUpdatedState(onSetNotificationsEnabled)
     val currentOnDismissDeveloperToast by rememberUpdatedState(onDismissDeveloperToast)
     val remoteConfig = remember {
-        FirebaseRemoteConfig.getInstance().also {
+        if (BuildConfig.USE_FAKE_DATA) null else FirebaseRemoteConfig.getInstance().also {
             it.setDefaultsAsync(mapOf(ProfileFeedbackFormUrlKey to ""))
         }
     }
@@ -167,15 +178,6 @@ fun PersonalScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(uiState.cwaKeyMessage) {
-        uiState.cwaKeyMessage?.let {
-            snackbarHostState.showSnackbar(it)
-            onDismissCwaKeyMessage()
-        }
-    }
-    LaunchedEffect(uiState.cwaKeyConfigured) {
-        if (uiState.cwaKeyConfigured) showCwaKeyDialog = false
-    }
     LaunchedEffect(uiState.showDeveloperUnlockedToast) {
         if (uiState.showDeveloperUnlockedToast) {
             Toast.makeText(context, "已開啟開發者選項", Toast.LENGTH_SHORT).show()
@@ -222,20 +224,7 @@ fun PersonalScreen(
             onDismiss = { showPinSetupDialog = false },
         )
     }
-    if (showCwaKeyDialog) {
-        ProfileCwaApiKeyDialog(
-            saving = uiState.isSavingCwaKey,
-            configured = uiState.cwaKeyConfigured,
-            onConfirm = onSaveCwaApiKey,
-            onRemove = {
-                showCwaKeyDialog = false
-                onClearCwaApiKey()
-            },
-            onDismiss = { if (!uiState.isSavingCwaKey) showCwaKeyDialog = false },
-        )
-    }
-
-    MaterialTheme(motionScheme = utilityMotion) {
+    MaterialTheme(motionScheme = rootMotionScheme) {
         Scaffold(
             topBar = {
                 RootTopAppBar(
@@ -254,11 +243,13 @@ fun PersonalScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(scaffoldPadding),
-                contentPadding = PaddingValues(start = 16.dp, top = 20.dp, end = 16.dp, bottom = 40.dp),
+                contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, top = 20.dp, end = 16.dp, bottom = 40.dp)),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                item { ProfileHero(state, authState, onRequestLogin) }
+                item {
+                    ProfileHero(state, authState, onRequestLogin, settings.profileAvatarShapeIndex, onCycleProfileAvatarShape)
+                }
 
                 item {
                     SettingsSection("外觀") {
@@ -287,49 +278,14 @@ fun PersonalScreen(
                 }
 
                 item {
-                    SettingsSection("天氣") {
+                    SettingsSection("啟動與導覽") {
                         SettingsGroup {
-                            WeatherSourceSelector(
-                                selected = settings.weatherSource,
-                                onSelected = { source ->
-                                    if (source == WeatherSource.CWA && !uiState.cwaKeyConfigured) {
-                                        showCwaKeyDialog = true
-                                    } else {
-                                        onSetWeatherSource(source)
-                                    }
-                                },
-                            )
-                            AnimatedVisibility(
-                                visible = settings.weatherSource == WeatherSource.CWA,
-                                enter = fadeIn(utilityMotion.defaultEffectsSpec()) +
-                                    expandVertically(animationSpec = utilityMotion.defaultSpatialSpec()),
-                                exit = fadeOut(utilityMotion.fastEffectsSpec()) +
-                                    shrinkVertically(animationSpec = utilityMotion.defaultSpatialSpec()),
-                            ) {
-                                SettingsRow(
-                                    icon = "lock",
-                                    title = "授權碼",
-                                    value = if (uiState.cwaKeyConfigured) "已設定" else "未設定",
-                                    onClick = { showCwaKeyDialog = true },
-                                )
-                            }
-                        }
-                        if (settings.weatherSource == WeatherSource.CWA) {
-                            Text(
-                                "提供機關／交通部中央氣象署\n" +
-                                    "資料名稱／鄉鎮天氣預報－桃園市未來3天天氣預報（F-D0047-005）\n" +
-                                    "此開放資料依政府資料開放授權條款 (Open Government Data License) 進行公眾釋出。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 8.dp),
-                            )
-                        } else {
-                            Text(
-                                "資料來源／Open-Meteo.com\n" +
-                                    "API 資料依 CC BY 4.0 提供。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 8.dp),
+                            SettingsSwitchRow(
+                                icon = "calendar_view_week",
+                                title = "啟動時開啟課表",
+                                supportingText = "從桌面啟動時直接顯示課表",
+                                checked = settings.startOnSchedule,
+                                onCheckedChange = onSetStartOnSchedule,
                             )
                         }
                     }
@@ -350,6 +306,20 @@ fun PersonalScreen(
                                 title = "執行資訊",
                                 supportingText = "查看所有背景工作的即時狀態",
                                 onClick = onOpenWorkManagerInfo,
+                            )
+                            SettingsRow(
+                                icon = "schedule",
+                                title = "排程暫停時段",
+                                supportingText = if (settings.backgroundPause.enabled) {
+                                    "每天 ${formatPauseTime(settings.backgroundPause.startMinute)}–${formatPauseTime(settings.backgroundPause.endMinute)}"
+                                } else "未啟用",
+                                onClick = onOpenBackgroundPauseSettings,
+                            )
+                            SettingsRow(
+                                icon = "alarm",
+                                title = "排程可靠性",
+                                supportingText = "管理課程通知與小工具的背景排程",
+                                onClick = onOpenScheduleReliabilitySettings,
                             )
                         }
                     }
@@ -387,7 +357,7 @@ fun PersonalScreen(
                                 }
                             }
                             SettingsRow(
-                                icon = "newsstand",
+                                icon = "data_usage",
                                 title = "使用統計",
                                 supportingText = "查看各項功能的使用次數",
                                 onClick = onOpenUsageStatistics,
@@ -431,28 +401,30 @@ fun PersonalScreen(
                                 value = "MIT License",
                                 onClick = onOpenSourceLicenses,
                             )
-                            SettingsRow(
-                                icon = "thumbs_up_down",
-                                title = "意見回饋",
-                                loading = isFetchingFeedback,
-                                enabled = !isFetchingFeedback,
-                                onClick = {
-                                    isFetchingFeedback = true
-                                    remoteConfig.fetchAndActivate().addOnCompleteListener {
-                                        isFetchingFeedback = false
-                                        val url = remoteConfig.getString(ProfileFeedbackFormUrlKey)
-                                        if (isAllowedFeedbackFormUrl(url)) {
-                                            openProfileUrl(context, url)
-                                        } else {
-                                            Toast.makeText(
-                                                context,
-                                                "暫時無法取得回饋表單，請稍後再試",
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
+                            if (remoteConfig != null) {
+                                SettingsRow(
+                                    icon = "thumbs_up_down",
+                                    title = "意見回饋",
+                                    loading = isFetchingFeedback,
+                                    enabled = !isFetchingFeedback,
+                                    onClick = {
+                                        isFetchingFeedback = true
+                                        remoteConfig.fetchAndActivate().addOnCompleteListener {
+                                            isFetchingFeedback = false
+                                            val url = remoteConfig.getString(ProfileFeedbackFormUrlKey)
+                                            if (isAllowedFeedbackFormUrl(url)) {
+                                                openProfileUrl(context, url)
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    "暫時無法取得回饋表單，請稍後再試",
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                            }
                                         }
-                                    }
-                                },
-                            )
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -464,7 +436,7 @@ fun PersonalScreen(
                                 SettingsRow(
                                     icon = "science",
                                     title = "開發者選項",
-                                    supportingText = "Demo 模式與診斷工具",
+                                    supportingText = "更多進階設定",
                                     onClick = onOpenDeveloperSettings,
                                 )
                             }
@@ -502,12 +474,14 @@ private fun ProfileHero(
     state: GradesUiState,
     authState: AuthState,
     onRequestLogin: () -> Unit,
+    avatarShapeIndex: Int,
+    onCycleAvatarShape: () -> Unit,
 ) {
     Surface(
         modifier = Modifier
             .widthIn(max = ProfileMaxWidth)
             .fillMaxWidth(),
-        shape = MaterialTheme.shapes.largeIncreased,
+        shape = PocketVisual.heroShape,
         color = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
     ) {
@@ -525,23 +499,14 @@ private fun ProfileHero(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                Surface(
-                    modifier = Modifier.size(64.dp),
-                    shape = MaterialTheme.shapes.large,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        OutlinedRoundedSymbol("account_circle", size = 38.dp, contentDescription = null)
-                    }
-                }
+                ProfileAvatar(avatarShapeIndex, onCycleAvatarShape)
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
                         student?.studentName?.takeIf(String::isNotBlank) ?: "學生帳號",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.headlineSmallEmphasized,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -562,6 +527,49 @@ private fun ProfileHero(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ProfileAvatar(shapeIndex: Int, onCycleShape: () -> Unit) {
+    val shapes = listOf(
+        MaterialShapes.Cookie9Sided.toShape(),
+        MaterialShapes.Clover4Leaf.toShape(),
+        MaterialShapes.Sunny.toShape(),
+        MaterialShapes.SoftBurst.toShape(),
+    )
+    val clockwise = shapeIndex % 2 == 0
+    val rotation = remember { Animatable(0f) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, clockwise) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            rotation.animateTo(
+                targetValue = rotation.value + if (clockwise) 360f else -360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 20_000, easing = LinearEasing),
+                ),
+            )
+        }
+    }
+    Surface(
+        onClick = hapticClick(onCycleShape),
+        modifier = Modifier
+            .size(64.dp)
+            .semantics {
+                role = Role.Button
+                contentDescription = "更換個人圖示形狀並反轉旋轉方向"
+            }
+            .graphicsLayer { rotationZ = rotation.value },
+        shape = shapes[shapeIndex],
+        color = MaterialTheme.colorScheme.secondary,
+        contentColor = MaterialTheme.colorScheme.onSecondary,
+    ) {
+        Box(
+            modifier = Modifier.graphicsLayer { rotationZ = -rotation.value },
+            contentAlignment = Alignment.Center,
+        ) {
+            OutlinedRoundedSymbol("account_circle", size = 38.dp, contentDescription = null)
         }
     }
 }
@@ -625,7 +633,7 @@ private fun SettingsSection(
     ) {
         Text(
             title,
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.titleMediumEmphasized,
             color = if (subdued) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             } else {
@@ -681,25 +689,6 @@ internal fun ThemeSelector(
     }
 }
 
-@Composable
-private fun WeatherSourceSelector(selected: WeatherSource, onSelected: (WeatherSource) -> Unit) {
-    Column(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("資料來源", style = MaterialTheme.typography.bodyLarge)
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            WeatherSource.entries.forEachIndexed { index, source ->
-                SegmentedButton(
-                    selected = selected == source,
-                    onClick = { onSelected(source) },
-                    shape = SegmentedButtonDefaults.itemShape(index, WeatherSource.entries.size),
-                ) { Text(if (source == WeatherSource.OPEN_METEO) "Open-Meteo" else "中央氣象署") }
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SettingsRow(
@@ -712,66 +701,28 @@ private fun SettingsRow(
     enabled: Boolean = true,
     iconBadge: Boolean = false,
 ) {
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        color = Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = if (supportingText == null) 64.dp else 76.dp),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
+    SegmentedListItem(
+        onClick = hapticClick(onClick), enabled = enabled,
+        modifier = Modifier.fillMaxWidth().heightIn(min = if (supportingText == null) 64.dp else 76.dp),
+        shapes = ListItemDefaults.shapes(),
+        colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        leadingContent = {
             Box {
-                OutlinedRoundedSymbol(
-                    icon,
-                    size = 24.dp,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    contentDescription = null,
-                )
-                if (iconBadge) {
-                    Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .size(8.dp)
-                            .background(MaterialTheme.colorScheme.error, CircleShape),
-                    )
-                }
+                OutlinedRoundedSymbol(icon, size = 24.dp, contentDescription = null)
+                if (iconBadge) Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape))
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
-                supportingText?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+        },
+        supportingContent = supportingText?.let { text -> {
+            Text(text, style = MaterialTheme.typography.bodyMedium)
+        } },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                value?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
+                if (loading) LoadingIndicator(Modifier.size(28.dp))
+                else OutlinedRoundedSymbol("keyboard_arrow_right", size = 24.dp, contentDescription = null)
             }
-            value?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-            if (loading) {
-                LoadingIndicator(modifier = Modifier.size(28.dp))
-            } else {
-                OutlinedRoundedSymbol(
-                    "keyboard_arrow_right",
-                    size = 24.dp,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    contentDescription = null,
-                )
-            }
-        }
-    }
+        },
+    ) { Text(title, style = MaterialTheme.typography.bodyLarge) }
 }
 
 @Composable
@@ -792,7 +743,7 @@ internal fun SettingsSwitchRow(
                 value = checked,
                 enabled = enabled,
                 role = Role.Switch,
-                onValueChange = onCheckedChange,
+                onValueChange = hapticToggle(onCheckedChange),
             )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -859,12 +810,13 @@ private fun AppIdentityRow(onVersionTap: () -> Unit) {
 }
 
 @Composable
-private fun ProfileCwaApiKeyDialog(
+internal fun ProfileCwaApiKeyDialog(
     saving: Boolean,
     configured: Boolean,
     onConfirm: (String) -> Unit,
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
+    message: String? = null,
 ) {
     var key by remember { mutableStateOf("") }
     androidx.compose.material3.AlertDialog(
@@ -892,6 +844,7 @@ private fun ProfileCwaApiKeyDialog(
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
                     ) { Text("點此移除授權碼") }
                 }
+                message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = {

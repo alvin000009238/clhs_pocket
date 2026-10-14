@@ -1,5 +1,7 @@
 package com.clhs.score.ui
 
+import com.clhs.score.ui.navigation.navigationContentPadding
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -69,7 +71,8 @@ private fun AuthRequiredState(
     modifier: Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(32.dp),
+        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .navigationContentPadding().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {

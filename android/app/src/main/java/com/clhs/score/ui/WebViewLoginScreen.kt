@@ -33,7 +33,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.net.toUri
+import com.clhs.score.ui.theme.PocketMotion
 import com.clhs.score.data.AuthenticatedSession
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -80,7 +80,6 @@ fun WebViewLoginScreen(
     var pageProgress by remember { mutableFloatStateOf(0f) }
     var pageTitle by remember { mutableStateOf("") }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    val utilityMotion = remember { MotionScheme.standard() }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -93,6 +92,7 @@ fun WebViewLoginScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .padding(bottom = com.clhs.score.ui.navigation.LocalNavigationClearance.current)
             .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .imePadding(),
@@ -121,8 +121,8 @@ fun WebViewLoginScreen(
                 }
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isProcessingLogin,
-                    enter = fadeIn(utilityMotion.defaultEffectsSpec()),
-                    exit = fadeOut(utilityMotion.defaultEffectsSpec()),
+                    enter = fadeIn(PocketMotion.stateChange()),
+                    exit = fadeOut(PocketMotion.stateChange()),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     Box(
@@ -209,6 +209,7 @@ fun SchoolWebsiteScreen(
             .fillMaxSize()
             .alpha(if (isVisible) 1f else 0f)
             .zIndex(if (isVisible) 1f else -1f)
+            .padding(bottom = com.clhs.score.ui.navigation.LocalNavigationClearance.current)
             .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .imePadding(),

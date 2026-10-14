@@ -11,7 +11,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
-import java.time.LocalDateTime
+import java.time.Instant
+import java.time.ZoneId
+import java.util.TimeZone
 
 class ScheduleWidgetDaySwitchTest {
     private val monday = LocalDate.parse("2026-07-20")
@@ -42,8 +44,8 @@ class ScheduleWidgetDaySwitchTest {
         )
 
         assertEquals(
-            LocalDateTime.of(2026, 7, 20, 11, 10),
-            nextScheduleWidgetUpdateAt(report, LocalDateTime.of(2026, 7, 20, 9, 5)),
+            Instant.parse("2026-07-20T03:10:00Z"),
+            nextScheduleWidgetUpdateAt(report, Instant.parse("2026-07-20T01:05:00Z")),
         )
     }
 
@@ -59,8 +61,8 @@ class ScheduleWidgetDaySwitchTest {
         )
 
         assertEquals(
-            LocalDateTime.of(2026, 7, 21, 0, 0),
-            nextScheduleWidgetUpdateAt(report, LocalDateTime.of(2026, 7, 20, 9, 5)),
+            Instant.parse("2026-07-20T16:00:00Z"),
+            nextScheduleWidgetUpdateAt(report, Instant.parse("2026-07-20T01:05:00Z")),
         )
     }
 
@@ -74,8 +76,8 @@ class ScheduleWidgetDaySwitchTest {
         )
 
         assertEquals(
-            LocalDateTime.of(2026, 7, 20, 11, 10),
-            nextScheduleWidgetUpdateAt(report, LocalDateTime.of(2026, 7, 20, 10, 0)),
+            Instant.parse("2026-07-20T03:10:00Z"),
+            nextScheduleWidgetUpdateAt(report, Instant.parse("2026-07-20T02:00:00Z")),
         )
     }
 
@@ -91,9 +93,62 @@ class ScheduleWidgetDaySwitchTest {
         )
 
         assertEquals(
-            LocalDateTime.of(2026, 7, 21, 0, 0),
-            nextScheduleWidgetUpdateAt(report, LocalDateTime.of(2026, 7, 20, 9, 5)),
+            Instant.parse("2026-07-20T16:00:00Z"),
+            nextScheduleWidgetUpdateAt(report, Instant.parse("2026-07-20T01:05:00Z")),
         )
+    }
+
+    @Test
+    fun widgetDateCourseAndNextBoundaryUseSchoolTimezone() {
+        val report = ScheduleReport(
+            yearTermValue = "1142",
+            classNo = "230",
+            scope = ScheduleScope.CURRENT_WEEK,
+            weekStartDate = monday.toString(),
+            weekEndDate = monday.plusDays(6).toString(),
+            items = listOf(lesson(period = 1), lesson(period = 2), lesson(period = 1, dayOfWeek = 2)),
+        )
+        val instant = Instant.parse("2026-07-20T01:15:00Z")
+        val deviceZones = listOf("Asia/Taipei", "UTC", "America/Los_Angeles").map(ZoneId::of)
+        val previousDefault = TimeZone.getDefault()
+        val results = try {
+            deviceZones.map { deviceZone ->
+                TimeZone.setDefault(TimeZone.getTimeZone(deviceZone))
+                val view = resolveWidgetSchedule(report, instant, afterLastClass = false)
+                Triple(view.selection.date to view.sections.current?.period,
+                    nextScheduleWidgetUpdateAt(report, instant), deviceZone)
+            }
+        } finally {
+            TimeZone.setDefault(previousDefault)
+        }
+
+        results.drop(1).forEach { result ->
+            assertEquals(results.first().first, result.first)
+            assertEquals(results.first().second, result.second)
+        }
+        assertEquals(monday, results.first().first.first)
+        assertEquals(2, results.first().first.second)
+    }
+
+    @Test
+    fun widgetAlarmOwnershipHandlesOneManyAndNoActiveInstances() {
+        assertTrue(shouldScheduleWidgetAlarm(1))
+        assertTrue(shouldScheduleWidgetAlarm(2))
+        assertTrue(shouldScheduleWidgetAlarm(8))
+        assertFalse(shouldScheduleWidgetAlarm(0))
+    }
+
+    @Test
+    fun supportedSystemEventsRearmWidgetButMidnightAlarmOwnsDateRollover() {
+        listOf(
+            android.content.Intent.ACTION_BOOT_COMPLETED,
+            android.content.Intent.ACTION_MY_PACKAGE_REPLACED,
+            android.content.Intent.ACTION_TIME_CHANGED,
+            android.content.Intent.ACTION_TIMEZONE_CHANGED,
+        ).forEach { assertTrue(isWidgetRearmAction(it)) }
+        assertFalse(shouldScheduleWidgetAlarm(0))
+        assertFalse(isWidgetRearmAction(android.content.Intent.ACTION_DATE_CHANGED))
+        assertFalse(isWidgetRearmAction("com.example.UNKNOWN"))
     }
 
     @Test
@@ -291,7 +346,7 @@ class ScheduleWidgetDaySwitchTest {
     }
 
     @Test
-    fun selectedPreferencesOverrideTheExistingWidgetStateDuringRefresh() {
+    fun fullRefreshPreservesPreferencesAlreadySavedForEachWidget() {
         val state = mutablePreferencesOf(
             WidgetShowTeacherKey to true,
             WidgetShowClassroomKey to true,
@@ -302,19 +357,13 @@ class ScheduleWidgetDaySwitchTest {
         state.syncScheduleWidgetState(
             reportStr = null,
             settings = AppSettings(),
-            legacyPreferences = Triple(true, true, false),
-            preferences = ScheduleWidgetPreferences(
-                showTeacher = false,
-                showClassroom = false,
-                showTime = false,
-                afterLastClass = true,
-            ),
+            legacyPreferences = Triple(false, false, false),
         )
 
-        assertEquals(false, state[WidgetShowTeacherKey])
-        assertEquals(false, state[WidgetShowClassroomKey])
-        assertEquals(false, state[WidgetShowTimeKey])
-        assertEquals(true, state[WidgetAfterLastClassKey])
+        assertEquals(true, state[WidgetShowTeacherKey])
+        assertEquals(true, state[WidgetShowClassroomKey])
+        assertEquals(true, state[WidgetShowTimeKey])
+        assertEquals(false, state[WidgetAfterLastClassKey])
     }
 
     private fun lesson(period: Int, dayOfWeek: Int = 1) =

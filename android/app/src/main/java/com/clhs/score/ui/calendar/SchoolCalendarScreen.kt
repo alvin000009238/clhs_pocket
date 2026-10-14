@@ -1,11 +1,8 @@
 package com.clhs.score.ui.calendar
 
+import com.clhs.score.ui.navigation.navigationContentPadding
+
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -24,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -38,6 +36,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -46,6 +45,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -72,10 +72,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.clhs.score.data.SchoolCalendarEvent
 import com.clhs.score.data.SCHOOL_CALENDAR_SEARCH_MAX_LENGTH
+import com.clhs.score.data.SCHOOL_COURSE_ZONE
+import com.clhs.score.ui.hapticClick
 import com.clhs.score.ui.OutlinedRoundedSymbol
 import com.clhs.score.ui.SubpageLayout
+import com.clhs.score.ui.rememberLoadingShimmerProgress
+import com.clhs.score.ui.theme.PocketMotion
 import com.clhs.score.viewmodel.SchoolCalendarUiState
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -89,6 +94,7 @@ fun SchoolCalendarScreen(
     onSearch: (String) -> Unit,
     onClearSearch: () -> Unit,
     onOpenGoogleCalendar: () -> Unit,
+    onAddToSystemCalendar: (SchoolCalendarEvent) -> Unit,
     onNoticeShown: () -> Unit,
     targetEventId: String? = null,
 ) {
@@ -124,9 +130,11 @@ fun SchoolCalendarScreen(
             modifier = modifier,
         )
     }
-    LaunchedEffect(uiState.noticeMessage) {
+    LaunchedEffect(uiState.noticeMessage, uiState.lastUpdatedAt) {
         uiState.noticeMessage?.let { message ->
-            snackbarHostState.showSnackbar(message)
+            val fetchedAt = uiState.lastUpdatedAt?.let(calendarCacheTimeFormatter::format)
+            val displayMessage = fetchedAt?.let { "$message（上次取得：$it）" } ?: message
+            snackbarHostState.showSnackbar(displayMessage)
             onNoticeShown()
         }
     }
@@ -144,7 +152,7 @@ fun SchoolCalendarScreen(
     ) {
         PullToRefreshBox(
             isRefreshing = uiState.isRefreshing,
-            onRefresh = {
+            onRefresh = hapticClick {
                 clearFocusAndHideKeyboard()
                 onRefresh()
             },
@@ -157,7 +165,7 @@ fun SchoolCalendarScreen(
                 targetEventId = targetEventId,
                 onTargetMissing = { snackbarHostState.showSnackbar("找不到這個事件，可能已從行事曆移除。") },
                 searchField = searchField,
-                onRefresh = {
+                onRefresh = hapticClick {
                     clearFocusAndHideKeyboard()
                     onRefresh()
                 },
@@ -166,6 +174,7 @@ fun SchoolCalendarScreen(
                     clearFocusAndHideKeyboard()
                     onOpenGoogleCalendar()
                 },
+                onAddToSystemCalendar = onAddToSystemCalendar,
             )
             PullToRefreshDefaults.LoadingIndicator(
                 state = pullToRefreshState,
@@ -221,18 +230,11 @@ private fun CalendarAgenda(
     onRefresh: () -> Unit,
     onClearSearch: () -> Unit,
     onOpenGoogleCalendar: () -> Unit,
+    onAddToSystemCalendar: (SchoolCalendarEvent) -> Unit,
 ) {
-    val today = LocalDate.now()
+    val today = LocalDate.now(SCHOOL_COURSE_ZONE)
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    val shimmerProgress = rememberInfiniteTransition(label = "calendar-loading-shimmer").animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1_300, easing = LinearEasing),
-        ),
-        label = "calendar-loading-shimmer-progress",
-    )
     val visibleEvents = remember(uiState.events, uiState.searchQuery) {
         uiState.visibleEvents
     }
@@ -266,12 +268,12 @@ private fun CalendarAgenda(
                 .semantics {
                     if (uiState.isInitialLoading) contentDescription = "正在載入行事曆"
                 },
-            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp),
+            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp)),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item(key = "calendar-search") { searchField(Modifier) }
 
-            if (uiState.skippedRecurringEvents > 0) {
+            if (uiState.skippedRecurringEvents > 0 && visibleEvents.isNotEmpty()) {
                 item(key = "recurring-warning") {
                     Card(
                         colors = CardDefaults.cardColors(
@@ -291,7 +293,7 @@ private fun CalendarAgenda(
 
             when {
                 uiState.isInitialLoading -> item(key = "calendar-loading") {
-                    CalendarLoadingList(shimmerProgress)
+                    CalendarLoadingList()
                 }
                 uiState.errorMessage != null -> item(key = "calendar-message") {
                     CalendarMessageState(
@@ -348,7 +350,11 @@ private fun CalendarAgenda(
                         )
                     }
                     items(events, key = SchoolCalendarEvent::id) { event ->
-                        CalendarEventCard(event, highlighted = event.id == targetEventId)
+                        CalendarEventCard(
+                            event = event,
+                            highlighted = event.id == targetEventId,
+                            onAddToSystemCalendar = onAddToSystemCalendar,
+                        )
                     }
                 }
             }
@@ -358,16 +364,17 @@ private fun CalendarAgenda(
             visible = listState.canScrollBackward && !listState.isScrollInProgress,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
+                .navigationContentPadding()
                 .navigationBarsPadding()
                 .padding(4.dp),
-            enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+            enter = fadeIn(PocketMotion.stateChange()) +
                 slideInVertically(
-                    animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                    animationSpec = PocketMotion.contentReflow(),
                     initialOffsetY = { height -> height / 3 },
                 ),
-            exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+            exit = fadeOut(PocketMotion.stateChange()) +
                 slideOutVertically(
-                    animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                    animationSpec = PocketMotion.contentReflow(),
                     targetOffsetY = { height -> height / 3 },
                 ),
         ) {
@@ -389,7 +396,11 @@ private fun CalendarAgenda(
 }
 
 @Composable
-private fun CalendarEventCard(event: SchoolCalendarEvent, highlighted: Boolean) {
+private fun CalendarEventCard(
+    event: SchoolCalendarEvent,
+    highlighted: Boolean,
+    onAddToSystemCalendar: (SchoolCalendarEvent) -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -424,6 +435,18 @@ private fun CalendarEventCard(event: SchoolCalendarEvent, highlighted: Boolean) 
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+            if (event.toCalendarEventIntentTimes() != null) {
+                // Compact layout size; Compose retains its minimum touch target.
+                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+                    IconButton(onClick = hapticClick { onAddToSystemCalendar(event) },
+                        modifier = Modifier.size(32.dp)) {
+                        OutlinedRoundedSymbol(
+                            icon = "calendar_today",
+                            contentDescription = "加入系統行事曆",
+                        )
+                    }
                 }
             }
         }
@@ -477,7 +500,8 @@ private fun CalendarMessageState(
 }
 
 @Composable
-private fun CalendarLoadingList(shimmerProgress: State<Float>) {
+private fun CalendarLoadingList() {
+    val shimmerProgress = rememberLoadingShimmerProgress("calendar-loading-shimmer")
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -543,6 +567,10 @@ private fun eventTimeText(event: SchoolCalendarEvent): String {
             "${endDate.monthValue}/${endDate.dayOfMonth} ${event.endExclusive.format(timeFormatter)}"
     }
 }
+
+private val calendarCacheTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm", Locale.TAIWAN)
+        .withZone(ZoneId.of("Asia/Taipei"))
 
 /** Includes the search row, optional recurrence warning, and each date heading. */
 internal fun calendarEventListIndex(

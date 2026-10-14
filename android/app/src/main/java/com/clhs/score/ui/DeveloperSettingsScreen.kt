@@ -1,5 +1,7 @@
 package com.clhs.score.ui
 
+import com.clhs.score.ui.navigation.navigationContentPadding
+
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -32,7 +34,6 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedListItem
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -74,9 +75,9 @@ fun DeveloperSettingsScreen(
     loginErrorMessage: String?,
     gradesErrorMessage: String?,
     onBack: () -> Unit,
-    onSetDemoMode: (Boolean) -> Unit,
     onRestartOnboarding: () -> Unit,
     onDismissRestartDialog: () -> Unit,
+    onOpenSettingsTransfer: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -164,22 +165,17 @@ fun DeveloperSettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .navigationContentPadding()
                 .padding(start = 16.dp, top = 8.dp, end = 16.dp)
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
         ) {
-            DeveloperSwitchItem(
-                checked = settings.demoMode,
-                onCheckedChange = onSetDemoMode,
-                count = developerItemCount,
-            )
-
             DeveloperActionItem(
                 icon = "refresh",
                 title = "重跑 onboarding",
                 subtitle = "重新進行 onboarding 流程。",
                 enabled = !isBusy,
-                index = 1,
+                index = 0,
                 count = developerItemCount,
                 onClick = onRestartOnboarding,
             )
@@ -190,7 +186,7 @@ fun DeveloperSettingsScreen(
                     title = "段考更新提醒測試通知",
                     subtitle = "發送一則模擬資訊更新通知，測試手機是否能收到提醒。",
                     enabled = !isBusy,
-                    index = 2,
+                    index = 1,
                     count = developerItemCount,
                     onClick = {
                         showGradeReminderTestNotification(context)
@@ -203,7 +199,7 @@ fun DeveloperSettingsScreen(
                 title = "本機資料與儲存空間",
                 subtitle = "查看各項資料大小，並只清除選取的本機資料。",
                 enabled = !isBusy,
-                index = if (BuildConfig.DEBUG) 3 else 2,
+                index = if (BuildConfig.DEBUG) 2 else 1,
                 count = developerItemCount,
                 onClick = {
                     isBusy = true
@@ -220,6 +216,16 @@ fun DeveloperSettingsScreen(
                         isBusy = false
                     }
                 },
+            )
+
+            DeveloperActionItem(
+                icon = "settings",
+                title = "備份與還原",
+                subtitle = "設定、首頁配置與自訂科目",
+                enabled = !isBusy,
+                index = developerItemCount - 2,
+                count = developerItemCount,
+                onClick = onOpenSettingsTransfer,
             )
 
             DeveloperActionItem(
@@ -310,49 +316,6 @@ private fun showGradeReminderTestNotification(context: Context) {
     )
     GradeReminderNotifier(context.applicationContext).showChangedNotification(changeSet)
     Toast.makeText(context, "已發送段考更新提醒測試通知", Toast.LENGTH_SHORT).show()
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun DeveloperSwitchItem(
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    count: Int,
-) {
-    SegmentedListItem(
-        checked = checked,
-        onCheckedChange = onCheckedChange,
-        shapes = ListItemDefaults.segmentedShapes(index = 0, count = count),
-        leadingContent = {
-            OutlinedRoundedSymbol(
-                icon = "science",
-                size = 24.dp,
-                contentDescription = null,
-            )
-        },
-        supportingContent = {
-            Text(
-                text = "使用假資料測試畫面，不依賴學校系統登入。",
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        },
-        trailingContent = {
-            Switch(
-                checked = checked,
-                onCheckedChange = null,
-            )
-        },
-        colors = ListItemDefaults.segmentedColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            leadingContentColor = MaterialTheme.colorScheme.primary,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        verticalAlignment = Alignment.CenterVertically,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(text = "Demo 模式")
-    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -539,7 +502,7 @@ private fun StorageEntryRow(
             leadingContent = leadingContent,
             supportingContent = {
                 Text(
-                    text = "保留設定、Demo 模式與開發者選項",
+                    text = "更多進階設定",
                     modifier = Modifier.padding(top = 4.dp),
                 )
             },

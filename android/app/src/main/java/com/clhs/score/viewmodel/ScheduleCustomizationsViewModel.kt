@@ -133,7 +133,7 @@ class ScheduleCustomizationsViewModel(
                 val repository = sharedScheduleRepository ?: run {
                     val cacheStore = GradeCacheStore(appContext)
                     if (useFakeData) {
-                        FakeScheduleRepository(cacheStore)
+                        FakeScheduleRepository(cacheStore, activeSessionProvider, SessionStore(appContext))
                     } else {
                         NetworkScheduleRepository(
                             SchoolGradeClient(),

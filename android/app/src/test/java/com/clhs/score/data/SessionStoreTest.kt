@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -27,6 +28,115 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
 
 class SessionStoreTest {
+    @Test
+    fun lateAuthenticationFailureDoesNotLogOutNewAccount() = runTest {
+        val authority = store()
+        var active = authority.establishSession(sessionA)
+        val entered = CompletableDeferred<Unit>()
+        val release = java.util.concurrent.CountDownLatch(1)
+        val expirations = AtomicInteger()
+        val client = SchoolGradeClient(okHttpClient = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+            entered.complete(Unit)
+            check(release.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+                .code(401).message("Unauthorized").body("".toResponseBody()).build()
+        }.build())
+        val cache = GradeCacheStore(androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = { temporaryFolder.newFile("late-auth.preferences_pb") },
+        )) {}
+        val repository = NetworkScheduleRepository(client, authority, cache,
+            activeSessionProvider = { active }, onAuthenticationExpired = { expirations.incrementAndGet() })
+        val pending = async { runCatching { repository.getScheduleYears() } }
+        try {
+            entered.await()
+            active = authority.establishSession(sessionB)
+            release.countDown()
+            assertTrue(pending.await().exceptionOrNull() is SchoolAuthenticationException)
+            assertEquals(0, expirations.get())
+            assertTrue(authority.isAuthorized(active))
+        } finally { release.countDown() }
+    }
+
+    @Test
+    fun overviewRequestBoundToOldSessionCannotStartUnderNewAccount() = runTest {
+        val authority = store()
+        val a = authority.establishSession(sessionA)
+        val b = authority.establishSession(sessionB)
+        val requests = AtomicInteger()
+        val client = SchoolGradeClient(okHttpClient = okhttp3.OkHttpClient.Builder().addInterceptor {
+            requests.incrementAndGet()
+            throw java.io.IOException("Unexpected request")
+        }.build())
+        val cache = GradeCacheStore(object : DataStore<androidx.datastore.preferences.core.Preferences> {
+            override val data = kotlinx.coroutines.flow.flowOf(androidx.datastore.preferences.core.emptyPreferences())
+            override suspend fun updateData(transform: suspend (androidx.datastore.preferences.core.Preferences) -> androidx.datastore.preferences.core.Preferences) =
+                error("Obsolete request must not write cache")
+        }) {}
+        val repository = NetworkScheduleRepository(client, authority, cache, activeSessionProvider = { b })
+        val result = runCatching {
+            repository.fetchSchedule("114_2", "114", "2", "A-class", ScheduleScope.CURRENT_WEEK,
+                java.time.LocalDate.of(2026, 8, 24), expectedSession = a)
+        }
+        assertTrue(result.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+        assertEquals(0, requests.get())
+        assertTrue(authority.isAuthorized(b))
+    }
+
+    @Test
+    fun scheduleCacheReadRechecksAuthorityAfterAccountSwitch() = runTest {
+        val authority = store()
+        var active = authority.establishSession(sessionA)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var pauseRead = false
+        val preferences = kotlinx.coroutines.flow.MutableStateFlow<androidx.datastore.preferences.core.Preferences>(
+            androidx.datastore.preferences.core.emptyPreferences(),
+        )
+        val cache = GradeCacheStore(object : DataStore<androidx.datastore.preferences.core.Preferences> {
+            override val data = kotlinx.coroutines.flow.flow {
+                val snapshot = preferences.value
+                if (pauseRead) { pauseRead = false; entered.complete(Unit); release.await() }
+                emit(snapshot)
+            }
+            override suspend fun updateData(transform: suspend (androidx.datastore.preferences.core.Preferences) -> androidx.datastore.preferences.core.Preferences) =
+                transform(preferences.value).also { preferences.value = it }
+        }) {}
+        val report = ScheduleReport("114_2", "A-class", ScheduleScope.SEMESTER, items = emptyList())
+        cache.saveScheduleReport(active.studentNo, "114_2", report) { authority.isAuthorized(active) }
+        val repository = NetworkScheduleRepository(SchoolGradeClient(), authority, cache, activeSessionProvider = { active })
+        pauseRead = true
+        val pending = async { repository.getLatestScheduleSnapshot() }
+        entered.await()
+        active = authority.establishSession(sessionB)
+        release.complete(Unit)
+        assertTrue(runCatching { pending.await() }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+        assertNull(repository.getLatestScheduleSnapshot())
+    }
+
+    @Test
+    fun obsoleteAccountCannotCommitScheduleOrWidgetCacheAfterNewLogin() = runTest {
+        val authority = store()
+        val a = authority.establishSession(sessionA)
+        val preferences = kotlinx.coroutines.flow.MutableStateFlow<androidx.datastore.preferences.core.Preferences>(
+            androidx.datastore.preferences.core.emptyPreferences(),
+        )
+        val cache = GradeCacheStore(object : DataStore<androidx.datastore.preferences.core.Preferences> {
+            override val data = preferences
+            override suspend fun updateData(transform: suspend (androidx.datastore.preferences.core.Preferences) -> androidx.datastore.preferences.core.Preferences) =
+                transform(preferences.value).also { preferences.value = it }
+        }) {}
+        val reportA = ScheduleReport("114_2", "A-class", ScheduleScope.SEMESTER, items = emptyList())
+        val reportB = reportA.copy(classNo = "B-class")
+        val b = authority.establishSession(sessionB)
+        cache.saveScheduleReport(b.studentNo, "114_2", reportB) { authority.isAuthorized(b) }
+        cache.saveScheduleReport(a.studentNo, "114_2", reportA) { authority.isAuthorized(a) }
+        cache.saveWidgetScheduleReport(a.studentNo, reportA) { authority.isAuthorized(a) }
+        assertNull(cache.loadLatestScheduleSnapshot(a.studentNo))
+        assertEquals(reportB, cache.loadLatestScheduleReport(b.studentNo))
+        assertEquals(reportB, cache.loadWidgetScheduleReport())
+    }
+
     @Test
     fun legacyDeletionFailureIsObservableAndRetried() {
         var attempts = 0

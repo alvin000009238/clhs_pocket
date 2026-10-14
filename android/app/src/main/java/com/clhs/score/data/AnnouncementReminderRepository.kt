@@ -12,6 +12,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.time.LocalDate
 
 val ANNOUNCEMENT_REMINDER_INTERVALS_MINUTES = listOf(30, 60, 180, 360, 720, 1_440)
 const val DEFAULT_ANNOUNCEMENT_REMINDER_INTERVAL_MINUTES = 60
@@ -115,15 +116,37 @@ private val Context.announcementReminderDataStore: DataStore<Preferences> by pre
     name = "announcement_reminder",
 )
 
-class AnnouncementReminderRepository internal constructor(private val dataStore: DataStore<Preferences>) {
-    constructor(context: Context) : this(context.applicationContext.announcementReminderDataStore)
+class AnnouncementReminderRepository internal constructor(
+    private val dataStore: DataStore<Preferences>,
+    private val initializeReading: (suspend () -> Unit)? = null,
+) {
+    constructor(context: Context, migrateReading: Boolean = true) : this(
+        context.applicationContext.announcementReminderDataStore,
+        if (migrateReading) ({ AnnouncementReadRepository.get(context).initialize(); Unit }) else null,
+    )
 
     val state: Flow<AnnouncementReminderState> = dataStore.data
         .map(::stateFromPreferences)
 
     suspend fun loadState(): AnnouncementReminderState = state.first()
 
+    internal suspend fun restorePortable(value: PortableAnnouncementPreferences) {
+        value.validate()
+        initializeReading?.invoke()
+        dataStore.edit { prefs ->
+            val current = stateFromPreferences(prefs)
+            val next = if (current.selectedUnitIds != value.selectedUnitIds || current.enabled != value.enabled)
+                withAnnouncementUnits(current, value.selectedUnitIds) else current
+            writeState(prefs, next.copy(enabled = value.enabled, intervalMinutes = value.intervalMinutes))
+        }
+    }
+
+    internal suspend fun restoreSnapshot(value: AnnouncementReminderState) {
+        dataStore.edit { writeState(it, value) }
+    }
+
     suspend fun setEnabled(enabled: Boolean) {
+        initializeReading?.invoke()
         dataStore.edit { prefs ->
             prefs[ENABLED] = enabled
             if (!enabled) clearReminderProgress(prefs)
@@ -134,6 +157,7 @@ class AnnouncementReminderRepository internal constructor(private val dataStore:
         announcements: List<SchoolAnnouncement>,
         checkedAtMillis: Long,
     ) {
+        initializeReading?.invoke()
         dataStore.edit { prefs ->
             val current = stateFromPreferences(prefs)
             if (current.enabled) return@edit
@@ -147,6 +171,7 @@ class AnnouncementReminderRepository internal constructor(private val dataStore:
     }
 
     suspend fun setIntervalMinutes(intervalMinutes: Int) {
+        initializeReading?.invoke()
         dataStore.edit { prefs -> writeState(prefs, withAnnouncementInterval(stateFromPreferences(prefs), intervalMinutes)) }
     }
 
@@ -155,6 +180,7 @@ class AnnouncementReminderRepository internal constructor(private val dataStore:
         announcements: List<SchoolAnnouncement>,
         checkedAtMillis: Long,
     ) {
+        initializeReading?.invoke()
         dataStore.edit { prefs ->
             val current = stateFromPreferences(prefs)
             val changed = withAnnouncementUnits(current, unitIds)
@@ -172,6 +198,7 @@ class AnnouncementReminderRepository internal constructor(private val dataStore:
         announcements: List<SchoolAnnouncement>,
         checkedAtMillis: Long,
     ): List<SchoolAnnouncement> {
+        initializeReading?.invoke()
         var newAnnouncements = emptyList<SchoolAnnouncement>()
         dataStore.edit { prefs ->
             val current = stateFromPreferences(prefs)
@@ -183,11 +210,22 @@ class AnnouncementReminderRepository internal constructor(private val dataStore:
         return newAnnouncements
     }
 
-    suspend fun markRead(id: String) {
-        if (id.isBlank()) return
+    internal suspend fun prepareReadMigration(today: LocalDate): Pair<LocalDate, Set<String>?> {
+        var cutoff = today
+        var legacyUnread: Set<String>? = null
         dataStore.edit { prefs ->
-            val current = stateFromPreferences(prefs)
-            if (current.enabled) writeState(prefs, markAnnouncementRead(current, id))
+            cutoff = prefs[READ_CUTOFF_DAY]?.let(LocalDate::ofEpochDay) ?: today.also {
+                prefs[READ_CUTOFF_DAY] = it.toEpochDay()
+            }
+            if (prefs[READ_MIGRATION_COMPLETE] != true) legacyUnread = prefs[UNREAD_IDS].orEmpty()
+        }
+        return cutoff to legacyUnread
+    }
+
+    internal suspend fun finishReadMigration() {
+        dataStore.edit { prefs ->
+            prefs[READ_MIGRATION_COMPLETE] = true
+            prefs.remove(UNREAD_IDS)
         }
     }
 
@@ -200,18 +238,9 @@ class AnnouncementReminderRepository internal constructor(private val dataStore:
         val KNOWN_IDS = stringSetPreferencesKey("known_ids_v2")
         val UNREAD_IDS = stringSetPreferencesKey("unread_ids_v2")
         val LAST_CHECKED_AT = longPreferencesKey("last_checked_at_v2")
+        val READ_CUTOFF_DAY = longPreferencesKey("read_cutoff_day")
+        val READ_MIGRATION_COMPLETE = booleanPreferencesKey("read_migration_complete")
     }
-}
-
-internal fun markAnnouncementRead(
-    state: AnnouncementReminderState,
-    id: String,
-): AnnouncementReminderState {
-    if (id.isBlank()) return state
-    return state.copy(
-        knownIds = boundedIds(listOf(id), state.knownIds, KNOWN_ID_LIMIT),
-        unreadIds = state.unreadIds - id,
-    )
 }
 
 internal fun withAnnouncementInterval(
@@ -259,14 +288,20 @@ private fun writeState(prefs: androidx.datastore.preferences.core.MutablePrefere
     prefs[AnnouncementReminderRepository.SELECTED_UNIT_IDS] = state.selectedUnitIds
     prefs[AnnouncementReminderRepository.BASELINE_INITIALIZED] = state.baselineInitialized
     prefs[AnnouncementReminderRepository.KNOWN_IDS] = state.knownIds
-    prefs[AnnouncementReminderRepository.UNREAD_IDS] = state.unreadIds
+    if (prefs[AnnouncementReminderRepository.READ_MIGRATION_COMPLETE] != true) {
+        prefs[AnnouncementReminderRepository.UNREAD_IDS] = state.unreadIds
+    }
     prefs[AnnouncementReminderRepository.LAST_CHECKED_AT] = state.lastCheckedAtMillis
 }
 
 private fun clearReminderProgress(prefs: androidx.datastore.preferences.core.MutablePreferences) {
     prefs[AnnouncementReminderRepository.BASELINE_INITIALIZED] = false
     prefs[AnnouncementReminderRepository.KNOWN_IDS] = emptySet()
-    prefs[AnnouncementReminderRepository.UNREAD_IDS] = emptySet()
+    if (prefs[AnnouncementReminderRepository.READ_MIGRATION_COMPLETE] == true) {
+        prefs.remove(AnnouncementReminderRepository.UNREAD_IDS)
+    } else {
+        prefs[AnnouncementReminderRepository.UNREAD_IDS] = emptySet()
+    }
     prefs[AnnouncementReminderRepository.LAST_CHECKED_AT] = 0L
 }
 

@@ -1,5 +1,7 @@
 package com.clhs.score.ui
 
+import com.clhs.score.ui.navigation.navigationContentPadding
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,7 +42,7 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Scaffold
+import com.clhs.score.ui.navigation.PocketScaffold as Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
@@ -360,6 +362,7 @@ fun SubjectTrendScreen(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         LazyColumn(
+                            contentPadding = navigationContentPadding(PaddingValues(0.dp)),
                             modifier = Modifier
                                 .weight(mainPaneWeight)
                                 .fillMaxHeight(),
@@ -375,6 +378,7 @@ fun SubjectTrendScreen(
                             item { Spacer(modifier = Modifier.height(8.dp)) }
                         }
                         LazyColumn(
+                            contentPadding = navigationContentPadding(PaddingValues(0.dp)),
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
@@ -398,6 +402,7 @@ fun SubjectTrendScreen(
                     }
                 } else {
                     LazyColumn(
+                        contentPadding = navigationContentPadding(PaddingValues(0.dp)),
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp),

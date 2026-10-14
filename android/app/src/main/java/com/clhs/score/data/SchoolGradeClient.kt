@@ -64,24 +64,28 @@ class SchoolGradeClient(
     internal val concurrentRequestLimit: Int
         get() = client.dispatcher.maxRequestsPerHost
 
-    private var currentStudentNo: String? = null
+    private var currentSession: AuthenticatedSession? = null
+    private var sessionGeneration = 0L
+    private var sessionClient: Pair<Long, OkHttpClient>? = null
     private var cachedScheduleToken: String? = null
     private val sessionLock = Any()
 
-    private fun prepareSession(session: AuthenticatedSession) {
+    private fun prepareSession(session: AuthenticatedSession): Long =
         synchronized(sessionLock) {
-            if (currentStudentNo != session.studentNo) {
+            if (currentSession != session) {
                 cookieJar.replace(session.cookies, domain = baseUrl.host)
-                currentStudentNo = session.studentNo
+                currentSession = session
+                sessionGeneration++
                 cachedScheduleToken = null
             }
+            sessionGeneration
         }
-    }
 
 
     suspend fun loadStructure(session: AuthenticatedSession): List<YearTermOption> {
-        prepareSession(session)
+        val generation = prepareSession(session)
         val yearTerms = postOptions(
+            generation = generation,
             path = "ICampus/CommonData/GetGradeCanQueryYearTermListByStudentNo",
             referer = gradesPageUrl().toString(),
             form = mapOf(
@@ -96,7 +100,7 @@ class SchoolGradeClient(
                     YearTermOption(
                         text = text,
                         value = value,
-                        exams = loadExams(session, value),
+                        exams = loadExams(session, value, generation),
                     )
                 }
             }.awaitAll()
@@ -108,10 +112,11 @@ class SchoolGradeClient(
         yearValue: String,
         examValue: String,
     ): GradeReport = withContext(Dispatchers.IO) {
-        prepareSession(session)
+        val generation = prepareSession(session)
         val (year, term) = parseYearTermOrNull(yearValue)
             ?: throw SchoolException("學期資料格式錯誤")
         val body = postForm(
+            generation = generation,
             path = "ICampus/TutorShGrade/GetScoreForStudentExamContent",
             referer = gradesPageUrl().toString(),
             form = mapOf(
@@ -123,17 +128,24 @@ class SchoolGradeClient(
                 "ExamNo" to examValue,
             ),
         )
-        parseGradeReport(body)
+        parseGradeReport(body).also { report ->
+            if (report.studentInfo.studentNo.isNotBlank() &&
+                report.studentInfo.studentNo != session.studentNo
+            ) {
+                throw SchoolException("學校系統回傳的成績帳號不一致")
+            }
+        }
     }
 
     suspend fun fetchStudentInfo(session: AuthenticatedSession): StudentInfo = withContext(Dispatchers.IO) {
-        prepareSession(session)
+        val generation = prepareSession(session)
         val body = executeBody(
             Request.Builder()
                 .url(homePageUrl())
                 .headers(defaultHeaders(referer = homePageUrl().toString()))
                 .get()
                 .build(),
+            generation = generation,
         )
         val rawUserInfo = USER_INFO_PATTERN.find(body)?.groupValues?.get(1)
             ?: throw SchoolException("學校系統未提供帳號資訊")
@@ -155,9 +167,9 @@ class SchoolGradeClient(
         )
     }
 
-    private suspend fun getSchedulePageToken(session: AuthenticatedSession): String {
-        prepareSession(session)
+    private suspend fun getSchedulePageToken(generation: Long): String {
         synchronized(sessionLock) {
+            if (sessionGeneration != generation) throw CancellationException("Session changed")
             cachedScheduleToken?.let { return it }
         }
         val pageResponse = executeBody(
@@ -166,10 +178,12 @@ class SchoolGradeClient(
                 .headers(defaultHeaders(referer = resolve("ICampus/Home/Index2").toString()))
                 .get()
                 .build(),
+            generation = generation,
         )
         val token = hiddenInput(pageResponse)
             ?: throw SchoolAuthenticationException()
         synchronized(sessionLock) {
+            if (sessionGeneration != generation) throw CancellationException("Session changed")
             cachedScheduleToken = token
         }
         return token
@@ -223,7 +237,8 @@ class SchoolGradeClient(
     }
 
     suspend fun getScheduleYears(session: AuthenticatedSession): List<ScheduleYearTermOption> = withContext(Dispatchers.IO) {
-        val token = getSchedulePageToken(session)
+        val generation = prepareSession(session)
+        val token = getSchedulePageToken(generation)
         val body = FormBody.Builder()
             .add("__RequestVerificationToken", token)
             .build()
@@ -234,6 +249,7 @@ class SchoolGradeClient(
                 .post(body)
                 .build(),
             expectJson = true,
+            generation = generation,
         )
         parseOptionList(json).map { (text, value) -> ScheduleYearTermOption(text, value) }
     }
@@ -243,7 +259,8 @@ class SchoolGradeClient(
         year: String,
         term: String
     ): List<ScheduleClassOption> = withContext(Dispatchers.IO) {
-        val token = getSchedulePageToken(session)
+        val generation = prepareSession(session)
+        val token = getSchedulePageToken(generation)
         val body = buildScheduleFormDefaults(token)
             .add("Year", year)
             .add("Term", term)
@@ -257,6 +274,7 @@ class SchoolGradeClient(
                 .post(body)
                 .build(),
             expectJson = true,
+            generation = generation,
         )
         parseOptionList(json).map { (text, value) -> ScheduleClassOption(text, value) }
     }
@@ -266,7 +284,11 @@ class SchoolGradeClient(
         year: String,
         term: String,
     ): List<ScheduleWeekOption> = withContext(Dispatchers.IO) {
-        val token = getSchedulePageToken(session)
+        loadScheduleWeeks(year, term, prepareSession(session))
+    }
+
+    private suspend fun loadScheduleWeeks(year: String, term: String, generation: Long): List<ScheduleWeekOption> {
+        val token = getSchedulePageToken(generation)
         val body = buildScheduleFormDefaults(token)
             .add("Year", year)
             .add("Term", term)
@@ -280,8 +302,9 @@ class SchoolGradeClient(
                 .post(body)
                 .build(),
             expectJson = true,
+            generation = generation,
         )
-        parseScheduleWeekOptions(json)
+        return parseScheduleWeekOptions(json)
     }
 
     suspend fun fetchSchedule(
@@ -291,24 +314,25 @@ class SchoolGradeClient(
         term: String,
         classNo: String,
         scope: ScheduleScope,
-        targetDate: LocalDate = LocalDate.now(),
+        targetDate: LocalDate = LocalDate.now(SCHOOL_COURSE_ZONE),
         onSemesterReport: suspend (ScheduleReport) -> Unit = {},
     ): ScheduleReport = withContext(Dispatchers.IO) {
+        val generation = prepareSession(session)
         if (scope == ScheduleScope.CURRENT_WEEK) {
             val weekReport = try {
                 val week = selectScheduleWeek(
-                    options = getScheduleWeeks(session, year, term),
+                    options = loadScheduleWeeks(year, term, generation),
                     targetDate = targetDate,
                 )
                     ?: throw SchoolException("目前沒有可用的當週課表")
-                fetchScheduleRequest(session, yearValue, year, term, classNo, week)
+                fetchScheduleRequest(session, yearValue, year, term, classNo, week, generation)
             } catch (error: Exception) {
                 if (error is CancellationException || error is SchoolAuthenticationException) throw error
-                return@withContext fetchScheduleRequest(session, yearValue, year, term, classNo, null)
+                return@withContext fetchScheduleRequest(session, yearValue, year, term, classNo, null, generation)
             }
 
             val changes = try {
-                val semesterReport = fetchScheduleRequest(session, yearValue, year, term, classNo, null)
+                val semesterReport = fetchScheduleRequest(session, yearValue, year, term, classNo, null, generation)
                 onSemesterReport(semesterReport)
                 compareScheduleItems(semesterReport.items, weekReport.items)
             } catch (error: Exception) {
@@ -317,7 +341,7 @@ class SchoolGradeClient(
             }
             return@withContext weekReport.copy(changes = changes)
         }
-        fetchScheduleRequest(session, yearValue, year, term, classNo, null)
+        fetchScheduleRequest(session, yearValue, year, term, classNo, null, generation)
     }
 
     private suspend fun fetchScheduleRequest(
@@ -327,8 +351,9 @@ class SchoolGradeClient(
         term: String,
         classNo: String,
         week: ScheduleWeekOption?,
+        generation: Long,
     ): ScheduleReport {
-        val token = getSchedulePageToken(session)
+        val token = getSchedulePageToken(generation)
         val form = buildScheduleFormDefaults(token, week?.value.orEmpty())
             .add("Year", year)
             .add("Term", term)
@@ -350,12 +375,14 @@ class SchoolGradeClient(
                 .post(form)
                 .build(),
             expectJson = true,
+            generation = generation,
         )
 
-        val items = parseScheduleItems(timetableJson)
+        val items = parseScheduleItemsOrNull(timetableJson)
+            ?: throw SchoolException("無法解析課表資料結構")
 
-        if (items.isEmpty()) {
-            throw SchoolException("無法解析課表資料結構或無課表")
+        if (week == null && items.isEmpty()) {
+            throw SchoolException("目前沒有可用的學期課表")
         }
 
         return ScheduleReport(
@@ -370,9 +397,10 @@ class SchoolGradeClient(
     }
 
     fun restoreSession(session: AuthenticatedSession) {
-        cookieJar.replace(session.cookies, domain = baseUrl.host)
         synchronized(sessionLock) {
-            currentStudentNo = session.studentNo
+            cookieJar.replace(session.cookies, domain = baseUrl.host)
+            currentSession = session
+            sessionGeneration++
             cachedScheduleToken = null
         }
     }
@@ -381,10 +409,12 @@ class SchoolGradeClient(
         studentNo: String,
         cookies: Map<String, String>,
     ): AuthenticatedSession = withContext(Dispatchers.IO) {
-        cookieJar.replace(cookies, domain = baseUrl.host)
-        synchronized(sessionLock) {
-            currentStudentNo = studentNo
+        val generation = synchronized(sessionLock) {
+            cookieJar.replace(cookies, domain = baseUrl.host)
+            currentSession = null
+            sessionGeneration++
             cachedScheduleToken = null
+            sessionGeneration
         }
         val gradesPage = executeBody(
             Request.Builder()
@@ -392,28 +422,34 @@ class SchoolGradeClient(
                 .headers(defaultHeaders(referer = resolve("Auth/Auth/CloudLogin").toString()))
                 .get()
                 .build(),
+            generation = generation,
         )
         val apiToken = hiddenInput(gradesPage)
             ?: throw SchoolAuthenticationException()
-        AuthenticatedSession(
-            studentNo = studentNo,
-            apiToken = apiToken,
-            cookies = cookieJar.snapshot(),
-        )
+        synchronized(sessionLock) {
+            if (sessionGeneration != generation) throw CancellationException("Session changed")
+            AuthenticatedSession(
+                studentNo = studentNo,
+                apiToken = apiToken,
+                cookies = cookieJar.snapshot(),
+            ).also { currentSession = it }
+        }
     }
 
     fun clearSession() {
-        cookieJar.clear()
         synchronized(sessionLock) {
-            currentStudentNo = null
+            cookieJar.clear()
+            currentSession = null
+            sessionGeneration++
             cachedScheduleToken = null
         }
     }
 
-    private suspend fun loadExams(session: AuthenticatedSession, yearValue: String): List<ExamOption> {
+    private suspend fun loadExams(session: AuthenticatedSession, yearValue: String, generation: Long): List<ExamOption> {
         val (year, term) = parseYearTermOrNull(yearValue)
             ?: throw SchoolException("學期資料格式錯誤")
         return postOptions(
+            generation = generation,
             path = "ICampus/CommonData/GetGradeCanQueryExamNoListByStudentNo",
             referer = gradesPageUrl().toString(),
             form = mapOf(
@@ -427,12 +463,14 @@ class SchoolGradeClient(
     }
 
     private suspend fun postOptions(
+        generation: Long,
         path: String,
         referer: String,
         form: Map<String, String>,
-    ): List<Pair<String, String>> = parseOptions(postForm(path, referer, form))
+    ): List<Pair<String, String>> = parseOptions(postForm(generation, path, referer, form))
 
     private suspend fun postForm(
+        generation: Long,
         path: String,
         referer: String,
         form: Map<String, String>,
@@ -452,12 +490,27 @@ class SchoolGradeClient(
                 .post(body)
                 .build(),
             expectJson = true,
+            generation = generation,
         )
     }
 
-    private suspend fun <T> execute(request: Request, block: suspend (Response) -> T): T {
+    private fun requireGeneration(generation: Long) {
+        synchronized(sessionLock) {
+            if (sessionGeneration != generation) throw CancellationException("Session changed")
+        }
+    }
+
+    private suspend fun <T> execute(request: Request, generation: Long, block: suspend (Response) -> T): T {
+        val requestClient = synchronized(sessionLock) {
+            requireGeneration(generation)
+            sessionClient?.takeIf { it.first == generation }?.second ?: client.newBuilder()
+                .cookieJar(cookieJar.forCurrentGeneration())
+                .build()
+                .also { sessionClient = generation to it }
+        }
         return try {
-            client.newCall(request).executeCancellable { response ->
+            requestClient.newCall(request).executeCancellable { response ->
+                requireGeneration(generation)
                 if (response.request.url.encodedPath.contains(LOGIN_PATH, ignoreCase = true)) {
                     throw SchoolAuthenticationException()
                 }
@@ -470,16 +523,20 @@ class SchoolGradeClient(
                         else -> SchoolException("學校系統回應異常 HTTP $code")
                     }
                 }
-                block(response)
+                block(response).also { requireGeneration(generation) }
             }
+        } catch (error: SchoolException) {
+            requireGeneration(generation)
+            throw error
         } catch (error: IOException) {
             currentCoroutineContext().ensureActive()
+            requireGeneration(generation)
             throw SchoolTransientException("無法連線學校系統", error)
         }
     }
 
-    private suspend fun executeBody(request: Request, expectJson: Boolean = false): String =
-        execute(request) { response ->
+    private suspend fun executeBody(request: Request, generation: Long, expectJson: Boolean = false): String =
+        execute(request, generation) { response ->
             val responseBody = response.body
             if (responseBody.contentLength() > MAX_SCHOOL_RESPONSE_BYTES ||
                 responseBody.source().request(MAX_SCHOOL_RESPONSE_BYTES + 1)

@@ -40,7 +40,7 @@ class OverviewCoordinatorTest {
         assertEquals(listOf("即將開始", "較晚活動", "已結束活動"), result.countdowns.map { it.title })
         assertEquals(listOf("1 分鐘", "10 天", "已結束"), result.countdowns.map { it.label })
         assertEquals(listOf("soon", "later", "ended").map { OverviewDestination.CalendarEvent(it) }, result.countdowns.map { it.destination })
-        assertTrue(result.countdowns.all { it.supportingText.isEmpty() })
+        assertEquals(listOf("8/24 08:30 開始", "9/3 開始", "8/23 結束"), result.countdowns.map { it.supportingText })
     }
 
     @Test
@@ -52,12 +52,28 @@ class OverviewCoordinatorTest {
         assertEquals("30 天", state.withPreferences(preferences).countdowns.singleOrNull()?.label)
         assertEquals("29 天", state.copy(now = monday.plusDays(1)).withPreferences(preferences).countdowns.singleOrNull()?.label)
         assertEquals("進行中", state.copy(now = event.start).withPreferences(preferences).countdowns.singleOrNull()?.label)
+        val lastDay = state.copy(now = event.endExclusive.minusHours(1)).withPreferences(preferences).countdowns.single()
+        assertEquals("進行中", lastDay.label)
+        assertEquals("9/24 結束", lastDay.supportingText)
         assertEquals("已結束", state.copy(now = event.endExclusive).withPreferences(preferences).countdowns.singleOrNull()?.label)
         assertTrue(state.withPreferences(preferences.copy(countdownEventIds = setOf("missing"))).countdowns.isEmpty())
         assertTrue(state.withPreferences(preferences.copy(countdownEventIds = emptySet())).countdowns.isEmpty())
         val timed = event.copy(start = monday.plusHours(2).plusMinutes(15), isAllDay = false)
         assertEquals("2 小時",
             state.copy(calendarEvents = listOf(timed)).withPreferences(preferences).countdowns.singleOrNull()?.label)
+    }
+
+    @Test
+    fun ongoingTimedCountdownTargetsEndAndKeepsCrossYearTime() {
+        val now = LocalDateTime.parse("2026-12-31T23:30")
+        val event = SchoolCalendarEvent("timed", "跨年活動", now.minusHours(1), now.plusHours(2), false)
+        val state = OverviewState(now = now, calendarEvents = listOf(event))
+        val preferences = com.clhs.score.data.OverviewPreferences(countdownEventIds = setOf(event.id))
+        val countdown = state.withPreferences(preferences).countdowns.single()
+        assertEquals("2 小時", countdown.label)
+        assertEquals("2027/1/1 01:30 結束", countdown.supportingText)
+        assertEquals("1 分鐘", state.copy(now = event.endExclusive.minusSeconds(1)).withPreferences(preferences).countdowns.single().label)
+        assertEquals("已結束", state.copy(now = event.endExclusive).withPreferences(preferences).countdowns.single().label)
     }
 
     @Test
@@ -136,10 +152,25 @@ class OverviewCoordinatorTest {
         val hero = scheduleOverviewHero(weekReport(), monday.withHour(17))!!
 
         assertEquals("明天", hero.headline)
-        assertEquals("第一節", hero.courseLabel)
+        assertEquals("第 1 節", hero.courseLabel)
         assertEquals("英文", hero.courseName)
-        assertEquals("1 節課", hero.trailingText)
         assertEquals(25, hero.date.dayOfMonth)
+        assertEquals(LocalDateTime.parse("2026-08-25T08:10"), hero.startsAt)
+        assertEquals(LocalDateTime.parse("2026-08-25T09:00"), hero.endsAt)
+    }
+
+    @Test
+    fun nextSchoolDayUsesActualFirstPeriodAndMissingPeriodTimeStaysAbsent() {
+        val report = weekReport().copy(items = listOf(ScheduleItem(2, 3, "數學")))
+        val hero = scheduleOverviewHero(report, monday)!!
+        assertEquals("第 3 節", hero.courseLabel)
+        assertEquals(LocalDateTime.parse("2026-08-25T10:10"), hero.startsAt)
+        assertEquals(LocalDateTime.parse("2026-08-25T11:00"), hero.endsAt)
+        assertTrue(scheduleOverviewItems(report, monday).single().supportingText.startsWith("第 3 節"))
+        val unknown = scheduleOverviewHero(report.copy(items = listOf(ScheduleItem(2, 99, "活動"))), monday)!!
+        assertNull(unknown.startsAt)
+        assertNull(unknown.endsAt)
+        assertNull(scheduleOverviewHero(report.copy(items = emptyList()), monday))
     }
 
     @Test
@@ -188,6 +219,7 @@ class OverviewCoordinatorTest {
 
         assertEquals(listOf("置頂公告"), items.map(OverviewItem::label))
         assertTrue(items.single().title.contains("pinned"))
+        assertEquals(monday.toLocalDate(), items.single().displayDate)
     }
 
     @Test
@@ -211,7 +243,8 @@ class OverviewCoordinatorTest {
 
         assertEquals("進行中", item.label)
         assertEquals(monday.toLocalDate(), item.eventTime?.toLocalDate())
-        assertTrue(item.supportingText.contains("至 8/24"))
+        assertEquals(monday.toLocalDate(), item.displayDate)
+        assertEquals("進行中", item.supportingText)
     }
 
     @Test
@@ -251,10 +284,10 @@ class OverviewCoordinatorTest {
             weekEndDate = null,
         )
 
-        assertFalse(scheduleNeedsRefresh(currentWeek, null, monday))
-        assertFalse(scheduleNeedsRefresh(semester, nowMillis, monday))
-        assertTrue(scheduleNeedsRefresh(semester, nowMillis - 7 * 60 * 60 * 1_000L, monday))
-        assertTrue(scheduleNeedsRefresh(currentWeek, nowMillis, monday.plusDays(7)))
+        assertFalse(scheduleNeedsRefresh(currentWeek, null, monday.atZone(SCHOOL_ZONE).toInstant()))
+        assertFalse(scheduleNeedsRefresh(semester, nowMillis, monday.atZone(SCHOOL_ZONE).toInstant()))
+        assertTrue(scheduleNeedsRefresh(semester, nowMillis - 7 * 60 * 60 * 1_000L, monday.atZone(SCHOOL_ZONE).toInstant()))
+        assertTrue(scheduleNeedsRefresh(currentWeek, nowMillis, monday.plusDays(7).atZone(SCHOOL_ZONE).toInstant()))
     }
 
     @Test
@@ -290,7 +323,7 @@ class OverviewCoordinatorTest {
             items = listOf(ScheduleItem(dayOfWeek = 1, period = 1, subjectName = "國文")),
         )
 
-        assertFalse(scheduleNeedsRefresh(report, null, friday))
+        assertFalse(scheduleNeedsRefresh(report, null, friday.atZone(SCHOOL_ZONE).toInstant()))
         assertEquals("國文", scheduleOverviewHero(report, friday)?.courseName)
     }
 
@@ -320,6 +353,19 @@ class OverviewCoordinatorTest {
         assertTrue(scheduleOverviewItems(report, friday.plusWeeks(2)).none { it.kind == OverviewItemKind.ScheduleChange })
         val nextDay = scheduleOverviewItems(weekReport(withChange = true), monday.withHour(17))
         assertTrue(nextDay.none { it.kind == OverviewItemKind.ScheduleChange })
+    }
+
+    @Test fun cancelledOnlyDayKeepsRemovalAlertsEvenWhenHeroIsAbsentOrPointsToTomorrow() {
+        val report = weekReport().copy(items = emptyList(), changes = listOf(
+            ScheduleChange(ScheduleChangeType.REMOVED, 1, 1, semesterItem = ScheduleItem(1, 1, "國文")),
+        ))
+        val beforeClass = monday.withHour(7)
+        assertEquals(listOf("第 1 節停課"), scheduleOverviewItems(report, beforeClass).map { it.title })
+        val withTomorrow = report.copy(items = listOf(ScheduleItem(2, 1, "英文")))
+        assertEquals(listOf("第 1 節停課"), scheduleOverviewItems(withTomorrow, beforeClass)
+            .filter { it.kind == OverviewItemKind.ScheduleChange }.map { it.title })
+        assertTrue(scheduleOverviewItems(report, beforeClass.plusWeeks(1)).isEmpty())
+        assertTrue(scheduleOverviewItems(report, beforeClass.withHour(17)).isEmpty())
     }
     private fun weekReport(withChange: Boolean = false) = ScheduleReport(
         yearTermValue = "114_2",

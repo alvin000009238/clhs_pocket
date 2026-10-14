@@ -29,7 +29,7 @@
 
 - 登入頁：內嵌學校系統 WebView 登入，具備浮動控制按鈕並支援密碼自動填入
 - 成績查詢：年學期與考試選擇，登入後直連學校 API 取得成績
-- 總覽：摘要卡、重點解讀、本地推估洞察、快速入口、強弱科摘要
+- 首頁：集中顯示現在或下一節課、天氣、近期行程與重要公告
 - 科目：精簡科目卡，點擊後展開五標落點、分佈摘要與上一考比較
 - 進階：雷達分析、成績比較、五標分析、分數分布
 - 歷次趨勢：同學期目前考試往前抓兩考，背景載入，不阻塞本次成績顯示
@@ -76,15 +76,15 @@ Compose UI
 
 ```powershell
 cd android
-.\gradlew.bat test
-.\gradlew.bat compileDebugAndroidTestKotlin
-.\gradlew.bat assembleDebug
+.\gradlew.bat :app:testDemoDebugUnitTest
+.\gradlew.bat :app:compileDemoDebugAndroidTestKotlin
+.\gradlew.bat :app:assembleDemoDebug
 ```
 
 debug APK 產物：
 
 ```text
-android/app/build/outputs/apk/debug/app-debug.apk
+android/app/build/outputs/apk/demo/debug/app-demo-debug.apk
 ```
 
 有 emulator 或實機連線時可再跑：

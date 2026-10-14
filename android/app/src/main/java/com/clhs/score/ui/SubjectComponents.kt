@@ -1,13 +1,6 @@
 package com.clhs.score.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -52,6 +45,7 @@ import com.clhs.score.data.deltaText
 import com.clhs.score.data.scoreDistributions
 import com.clhs.score.data.shortenSubjectName
 import com.clhs.score.ui.theme.ScoreTheme
+import com.clhs.score.ui.theme.PocketMotion
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.math.roundToInt
@@ -152,33 +146,8 @@ internal fun SubjectCard(
 
             AnimatedVisibility(
                 visible = expanded,
-                enter = fadeIn(
-                    animationSpec = tween(
-                        durationMillis = 140,
-                        delayMillis = 40,
-                        easing = LinearOutSlowInEasing,
-                    ),
-                ) + expandVertically(
-                    expandFrom = Alignment.Top,
-                    clip = false,
-                    animationSpec = tween(
-                        durationMillis = 300,
-                        easing = FastOutSlowInEasing,
-                    ),
-                ),
-                exit = fadeOut(
-                    animationSpec = tween(
-                        durationMillis = 90,
-                        easing = FastOutSlowInEasing,
-                    ),
-                ) + shrinkVertically(
-                    shrinkTowards = Alignment.Top,
-                    clip = false,
-                    animationSpec = tween(
-                        durationMillis = 220,
-                        easing = FastOutSlowInEasing,
-                    ),
-                ),
+                enter = PocketMotion.subjectDisclosureEnter(),
+                exit = PocketMotion.subjectDisclosureExit(),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     analysis.standard?.let { standard ->

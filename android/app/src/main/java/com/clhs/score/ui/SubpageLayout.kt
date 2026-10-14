@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,7 +19,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import com.clhs.score.ui.navigation.PocketScaffold as Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -57,7 +58,7 @@ fun SubpageLayout(
         ),
         snackbarHost = snackbarHost,
         containerColor = containerColor,
-        contentWindowInsets = WindowInsets(0.dp),
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             if (title != null) {
                 val navigationIcon: @Composable () -> Unit = {

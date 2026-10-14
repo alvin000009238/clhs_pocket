@@ -9,6 +9,8 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -47,6 +49,25 @@ class UpdateApkDownloaderTest {
         assertTrue(result.exceptionOrNull() is ChecksumMismatchException)
         assertArrayEquals("old".toByteArray(), installedApk.readBytes())
         assertTrue(updates.listFiles().orEmpty().contentEquals(arrayOf(installedApk)))
+    }
+
+    @Test
+    fun verifiedChunkedDownloadReplacesOldApkAndRemovesTemporaryFile() = runBlocking {
+        val updates = java.io.File(cacheDirectory, "updates").apply { mkdirs() }
+        val previous = java.io.File(updates, "clhs-score-update.apk").apply { writeText("old") }
+        server.enqueue(MockResponse().setChunkedBody("hello", 2))
+        val progress = mutableListOf<Float?>()
+
+        val result = UpdateApkDownloader(cacheDirectory).download(
+            ApkAsset(server.url("/app.apk").toString(),
+                "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"),
+        ) { progress += it }
+
+        assertEquals(previous, result)
+        assertArrayEquals("hello".toByteArray(), result.readBytes())
+        assertTrue(updates.listFiles().orEmpty().contentEquals(arrayOf(result)))
+        assertNull("Unknown content length starts with indeterminate progress", progress.first())
+        assertEquals(1f, progress.last())
     }
 
     @Test

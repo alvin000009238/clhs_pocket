@@ -1,12 +1,12 @@
 # Release 流程
 
 1. 功能整合到 `dev`，push 會執行 CI。Android app 改動需更新 `CHANGELOG.md`，由維護者審閱；workflow／文件改動不增加 Android 版本。
-2. 開啟 `dev → main` PR，等待 `Test, lint, and assemble Debug APK` 通過。本機對應命令為 `android/` 下的 `.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --warning-mode all`。
+2. 開啟 `dev → main` PR，等待 `Test, lint, and assemble Debug APK` 通過。本機對應命令為 `android/` 下的 `.\gradlew.bat :app:testDemoDebugUnitTest :app:testProductionDebugUnitTest --tests 'com.clhs.score.FlavorConfigurationTest' :app:lintDemoDebug :app:assembleDemoDebug :app:assembleProductionDebug --warning-mode all`。
 3. 分支保持最新，以 **Create a merge commit** 合併。main push 也執行 CI；確認預定 release commit 的檢查通過後再標記。
 4. 在 main 已包含的 commit 建立 `vMAJOR.MINOR.PATCH` tag（例如 `v2.0.1`），經維護者確認後推送。普通 main／dev push 不會發布。
 5. Workflow 完整 checkout、fetch `origin/main`，先驗證 tag 格式、tag 與 HEAD 一致、commit 為 main 的 ancestor，以及非空的對應 changelog 區塊，再產生 release notes。未合併 dev commit 會失敗。
-6. 比對所有已發布 APK 的 SHA-256 與實際 versionCode，通過後才解碼既有 signing secrets、建置 signed arm64-v8a APK。
-7. 發布前驗證 `com.clhs.score`、tag 對應 versionName、指定 versionCode、APK 簽章、正式憑證 SHA-256 與精確的 `arm64-v8a` ABI 集合；任一失敗均停止。通過後建立 GitHub Release。
+6. 比對所有已發布 APK 的 SHA-256 與實際 versionCode，通過後才解碼既有 signing secrets。CI 使用 Gradle 管理的 API 35 AOSP x86_64 模擬器，以 `demo` 假資料執行啟動及主要操作腳本，產生 Baseline／Startup Profile，複製到 `android/app/src/productionRelease/generated/baselineProfiles/` 後建置 signed arm64-v8a APK。產物不會自行提交；本機一般 `assembleProductionRelease` 不會自動啟動模擬器。
+7. 發布前確認 APK 含 `assets/dexopt/baseline.prof`，並驗證 `com.clhs.score`、tag 對應 versionName、指定 versionCode、APK 簽章、正式憑證 SHA-256 與精確的 `arm64-v8a` ABI 集合；任一失敗均停止。通過後建立 GitHub Release。
 8. 確認 Release 有 APK 與 release notes；App 內更新還要求 Release API 提供 APK 的 SHA-256 digest。
 
 ## 版本與相容性
@@ -15,7 +15,7 @@
 
 允許 tag 指向較舊但已在 main 的 commit，以支援選定穩定點；versionName 必須高於所有已發布穩定版本，versionCode 也必須遞增。該 commit 本身必須包含新版 workflow、guard 與 changelog；GitHub 使用 tag 上的 workflow，這份修正無法追溯保護舊 workflow。
 
-已發布版本不可覆寫；重跑已成功發布的 tag 會失敗。所有 release run 共用 concurrency group，不取消正在發布的 run；GitHub 可能替換尚未開始的 pending run，請逐版發布，不假設排隊順序。workflow 遷移若造成 run number 重設，guard 會阻擋；維護者須先審核延續序列的方案，不能移除檢查。
+已發布版本不可覆寫；重跑已成功發布的 tag 會失敗。所有 release run 共用 concurrency group，使用 `queue: max` 保留所有尚未開始的 tag run，且不取消正在發布的 run；實際發布次序仍由 GitHub 排程，versionCode history guard 會阻擋逆序發布。workflow 遷移若造成 run number 重設，guard 會阻擋；維護者須先審核延續序列的方案，不能移除檢查。
 
 正式憑證指紋固定於 `.github/scripts/release_guard.py`，來源是公開 v2.0.0 APK。這不是私鑰；更換簽章前須另行規劃 signing lineage 與實際升級驗證。手動安裝 versionCode 999 的本機版不屬於公開 release 序列，不能保證由較小碼的正式版直接升級。
 

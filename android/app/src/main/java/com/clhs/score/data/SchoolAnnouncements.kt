@@ -46,6 +46,13 @@ data class AnnouncementUnit(
     val name: String,
 )
 
+data class AnnouncementCategory(val id: String, val name: String)
+
+data class AnnouncementFilterOptions(
+    val units: List<AnnouncementUnit> = defaultAnnouncementUnits(),
+    val categories: List<AnnouncementCategory> = listOf(AnnouncementCategory(ALL_UNITS_ID, "全部")),
+)
+
 data class SchoolAnnouncementPage(
     val announcements: List<SchoolAnnouncement>,
     val pageIndex: Int,
@@ -86,6 +93,7 @@ class NetworkSchoolAnnouncementsRepository(
         .build(),
     private val baseUrl: HttpUrl = SCHOOL_BASE_URL,
     private val nowProvider: () -> Instant = Instant::now,
+    private val readRepository: AnnouncementReadRepository? = null,
 ) {
     private val cache = LatestCacheFile(cacheDirectory, CACHE_FILE_NAME)
     private val cacheFile = cache.file
@@ -93,18 +101,24 @@ class NetworkSchoolAnnouncementsRepository(
     private val unitsCacheFile = unitsCache.file
 
     suspend fun loadCached(): SchoolAnnouncementPage? = withContext(Dispatchers.IO) {
-        readCache()
+        readCache()?.also { readRepository?.discoverForDisplay(it.announcements) }
     }
 
-    suspend fun loadPage(pageIndex: Int, keyword: String = "", unitId: String = ALL_UNITS_ID): SchoolAnnouncementPage {
+    suspend fun loadPage(
+        pageIndex: Int,
+        keyword: String = "",
+        unitId: String = ALL_UNITS_ID,
+        categoryId: String = ALL_UNITS_ID,
+    ): SchoolAnnouncementPage {
         require(pageIndex >= 0) { "pageIndex must not be negative" }
         val normalizedKeyword = keyword.trim()
         require(normalizedKeyword.length <= SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH) {
             "keyword is too long"
         }
         require(ANNOUNCEMENT_UNIT_ID_REGEX.matches(unitId)) { "Invalid announcement unit" }
+        require(ANNOUNCEMENT_UNIT_ID_REGEX.matches(categoryId)) { "Invalid announcement category" }
         val cacheGeneration = if (
-            pageIndex == 0 && normalizedKeyword.isEmpty() && unitId == ALL_UNITS_ID
+            pageIndex == 0 && normalizedKeyword.isEmpty() && unitId == ALL_UNITS_ID && categoryId == ALL_UNITS_ID
         ) {
             cache.beginWrite()
         } else {
@@ -115,7 +129,10 @@ class NetworkSchoolAnnouncementsRepository(
             val requestBody = FormBody.Builder()
                 .add("auth_type", "user")
                 .add("field", "time")
-                .add("flock", if (unitId == ALL_UNITS_ID) "" else "unit_$unitId")
+                .add("flock", listOfNotNull(
+                    unitId.takeUnless { it == ALL_UNITS_ID }?.let { "unit_$it" },
+                    categoryId.takeUnless { it == ALL_UNITS_ID }?.let { "attr_$it" },
+                ).joinToString("-"))
                 .add("keyword", normalizedKeyword)
                 .add("maxRows", PAGE_SIZE.toString())
                 .add("order", "DESC")
@@ -138,16 +155,23 @@ class NetworkSchoolAnnouncementsRepository(
                 if (cacheGeneration != null) {
                     cache.commit(bytes, fetchedAt.toEpochMilli(), cacheGeneration, requestContext)
                 }
+                readRepository?.discoverForDisplay(page.announcements)
                 page
             }
         }
     }
 
     suspend fun loadCachedUnits(): List<AnnouncementUnit> = withContext(Dispatchers.IO) {
-        readUnitsCache()
+        readFilterCache().units
     }
 
-    suspend fun loadUnits(): List<AnnouncementUnit> {
+    suspend fun loadUnits(): List<AnnouncementUnit> = loadFilterOptions().units
+
+    suspend fun loadCachedFilterOptions(): AnnouncementFilterOptions = withContext(Dispatchers.IO) {
+        readFilterCache()
+    }
+
+    suspend fun loadFilterOptions(): AnnouncementFilterOptions {
         val generation = unitsCache.beginWrite()
         val requestContext = currentCoroutineContext()
         return withContext(Dispatchers.IO) {
@@ -156,10 +180,10 @@ class NetworkSchoolAnnouncementsRepository(
                 currentCoroutineContext().ensureActive()
                 val bytes = readResponseLimited(response, MAX_HOME_BYTES, "Announcement units")
                 currentCoroutineContext().ensureActive()
-                val units = SchoolAnnouncementParser.parseUnits(bytes.toString(Charsets.UTF_8))
+                val options = SchoolAnnouncementParser.parseFilterOptions(bytes.toString(Charsets.UTF_8))
                 currentCoroutineContext().ensureActive()
                 unitsCache.commit(bytes, nowProvider().toEpochMilli(), generation, requestContext)
-                units
+                options
             }
         }
     }
@@ -211,13 +235,13 @@ class NetworkSchoolAnnouncementsRepository(
         }.getOrNull()
     }
 
-    private fun readUnitsCache(): List<AnnouncementUnit> {
+    private fun readFilterCache(): AnnouncementFilterOptions {
         if (!unitsCacheFile.isFile || unitsCacheFile.length() !in 1..MAX_HOME_BYTES) {
-            return defaultAnnouncementUnits()
+            return AnnouncementFilterOptions()
         }
         return runCatching {
-            SchoolAnnouncementParser.parseUnits(unitsCacheFile.readText(Charsets.UTF_8))
-        }.getOrElse { defaultAnnouncementUnits() }
+            SchoolAnnouncementParser.parseFilterOptions(unitsCacheFile.readText(Charsets.UTF_8))
+        }.getOrElse { AnnouncementFilterOptions() }
     }
 
     private fun readLimited(source: okio.BufferedSource, maxBytes: Long, label: String): ByteArray {
@@ -302,6 +326,20 @@ internal object SchoolAnnouncementParser {
         return (defaultAnnouncementUnits() + units)
             .distinctBy(AnnouncementUnit::id)
             .distinctBy(AnnouncementUnit::name)
+    }
+
+    fun parseFilterOptions(source: String): AnnouncementFilterOptions {
+        val categories = Jsoup.parse(source).select("select.select-attr-x option[value]")
+            .mapNotNull { option ->
+                val id = option.attr("value").trim()
+                val name = option.text().trim()
+                if (!ANNOUNCEMENT_UNIT_ID_REGEX.matches(id) || name.isBlank()) null
+                else AnnouncementCategory(id, name)
+            }
+        return AnnouncementFilterOptions(
+            units = parseUnits(source),
+            categories = (AnnouncementFilterOptions().categories + categories).distinctBy(AnnouncementCategory::id),
+        )
     }
 
     fun parseDetail(source: String, requestedId: String, categoryHint: String = ""): SchoolAnnouncementDetail {

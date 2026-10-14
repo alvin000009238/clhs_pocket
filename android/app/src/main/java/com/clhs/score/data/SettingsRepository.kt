@@ -25,6 +25,11 @@ class SettingsRepository internal constructor(
 
     val settings: Flow<AppSettings> = dataStore.data.map { prefs ->
         AppSettings(
+            backgroundPause = BackgroundPause(
+                enabled = prefs[KEY_PAUSE_ENABLED] ?: false,
+                startMinute = prefs[KEY_PAUSE_START] ?: 23 * 60,
+                endMinute = prefs[KEY_PAUSE_END] ?: 7 * 60,
+            ),
             overview = OverviewPreferences(
                 hiddenSections = prefs[KEY_OVERVIEW_HIDDEN].orEmpty(),
                 calendarLimit = (prefs[KEY_OVERVIEW_CALENDAR_LIMIT] ?: 3).coerceIn(1, 20),
@@ -39,19 +44,49 @@ class SettingsRepository internal constructor(
             dynamicColor = prefs[KEY_DYNAMIC_COLOR] ?: false,
             amoledBlack = prefs[KEY_AMOLED_BLACK] ?: false,
             notificationsEnabled = prefs[KEY_NOTIFICATIONS_ENABLED] ?: false,
+            preferExactCourseAlarms = prefs[KEY_PREFER_EXACT_COURSE_ALARMS] ?: false,
             developerEnabled = prefs[KEY_DEVELOPER_ENABLED] ?: false,
-            demoMode = prefs[KEY_DEMO_MODE] ?: false,
             biometricEnabled = prefs[KEY_BIOMETRIC_ENABLED] ?: false,
             weatherSource = prefs[KEY_WEATHER_SOURCE]?.let { name ->
                 runCatching { WeatherSource.valueOf(name) }.getOrNull()
             } ?: WeatherSource.OPEN_METEO,
             weatherCredentialRevision = prefs[KEY_WEATHER_CREDENTIAL_REVISION] ?: 0L,
+            startOnSchedule = prefs[KEY_START_ON_SCHEDULE] ?: false,
+            profileAvatarShapeIndex = (prefs[KEY_PROFILE_AVATAR_SHAPE] ?: 0).coerceIn(0, 3),
             hasCompletedOnboarding = prefs[KEY_HAS_COMPLETED_ONBOARDING] ?: false,
+            hasSeenYouBikeWidget = prefs[KEY_HAS_SEEN_YOUBIKE_WIDGET] ?: false,
         )
     }
 
     val weatherConfiguration: Flow<WeatherConfiguration> = settings.map {
         WeatherConfiguration(it.weatherSource, it.weatherCredentialRevision)
+    }
+
+    /** Read the legacy marker without clearing preferences during the layout import. */
+    internal suspend fun loadOverviewMigration(): Pair<AppSettings, Boolean> {
+        val prefs = dataStore.data.first()
+        val legacyKeys = setOf(KEY_OVERVIEW_HIDDEN, KEY_OVERVIEW_ORDER, KEY_OVERVIEW_CALENDAR_LIMIT,
+            KEY_OVERVIEW_ANNOUNCEMENT_LIMIT, KEY_OVERVIEW_COUNTDOWNS, KEY_OVERVIEW_COUNTDOWN)
+        return settings.first() to prefs.asMap().keys.any { it in legacyKeys }
+    }
+
+    /** Whitelisted portable values only; credentials, onboarding and lock state stay local. */
+    internal suspend fun restorePortable(value: PortableSettings) {
+        value.validate()
+        dataStore.edit { prefs ->
+            prefs[KEY_THEME_MODE] = value.themeMode.name
+            prefs[KEY_DYNAMIC_COLOR] = value.dynamicColor
+            prefs[KEY_AMOLED_BLACK] = value.amoledBlack
+            prefs[KEY_START_ON_SCHEDULE] = value.startOnSchedule
+            prefs[KEY_PROFILE_AVATAR_SHAPE] = value.profileAvatarShapeIndex
+            prefs[KEY_NOTIFICATIONS_ENABLED] = value.notificationsEnabled
+            prefs[KEY_PREFER_EXACT_COURSE_ALARMS] = value.preferExactCourseAlarms
+            prefs[KEY_DEVELOPER_ENABLED] = value.developerEnabled
+            prefs[KEY_WEATHER_SOURCE] = value.weatherSource.name
+            prefs[KEY_PAUSE_ENABLED] = value.backgroundPauseEnabled
+            prefs[KEY_PAUSE_START] = value.backgroundPauseStartMinute
+            prefs[KEY_PAUSE_END] = value.backgroundPauseEndMinute
+        }
     }
 
     suspend fun setOverviewPreferences(value: OverviewPreferences) {
@@ -62,6 +97,14 @@ class SettingsRepository internal constructor(
             prefs[KEY_OVERVIEW_COUNTDOWNS] = value.countdownEventIds
             prefs[KEY_OVERVIEW_ORDER] = value.orderedSections().joinToString(",")
             prefs.remove(KEY_OVERVIEW_COUNTDOWN)
+        }
+    }
+
+    suspend fun setBackgroundPause(value: BackgroundPause) {
+        dataStore.edit {
+            it[KEY_PAUSE_ENABLED] = value.enabled
+            it[KEY_PAUSE_START] = value.startMinute
+            it[KEY_PAUSE_END] = value.endMinute
         }
     }
 
@@ -81,12 +124,12 @@ class SettingsRepository internal constructor(
         dataStore.edit { it[KEY_NOTIFICATIONS_ENABLED] = enabled }
     }
 
-    suspend fun setDeveloperEnabled(enabled: Boolean) {
-        dataStore.edit { it[KEY_DEVELOPER_ENABLED] = enabled }
+    suspend fun setPreferExactCourseAlarms(enabled: Boolean) {
+        dataStore.edit { it[KEY_PREFER_EXACT_COURSE_ALARMS] = enabled }
     }
 
-    suspend fun setDemoMode(enabled: Boolean) {
-        dataStore.edit { it[KEY_DEMO_MODE] = enabled }
+    suspend fun setDeveloperEnabled(enabled: Boolean) {
+        dataStore.edit { it[KEY_DEVELOPER_ENABLED] = enabled }
     }
 
     suspend fun setBiometricEnabled(enabled: Boolean) {
@@ -95,6 +138,21 @@ class SettingsRepository internal constructor(
 
     suspend fun setHasCompletedOnboarding(completed: Boolean) {
         dataStore.edit { it[KEY_HAS_COMPLETED_ONBOARDING] = completed }
+    }
+
+    suspend fun setStartOnSchedule(enabled: Boolean) {
+        dataStore.edit { it[KEY_START_ON_SCHEDULE] = enabled }
+    }
+
+    suspend fun markYouBikeWidgetSeen() {
+        dataStore.edit { it[KEY_HAS_SEEN_YOUBIKE_WIDGET] = true }
+    }
+
+    suspend fun cycleProfileAvatarShape() {
+        dataStore.edit { prefs ->
+            prefs[KEY_PROFILE_AVATAR_SHAPE] =
+                ((prefs[KEY_PROFILE_AVATAR_SHAPE] ?: 0).coerceIn(0, 3) + 1) % 4
+        }
     }
 
     suspend fun loadForStartup(): AppSettings {
@@ -175,6 +233,9 @@ class SettingsRepository internal constructor(
     }
 
     private companion object {
+        private val KEY_PAUSE_ENABLED = booleanPreferencesKey("background_pause_enabled")
+        private val KEY_PAUSE_START = intPreferencesKey("background_pause_start")
+        private val KEY_PAUSE_END = intPreferencesKey("background_pause_end")
         val KEY_OVERVIEW_HIDDEN = stringSetPreferencesKey("overview_hidden_sections")
         val KEY_OVERVIEW_ORDER = stringPreferencesKey("overview_section_order")
         val KEY_OVERVIEW_CALENDAR_LIMIT = intPreferencesKey("overview_calendar_limit")
@@ -185,10 +246,13 @@ class SettingsRepository internal constructor(
         val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val KEY_AMOLED_BLACK = booleanPreferencesKey("amoled_black")
         val KEY_NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
+        val KEY_PREFER_EXACT_COURSE_ALARMS = booleanPreferencesKey("prefer_exact_course_alarms")
         val KEY_DEVELOPER_ENABLED = booleanPreferencesKey("developer_enabled")
-        val KEY_DEMO_MODE = booleanPreferencesKey("demo_mode")
         val KEY_BIOMETRIC_ENABLED = booleanPreferencesKey("biometric_enabled")
         val KEY_HAS_COMPLETED_ONBOARDING = booleanPreferencesKey("has_completed_onboarding_v2")
+        val KEY_HAS_SEEN_YOUBIKE_WIDGET = booleanPreferencesKey("has_seen_youbike_widget")
+        val KEY_START_ON_SCHEDULE = booleanPreferencesKey("start_on_schedule")
+        val KEY_PROFILE_AVATAR_SHAPE = intPreferencesKey("profile_avatar_shape")
         val KEY_WEATHER_SOURCE = stringPreferencesKey("weather_source")
         val KEY_WEATHER_CREDENTIAL_REVISION = longPreferencesKey("weather_credential_revision")
         val KEY_LAST_UPDATE_CHECK_TIME = longPreferencesKey("lastUpdateCheckTime")

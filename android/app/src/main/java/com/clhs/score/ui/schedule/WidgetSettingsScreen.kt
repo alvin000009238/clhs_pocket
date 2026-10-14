@@ -1,5 +1,7 @@
 package com.clhs.score.ui.schedule
 
+import com.clhs.score.ui.navigation.navigationContentPadding
+
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -32,7 +34,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import com.clhs.score.ui.navigation.PocketScaffold as Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -64,6 +66,7 @@ import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleScope
 import com.clhs.score.data.displayItems
+import com.clhs.score.ui.hapticToggle
 import com.clhs.score.ui.OutlinedRoundedSymbol
 import com.clhs.score.widget.ScheduleWidgetPreferences
 import com.clhs.score.widget.classifyWidgetScheduleItems
@@ -176,6 +179,7 @@ internal fun WidgetSettingsScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState())
+                .navigationContentPadding()
                 .padding(bottom = 32.dp)
         ) {
             Text(
@@ -277,7 +281,7 @@ private fun SettingSwitchRow(
 ) {
     SegmentedListItem(
         checked = checked,
-        onCheckedChange = onCheckedChange,
+        onCheckedChange = hapticToggle(onCheckedChange),
         shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
         supportingContent = {
             Text(

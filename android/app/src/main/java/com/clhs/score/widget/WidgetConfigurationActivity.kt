@@ -122,10 +122,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
                                 appWidgetId,
                                 preferences,
                             )
-                            syncScheduleWidget(applicationContext, appWidgetId, preferences)
-                            val glanceAppWidgetManager = GlanceAppWidgetManager(applicationContext)
-                            val glanceId = glanceAppWidgetManager.getGlanceIdBy(appWidgetId)
-                            ScheduleWidget().update(applicationContext, glanceId)
+                            syncAllScheduleWidgets(applicationContext)
                         }
                         FirebaseAnalyticsLogger(applicationContext).logEvent(
                             AnalyticsEvents.SCHEDULE_WIDGET_SETTINGS_SAVE,

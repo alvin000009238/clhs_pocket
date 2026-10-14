@@ -21,9 +21,9 @@ OUTPUT = (
     / "schedule_widget_preview.png"
 )
 DEVICE_OUTPUT = (
-    "/sdcard/Android/data/com.clhs.score.debug/files/schedule_widget_preview.png"
+    "/sdcard/Android/data/com.clhs.score.demo.debug/files/schedule_widget_preview.png"
 )
-PACKAGE = "com.clhs.score.debug"
+PACKAGE = "com.clhs.score.demo.debug"
 CAPTURE_ACTIVITY = (
     f"{PACKAGE}/com.clhs.score.widget.ScheduleWidgetPreviewCaptureActivity"
 )
@@ -62,11 +62,11 @@ def main() -> None:
             )
 
     subprocess.run(
-        [str(gradle), ":app:assembleDebug"],
+        [str(gradle), ":app:assembleDemoDebug"],
         cwd=ANDROID_DIR,
         check=True,
     )
-    apk = ANDROID_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
+    apk = ANDROID_DIR / "app" / "build" / "outputs" / "apk" / "demo" / "debug" / "app-demo-debug.apk"
     subprocess.run([*adb_command, "install", "-r", str(apk)], check=True)
     subprocess.run([*adb_command, "shell", "rm", "-f", DEVICE_OUTPUT], check=True)
     subprocess.run(

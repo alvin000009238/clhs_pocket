@@ -1,0 +1,45 @@
+package com.clhs.score.domain.overview
+
+import kotlinx.serialization.encodeToString
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+// Use after adding the SampleMetric config/registry entries from integration.md.
+// Rename the type/config and test actual domain validation, not just nonblank input.
+class SampleMetricWidgetContractTest {
+    @Test fun configuredInstancesRoundTripAndKeepSeparateIdentity() {
+        val definition = requireNotNull(OverviewWidgetDefinitions["sample_metric"])
+        assertTrue(definition.multiple)
+        assertTrue(definition.defaultSize in definition.sizes)
+        val config = OverviewWidgetConfig.SampleMetric("school")
+        val first = OverviewWidgetInstance.create(definition.type, config)
+        val second = OverviewWidgetInstance.create(definition.type, config)
+        assertTrue(first.id != second.id)
+        definition.sizes.forEach { size ->
+            val instance = first.copy(size = size, ownRow = true)
+            val restored = OverviewLayoutJson.decodeFromString<OverviewWidgetInstance>(
+                OverviewLayoutJson.encodeToString(instance),
+            )
+            assertEquals(instance, restored)
+            assertEquals(config, restored.config())
+            val placement = OverviewLayoutEngine.pack(listOf(restored), 4).single()
+            assertEquals(size.columns, placement.columns)
+            assertEquals(size.rows, placement.rows)
+        }
+    }
+
+    @Test fun invalidAndFutureConfigurationsRemainOpaque() {
+        val valid = OverviewWidgetInstance.create("sample_metric", OverviewWidgetConfig.SampleMetric("school"))
+        assertNotNull(valid.config())
+        assertNull(valid.withConfig(OverviewWidgetConfig.SampleMetric("")).config())
+        assertNull(valid.withConfig(OverviewWidgetConfig.None).config())
+        val future = valid.copy(configVersion = 42, configuration = "opaque future settings")
+        assertNull(future.config())
+        assertEquals(future, OverviewLayoutJson.decodeFromString<OverviewWidgetInstance>(
+            OverviewLayoutJson.encodeToString(future),
+        ))
+    }
+}

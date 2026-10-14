@@ -89,8 +89,8 @@ class SchoolCalendarTest {
 
             assertEquals(network.feed, cached?.feed)
             assertEquals(fetchedAt, cached?.fetchedAt)
-            assertNull(server.takeRequest().getHeader("Cookie"))
-            assertNull(server.takeRequest().getHeader("Cookie"))
+            assertNull(server.awaitRequest().getHeader("Cookie"))
+            assertNull(server.awaitRequest().getHeader("Cookie"))
         } finally {
             cacheDirectory.deleteRecursively()
         }

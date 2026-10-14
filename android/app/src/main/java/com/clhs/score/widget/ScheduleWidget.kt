@@ -53,9 +53,12 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.clhs.score.BuildConfig
+import com.clhs.score.AlarmDebugLog
 import com.clhs.score.data.AppSettings
 import com.clhs.score.data.FakeScheduleData
 import com.clhs.score.data.GradeCacheStore
+import com.clhs.score.data.occurrenceOn
+import com.clhs.score.data.SCHOOL_COURSE_ZONE
 import com.clhs.score.data.PERIOD_TIMES
 import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleReport
@@ -67,9 +70,14 @@ import com.clhs.score.ui.theme.AmoledDarkColors
 import com.clhs.score.ui.theme.DarkColors
 import com.clhs.score.ui.theme.LightColors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -91,6 +99,12 @@ private const val ScheduleWidgetPreviewRetryIntervalMillis = 60 * 60 * 1_000L
 internal data class WidgetScheduleSelection(
     val date: LocalDate,
     val items: List<ScheduleItem>,
+)
+
+internal data class WidgetScheduleView(
+    val today: LocalDate,
+    val selection: WidgetScheduleSelection,
+    val sections: WidgetScheduleSections,
 )
 
 internal data class ScheduleWidgetPreferences(
@@ -128,13 +142,12 @@ internal fun classifyWidgetScheduleItems(
     val upcoming = mutableListOf<ScheduleItem>()
     val completed = mutableListOf<ScheduleItem>()
     sortedItems.forEach { item ->
-        val periodTime = PERIOD_TIMES.getOrNull(item.period - 1)
-        val startMinutes = periodTime?.start?.toMinutesOrNull()
-        val endMinutes = periodTime?.end?.toMinutesOrNull()
+        val course = item.occurrenceOn(selectionDate)
+        val now = today.atStartOfDay(SCHOOL_COURSE_ZONE).plusMinutes(currentMinutes.toLong()).toInstant()
         when {
-            startMinutes == null || endMinutes == null -> upcoming += item
-            currentMinutes in startMinutes until endMinutes && current == null -> current = item
-            currentMinutes >= endMinutes -> completed += item
+            course == null -> upcoming += item
+            course.contains(now) && current == null -> current = item
+            now >= course.end -> completed += item
             else -> upcoming += item
         }
     }
@@ -172,6 +185,26 @@ internal fun selectWidgetSchedule(
         if (nextItems.isNotEmpty()) return WidgetScheduleSelection(date, nextItems)
     }
     return WidgetScheduleSelection(selectionDate, emptyList())
+}
+
+internal fun resolveWidgetSchedule(
+    report: ScheduleReport?,
+    now: Instant,
+    afterLastClass: Boolean,
+): WidgetScheduleView {
+    val schoolNow = now.atZone(SCHOOL_COURSE_ZONE).toLocalDateTime()
+    val today = schoolNow.toLocalDate()
+    val currentMinutes = schoolNow.hour * 60 + schoolNow.minute
+    val items = report?.displayItems().orEmpty()
+    val validFrom = report
+        ?.takeIf { it.scope == ScheduleScope.CURRENT_WEEK }
+        ?.weekStartDate
+        ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        ?: today
+    val selection = selectWidgetSchedule(items, today, currentMinutes, afterLastClass, validFrom)
+    val sections = classifyWidgetScheduleItems(items = selection.items, selectionDate = selection.date,
+        today = today, currentMinutes = currentMinutes)
+    return WidgetScheduleView(today, selection, sections)
 }
 
 internal fun widgetScheduleDayLabel(selectionDate: LocalDate, today: LocalDate): String = when (selectionDate) {
@@ -227,21 +260,8 @@ class ScheduleWidget : GlanceAppWidget() {
     )
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val cacheStore = GradeCacheStore(context)
-        val settingsRepository = SettingsRepository(context)
-
-        val report = cacheStore.loadWidgetScheduleReport()
-        WidgetUpdateReceiver.scheduleNextUpdate(context, report)
-        val reportStr = report?.let { WidgetJson.encodeToString(it) }
-        val appSettings = settingsRepository.settings.first()
-        val legacyPreferences = cacheStore.loadLegacyWidgetPreferences()
-
-        updateAppWidgetState(context, id) { state ->
-            state.syncScheduleWidgetState(reportStr, appSettings, legacyPreferences)
-        }
-
         provideContent {
-            val colors = getWidgetColorProviders(context, currentWidgetSettings(appSettings))
+            val colors = getWidgetColorProviders(context, currentWidgetSettings(AppSettings()))
             GlanceTheme(colors = colors) {
                 ScheduleWidgetContent()
             }
@@ -265,46 +285,81 @@ class ScheduleWidget : GlanceAppWidget() {
         }
         provideContent {
             GlanceTheme(colors = getWidgetColorProviders(context, settings)) {
-                ScheduleWidgetContent(report, ScheduleWidgetPreferences(), previewNow)
+                ScheduleWidgetContent(report, ScheduleWidgetPreferences(), previewNow.atZone(SCHOOL_COURSE_ZONE).toInstant())
             }
         }
     }
 }
 
+private val scheduleWidgetSyncMutex = Mutex()
+
 suspend fun syncAllScheduleWidgets(
     context: Context,
     settings: AppSettings? = null,
+    alarmReason: String = "widget_sync",
 ) = withContext(Dispatchers.IO) {
-    val cacheStore = GradeCacheStore(context)
-    val report = cacheStore.loadWidgetScheduleReport()
-    val reportStr = report?.let { WidgetJson.encodeToString(it) }
-    val appSettings = settings ?: SettingsRepository(context).settings.first()
-    val legacyPreferences = cacheStore.loadLegacyWidgetPreferences()
-
-    val glanceIds = GlanceAppWidgetManager(context).getGlanceIds(ScheduleWidget::class.java)
-    val widget = ScheduleWidget()
-    if (glanceIds.isNotEmpty()) {
-        WidgetUpdateReceiver.scheduleNextUpdate(context, report)
-    }
-    var refreshFailed = false
-    glanceIds.forEach { glanceId ->
+    scheduleWidgetSyncMutex.withLock {
+        var report: ScheduleReport? = null
+        var glanceIdCount = 0
+        var syncResult = "success"
+        val cacheStore = GradeCacheStore(context)
         try {
-            updateAppWidgetState(context, glanceId) { state ->
-                state.syncScheduleWidgetState(reportStr, appSettings, legacyPreferences)
+            val glanceIds = GlanceAppWidgetManager(context).getGlanceIds(ScheduleWidget::class.java)
+            glanceIdCount = glanceIds.size
+            AlarmDebugLog.event(context, "widget", "sync_start", "activeGlanceIdCount" to glanceIdCount)
+            if (glanceIds.isEmpty()) {
+                syncResult = "no_active_widget"
+                return@withLock
             }
-            widget.update(context, glanceId)
+
+            report = cacheStore.loadWidgetScheduleReport()
+            val reportStr = report?.let { WidgetJson.encodeToString(it) }
+            val appSettings = settings ?: SettingsRepository(context).settings.first()
+            val legacyPreferences = cacheStore.loadLegacyWidgetPreferences()
+            val widget = ScheduleWidget()
+            var refreshFailed = false
+            glanceIds.forEachIndexed { index, glanceId ->
+                try {
+                    updateAppWidgetState(context, glanceId) { state ->
+                        state.syncScheduleWidgetState(reportStr, appSettings, legacyPreferences)
+                    }
+                    widget.update(context, glanceId)
+                    AlarmDebugLog.event(context, "widget", "update_result", "result" to "success",
+                        "widgetIndex" to index, "activeGlanceIdCount" to glanceIdCount)
+                } catch (error: CancellationException) {
+                    AlarmDebugLog.event(context, "widget", "update_result", "result" to "cancelled",
+                        "widgetIndex" to index, "activeGlanceIdCount" to glanceIdCount)
+                    throw error
+                } catch (error: Exception) {
+                    refreshFailed = true
+                    AlarmDebugLog.event(context, "widget", "update_result", "result" to error.javaClass.simpleName,
+                        "widgetIndex" to index, "activeGlanceIdCount" to glanceIdCount)
+                }
+            }
+            if (refreshFailed) {
+                throw SessionCleanupException(setOf(SessionCleanupFailure.WIDGET_REFRESH_FAILED))
+            }
+            cacheStore.clearLegacyWidgetPreferences()
         } catch (error: CancellationException) {
+            syncResult = "cancelled"
             throw error
-        } catch (_: Exception) {
-            refreshFailed = true
+        } catch (error: Exception) {
+            syncResult = error.javaClass.simpleName
+            AlarmDebugLog.event(context, "widget", "sync_error", "result" to syncResult,
+                "activeGlanceIdCount" to glanceIdCount)
+            throw error
+        } finally {
+            // Receiver timeouts cancel the sync; still give the normal boundary alarm a bounded rearm.
+            withContext(NonCancellable) {
+                withTimeout(1_000) {
+                    WidgetUpdateReceiver.scheduleNextUpdate(context, report, reason = alarmReason)
+                }
+            }
+            AlarmDebugLog.event(context, "widget", "sync_finish",
+                "activeGlanceIdCount" to glanceIdCount, "dataAvailable" to (report != null),
+                "result" to syncResult, "success" to (syncResult == "success" || syncResult == "no_active_widget"))
         }
     }
-    if (refreshFailed) {
-        throw SessionCleanupException(
-            setOf(SessionCleanupFailure.WIDGET_REFRESH_FAILED),
-        )
-    }
-    cacheStore.clearLegacyWidgetPreferences()
 }
 
 internal fun shouldRefreshScheduleWidgetPreview(
@@ -366,24 +421,6 @@ suspend fun refreshScheduleWidgetPreview(context: Context, settings: AppSettings
     }.onFailure { Log.w("ScheduleWidget", "Failed to publish widget preview", it) }
 }
 
-internal suspend fun syncScheduleWidget(
-    context: Context,
-    appWidgetId: Int,
-    preferences: ScheduleWidgetPreferences? = null,
-) = withContext(Dispatchers.IO) {
-    val cacheStore = GradeCacheStore(context)
-    val report = cacheStore.loadWidgetScheduleReport()
-    val reportStr = report?.let { WidgetJson.encodeToString(it) }
-    val appSettings = SettingsRepository(context).settings.first()
-    val legacyPreferences = cacheStore.loadLegacyWidgetPreferences()
-    val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
-
-    updateAppWidgetState(context, glanceId) { state ->
-        state.syncScheduleWidgetState(reportStr, appSettings, legacyPreferences, preferences)
-    }
-    WidgetUpdateReceiver.scheduleNextUpdate(context, report)
-}
-
 internal suspend fun loadScheduleWidgetPreferences(
     context: Context,
     appWidgetId: Int,
@@ -416,14 +453,7 @@ internal fun MutablePreferences.syncScheduleWidgetState(
     reportStr: String?,
     settings: AppSettings,
     legacyPreferences: Triple<Boolean, Boolean, Boolean>,
-    preferences: ScheduleWidgetPreferences? = null,
 ) {
-    preferences?.let { selected ->
-        this[WidgetShowTeacherKey] = selected.showTeacher
-        this[WidgetShowClassroomKey] = selected.showClassroom
-        this[WidgetShowTimeKey] = selected.showTime
-        this[WidgetAfterLastClassKey] = selected.afterLastClass
-    }
     if (this[WidgetShowTeacherKey] == null) this[WidgetShowTeacherKey] = legacyPreferences.first
     if (this[WidgetShowClassroomKey] == null) this[WidgetShowClassroomKey] = legacyPreferences.second
     if (this[WidgetShowTimeKey] == null) this[WidgetShowTimeKey] = legacyPreferences.third
@@ -475,30 +505,13 @@ fun ScheduleWidgetContent() {
 private fun ScheduleWidgetContent(
     report: ScheduleReport?,
     preferences: ScheduleWidgetPreferences,
-    now: LocalDateTime = LocalDateTime.now(),
+    now: Instant = Instant.now(),
 ) {
-    val items = report?.displayItems().orEmpty()
-    val currentTotalMinutes = now.hour * 60 + now.minute
-    val today = now.toLocalDate()
-    val validFrom = report
-        ?.takeIf { it.scope == ScheduleScope.CURRENT_WEEK }
-        ?.weekStartDate
-        ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-        ?: today
-    val selection = selectWidgetSchedule(
-        items,
-        today,
-        currentTotalMinutes,
-        preferences.afterLastClass,
-        validFrom,
-    )
+    val view = resolveWidgetSchedule(report, now, preferences.afterLastClass)
+    val today = view.today
+    val selection = view.selection
+    val sections = view.sections
     val isExpiredCurrentWeek = report?.scope == ScheduleScope.CURRENT_WEEK && !report.isValidOn(selection.date)
-    val sections = classifyWidgetScheduleItems(
-        items = selection.items,
-        selectionDate = selection.date,
-        today = today,
-        currentMinutes = currentTotalMinutes,
-    )
     val widgetSize = LocalSize.current
     val isShort = widgetSize.height < 160.dp
     val isNarrow = widgetSize.width < 220.dp

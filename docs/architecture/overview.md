@@ -13,7 +13,7 @@ flowchart LR
     Nav --> UI
     VM --> Auth[AuthState / active session]
     VM --> Overview[OverviewCoordinator]
-    Overview --> Public[公告 / 行事曆 / 天氣]
+    Overview --> Public[公告 / 行事曆 / 天氣 / YouBike]
 ```
 
 ## 讀程式的推薦順序
@@ -29,7 +29,7 @@ flowchart LR
 - 保留單一 app module，先降低 package 內的混雜與檔案尺寸，而非引入跨 module 建置成本。
 - 頂層導覽由 Navigation 3 擁有；每個頂層目的地保留自己的 stack。
 - `AuthState` 是登入狀態唯一來源；公開 route 與需要 Session 的 route 由 route contract／`AuthGate` 區分，不以登入狀態切換兩套 App shell。
-- `OverviewCoordinator` 聚合課表、公告、行事曆、提醒變更與天氣，畫面只 render 聚合後的 `OverviewState`。
+- `OverviewCoordinator` 聚合課表、公告、行事曆、提醒變更、天氣與 YouBike，畫面只 render 聚合後的 `OverviewState`。
 - 校務系統、公開校網、Widget 與 WebView 使用不同的資料與 session 邊界。
 - 假資料是可重複的本機 UI 開發入口，不是另一套產品架構。
 

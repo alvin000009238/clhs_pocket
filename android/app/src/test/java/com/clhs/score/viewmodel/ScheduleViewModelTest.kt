@@ -32,6 +32,7 @@ import java.io.IOException
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScheduleViewModelTest {
     private val dispatcher = StandardTestDispatcher()
+    private val today = LocalDate.of(2026, 7, 23)
 
     @Before
     fun setUp() {
@@ -46,7 +47,7 @@ class ScheduleViewModelTest {
     @Test
     fun staleClassListDoesNotOverrideNewerYearSelection() = runTest(dispatcher) {
         val repository = ControllableScheduleRepository()
-        val viewModel = ScheduleViewModel(repository)
+        val viewModel = ScheduleViewModel(repository, nowProvider = { today.atTime(12, 0) })
         runCurrent()
 
         repository.yearsDeferred.complete(
@@ -85,7 +86,7 @@ class ScheduleViewModelTest {
     @Test
     fun malformedYearDoesNotRequestScheduleClasses() = runTest(dispatcher) {
         val repository = ControllableScheduleRepository()
-        val viewModel = ScheduleViewModel(repository)
+        val viewModel = ScheduleViewModel(repository, nowProvider = { today.atTime(12, 0) })
         runCurrent()
 
         repository.yearsDeferred.complete(
@@ -99,7 +100,7 @@ class ScheduleViewModelTest {
 
     @Test
     fun fakeScheduleCanSwitchSemesterAndLoadClasses() = runTest(dispatcher) {
-        val viewModel = ScheduleViewModel(FakeScheduleRepository())
+        val viewModel = ScheduleViewModel(FakeScheduleRepository(), nowProvider = { today.atTime(12, 0) })
         runCurrent()
 
         viewModel.clearSelection()
@@ -115,7 +116,7 @@ class ScheduleViewModelTest {
     @Test
     fun refreshRetriesFailedPersonalScheduleQuery() = runTest(dispatcher) {
         val repository = ControllableScheduleRepository()
-        val viewModel = ScheduleViewModel(repository)
+        val viewModel = ScheduleViewModel(repository, nowProvider = { today.atTime(12, 0) })
         runCurrent()
 
         repository.yearsDeferred.complete(
@@ -143,7 +144,7 @@ class ScheduleViewModelTest {
     @Test
     fun currentWeekFallbackShowsNoticeAndUsesSemesterResult() = runTest(dispatcher) {
         val repository = ControllableScheduleRepository()
-        val viewModel = ScheduleViewModel(repository)
+        val viewModel = ScheduleViewModel(repository, nowProvider = { today.atTime(12, 0) })
         runCurrent()
         repository.yearsDeferred.complete(listOf(ScheduleYearTermOption("114 學年度 第 1 學期", "114_1")))
         runCurrent()
@@ -167,7 +168,7 @@ class ScheduleViewModelTest {
     @Test
     fun currentWeekComparisonFailureShowsNoticeAndKeepsWeekResult() = runTest(dispatcher) {
         val repository = ControllableScheduleRepository()
-        val viewModel = ScheduleViewModel(repository)
+        val viewModel = ScheduleViewModel(repository, nowProvider = { today.atTime(12, 0) })
         runCurrent()
         repository.yearsDeferred.complete(listOf(ScheduleYearTermOption("114 學年度 第 1 學期", "114_1")))
         runCurrent()
@@ -179,8 +180,8 @@ class ScheduleViewModelTest {
             "",
             ScheduleScope.CURRENT_WEEK,
             weekNo = "4",
-            weekStartDate = LocalDate.now().toString(),
-            weekEndDate = LocalDate.now().toString(),
+            weekStartDate = today.toString(),
+            weekEndDate = today.toString(),
             items = emptyList(),
             changes = null,
         )
@@ -195,8 +196,8 @@ class ScheduleViewModelTest {
     }
 
     @Test
-    fun refreshAfterManualExpiredWeekTargetsNextWeek() = runTest(dispatcher) {
-        val now = LocalDateTime.parse("2026-07-24T12:00")
+    fun initialExpiredWeekImmediatelyLoadsNextWeek() = runTest(dispatcher) {
+        val now = LocalDateTime.parse("2026-07-25T12:00")
         val repository = ControllableScheduleRepository()
         val viewModel = ScheduleViewModel(repository, nowProvider = { now })
         runCurrent()
@@ -221,15 +222,13 @@ class ScheduleViewModelTest {
         )
         repository.enqueueSchedule(Result.success(week4))
 
-        viewModel.confirmSelection()
-        runCurrent()
         repository.enqueueSchedule(Result.success(week5))
-        viewModel.refresh()
+        viewModel.confirmSelection()
         runCurrent()
 
         assertEquals(week5, viewModel.uiState.value.report)
         assertEquals(
-            listOf(LocalDate.parse("2026-07-24"), LocalDate.parse("2026-07-26")),
+            listOf(LocalDate.parse("2026-07-25"), LocalDate.parse("2026-07-26")),
             repository.scheduleTargetDates,
         )
     }
@@ -237,7 +236,7 @@ class ScheduleViewModelTest {
     @Test
     fun changingScopeCancelsInFlightScheduleRequest() = runTest(dispatcher) {
         val repository = ControllableScheduleRepository()
-        val viewModel = ScheduleViewModel(repository)
+        val viewModel = ScheduleViewModel(repository, nowProvider = { today.atTime(12, 0) })
         runCurrent()
         repository.yearsDeferred.complete(listOf(ScheduleYearTermOption("114 學年度 第 1 學期", "114_1")))
         runCurrent()
@@ -264,7 +263,7 @@ class ScheduleViewModelTest {
     @Test
     fun cancelledCurrentWeekRequestDoesNotBecomeFallbackOrError() = runTest(dispatcher) {
         val repository = ControllableScheduleRepository()
-        val viewModel = ScheduleViewModel(repository)
+        val viewModel = ScheduleViewModel(repository, nowProvider = { today.atTime(12, 0) })
         runCurrent()
         repository.yearsDeferred.complete(listOf(ScheduleYearTermOption("114 學年度 第 1 學期", "114_1")))
         runCurrent()
@@ -303,6 +302,34 @@ class ScheduleViewModelTest {
     }
 
     @Test
+    fun initialWeekWithRemainingSaturdayClassDoesNotAdvance() = runTest(dispatcher) {
+        val now = LocalDateTime.parse("2026-07-25T12:00")
+        val repository = ControllableScheduleRepository()
+        val viewModel = ScheduleViewModel(repository, nowProvider = { now })
+        runCurrent()
+        repository.yearsDeferred.complete(listOf(ScheduleYearTermOption("115 學年度 第 4 學期", "115_4")))
+        runCurrent()
+        repository.completeClasses("115", "4", emptyList())
+        runCurrent()
+        viewModel.selectScope(ScheduleScope.CURRENT_WEEK)
+        val report = ScheduleReport(
+            "115_4",
+            "",
+            ScheduleScope.CURRENT_WEEK,
+            weekStartDate = "2026-07-19",
+            weekEndDate = "2026-07-25",
+            items = listOf(ScheduleItem(dayOfWeek = 6, period = 8, subjectName = "國文")),
+        )
+        repository.enqueueSchedule(Result.success(report))
+
+        viewModel.confirmSelection()
+        runCurrent()
+
+        assertEquals(report, viewModel.uiState.value.report)
+        assertEquals(listOf(now.toLocalDate()), repository.scheduleTargetDates)
+    }
+
+    @Test
     fun subjectOverridesUpdateLoadedReportAndPersistEdits() = runTest(dispatcher) {
         val report = ScheduleReport(
             "114_1",
@@ -311,7 +338,7 @@ class ScheduleViewModelTest {
             items = listOf(ScheduleItem(1, 1, "彈性學習時間")),
         )
         val repository = ControllableScheduleRepository(latestSchedule = report)
-        val viewModel = ScheduleViewModel(repository)
+        val viewModel = ScheduleViewModel(repository, nowProvider = { today.atTime(12, 0) })
         runCurrent()
         val override = ScheduleSubjectOverride("彈性學習時間", customSubjectName = "彈性課")
         var saved = false
@@ -330,7 +357,7 @@ class ScheduleViewModelTest {
         val repository = ControllableScheduleRepository(
             latestSchedule = ScheduleReport("114_1", "230", ScheduleScope.SEMESTER, items = emptyList()),
         ).apply { subjectOverrideSaveFailure = IOException("secret path") }
-        val viewModel = ScheduleViewModel(repository)
+        val viewModel = ScheduleViewModel(repository, nowProvider = { today.atTime(12, 0) })
         runCurrent()
         var saved = false
 
@@ -344,7 +371,7 @@ class ScheduleViewModelTest {
 
     @Test
     fun currentWeekCachePastRefreshBoundaryIsRefreshed() = runTest(dispatcher) {
-        val yesterday = LocalDate.now().minusDays(1)
+        val yesterday = today.minusDays(1)
         val cached = ScheduleReport(
             "115_4",
             "230",
@@ -356,20 +383,20 @@ class ScheduleViewModelTest {
         )
         val refreshed = cached.copy(
             weekNo = "5",
-            weekStartDate = LocalDate.now().toString(),
-            weekEndDate = LocalDate.now().plusDays(6).toString(),
+            weekStartDate = today.toString(),
+            weekEndDate = today.plusDays(6).toString(),
         )
         val repository = ControllableScheduleRepository(cached).apply {
             enqueueSchedule(Result.success(refreshed))
         }
 
-        val viewModel = ScheduleViewModel(repository)
+        val viewModel = ScheduleViewModel(repository, nowProvider = { today.atTime(12, 0) })
         runCurrent()
 
         assertEquals(refreshed, viewModel.uiState.value.report)
         assertEquals(listOf("230"), repository.scheduleClassNos)
         assertEquals(listOf(ScheduleScope.CURRENT_WEEK), repository.scheduleScopes)
-        assertEquals(listOf(LocalDate.now()), repository.scheduleTargetDates)
+        assertEquals(listOf(today), repository.scheduleTargetDates)
     }
 
     @Test
@@ -408,7 +435,7 @@ class ScheduleViewModelTest {
 
     @Test
     fun failedAutomaticRefreshKeepsExpiredCacheAndRetriesOriginalQuery() = runTest(dispatcher) {
-        val yesterday = LocalDate.now().minusDays(1)
+        val yesterday = today.minusDays(1)
         val cached = ScheduleReport(
             "115_4",
             "230",
@@ -420,13 +447,13 @@ class ScheduleViewModelTest {
         )
         val refreshed = cached.copy(
             weekNo = "5",
-            weekStartDate = LocalDate.now().toString(),
-            weekEndDate = LocalDate.now().plusDays(6).toString(),
+            weekStartDate = today.toString(),
+            weekEndDate = today.plusDays(6).toString(),
         )
         val repository = ControllableScheduleRepository(cached).apply {
             enqueueSchedule(Result.failure(IllegalStateException("offline")))
         }
-        val viewModel = ScheduleViewModel(repository)
+        val viewModel = ScheduleViewModel(repository, nowProvider = { today.atTime(12, 0) })
         runCurrent()
 
         assertEquals(cached, viewModel.uiState.value.report)
@@ -444,7 +471,7 @@ class ScheduleViewModelTest {
             listOf(ScheduleScope.CURRENT_WEEK, ScheduleScope.CURRENT_WEEK),
             repository.scheduleScopes,
         )
-        assertEquals(listOf(LocalDate.now(), LocalDate.now()), repository.scheduleTargetDates)
+        assertEquals(listOf(today, today), repository.scheduleTargetDates)
     }
 
     private class ControllableScheduleRepository(
@@ -475,6 +502,7 @@ class ScheduleViewModelTest {
             classNo: String,
             scope: ScheduleScope,
             targetDate: LocalDate,
+            expectedSession: com.clhs.score.data.AuthenticatedSession?,
         ): ScheduleReport {
             scheduleClassNos += classNo
             scheduleScopes += scope

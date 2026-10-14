@@ -1,6 +1,9 @@
 package com.clhs.score.viewmodel
 
 import com.clhs.score.data.SchoolAnnouncement
+import com.clhs.score.data.AnnouncementFilterOptions
+import com.clhs.score.data.AnnouncementCategory
+import com.clhs.score.data.AnnouncementUnit
 import com.clhs.score.data.SchoolAnnouncementPage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -35,10 +38,76 @@ class SchoolAnnouncementsViewModelTest {
     }
 
     @Test
+    fun filtersPreserveKeywordAcrossPagingRefreshAndClearWithoutUsingDefaultCache() = runTest(dispatcher) {
+        val calls = mutableListOf<List<String>>()
+        var cacheCalls = 0
+        var cancelled = false
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { cacheCalls++; page(announcement("cached")) },
+            loadPage = { index, keyword, unit, category ->
+                calls += listOf(index.toString(), keyword, unit, category)
+                if (index == 1 && unit == "425") {
+                    try { awaitCancellation() } finally { cancelled = true }
+                }
+                page(announcement("$keyword-$unit-$category"), pageIndex = index, totalPages = 2)
+            },
+        )
+        runCurrent()
+        viewModel.search("升學")
+        runCurrent()
+        viewModel.setFilters("425", "12")
+        runCurrent()
+        viewModel.loadMore()
+        runCurrent()
+        viewModel.setFilters("50", "12")
+        runCurrent()
+        assertTrue(cancelled)
+        viewModel.loadMore()
+        runCurrent()
+        viewModel.refresh()
+        runCurrent()
+        assertEquals(listOf("0", "升學", "50", "12"), calls.last())
+        assertTrue(calls.contains(listOf("1", "升學", "50", "12")))
+        viewModel.clearSearch()
+        runCurrent()
+        assertEquals(listOf("0", "", "50", "12"), calls.last())
+        assertEquals(1, cacheCalls)
+        viewModel.setFilters("-1", "-1")
+        runCurrent()
+        assertEquals(2, cacheCalls)
+        assertFalse(viewModel.uiState.value.hasFilters)
+    }
+
+    @Test
+    fun filterOptionsKeepCacheOnFailureAndRefreshOnRetry() = runTest(dispatcher) {
+        val cached = AnnouncementFilterOptions(
+            units = listOf(AnnouncementUnit("-1", "全部"), AnnouncementUnit("425", "首頁")),
+            categories = listOf(AnnouncementCategory("-1", "全部"), AnnouncementCategory("12", "升學資訊")),
+        )
+        var fail = true
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { _, _, _, _ -> page() },
+            loadCachedFilters = { cached },
+            loadFilters = { if (fail) throw IOException("private response") else cached },
+        )
+        viewModel.refreshFilters()
+        runCurrent()
+        assertEquals(cached, viewModel.uiState.value.filterOptions)
+        assertTrue(viewModel.uiState.value.filterLoadFailed)
+        assertFalse(viewModel.uiState.value.isLoadingFilters)
+        fail = false
+        viewModel.refreshFilters()
+        runCurrent()
+        assertEquals(cached, viewModel.uiState.value.filterOptions)
+        assertFalse(viewModel.uiState.value.filterLoadFailed)
+    }
+
+    @Test
     fun failedUpdateKeepsCachedMessagesAndShowsNotice() = runTest(dispatcher) {
         val viewModel = SchoolAnnouncementsViewModel(
             loadCached = { page(announcement("cached"), totalPages = 2) },
-            loadPage = { _, _ -> throw IOException("offline") },
+            loadPage = { _, _, _, _ -> throw IOException("offline") },
         )
 
         runCurrent()
@@ -54,7 +123,7 @@ class SchoolAnnouncementsViewModelTest {
     fun loadMoreAppendsInServerOrderAndRemovesDuplicateIds() = runTest(dispatcher) {
         val viewModel = SchoolAnnouncementsViewModel(
             loadCached = { null },
-            loadPage = { index, _ ->
+            loadPage = { index, _, _, _ ->
                 if (index == 0) {
                     page(announcement("first"), announcement("duplicate"), totalPages = 2)
                 } else {
@@ -74,10 +143,31 @@ class SchoolAnnouncementsViewModelTest {
     }
 
     @Test
+    fun loadMoreIgnoresRepeatedTriggerWhileRequestIsInFlight() = runTest(dispatcher) {
+        var calls = 0
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { index, _, _, _ ->
+                calls++
+                if (index == 0) page(announcement("first"), totalPages = 2) else awaitCancellation()
+            },
+        )
+        runCurrent()
+
+        viewModel.loadMore()
+        runCurrent()
+        viewModel.loadMore()
+        runCurrent()
+
+        assertEquals(2, calls)
+        assertTrue(viewModel.uiState.value.isLoadingMore)
+    }
+
+    @Test
     fun firstLoadFailureShowsFixedActionableError() = runTest(dispatcher) {
         val viewModel = SchoolAnnouncementsViewModel(
             loadCached = { null },
-            loadPage = { _, _ -> throw IOException("server response with secret details") },
+            loadPage = { _, _, _, _ -> throw IOException("server response with secret details") },
         )
 
         runCurrent()
@@ -90,7 +180,7 @@ class SchoolAnnouncementsViewModelTest {
     fun loadMoreFailureKeepsExistingMessagesAndShowsInlineRetry() = runTest(dispatcher) {
         val viewModel = SchoolAnnouncementsViewModel(
             loadCached = { null },
-            loadPage = { index, _ ->
+            loadPage = { index, _, _, _ ->
                 if (index == 0) page(announcement("first"), totalPages = 2)
                 else throw IOException("offline")
             },
@@ -122,7 +212,7 @@ class SchoolAnnouncementsViewModelTest {
         val calls = mutableListOf<Pair<Int, String>>()
         val viewModel = SchoolAnnouncementsViewModel(
             loadCached = { null },
-            loadPage = { index, keyword ->
+            loadPage = { index, keyword, _, _ ->
                 calls += index to keyword
                 if (keyword.isEmpty()) {
                     page(announcement("default"))
@@ -153,7 +243,7 @@ class SchoolAnnouncementsViewModelTest {
         val calls = mutableListOf<String>()
         val viewModel = SchoolAnnouncementsViewModel(
             loadCached = { page(announcement("cached")) },
-            loadPage = { _, keyword ->
+            loadPage = { _, keyword, _, _ ->
                 calls += keyword
                 page(announcement(if (keyword.isEmpty()) "default" else "search"))
             },
@@ -175,7 +265,7 @@ class SchoolAnnouncementsViewModelTest {
         var firstSearchCancelled = false
         val viewModel = SchoolAnnouncementsViewModel(
             loadCached = { null },
-            loadPage = { _, keyword ->
+            loadPage = { _, keyword, _, _ ->
                 when (keyword) {
                     "first" -> try {
                         awaitCancellation()
@@ -203,7 +293,7 @@ class SchoolAnnouncementsViewModelTest {
         var failRefresh = false
         val viewModel = SchoolAnnouncementsViewModel(
             loadCached = { null },
-            loadPage = { _, keyword ->
+            loadPage = { _, keyword, _, _ ->
                 if (failRefresh) throw IOException("private response")
                 if (keyword == "找不到") page() else page(announcement(keyword.ifEmpty { "default" }))
             },

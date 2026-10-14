@@ -1,5 +1,7 @@
 package com.clhs.score.ui
 
+import com.clhs.score.ui.navigation.navigationContentPadding
+
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import com.clhs.score.R
 import com.clhs.score.analytics.UsageMetric
 import com.clhs.score.analytics.UsageStatistics
+import com.clhs.score.ui.theme.PocketMotion
 import java.net.URI
 import java.time.Instant
 import java.time.ZoneId
@@ -145,6 +148,8 @@ private val APACHE_COMPONENTS = listOf(
     "AndroidX Lifecycle Runtime Compose",
     "AndroidX Lifecycle ViewModel Compose",
     "AndroidX Navigation 3",
+    "AndroidX Room",
+    "AndroidX SQLite",
     "AndroidX WorkManager Runtime KTX",
     "Apache Commons Codec subset (bundled with biweekly)",
     "Coil Compose",
@@ -167,13 +172,14 @@ internal data class LicenseEntry(
     val licenseText: String,
 )
 
-internal fun buildThirdPartyLicenses(outfitLicenseText: String): List<LicenseEntry> =
+internal fun buildThirdPartyLicenses(outfitLicenseText: String, huninnLicenseText: String): List<LicenseEntry> =
     (APACHE_COMPONENTS.map {
         LicenseEntry(it, "Apache License 2.0", APACHE_LICENSE_TEXT)
     } + listOf(
         LicenseEntry("biweekly", "BSD 2-Clause License", BSD_2_CLAUSE_LICENSE_TEXT),
         LicenseEntry("jsoup", "MIT License", MIT_LICENSE_TEXT),
         LicenseEntry("Outfit", "SIL Open Font License 1.1", outfitLicenseText),
+        LicenseEntry("Huninn", "SIL Open Font License 1.1", huninnLicenseText),
         LicenseEntry("Vinnie", "MIT License", MIT_LICENSE_TEXT),
     )).sortedBy { it.componentName.lowercase() }
 
@@ -199,6 +205,7 @@ fun UsageStatisticsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .navigationContentPadding()
                 .padding(start = 16.dp, top = 8.dp, end = 16.dp)
                 .navigationBarsPadding(),
         ) {
@@ -228,7 +235,7 @@ fun UsageStatisticsScreen(
 }
 private val usageStatisticRows = listOf(
     UsageMetric.APP_OPEN to "應用程式開啟",
-    UsageMetric.OVERVIEW_OPEN to "總覽畫面開啟",
+    UsageMetric.OVERVIEW_OPEN to "首頁畫面開啟",
     UsageMetric.SCHEDULE_OPEN to "課表畫面開啟",
     UsageMetric.GRADES_OPEN to "成績畫面開啟",
     UsageMetric.CAMPUS_OPEN to "校園畫面開啟",
@@ -301,8 +308,11 @@ fun OpenSourceLicensesScreen(
             .bufferedReader()
             .use { it.readText() }
     }
-    val thirdPartyLicenses = remember(outfitLicenseText) {
-        buildThirdPartyLicenses(outfitLicenseText)
+    val huninnLicenseText = remember(resources) {
+        resources.openRawResource(R.raw.huninn_ofl).bufferedReader().use { it.readText() }
+    }
+    val thirdPartyLicenses = remember(outfitLicenseText, huninnLicenseText) {
+        buildThirdPartyLicenses(outfitLicenseText, huninnLicenseText)
     }
 
     SubpageLayout(
@@ -313,6 +323,7 @@ fun OpenSourceLicensesScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .navigationContentPadding()
                 .padding(start = 16.dp, top = 8.dp, end = 16.dp)
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -407,7 +418,7 @@ private fun ThirdPartyLicenseCard(
         Column(
             modifier = Modifier
                 .animateContentSize(
-                    animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                    animationSpec = PocketMotion.contentReflow(),
                 )
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),

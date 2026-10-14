@@ -1,21 +1,18 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.clhs.score.ui.navigation
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Badge
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import kotlinx.coroutines.launch
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
@@ -32,6 +29,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavEntry
@@ -44,7 +44,6 @@ import androidx.navigation3.runtime.serialization.NavKeySerializer
 import androidx.savedstate.compose.serialization.serializers.MutableStateSerializer
 import com.clhs.score.ui.FilledRoundedSymbol
 import com.clhs.score.ui.OutlinedRoundedSymbol
-import com.clhs.score.data.announcementBadgeText
 import com.clhs.score.analytics.AnalyticsScreenNames
 import kotlinx.serialization.Serializable
 
@@ -58,14 +57,19 @@ sealed interface AppRoute : NavKey
 @Serializable data object ScoreSimulatorRoute : AppRoute
 @Serializable data object SubjectTrendRoute : AppRoute
 @Serializable data object CampusRoute : AppRoute
+@Serializable data object CampusSearchRoute : AppRoute
 @Serializable data class SchoolCalendarRoute(val eventId: String? = null) : AppRoute
 @Serializable data object SchoolAnnouncementsRoute : AppRoute
 @Serializable data class SchoolAnnouncementDetailRoute(val id: String, val category: String = "") : AppRoute
 @Serializable data object AnnouncementReminderSettingsRoute : AppRoute
 @Serializable data object AnnouncementReminderUnitsRoute : AppRoute
 @Serializable data object WorkManagerInfoRoute : AppRoute
+@Serializable data object BackgroundPauseSettingsRoute : AppRoute
+@Serializable data object ScheduleReliabilitySettingsRoute : AppRoute
+@Serializable data object CourseNotificationSettingsRoute : AppRoute
 @Serializable data object SchoolWebsiteRoute : AppRoute
 @Serializable data object PersonalRoute : AppRoute
+@Serializable data object SettingsTransferRoute : AppRoute
 @Serializable data object UsageStatisticsRoute : AppRoute
 @Serializable data object OpenSourceLicensesRoute : AppRoute
 @Serializable data object DeveloperSettingsRoute : AppRoute
@@ -87,7 +91,7 @@ enum class TopLevelDestination(
     val label: String,
     val icon: String,
 ) {
-    Overview(OverviewRoute, "總覽", "home"),
+    Overview(OverviewRoute, "首頁", "home"),
     Schedule(ScheduleRoute, "課表", "calendar_view_week"),
     Grades(GradesRoute, "成績", "bar_chart"),
     Campus(CampusRoute, "校園", "school"),
@@ -98,6 +102,7 @@ enum class AuthRequirement { Public, Session }
 fun AppRoute.authRequirement(): AuthRequirement = when (this) {
     ScheduleRoute,
     ScheduleCustomizationsRoute,
+    CourseNotificationSettingsRoute,
     GradesRoute,
     ScoreSimulatorRoute,
     SubjectTrendRoute,
@@ -105,13 +110,17 @@ fun AppRoute.authRequirement(): AuthRequirement = when (this) {
     -> AuthRequirement.Session
     OverviewRoute,
     CampusRoute,
+    CampusSearchRoute,
     is SchoolCalendarRoute,
     SchoolAnnouncementsRoute,
     is SchoolAnnouncementDetailRoute,
     PersonalRoute,
     AnnouncementReminderSettingsRoute,
     AnnouncementReminderUnitsRoute,
+    BackgroundPauseSettingsRoute,
+    ScheduleReliabilitySettingsRoute,
     WorkManagerInfoRoute,
+    SettingsTransferRoute,
     UsageStatisticsRoute,
     OpenSourceLicensesRoute,
     DeveloperSettingsRoute,
@@ -131,14 +140,19 @@ internal fun AppRoute.analyticsScreenName(): String = when (this) {
     ScoreSimulatorRoute -> AnalyticsScreenNames.SCORE_SIMULATOR
     SubjectTrendRoute -> AnalyticsScreenNames.SUBJECT_TREND
     CampusRoute -> AnalyticsScreenNames.CAMPUS
+    CampusSearchRoute -> AnalyticsScreenNames.CAMPUS_SEARCH
     is SchoolCalendarRoute -> AnalyticsScreenNames.SCHOOL_CALENDAR
     SchoolAnnouncementsRoute -> AnalyticsScreenNames.SCHOOL_ANNOUNCEMENTS
     is SchoolAnnouncementDetailRoute -> AnalyticsScreenNames.SCHOOL_ANNOUNCEMENT_DETAIL
     AnnouncementReminderSettingsRoute -> AnalyticsScreenNames.ANNOUNCEMENT_REMINDER_SETTINGS
     AnnouncementReminderUnitsRoute -> AnalyticsScreenNames.ANNOUNCEMENT_REMINDER_UNITS
     WorkManagerInfoRoute -> AnalyticsScreenNames.WORK_MANAGER_INFO
+    BackgroundPauseSettingsRoute -> AnalyticsScreenNames.BACKGROUND_PAUSE_SETTINGS
+    ScheduleReliabilitySettingsRoute -> AnalyticsScreenNames.SCHEDULE_RELIABILITY_SETTINGS
+    CourseNotificationSettingsRoute -> AnalyticsScreenNames.COURSE_NOTIFICATION_SETTINGS
     SchoolWebsiteRoute -> AnalyticsScreenNames.SCHOOL_WEBSITE
     PersonalRoute -> AnalyticsScreenNames.PERSONAL
+    SettingsTransferRoute -> AnalyticsScreenNames.SETTINGS_TRANSFER
     UsageStatisticsRoute -> AnalyticsScreenNames.USAGE_STATISTICS
     OpenSourceLicensesRoute -> AnalyticsScreenNames.OPEN_SOURCE_LICENSES
     DeveloperSettingsRoute -> AnalyticsScreenNames.DEVELOPER_SETTINGS
@@ -149,8 +163,8 @@ internal fun AppRoute.analyticsScreenName(): String = when (this) {
     AccountRoute -> AnalyticsScreenNames.ONBOARDING_ACCOUNT
 }
 
-internal fun topLevelNavigationType(width: Dp): NavigationSuiteType =
-    if (width < 600.dp) NavigationSuiteType.ShortNavigationBarCompact else NavigationSuiteType.NavigationRail
+internal fun topLevelNavigationType(width: Dp, height: Dp = Dp.Infinity): NavigationSuiteType =
+    if (width < 600.dp && height >= 480.dp) NavigationSuiteType.ShortNavigationBarCompact else NavigationSuiteType.NavigationRail
 
 @Composable
 fun rememberAppNavigationState(onboardingRequired: Boolean = false): AppNavigationState {
@@ -251,9 +265,11 @@ class AppNavigator(private val state: AppNavigationState) {
 
 private fun AppRoute.topLevelDestination(): TopLevelDestination? = when (this) {
     OverviewRoute -> TopLevelDestination.Overview
-    ScheduleRoute, ScheduleCustomizationsRoute -> TopLevelDestination.Schedule
+    ScheduleRoute, ScheduleCustomizationsRoute, CourseNotificationSettingsRoute ->
+        TopLevelDestination.Schedule
     GradesRoute, ScoreSimulatorRoute, SubjectTrendRoute -> TopLevelDestination.Grades
     CampusRoute,
+    CampusSearchRoute,
     is SchoolCalendarRoute,
     SchoolAnnouncementsRoute,
     is SchoolAnnouncementDetailRoute,
@@ -262,7 +278,10 @@ private fun AppRoute.topLevelDestination(): TopLevelDestination? = when (this) {
     PersonalRoute,
     AnnouncementReminderSettingsRoute,
     AnnouncementReminderUnitsRoute,
+    BackgroundPauseSettingsRoute,
+    ScheduleReliabilitySettingsRoute,
     WorkManagerInfoRoute,
+    SettingsTransferRoute,
     UsageStatisticsRoute,
     OpenSourceLicensesRoute,
     DeveloperSettingsRoute,
@@ -291,8 +310,16 @@ fun AppNavigationState.toEntries(
         rememberSaveableStateHolderNavEntryDecorator(),
         rememberViewModelStoreNavEntryDecorator(),
     )
-    val decoratedEntries = backStacks.mapValues { (_, stack) ->
-        rememberDecoratedNavEntries(stack, decorators, entryProvider)
+    val decoratedEntries = backStacks.mapValues { (parent, stack) ->
+        rememberDecoratedNavEntries(stack, decorators) { route ->
+            val entry = entryProvider(route)
+            // Common routes (e.g. Personal) may exist in several stacks at once.
+            NavEntry(route, contentKey = "$parent:${entry.contentKey}", metadata = entry.metadata +
+                if (TopLevelDestination.entries.any { it.route == route }) mapOf(RootSceneDestinationKey to route)
+                else emptyMap()) {
+                entry.Content()
+            }
+        }
     }
     return stacksInUse.flatMap { decoratedEntries[it].orEmpty() }.toMutableStateList()
 }
@@ -304,105 +331,108 @@ fun AuthenticatedAppShell(
     unreadAnnouncementCount: Int = 0,
     content: @Composable () -> Unit,
 ) {
-    BoxWithConstraints {
-        val hasTopLevelParent = (navigationState.currentRoute as? AppRoute)?.topLevelDestination() != null
-        val navigationType = if (hasTopLevelParent) {
-            topLevelNavigationType(maxWidth)
-        } else {
-            NavigationSuiteType.None
-        }
-        val navigationBarItemColors = NavigationBarItemDefaults.colors(
-            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            selectedTextColor = MaterialTheme.colorScheme.onSurface,
-            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        val navigationRailItemColors = NavigationRailItemDefaults.colors(
-            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            selectedTextColor = MaterialTheme.colorScheme.onSurface,
-            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        NavigationSuiteScaffold(
-            navigationItems = {
-                if (navigationType == NavigationSuiteType.ShortNavigationBarCompact) {
-                    Row(Modifier.fillMaxWidth()) {
-                        TopLevelDestination.entries.forEach { destination ->
-                            val selected = navigationState.topLevelRoute == destination.route
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = { navigator.selectTopLevel(destination) },
-                                icon = {
-                                    TopLevelIcon(destination, selected, unreadAnnouncementCount)
-                                },
-                                label = { Text(destination.label) },
-                                alwaysShowLabel = false,
-                                colors = navigationBarItemColors,
-                            )
-                        }
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier.fillMaxHeight(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        TopLevelDestination.entries.forEach { destination ->
-                            val selected = navigationState.topLevelRoute == destination.route
-                            NavigationRailItem(
-                                selected = selected,
-                                onClick = { navigator.selectTopLevel(destination) },
-                                icon = {
-                                    TopLevelIcon(destination, selected, unreadAnnouncementCount)
-                                },
-                                label = { Text(destination.label) },
-                                alwaysShowLabel = false,
-                                colors = navigationRailItemColors,
-                            )
-                        }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val rootReselect = remember { RootReselect() }
+    val route = navigationState.currentRoute
+    var compact by remember(route) { mutableStateOf(false) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val scrollConnection = remember(route, density) {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            var distance = 0f
+            override fun onPostScroll(
+                consumed: androidx.compose.ui.geometry.Offset,
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+            ): androidx.compose.ui.geometry.Offset {
+                if (source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput && consumed.y != 0f) {
+                    if (distance * consumed.y < 0) distance = 0f
+                    distance += consumed.y
+                    if (kotlin.math.abs(distance) > with(density) { 12.dp.toPx() }) {
+                        compact = distance < 0
+                        distance = 0f
                     }
                 }
-            },
-            navigationSuiteType = navigationType,
-            containerColor = MaterialTheme.colorScheme.surface,
-            navigationSuiteColors = NavigationSuiteDefaults.colors(
-                shortNavigationBarContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                navigationBarContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                navigationRailContainerColor = Color.Transparent,
-            ),
-            content = content,
-        )
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+        }
+    }
+    BoxWithConstraints {
+        val showNavigation = TopLevelDestination.entries.any { it.route == route }
+        val rail = topLevelNavigationType(maxWidth, maxHeight) == NavigationSuiteType.NavigationRail
+        val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+        val clearance = if (showNavigation && !rail && !imeVisible) PocketNavigationLayout.clearance else 0.dp
+        fun select(destination: TopLevelDestination, withHaptic: Boolean = true) {
+            if (navigationState.topLevelRoute != destination.route) {
+                if (withHaptic) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
+                navigator.selectTopLevel(destination)
+            } else if (navigationState.currentBackStack.size > 1) {
+                navigator.selectTopLevel(destination)
+            } else {
+                scope.launch { rootReselect.scrollToTop?.invoke() }
+            }
+            compact = false
+        }
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxSize()) {
+            if (showNavigation && rail) {
+                androidx.compose.material3.NavigationRail(
+                    modifier = Modifier.fillMaxHeight(), containerColor = Color.Transparent,
+                ) {
+                    androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                    TopLevelDestination.entries.forEach { destination ->
+                        val selected = navigationState.topLevelRoute == destination.route
+                        NavigationRailItem(
+                            selected = selected, onClick = { select(destination) },
+                            modifier = Modifier.semantics {
+                                contentDescription = destination.label
+                                if (destination == TopLevelDestination.Campus && unreadAnnouncementCount > 0) {
+                                    stateDescription = "有未讀內容"
+                                }
+                            },
+                            icon = { TopLevelIcon(destination, selected, unreadAnnouncementCount) },
+                            label = { Text(destination.label) },
+                        )
+                    }
+                    androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                }
+            }
+            androidx.compose.foundation.layout.Box(
+                Modifier.weight(1f).fillMaxHeight().nestedScroll(scrollConnection),
+            ) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalNavigationClearance provides clearance,
+                    LocalNavigationCompact provides compact,
+                    LocalExpandNavigation provides { compact = false },
+                    LocalNavigationScrollConnection provides scrollConnection,
+                    LocalRootReselect provides if (navigationState.currentBackStack.size == 1) rootReselect else null,
+                ) { content() }
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showNavigation && !rail && !imeVisible,
+                    modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                        .padding(horizontal = PocketNavigationLayout.edgePadding)
+                        .padding(bottom = PocketNavigationLayout.bottomOffset),
+                    enter = androidx.compose.animation.fadeIn(com.clhs.score.ui.theme.PocketMotion.stateChange()) +
+                        androidx.compose.animation.slideInVertically(com.clhs.score.ui.theme.PocketMotion.selection()) { it / 2 },
+                    exit = androidx.compose.animation.fadeOut(com.clhs.score.ui.theme.PocketMotion.microVisualState()) +
+                        androidx.compose.animation.slideOutVertically(com.clhs.score.ui.theme.PocketMotion.selection()) { it / 2 },
+                ) {
+                    PocketFloatingNavigation(
+                        destinations = TopLevelDestination.entries,
+                        selected = TopLevelDestination.entries.first { navigationState.topLevelRoute == it.route },
+                        hasUnread = unreadAnnouncementCount > 0, compact = compact,
+                        onSelect = { select(it) }, onDragSelect = { select(it, withHaptic = false) },
+                    )
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun TopLevelIcon(
-    destination: TopLevelDestination,
-    selected: Boolean,
-    unreadAnnouncementCount: Int,
-) {
+private fun TopLevelIcon(destination: TopLevelDestination, selected: Boolean, unreadAnnouncementCount: Int) {
     val hasBadge = destination == TopLevelDestination.Campus && unreadAnnouncementCount > 0
-    val description = if (hasBadge) {
-        "${destination.label}，${announcementBadgeText(unreadAnnouncementCount)} 則未讀公告"
-    } else {
-        destination.label
-    }
-    BadgedBox(
-        badge = {
-            if (hasBadge) Badge {
-                Text(
-                    announcementBadgeText(unreadAnnouncementCount),
-                    modifier = Modifier.clearAndSetSemantics { },
-                )
-            }
-        },
-    ) {
-        if (selected) {
-            FilledRoundedSymbol(destination.icon, contentDescription = description)
-        } else {
-            OutlinedRoundedSymbol(destination.icon, contentDescription = description)
-        }
+    BadgedBox(badge = { if (hasBadge) androidx.compose.material3.Badge(Modifier.clearAndSetSemantics {}) }) {
+        if (selected) FilledRoundedSymbol(destination.icon, contentDescription = null)
+        else OutlinedRoundedSymbol(destination.icon, contentDescription = null)
     }
 }

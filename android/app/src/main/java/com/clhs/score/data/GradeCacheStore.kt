@@ -1,6 +1,5 @@
 package com.clhs.score.data
 
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.Flow
 import android.content.Context
@@ -14,9 +13,12 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.time.LocalDate
@@ -30,15 +32,23 @@ internal fun ScheduleReport.toWidgetReportOrNull(): ScheduleReport? =
 
 internal fun ScheduleReport.toWidgetReportOrNull(
     currentWidgetReport: ScheduleReport?,
-    today: LocalDate = LocalDate.now(),
+    today: LocalDate = LocalDate.now(SCHOOL_COURSE_ZONE),
 ): ScheduleReport? =
     toWidgetReportOrNull() ?: when {
         currentWidgetReport == null -> copy(changes = null)
-        currentWidgetReport.scope == ScheduleScope.CURRENT_WEEK &&
-            currentWidgetReport.isValidOn(today) &&
-            !currentWidgetReport.shouldRefreshAt(LocalDateTime.now()) -> null
+        currentWidgetReport.isAuthoritativeWeekOn(today) -> null
         else -> copy(changes = null)
     }
+
+private fun ScheduleReport.validWeekRange(): ClosedRange<LocalDate>? {
+    if (scope != ScheduleScope.CURRENT_WEEK) return null
+    val first = weekStartDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return null
+    val last = weekEndDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return null
+    return (first..last).takeIf { java.time.temporal.ChronoUnit.DAYS.between(first, last) in 0..6 }
+}
+
+private fun ScheduleReport.isAuthoritativeWeekOn(date: LocalDate): Boolean =
+    validWeekRange()?.contains(date) == true
 
 data class CachedScheduleReport(
     val report: ScheduleReport,
@@ -54,6 +64,7 @@ class GradeCacheStore internal constructor(
     private val dataStore: DataStore<Preferences>,
     private val recordDiagnostic: (String) -> Unit,
     private val privateSnapshotAllowed: Flow<Boolean>,
+    private val commitSchedule: suspend (suspend () -> Unit) -> Unit = { it() },
 ) {
     internal constructor(dataStore: DataStore<Preferences>, recordDiagnostic: (String) -> Unit) :
         this(dataStore, recordDiagnostic, flowOf(true))
@@ -68,6 +79,7 @@ class GradeCacheStore internal constructor(
             )
         },
         privateSnapshotAllowed = SessionStore(context.applicationContext).privateSnapshotAccess,
+        commitSchedule = { block -> com.clhs.score.notifications.CurrentCourseNotifications.get(context).commitSnapshot(block) },
     )
 
     private val json = Json {
@@ -95,7 +107,7 @@ class GradeCacheStore internal constructor(
         shouldCommit: () -> Boolean,
     ) {
         val key = stringPreferencesKey("structure_$studentNo")
-        val serialized = json.encodeToString(structure)
+        val serialized = withContext(Dispatchers.Default) { json.encodeToString(structure) }
         saveCacheValue("structure") {
             dataStore.edit { prefs ->
                 if (shouldCommit()) prefs[key] = serialized
@@ -108,9 +120,10 @@ class GradeCacheStore internal constructor(
         val serialized = loadCacheValue("structure") {
             dataStore.data.map { prefs -> prefs[key] }.firstOrNull()
         } ?: return null
-        return runCatching {
-            json.decodeFromString<List<YearTermOption>>(serialized)
-        }.onFailure { error ->
+        val decoded = withContext(Dispatchers.Default) {
+            runCatching { json.decodeFromString<List<YearTermOption>>(serialized) }
+        }
+        return decoded.onFailure { error ->
             recordDiagnostic("structure cache decode failed: ${error::class.simpleName ?: "unknown"}")
             removeCacheValue(key, "structure")
         }.getOrNull()
@@ -126,7 +139,7 @@ class GradeCacheStore internal constructor(
         shouldCommit: () -> Boolean,
     ) {
         val key = stringPreferencesKey("student_info_$studentNo")
-        val serialized = json.encodeToString(studentInfo)
+        val serialized = withContext(Dispatchers.Default) { json.encodeToString(studentInfo) }
         saveCacheValue("student info") {
             dataStore.edit { prefs ->
                 if (shouldCommit()) prefs[key] = serialized
@@ -150,7 +163,7 @@ class GradeCacheStore internal constructor(
         shouldCommit: () -> Boolean,
     ) {
         val key = stringPreferencesKey("grade_${studentNo}_${yearValue}_${examValue}")
-        val serialized = json.encodeToString(report.toCachedGradeReport())
+        val serialized = withContext(Dispatchers.Default) { json.encodeToString(report.toCachedGradeReport()) }
         saveCacheValue("grade report") {
             dataStore.edit { prefs ->
                 if (shouldCommit()) prefs[key] = serialized
@@ -173,20 +186,22 @@ class GradeCacheStore internal constructor(
         key: Preferences.Key<String>,
         serialized: String,
         label: String,
-    ): T? =
-        runCatching {
-            json.decodeFromString<T>(serialized)
-        }.onFailure { error ->
+    ): T? {
+        val decoded = withContext(Dispatchers.Default) {
+            runCatching { json.decodeFromString<T>(serialized) }
+        }
+        return decoded.onFailure { error ->
             recordDiagnostic("$label cache decode failed: ${error::class.simpleName ?: "unknown"}")
             removeCacheValue(key, label)
         }.getOrNull()
+    }
 
-    suspend fun saveScheduleReport(studentNo: String, yearValue: String, report: ScheduleReport, shouldCommit: () -> Boolean = { true }) {
+    suspend fun saveScheduleReport(studentNo: String, yearValue: String, report: ScheduleReport, shouldCommit: () -> Boolean = { true }) = commitSchedule {
         val key = stringPreferencesKey("schedule_${studentNo}_${yearValue}")
         val fetchedAtKey = longPreferencesKey("schedule_${studentNo}_${yearValue}_fetched_at")
         val latestKey = stringPreferencesKey("schedule_latest_$studentNo")
         val latestFetchedAtKey = longPreferencesKey("schedule_${studentNo}_latest_fetched_at")
-        val serialized = json.encodeToString(report)
+        val serialized = withContext(Dispatchers.Default) { json.encodeToString(report) }
         val fetchedAt = System.currentTimeMillis()
         saveCacheValue("schedule") {
             dataStore.edit { prefs ->
@@ -206,7 +221,7 @@ class GradeCacheStore internal constructor(
         }
     }
 
-    suspend fun saveWidgetScheduleReport(studentNo: String, report: ScheduleReport, shouldCommit: () -> Boolean = { true }) {
+    suspend fun saveWidgetScheduleReport(studentNo: String, report: ScheduleReport, shouldCommit: () -> Boolean = { true }) = commitSchedule {
         saveCacheValue("widget schedule") {
             dataStore.edit { prefs ->
                 if (!shouldCommit()) return@edit
@@ -245,7 +260,8 @@ class GradeCacheStore internal constructor(
             cached.first ?: return null,
             "widget schedule",
         ) ?: return null
-        if (report.scope != ScheduleScope.CURRENT_WEEK || !report.shouldRefreshAt(LocalDateTime.now())) {
+        if (report.scope != ScheduleScope.CURRENT_WEEK ||
+            report.validWeekRange()?.endInclusive?.let { LocalDate.now(SCHOOL_COURSE_ZONE) <= it } == true) {
             return report
         }
 
@@ -302,10 +318,12 @@ class GradeCacheStore internal constructor(
     suspend fun saveScheduleSubjectOverrides(
         studentNo: String,
         overrides: List<ScheduleSubjectOverride>,
-    ) {
+        shouldCommit: () -> Boolean = { true },
+    ) = commitSchedule {
         val normalized = overrides.normalizedSubjectOverrides()
         val key = scheduleSubjectOverridesKey(studentNo)
         dataStore.edit { prefs ->
+            if (!shouldCommit()) throw kotlinx.coroutines.CancellationException("Session changed")
             if (normalized.isEmpty()) {
                 prefs.remove(key)
             } else {
@@ -320,7 +338,7 @@ class GradeCacheStore internal constructor(
         }
     }
 
-    suspend fun clearWidgetScheduleReport(studentNo: String? = null) {
+    suspend fun clearWidgetScheduleReport(studentNo: String? = null) = commitSchedule {
         dataStore.edit { prefs ->
             val owner = prefs[PREF_WIDGET_SCHEDULE_STUDENT_NO]
             if (studentNo == null || owner == studentNo) {
@@ -330,7 +348,7 @@ class GradeCacheStore internal constructor(
         }
     }
 
-    suspend fun clearStudent(studentNo: String, preserveSubjectOverrides: Boolean = false) {
+    suspend fun clearStudent(studentNo: String, preserveSubjectOverrides: Boolean = false) = commitSchedule {
         val structureKey = "structure_$studentNo"
         val studentInfoKey = "student_info_$studentNo"
         val gradePrefix = "grade_${studentNo}_"
@@ -354,7 +372,7 @@ class GradeCacheStore internal constructor(
         }
     }
 
-    suspend fun clearAll(preserveSubjectOverrides: Boolean = false) {
+    suspend fun clearAll(preserveSubjectOverrides: Boolean = false) = commitSchedule {
         dataStore.edit { prefs ->
             if (preserveSubjectOverrides) {
                 prefs.asMap().keys
@@ -366,11 +384,45 @@ class GradeCacheStore internal constructor(
         }
     }
 
-    fun widgetScheduleReportFlow() = combine(dataStore.data, privateSnapshotAllowed) { prefs, allowed ->
-        if (!allowed) return@combine null
-        val serialized = prefs[PREF_WIDGET_SCHEDULE_REPORT] ?: return@combine null
-        runCatching { json.decodeFromString<ScheduleReport>(serialized) }.getOrNull()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun scheduleReportFlow(includeSemesterFallback: Boolean = false) = privateSnapshotAllowed.flatMapLatest { allowed ->
+        if (!allowed) flowOf(null)
+        else dataStore.data.map { prefs ->
+            val serialized = prefs[PREF_WIDGET_SCHEDULE_REPORT] ?: return@map null
+            val report = runCatching { json.decodeFromString<ScheduleReport>(serialized) }.getOrNull()
+                ?: return@map null
+            val today = LocalDate.now(SCHOOL_COURSE_ZONE)
+            val weekRange = report.validWeekRange()
+            val futureWeekWithCourses = weekRange != null && today < weekRange.start &&
+                report.displayItems().any {
+                    it.dayOfWeek in 1..7 && it.subjectName.isNotBlank() && it.periodInterval() != null
+                }
+            if (!includeSemesterFallback || report.scope != ScheduleScope.CURRENT_WEEK ||
+                report.isAuthoritativeWeekOn(today) || futureWeekWithCourses
+            ) return@map report
+
+            val studentNo = prefs[PREF_WIDGET_SCHEDULE_STUDENT_NO] ?: return@map report
+            val semesterKey = if (report.classNo.isNotBlank()) {
+                "${report.yearTermValue}_${report.classNo}"
+            } else {
+                report.yearTermValue
+            }
+            val semester = prefs[stringPreferencesKey("schedule_${studentNo}_$semesterKey")]
+                ?.let { runCatching { json.decodeFromString<ScheduleReport>(it) }.getOrNull() }
+                ?.takeIf { it.scope == ScheduleScope.SEMESTER }
+                ?: return@map report
+            val subjectOverrides = prefs[scheduleSubjectOverridesKey(studentNo)]
+                ?.let { runCatching { json.decodeFromString<List<ScheduleSubjectOverride>>(it) }.getOrNull() }
+                .orEmpty()
+            // ponytail: semester data has no term or holiday dates; use dated exceptions when the school API exposes them.
+            semester.copy(changes = null, subjectOverrides = subjectOverrides)
+        }
     }
+
+    /** Widget UI treats unavailable private snapshots as empty; notification scheduling must retry I/O errors. */
+    fun courseNotificationScheduleReportFlow() = scheduleReportFlow(includeSemesterFallback = true)
+
+    fun widgetScheduleReportFlow() = scheduleReportFlow()
         .catch { error ->
             if (error is CancellationException) throw error
             if (error !is IOException && error !is SessionStorageException) throw error
@@ -405,10 +457,12 @@ class GradeCacheStore internal constructor(
         }
     }
 
-    private fun decodeCachedGradeReport(serialized: String): GradeReport? =
-        runCatching {
-            json.decodeFromString<CachedGradeReport>(serialized).toCurrentGradeReport()
-        }.getOrNull()
+    private suspend fun decodeCachedGradeReport(serialized: String): GradeReport? =
+        withContext(Dispatchers.Default) {
+            runCatching {
+                json.decodeFromString<CachedGradeReport>(serialized).toCurrentGradeReport()
+            }.getOrNull()
+        }
 
     private suspend fun <T> loadCacheValue(label: String, block: suspend () -> T): T? =
         try {

@@ -51,6 +51,8 @@ import com.clhs.score.data.SettingsRepository
 import com.clhs.score.data.ThemeMode
 import com.clhs.score.notifications.NotificationChannels
 import com.clhs.score.notifications.NotificationAction
+import com.clhs.score.notifications.CurrentCourseNotifications
+import com.clhs.score.reminders.AlarmReliabilityCoordinator
 import com.clhs.score.notifications.consumeNotificationAction
 import com.clhs.score.ui.BiometricLockScreen
 import com.clhs.score.ui.ScoreApp
@@ -83,6 +85,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     private val launchSettings = mutableStateOf<AppSettings?>(null)
     private val launchSettingsFailed = mutableStateOf(false)
     private var wasInBackground = false
+    private var shouldApplyPreferredStartOnSchedule = false
     private var shouldLockOnInitialReady = false
     private var isBiometricPromptShowing = false
     private lateinit var sessionStore: SessionStore
@@ -102,9 +105,16 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         launchSettingsFailed.value = false
         lifecycleScope.launch {
             try {
-                launchSettings.value = withContext(Dispatchers.IO) {
+                val settings = withContext(Dispatchers.IO) {
                     SettingsRepository(applicationContext).loadForStartup()
                 }
+                if (shouldApplyPreferredStartOnSchedule && settings.startOnSchedule &&
+                    pendingLaunchTarget.value == null
+                ) {
+                    pendingLaunchTarget.value = AppLaunchTarget.Schedule
+                }
+                shouldApplyPreferredStartOnSchedule = false
+                launchSettings.value = settings
             } catch (_: IOException) {
                 launchSettingsFailed.value = true
             }
@@ -151,10 +161,17 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         }
         enableEdgeToEdge()
         handleIntent(intent)
+        shouldApplyPreferredStartOnSchedule = savedInstanceState == null &&
+            pendingLaunchTarget.value == null &&
+            intent.action == Intent.ACTION_MAIN &&
+            intent.data == null
 
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 super.onStart(owner)
+                lifecycleScope.launch(Dispatchers.IO) {
+                    AlarmReliabilityCoordinator.onAppResume(applicationContext)
+                }
                 if (wasInBackground && !isBiometricPromptShowing) {
                     wasInBackground = false
                     if (hasBiometricSessionForLock()) {
@@ -189,6 +206,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             val settingsUi by settingsVm.uiState.collectAsStateWithLifecycle()
             val isReady by settingsVm.isReady.collectAsStateWithLifecycle()
             val settingsLoadFailed by settingsVm.settingsLoadFailed.collectAsStateWithLifecycle()
+
+            LaunchedEffect(settingsUi.settingsSaveMessage) {
+                settingsUi.settingsSaveMessage?.let { message ->
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                    settingsVm.dismissSettingsSaveMessage()
+                }
+            }
 
             LaunchedEffect(settingsVm) {
                 settingsVm.checkUpdateAutomatically()
@@ -266,7 +290,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     com.clhs.score.widget.refreshScheduleWidgetPreview(applicationContext, appSettings)
                 }
 
-                val useFakeData = BuildConfig.USE_FAKE_DATA || appSettings.demoMode
+                val useFakeData = BuildConfig.USE_FAKE_DATA
                 val scoreVm: ScoreViewModel = viewModel(
                     factory = ScoreViewModel.factory(
                         context = applicationContext,
@@ -394,10 +418,14 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                         onDismissGradeReminderError = scoreVm::clearGradeReminderError,
                         onDismissGradeReminderChanges = scoreVm::dismissGradeReminderChanges,
                         onSetThemeMode = settingsVm::setThemeMode,
+                        onSetStartOnSchedule = settingsVm::setStartOnSchedule,
+                        onCycleProfileAvatarShape = settingsVm::cycleProfileAvatarShape,
                         onSetDynamicColor = settingsVm::setDynamicColor,
                         onSetAmoledBlack = settingsVm::setAmoledBlack,
                         onSetNotificationsEnabled = settingsVm::setNotificationsEnabled,
-                        onSetWeatherSource = settingsVm::setWeatherSource,
+                        onSaveBackgroundPause = settingsVm::saveBackgroundPause,
+                        onSetPreferExactCourseAlarms = settingsVm::setPreferExactCourseAlarms,
+                        onRefreshAlarmSystemState = settingsVm::refreshAlarmSystemState,
                         onSaveCwaApiKey = settingsVm::saveCwaApiKey,
                         onClearCwaApiKey = settingsVm::clearCwaApiKey,
                         onDismissCwaKeyMessage = settingsVm::dismissCwaKeyMessage,
@@ -407,7 +435,6 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                         onDismissUpdateResult = settingsVm::dismissUpdateResult,
                         onVersionTap = settingsVm::onVersionTap,
                         onDismissDeveloperToast = settingsVm::dismissDeveloperToast,
-                        onSetDemoMode = settingsVm::setDemoMode,
                         onDismissRestartDialog = settingsVm::dismissRestartDialog,
                         onExportGrades = { selections -> scoreVm.exportGrades(selections, applicationContext) },
                         onDismissExportResult = scoreVm::dismissExportResult,
@@ -470,6 +497,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         var routeSource: String? = null
 
         when (val action = consumeNotificationAction(applicationContext, intent)) {
+            NotificationAction.OpenSchedule -> {
+                routeSource = AnalyticsValues.SOURCE_NOTIFICATION_GENERAL
+                pendingLaunchTarget.value = AppLaunchTarget.Schedule
+                lifecycleScope.launch(Dispatchers.IO) {
+                    CurrentCourseNotifications.get(applicationContext).refresh()
+                }
+            }
             NotificationAction.CheckUpdate -> {
                 routeSource = AnalyticsValues.SOURCE_NOTIFICATION_UPDATE
                 checkUpdateChannel.trySend(AnalyticsValues.TRIGGER_NOTIFICATION)
@@ -491,7 +525,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
         val data = intent.data
         if (data?.scheme == "scoreapp" && data.host == "schedule") {
-            routeSource = AnalyticsValues.SOURCE_WIDGET_SCHEDULE
+            if (data.getQueryParameter("entry") != "launcher_shortcut") {
+                routeSource = AnalyticsValues.SOURCE_WIDGET_SCHEDULE
+            }
             pendingLaunchTarget.value = AppLaunchTarget.Schedule
             intent.data = null
         }

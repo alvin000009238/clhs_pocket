@@ -18,6 +18,7 @@ import com.clhs.score.data.ScheduleClassOption
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleRepository
 import com.clhs.score.data.ScheduleScope
+import com.clhs.score.data.SCHOOL_COURSE_ZONE
 import com.clhs.score.data.ScheduleSubjectOverride
 import com.clhs.score.data.ScheduleYearTermOption
 import com.clhs.score.data.SchoolGradeClient
@@ -41,6 +42,7 @@ data class ScheduleUiState(
     val isLoading: Boolean = false,
     val isInitialLoading: Boolean = true,
     val isError: Boolean = false,
+    val refreshFailed: Boolean = false,
     val errorMessage: String = "",
     val availableYears: List<ScheduleYearTermOption> = emptyList(),
     val selectedYearValue: String? = null,
@@ -62,7 +64,7 @@ private data class ScheduleQuery(
 class ScheduleViewModel(
     private val repository: ScheduleRepository,
     private val analyticsLogger: AnalyticsLogger = NoOpAnalyticsLogger,
-    private val nowProvider: () -> LocalDateTime = LocalDateTime::now,
+    private val nowProvider: () -> LocalDateTime = { LocalDateTime.now(SCHOOL_COURSE_ZONE) },
 ) : ViewModel() {
     private var scheduleRequestId = 0
     private var scheduleJob: Job? = null
@@ -137,6 +139,7 @@ class ScheduleViewModel(
                 noticeMessage = null,
                 isLoading = false,
                 isError = false,
+                refreshFailed = false,
             )
         }
         if (_uiState.value.availableYears.isEmpty()) {
@@ -308,13 +311,13 @@ class ScheduleViewModel(
         lastScheduleRequest = query
         val requestId = ++scheduleRequestId
         scheduleJob = viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, isError = false, noticeMessage = null) }
+            _uiState.update { it.copy(isLoading = true, isError = false, refreshFailed = false, noticeMessage = null) }
             try {
                 val (year, term) = requireNotNull(parseYearTermOrNull(query.yearValue)) {
                     "學期資料格式錯誤"
                 }
                 
-                val report = repository.fetchSchedule(
+                var report = repository.fetchSchedule(
                     query.yearValue,
                     year,
                     term,
@@ -325,7 +328,19 @@ class ScheduleViewModel(
                 if (requestId != scheduleRequestId) return@launch
                 val now = nowProvider()
                 if (report.shouldRefreshAt(now)) {
-                    lastScheduleRequest = query.copy(targetDate = report.refreshTargetDateAt(now))
+                    val nextQuery = query.copy(targetDate = report.refreshTargetDateAt(now))
+                    lastScheduleRequest = nextQuery
+                    if (nextQuery.targetDate > query.targetDate) {
+                        report = repository.fetchSchedule(
+                            nextQuery.yearValue,
+                            year,
+                            term,
+                            nextQuery.classNo,
+                            nextQuery.scope,
+                            nextQuery.targetDate,
+                        )
+                        if (requestId != scheduleRequestId) return@launch
+                    }
                 }
                 analyticsLogger.logEvent(
                     AnalyticsEvents.SCHEDULE_QUERY,
@@ -363,6 +378,7 @@ class ScheduleViewModel(
                         it.copy(
                             isLoading = false,
                             isError = false,
+                            refreshFailed = true,
                             noticeMessage = "無法更新，暫時顯示已儲存的課表",
                         )
                     } else {
@@ -417,7 +433,9 @@ class ScheduleViewModel(
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val appContext = context.applicationContext
                 val repository = sharedScheduleRepository ?: if (useFakeData) {
-                    FakeScheduleRepository(GradeCacheStore(appContext))
+                    FakeScheduleRepository(
+                        GradeCacheStore(appContext), activeSessionProvider, SessionStore(appContext),
+                    )
                 } else {
                     NetworkScheduleRepository(
                         SchoolGradeClient(),

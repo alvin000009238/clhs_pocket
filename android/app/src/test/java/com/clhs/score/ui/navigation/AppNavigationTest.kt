@@ -17,9 +17,21 @@ class AppNavigationTest {
     }
 
     @Test
+    fun shortLandscapeUsesRailAndBackDoesNotRewindTabHistory() {
+        assertEquals(NavigationSuiteType.NavigationRail, topLevelNavigationType(550.dp, 360.dp))
+        val state = navigationStateForTest()
+        val navigator = AppNavigator(state)
+        navigator.selectTopLevel(TopLevelDestination.Schedule)
+        navigator.selectTopLevel(TopLevelDestination.Grades)
+        navigator.selectTopLevel(TopLevelDestination.Campus)
+        assertTrue(navigator.goBack())
+        assertEquals(OverviewRoute, state.currentRoute)
+    }
+
+    @Test
     fun topLevelInformationArchitectureStaysInProductOrder() {
         assertEquals(
-            listOf("總覽", "課表", "成績", "校園"),
+            listOf("首頁", "課表", "成績", "校園"),
             TopLevelDestination.entries.map(TopLevelDestination::label),
         )
     }

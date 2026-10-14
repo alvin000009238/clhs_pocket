@@ -3,6 +3,32 @@
 import com.google.protobuf.gradle.id
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+abstract class GenerateShortcutResources : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val template: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val labels: RegularFileProperty
+
+    @get:Input
+    abstract val applicationId: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val output = outputDirectory.file("xml/shortcuts.xml").get().asFile
+        output.parentFile.mkdirs()
+        output.writeText(template.get().asFile.readText().replace("\${applicationId}", applicationId.get()))
+        val labelOutput = outputDirectory.file("values/shortcut_labels.xml").get().asFile
+        labelOutput.parentFile.mkdirs()
+        labels.get().asFile.copyTo(labelOutput, overwrite = true)
+    }
+}
+
 val releaseVersionCode = providers.gradleProperty("versionCode")
     .map { it.toInt() }
     .orElse(999)
@@ -13,9 +39,9 @@ val releaseKeystore = providers.environmentVariable("ANDROID_RELEASE_KEYSTORE")
 val releaseKeystorePassword = providers.environmentVariable("ANDROID_RELEASE_KEYSTORE_PASSWORD")
 val releaseKeyAlias = providers.environmentVariable("ANDROID_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = providers.environmentVariable("ANDROID_RELEASE_KEY_PASSWORD")
-val useFakeData = providers.gradleProperty("useFakeData")
-    .map { it.toBoolean() }
-    .orElse(false)
+require(!providers.gradleProperty("useFakeData").isPresent) {
+    "-PuseFakeData is no longer supported; build demoDebug for fake data."
+}
 val hasReleaseSigning = listOf(
     releaseKeystore,
     releaseKeystorePassword,
@@ -24,6 +50,7 @@ val hasReleaseSigning = listOf(
 ).all { it.isPresent }
 
 plugins {
+    id("com.google.devtools.ksp")
     id("com.android.application")
     id("com.google.protobuf")
     id("com.google.gms.google-services")
@@ -32,9 +59,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 protobuf {
     protoc {
-        artifact = "com.google.protobuf:protoc:4.36.1"
+        artifact = "com.google.protobuf:protoc:4.36.2"
     }
     generateProtoTasks {
         all().configureEach {
@@ -57,7 +88,6 @@ android {
         versionName = releaseVersionName.get()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("boolean", "USE_FAKE_DATA", useFakeData.get().toString())
     }
 
     buildFeatures {
@@ -87,6 +117,22 @@ android {
         }
     }
 
+    flavorDimensions += "environment"
+    productFlavors {
+        create("demo") {
+            dimension = "environment"
+            applicationIdSuffix = ".demo"
+            versionNameSuffix = "-demo"
+            buildConfigField("boolean", "USE_FAKE_DATA", "true")
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        create("production") {
+            dimension = "environment"
+            buildConfigField("boolean", "USE_FAKE_DATA", "false")
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -99,20 +145,24 @@ android {
             ndk {
                 abiFilters += "arm64-v8a"
             }
-            if (hasReleaseSigning) {
-                signingConfig = signingConfigs.getByName("release")
-            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
         }
 
+        create("nonMinifiedRelease") {
+            signingConfig = signingConfigs.getByName("debug")
+            ndk {
+                abiFilters.clear()
+                abiFilters += "x86_64"
+            }
+        }
+
         create("benchmark") {
             initWith(getByName("release"))
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
-            buildConfigField("boolean", "USE_FAKE_DATA", "true")
         }
     }
 
@@ -133,6 +183,23 @@ android {
     }
 }
 
+// Static shortcut intents require a literal package, including flavor/build-type suffixes.
+androidComponents.onVariants { variant ->
+    val shortcuts = tasks.register<GenerateShortcutResources>(
+        "generate${variant.name.replaceFirstChar { it.uppercaseChar() }}ShortcutResources",
+    ) {
+        template.set(layout.projectDirectory.file("src/main/shortcuts.xml"))
+        labels.set(layout.projectDirectory.file("src/main/shortcut_labels.xml"))
+        applicationId.set(variant.applicationId)
+        outputDirectory.set(layout.buildDirectory.dir("generated/shortcutResources/${variant.name}"))
+    }
+    variant.sources.res?.addGeneratedSourceDirectory(shortcuts, GenerateShortcutResources::outputDirectory)
+}
+
+// Demo has no Firebase Android app: do not generate production Firebase resources for it.
+tasks.matching { it.name.startsWith("processDemo") && it.name.endsWith("GoogleServices") }
+    .configureEach { enabled = false }
+
 kotlin {
     jvmToolchain(25)
     compilerOptions {
@@ -140,7 +207,14 @@ kotlin {
     }
 }
 
+tasks.withType<Test>().configureEach {
+    // DataStore 1.2.1 bundles protobuf using Unsafe; remove after upstream fixes it.
+    // JEP 498 compatibility is limited to test JVMs, not the Gradle daemon or Android app.
+    jvmArgs("--sun-misc-unsafe-memory-access=allow")
+}
 dependencies {
+    implementation(libs.androidx.room.runtime)
+    ksp(libs.androidx.room.compiler)
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     val firebaseBom = platform("com.google.firebase:firebase-bom:34.19.0")
 
@@ -191,7 +265,6 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    testImplementation(libs.turbine)
     testImplementation(libs.mockwebserver)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

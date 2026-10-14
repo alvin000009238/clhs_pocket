@@ -50,6 +50,7 @@ import com.clhs.score.data.sameTermTrendSource
 import com.clhs.score.data.simulationHistorySource
 import com.clhs.score.reminders.GradeReminderScheduler
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Job
@@ -116,6 +117,7 @@ class ScoreViewModel(
     private val analyticsLogger: AnalyticsLogger = NoOpAnalyticsLogger,
     private val onAuthenticationExpired: () -> Unit = {},
     private val demoMode: Boolean = false,
+    private val analysisDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
     private var session: AuthenticatedSession? = null
     private var authGeneration = 0L
@@ -170,10 +172,7 @@ class ScoreViewModel(
     }
 
     private fun activateDemoSession() {
-        repository.activateSession(FakeData.session)
-        publishAuthenticated(FakeData.session)
-        _gradesState.update { it.copy(studentNo = FakeData.session.studentNo) }
-        loadStructure()
+        loginWithWebViewCookies(FakeData.session.studentNo, "fake=cookie")
     }
 
     private fun observeGradeReminderState() {
@@ -437,7 +436,11 @@ class ScoreViewModel(
                 if (sessionStore?.hasPendingCleanup() == true) {
                     finishLogout(null, "登入狀態已失效")
                 }
-                repository.loginWithCookies(studentNo, cookies)
+                repository.loginWithCookies(studentNo, cookies).also {
+                    if (demoMode) appContext?.let { context ->
+                        com.clhs.score.widget.syncAllScheduleWidgets(context)
+                    }
+                }
             }.onSuccess { authenticatedSession ->
                 resetSubjectTrendState()
                 publishAuthenticated(authenticatedSession)
@@ -949,7 +952,7 @@ class ScoreViewModel(
         }
     }
 
-    private fun applyFetchedReportAndLoadHistory(
+    private suspend fun applyFetchedReportAndLoadHistory(
         requestId: Int,
         currentSession: AuthenticatedSession,
         yearValue: String,
@@ -973,7 +976,8 @@ class ScoreViewModel(
                 AnalyticsParams.SUBJECT_COUNT_BUCKET to AnalyticsParameterSanitizer.countBucket(report.subjects.size),
             ),
         )
-        val analysis = buildGradeAnalysis(report)
+        val analysis = withContext(analysisDispatcher) { buildGradeAnalysis(report) }
+        if (requestId != gradeRequestId) return
         _gradesState.update {
             it.copy(
                 isLoadingGrades = false,
@@ -1086,8 +1090,8 @@ class ScoreViewModel(
                     reportsByRequest[request]
                 }
                 val comparison = comparisonPairs.lastOrNull()
-                val trend = trendPairs.takeIf { it.size >= 2 }?.let(::buildGradeTrend)
-                _gradesState.update {
+                val (trend, analysis) = withContext(analysisDispatcher) {
+                    val trend = trendPairs.takeIf { it.size >= 2 }?.let(::buildGradeTrend)
                     val analysis = if (comparison != null) {
                         buildGradeAnalysis(
                             report = report,
@@ -1097,6 +1101,10 @@ class ScoreViewModel(
                     } else {
                         buildGradeAnalysis(report)
                     }
+                    trend to analysis
+                }
+                if (requestId != gradeRequestId) return@onSuccess
+                _gradesState.update {
                     it.copy(
                         isLoadingComparison = false,
                         isLoadingTrend = false,
@@ -1192,7 +1200,10 @@ class ScoreViewModel(
                 val appContext = context.applicationContext
                 if (useFakeData) {
                     return ScoreViewModel(
-                        repository = com.clhs.score.data.FakeGradeRepository(),
+                        repository = com.clhs.score.data.FakeGradeRepository(
+                            SessionStore(appContext), GradeCacheStore(appContext),
+                        ),
+                        sessionStore = SessionStore(appContext),
                         appContext = appContext,
                         analyticsLogger = FirebaseAnalyticsLogger(appContext),
                         onAuthenticationExpired = onAuthenticationExpired,

@@ -1,11 +1,16 @@
 package com.clhs.score.ui
 
+import com.clhs.score.ui.navigation.navigationContentPadding
+
 import android.Manifest
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -52,6 +57,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
@@ -65,9 +71,11 @@ import com.clhs.score.data.ALL_UNITS_ID
 import com.clhs.score.data.ANNOUNCEMENT_REMINDER_INTERVALS_MINUTES
 import com.clhs.score.data.AnnouncementUnit
 import com.clhs.score.notifications.canPostNotifications
+import com.clhs.score.notifications.NotificationChannels
 import com.clhs.score.notifications.hasPostNotificationsPermission
-import com.clhs.score.notifications.openAppNotificationSettings
+import com.clhs.score.notifications.openNotificationChannelSettings
 import com.clhs.score.notifications.shouldShowPostNotificationsRationale
+import com.clhs.score.ui.theme.PocketMotion
 import com.clhs.score.viewmodel.AnnouncementReminderCheckResult
 import com.clhs.score.viewmodel.AnnouncementReminderUiState
 import java.time.Instant
@@ -90,20 +98,30 @@ fun AnnouncementReminderSettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var awaitingNotificationSettings by rememberSaveable { mutableStateOf(false) }
     var permissionDenied by rememberSaveable { mutableStateOf(false) }
+    var notificationsAvailable by remember {
+        mutableStateOf(context.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID))
+    }
     val currentOnSetEnabled by rememberUpdatedState(onSetEnabled)
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        currentOnSetEnabled(granted)
+        notificationsAvailable = context.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)
+        if (notificationsAvailable) currentOnSetEnabled(true)
         permissionDenied = !granted
         if (!granted) Toast.makeText(context, "未取得通知權限", Toast.LENGTH_SHORT).show()
+        else if (!notificationsAvailable) {
+            Toast.makeText(context, "請在系統設定中開啟公告通知", Toast.LENGTH_SHORT).show()
+        }
     }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && awaitingNotificationSettings) {
-                awaitingNotificationSettings = false
-                currentOnSetEnabled(context.canPostNotifications())
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationsAvailable = context.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)
+                if (awaitingNotificationSettings) {
+                    awaitingNotificationSettings = false
+                    if (notificationsAvailable) currentOnSetEnabled(true)
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -113,14 +131,14 @@ fun AnnouncementReminderSettingsScreen(
     fun setEnabled(enabled: Boolean) {
         when {
             !enabled -> onSetEnabled(false)
-            context.canPostNotifications() -> onSetEnabled(true)
+            context.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID) -> onSetEnabled(true)
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 !context.hasPostNotificationsPermission() &&
                 (!permissionDenied || context.shouldShowPostNotificationsRationale()) ->
                 permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             else -> {
                 awaitingNotificationSettings = true
-                if (context.openAppNotificationSettings()) {
+                if (context.openNotificationChannelSettings(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)) {
                     Toast.makeText(context, "請在系統設定中開啟通知", Toast.LENGTH_SHORT).show()
                 } else {
                     awaitingNotificationSettings = false
@@ -131,14 +149,18 @@ fun AnnouncementReminderSettingsScreen(
     }
 
     val reminder = uiState.reminder
+    val notificationBlocked = reminder.enabled && !notificationsAvailable
     val units = rememberReminderUnits(uiState)
     val unitSummary = announcementUnitSummary(units, reminder.selectedUnitIds)
     val statusSummary = if (!uiState.isStateAvailable) {
         if (uiState.stateLoadFailed) "無法讀取設定，正在重試" else "正在讀取設定"
+    } else if (notificationBlocked) {
+        "通知已關閉，背景檢查暫停"
     } else buildString {
         if (!reminder.enabled) append("開啟後")
         append("每 ${announcementIntervalLabel(reminder.intervalMinutes)} · $unitSummary")
     }
+    val statusSummaryMotion = PocketMotion.stateChange<Float>()
     val checkResult = uiState.checkResult
 
     LaunchedEffect(checkResult) {
@@ -154,11 +176,11 @@ fun AnnouncementReminderSettingsScreen(
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
+            contentPadding = navigationContentPadding(PaddingValues(horizontal = 16.dp, vertical = 20.dp)),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
-                val contentColor = if (reminder.enabled) {
+                val contentColor = if (reminder.enabled && !notificationBlocked) {
                     MaterialTheme.colorScheme.onSecondaryContainer
                 } else {
                     MaterialTheme.colorScheme.onSurface
@@ -166,7 +188,7 @@ fun AnnouncementReminderSettingsScreen(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.extraLarge,
-                    color = if (reminder.enabled) {
+                    color = if (reminder.enabled && !notificationBlocked) {
                         MaterialTheme.colorScheme.secondaryContainer
                     } else {
                         MaterialTheme.colorScheme.surfaceContainerHigh
@@ -180,12 +202,13 @@ fun AnnouncementReminderSettingsScreen(
                                 value = reminder.enabled,
                                 enabled = !uiState.isChecking && uiState.isStateAvailable,
                                 role = Role.Switch,
-                                onValueChange = ::setEnabled,
+                                onValueChange = hapticToggle(::setEnabled),
                             )
                             .semantics {
                                 stateDescription = when {
                                     !uiState.isStateAvailable -> "設定狀態未知"
                                     uiState.isChecking -> "正在開啟"
+                                    notificationBlocked -> "已開啟，等待通知設定"
                                     reminder.enabled -> "已開啟"
                                     else -> "已關閉"
                                 }
@@ -194,7 +217,7 @@ fun AnnouncementReminderSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
-                        if (reminder.enabled) {
+                        if (reminder.enabled && !notificationBlocked) {
                             FilledRoundedSymbol(
                                 "notifications_active",
                                 size = 32.dp,
@@ -215,6 +238,7 @@ fun AnnouncementReminderSettingsScreen(
                                 when {
                                     !uiState.isStateAvailable -> "提醒狀態暫時無法確認"
                                     uiState.isChecking -> "正在開啟提醒"
+                                    notificationBlocked -> "等待通知開啟"
                                     reminder.enabled -> "提醒已開啟"
                                     else -> "提醒已暫停"
                                 },
@@ -223,6 +247,13 @@ fun AnnouncementReminderSettingsScreen(
                             )
                             AnimatedContent(
                                 targetState = statusSummary,
+                                modifier = Modifier.clearAndSetSemantics {
+                                    contentDescription = statusSummary
+                                },
+                                transitionSpec = {
+                                    (fadeIn(statusSummaryMotion) togetherWith
+                                        fadeOut(statusSummaryMotion)).using(null)
+                                },
                                 label = "公告更新提醒狀態",
                             ) { summary ->
                                 Text(
@@ -248,6 +279,18 @@ fun AnnouncementReminderSettingsScreen(
                             Switch(checked = reminder.enabled, onCheckedChange = null)
                         }
                     }
+                }
+            }
+            if (notificationBlocked) {
+                item {
+                    TextButton(
+                        shapes = androidx.compose.material3.ButtonDefaults.shapes(),
+                        onClick = hapticClick {
+                            if (!context.openNotificationChannelSettings(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)) {
+                                Toast.makeText(context, "請手動到系統設定開啟公告通知", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    ) { Text("開啟公告通知設定") }
                 }
             }
             item {
@@ -464,7 +507,7 @@ fun AnnouncementReminderUnitsScreen(
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            contentPadding = navigationContentPadding(PaddingValues(horizontal = 16.dp, vertical = 16.dp)),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {

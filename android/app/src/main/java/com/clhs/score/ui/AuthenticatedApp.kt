@@ -2,19 +2,22 @@
 
 package com.clhs.score.ui
 
+import androidx.compose.ui.unit.dp
+
 import androidx.activity.compose.ReportDrawnWhen
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -22,6 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
@@ -42,10 +48,10 @@ import com.clhs.score.data.SchoolGradeClient
 import com.clhs.score.data.ScheduleRepository
 import com.clhs.score.data.SessionStore
 import com.clhs.score.data.ThemeMode
-import com.clhs.score.data.WeatherSource
 import com.clhs.score.data.safeAnnouncementWebUrl
 import com.clhs.score.data.schoolAnnouncementOfficialUrl
 import com.clhs.score.domain.overview.OverviewDestination
+import com.clhs.score.ui.calendar.toCalendarInsertIntent
 import com.clhs.score.ui.navigation.AppNavigator
 import com.clhs.score.ui.navigation.AppLaunchTarget
 import com.clhs.score.ui.navigation.AppRoute
@@ -56,13 +62,18 @@ import com.clhs.score.ui.navigation.AppearanceRoute
 import com.clhs.score.ui.navigation.WorkManagerInfoRoute
 import com.clhs.score.ui.navigation.AuthenticatedAppShell
 import com.clhs.score.ui.navigation.CampusRoute
+import com.clhs.score.ui.navigation.CampusSearchRoute
+import com.clhs.score.ui.navigation.CourseNotificationSettingsRoute
 import com.clhs.score.ui.navigation.DeveloperSettingsRoute
 import com.clhs.score.ui.navigation.GradesRoute
 import com.clhs.score.ui.navigation.OpenSourceLicensesRoute
 import com.clhs.score.ui.navigation.OverviewRoute
 import com.clhs.score.ui.navigation.PersonalRoute
 import com.clhs.score.ui.navigation.ScheduleRoute
+import com.clhs.score.ui.navigation.SettingsTransferRoute
 import com.clhs.score.ui.navigation.ScheduleCustomizationsRoute
+import com.clhs.score.ui.navigation.BackgroundPauseSettingsRoute
+import com.clhs.score.ui.navigation.ScheduleReliabilitySettingsRoute
 import com.clhs.score.ui.navigation.SchoolAnnouncementDetailRoute
 import com.clhs.score.ui.navigation.SchoolAnnouncementsRoute
 import com.clhs.score.ui.navigation.SchoolCalendarRoute
@@ -83,13 +94,18 @@ import com.clhs.score.ui.navigation.rememberAppNavigationState
 import com.clhs.score.ui.navigation.toEntries
 import com.clhs.score.ui.navigation.topLevelNavigationMetadata
 import com.clhs.score.ui.overview.OverviewScreen
+import com.clhs.score.ui.overview.OverviewDashboard
+import com.clhs.score.ui.overview.OverviewEditorActions
+import com.clhs.score.ui.theme.PocketMotion
 import com.clhs.score.viewmodel.GradesUiState
 import com.clhs.score.viewmodel.LoginUiState
 import com.clhs.score.viewmodel.OverviewViewModel
+import com.clhs.score.domain.overview.forGeneration
 import com.clhs.score.viewmodel.ScheduleViewModel
 import com.clhs.score.viewmodel.ScheduleCustomizationsViewModel
 import com.clhs.score.viewmodel.SchoolAnnouncementDetailViewModel
 import com.clhs.score.viewmodel.SchoolAnnouncementsViewModel
+import com.clhs.score.viewmodel.AnnouncementBookmarksViewModel
 import com.clhs.score.viewmodel.SchoolCalendarViewModel
 import com.clhs.score.viewmodel.ScoreViewModel
 import com.clhs.score.viewmodel.SettingsUiState
@@ -126,19 +142,22 @@ fun AppShell(
     onDismissGradeReminderError: () -> Unit,
     onDismissGradeReminderChanges: () -> Unit,
     onSetThemeMode: (ThemeMode) -> Unit,
+    onSetStartOnSchedule: (Boolean) -> Unit,
+    onCycleProfileAvatarShape: () -> Unit,
     onSetDynamicColor: (Boolean) -> Unit,
     onSetAmoledBlack: (Boolean) -> Unit,
     onSetNotificationsEnabled: (Boolean) -> Unit,
+    onSaveBackgroundPause: suspend (com.clhs.score.data.BackgroundPause) -> Boolean,
+    onSetPreferExactCourseAlarms: (Boolean) -> Unit,
+    onRefreshAlarmSystemState: () -> Unit,
     onCheckUpdate: () -> Unit,
     onVersionTap: () -> Unit,
     onDismissDeveloperToast: () -> Unit,
-    onSetDemoMode: (Boolean) -> Unit,
     onDismissRestartDialog: () -> Unit,
     onExportGrades: (List<ExamSelection>) -> Unit,
     onDismissExportResult: () -> Unit,
     analyticsLogger: AnalyticsLogger,
     onSetBiometricEnabled: (Boolean, String?) -> Unit,
-    onSetWeatherSource: (WeatherSource) -> Unit,
     onSaveCwaApiKey: (String) -> Unit,
     onClearCwaApiKey: () -> Unit,
     onDismissCwaKeyMessage: () -> Unit,
@@ -149,9 +168,23 @@ fun AppShell(
     val navigator = remember(navigationState) { AppNavigator(navigationState) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
-    val navigationMotion = MaterialTheme.motionScheme
-    val useFakeData = BuildConfig.USE_FAKE_DATA || settings.demoMode
-    val currentAuthState = rememberUpdatedState(authState)
+    fun openAnnouncement(announcement: com.clhs.score.data.SchoolAnnouncement) {
+        if (announcement.contentType.equals("url", ignoreCase = true)) {
+            if (announcement.externalUrl != null) {
+                if (context.openAnnouncementUrl(announcement.externalUrl)) {
+                    announcementReminderViewModel.markRead(announcement.id)
+                }
+            } else android.widget.Toast.makeText(
+                context,
+                "這則消息的連結無法開啟",
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        } else {
+            navigator.navigate(SchoolAnnouncementDetailRoute(announcement.id, announcement.category))
+        }
+    }
+    val navigationMotion = PocketMotion.navigation()
+    val useFakeData = BuildConfig.USE_FAKE_DATA
     val authGeneration = (authState as? AuthState.Authenticated)?.generation ?: 0L
     val schoolWebsiteInBackStack = navigationState.backStacks[CampusRoute]
         ?.contains(SchoolWebsiteRoute) == true
@@ -160,7 +193,11 @@ fun AppShell(
     val scheduleRepository: ScheduleRepository = remember(useFakeData, scoreViewModel) {
         val appContext = context.applicationContext
         if (useFakeData) {
-            FakeScheduleRepository(GradeCacheStore(appContext))
+            FakeScheduleRepository(
+                GradeCacheStore(appContext),
+                scoreViewModel::getCurrentSession,
+                SessionStore(appContext),
+            )
         } else {
             NetworkScheduleRepository(
                 client = SchoolGradeClient(),
@@ -168,7 +205,7 @@ fun AppShell(
                 cacheStore = GradeCacheStore(appContext),
                 activeSessionProvider = scoreViewModel::getCurrentSession,
                 sessionAccessAllowedProvider = {
-                    currentAuthState.value is AuthState.Authenticated
+                    scoreViewModel.authState.value is AuthState.Authenticated
                 },
                 onAuthenticationExpired = scoreViewModel::handleSessionExpired,
             )
@@ -178,18 +215,36 @@ fun AppShell(
         factory = OverviewViewModel.factory(
             context = context,
             useFakeData = useFakeData,
+            authState = scoreViewModel.authState,
             activeSessionProvider = scoreViewModel::getCurrentSession,
             sharedScheduleRepository = scheduleRepository,
         ),
     )
-    val overviewState by overviewViewModel.uiState.collectAsStateWithLifecycle()
+    val overviewEditor by overviewViewModel.editor.collectAsStateWithLifecycle()
+    val collectedOverviewState by overviewViewModel.uiState.collectAsStateWithLifecycle()
+    val overviewState = collectedOverviewState.forGeneration((authState as? AuthState.Authenticated)?.generation)
     val showUpdateBadge = settingsUiState.updateState is UpdateState.UpdateAvailable
 
-    ReportDrawnWhen { !overviewState.isInitialLoading }
-
-    LaunchedEffect(authState) {
-        overviewViewModel.refresh()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val overviewVisible = navigationState.currentRoute == OverviewRoute
+    DisposableEffect(lifecycleOwner, overviewVisible, overviewViewModel) {
+        val lifecycle = lifecycleOwner.lifecycle
+        overviewViewModel.setClockEnabled(overviewVisible && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> overviewViewModel.setClockEnabled(overviewVisible)
+                Lifecycle.Event.ON_STOP -> overviewViewModel.setClockEnabled(false)
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            overviewViewModel.setClockEnabled(false)
+        }
     }
+
+    ReportDrawnWhen { !overviewState.isInitialLoading }
 
     LaunchedEffect(navigationState.currentRoute) {
         val route = navigationState.currentRoute as? AppRoute ?: return@LaunchedEffect
@@ -252,7 +307,21 @@ fun AppShell(
         if (launchTarget is AppLaunchTarget.GradeExam) onLaunchTargetHandled()
     }
 
-    fun requestLogin() = navigator.openWebViewLogin()
+    fun requestLogin() {
+        if (!useFakeData) navigator.openWebViewLogin()
+        else {
+            onboardingLoginPending = navigationState.currentBackStack.any { route ->
+                (route as? AppRoute)?.isOnboardingRoute() == true
+            }
+            onWebViewLoginSuccess(com.clhs.score.data.FakeData.session.studentNo, "fake=cookie")
+        }
+    }
+    LaunchedEffect(announcementReminderUiState.readingError) {
+        announcementReminderUiState.readingError?.let { message ->
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+            announcementReminderViewModel.consumeReadingError()
+        }
+    }
 
     fun finishOnboarding() {
         onboardingLoginPending = false
@@ -274,12 +343,24 @@ fun AppShell(
         if (isOnboardingLogin) onboardingLoginPending = true
     }
 
+    val rootAuthFallback: @Composable () -> Unit = {
+        RootFloatingScaffold(dynamicColor = settings.dynamicColor,
+            actions = { AccountIconButton(onClick = { navigator.navigate(PersonalRoute) },
+                showUpdateBadge = showUpdateBadge, animateShape = false) }) { padding, header ->
+            androidx.compose.foundation.layout.Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
+                header()
+                AuthGate(authState, com.clhs.score.ui.navigation.AuthRequirement.Session,
+                    ::requestLogin) {}
+            }
+        }
+    }
+
     AuthenticatedAppShell(
         navigationState = navigationState,
         navigator = navigator,
-        unreadAnnouncementCount = announcementReminderUiState.reminder.unreadIds.size,
+        unreadAnnouncementCount = announcementReminderUiState.unreadIds.size,
     ) {
-        val topLevelTransitions = topLevelNavigationMetadata(navigationMotion)
+        val topLevelTransitions = topLevelNavigationMetadata()
         val appEntryProvider = entryProvider<NavKey> {
                 entry<WelcomeRoute> {
                     OnboardingWelcomeScreen(
@@ -306,16 +387,42 @@ fun AppShell(
                 entry<AccountRoute> {
                     OnboardingAccountScreen(
                         onBack = { navigator.goBack() },
-                        onLogin = { navigator.openWebViewLogin() },
+                        onLogin = ::requestLogin,
                         onSkip = ::finishOnboarding,
                     )
                 }
                 entry<OverviewRoute>(metadata = topLevelTransitions) {
                     val context = LocalContext.current
-                    OverviewScreen(
+                    val bookmarksViewModel = androidx.lifecycle.viewmodel.compose.viewModel<AnnouncementBookmarksViewModel>(
+                        factory = AnnouncementBookmarksViewModel.factory(context),
+                    )
+                    val bookmarksUiState by bookmarksViewModel.uiState.collectAsStateWithLifecycle()
+                    OverviewDashboard(
                         state = overviewState,
-                        onSavePreferences = overviewViewModel::savePreferences,
+                        bookmarksUiState = bookmarksUiState,
+                        onRetryBookmarks = bookmarksViewModel::retry,
+                        dynamicColor = settings.dynamicColor,
+                        unreadAnnouncementIds = announcementReminderUiState.unreadIds,
+                        isReadingAvailable = announcementReminderUiState.isReadingAvailable,
+                        editor = overviewEditor,
+                        showNewWidgetBadge = !settings.hasSeenYouBikeWidget,
+                        actions = remember(overviewViewModel) { OverviewEditorActions(
+                            overviewViewModel::beginEditing, overviewViewModel::cancelEditing, overviewViewModel::saveLayout,
+                            overviewViewModel::putWidget, overviewViewModel::removeWidget, overviewViewModel::moveWidget,
+                            overviewViewModel::resetLayout, overviewViewModel::undoReset,
+                            overviewViewModel::searchLocations, overviewViewModel::searchStations, overviewViewModel::retryLayout,
+                            overviewViewModel::markYouBikeWidgetSeen,
+                            overviewViewModel::prepareLayoutOrder,
+                        ) },
+                        cwaKeyConfigured = settingsUiState.cwaKeyConfigured,
+                        cwaKeySaving = settingsUiState.isSavingCwaKey,
+                        cwaKeyMessage = settingsUiState.cwaKeyMessage,
+                        onSaveCwaApiKey = onSaveCwaApiKey,
+                        onClearCwaApiKey = onClearCwaApiKey,
+                        onDismissCwaKeyMessage = onDismissCwaKeyMessage,
+                        onRefreshWeather = overviewViewModel::refreshWeather,
                         onRefresh = overviewViewModel::refresh,
+                        onRefreshYouBike = overviewViewModel::refreshYouBike,
                         onOpenPersonal = { navigator.navigate(PersonalRoute) },
                         authState = authState,
                         onRequestLogin = ::requestLogin,
@@ -336,7 +443,9 @@ fun AppShell(
                                 }
                                 is OverviewDestination.Announcement -> {
                                     if (destination.externalUrl != null) {
-                                        context.openAnnouncementUrl(destination.externalUrl)
+                                        if (context.openAnnouncementUrl(destination.externalUrl)) {
+                                            announcementReminderViewModel.markRead(destination.id)
+                                        }
                                     } else {
                                         navigator.navigate(
                                             SchoolAnnouncementDetailRoute(destination.id, destination.category),
@@ -348,10 +457,18 @@ fun AppShell(
                     )
                 }
                 entry<ScheduleRoute>(metadata = topLevelTransitions) {
+                    val courseMenu: @Composable (() -> Unit) -> Unit = { dismiss ->
+                        com.clhs.score.ui.schedule.CourseNotificationMenu(
+                            onOpen = { navigator.navigate(CourseNotificationSettingsRoute) },
+                            dismiss = dismiss,
+                        )
+                    }
                     AuthGate(
                         authState = authState,
                         requirement = ScheduleRoute.authRequirement(),
                         onRequestLogin = ::requestLogin,
+                        fallback = rootAuthFallback,
+                        restoring = rootAuthFallback,
                     ) {
                         val context = LocalContext.current
                         val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<ScheduleViewModel>(
@@ -372,10 +489,12 @@ fun AppShell(
                         }
                         com.clhs.score.ui.schedule.ScheduleScreen(
                             uiState = uiState,
+                            dynamicColor = settings.dynamicColor,
+                            notificationMenu = courseMenu,
                             onOpenPersonal = { navigator.navigate(PersonalRoute) },
                             showUpdateBadge = showUpdateBadge,
                             onOpenSubjectCustomizations = { navigator.navigate(ScheduleCustomizationsRoute) },
-                            onRefresh = viewModel::refresh,
+                            onRefresh = hapticClick(viewModel::refresh),
                             onYearSelected = viewModel::selectYear,
                             onClassSelected = viewModel::selectClass,
                             onScopeSelected = viewModel::selectScope,
@@ -383,6 +502,21 @@ fun AppShell(
                             onClearSelection = viewModel::clearSelection,
                             onNoticeShown = viewModel::consumeNotice,
                             onSaveSubjectOverride = viewModel::saveSubjectOverride,
+                        )
+                    }
+                }
+                entry<CourseNotificationSettingsRoute> {
+                    AuthGate(
+                        authState = authState,
+                        requirement = CourseNotificationSettingsRoute.authRequirement(),
+                        onRequestLogin = ::requestLogin,
+                    ) {
+                        com.clhs.score.ui.schedule.CourseNotificationSettingsScreen(
+                            allowed = authState is AuthState.Authenticated,
+                            onBack = { navigator.goBack() },
+                            onOpenScheduleReliability = {
+                                navigator.navigate(ScheduleReliabilitySettingsRoute)
+                            },
                         )
                     }
                 }
@@ -422,9 +556,12 @@ fun AppShell(
                         authState = authState,
                         requirement = GradesRoute.authRequirement(),
                         onRequestLogin = ::requestLogin,
+                        fallback = rootAuthFallback,
+                        restoring = rootAuthFallback,
                     ) {
                         GradesScreen(
                             state = gradesState,
+                            dynamicColor = settings.dynamicColor,
                             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                             onSelectYear = onSelectYear,
                             onSelectExam = onSelectExam,
@@ -485,13 +622,42 @@ fun AppShell(
                 }
                 entry<CampusRoute>(metadata = topLevelTransitions) {
                     CampusScreen(
+                        dynamicColor = settings.dynamicColor,
                         state = overviewState,
-                        unreadAnnouncementCount = announcementReminderUiState.reminder.unreadIds.size,
+                        unreadAnnouncementCount = announcementReminderUiState.unreadIds.size,
                         onOpenPersonal = { navigator.navigate(PersonalRoute) },
                         showUpdateBadge = showUpdateBadge,
                         onOpenAnnouncements = { navigator.navigate(SchoolAnnouncementsRoute) },
                         onOpenCalendar = { navigator.navigate(SchoolCalendarRoute()) },
-                        onOpenSchoolWebsite = { navigator.navigate(SchoolWebsiteRoute) },
+                        onOpenSearch = { navigator.navigate(CampusSearchRoute) },
+                        onOpenSchoolWebsite = if (useFakeData) null else { { navigator.navigate(SchoolWebsiteRoute) } },
+                    )
+                }
+                entry<CampusSearchRoute> {
+                    val announcementsViewModel = androidx.lifecycle.viewmodel.compose.viewModel<SchoolAnnouncementsViewModel>(
+                        factory = SchoolAnnouncementsViewModel.factory(context),
+                    )
+                    val calendarViewModel = androidx.lifecycle.viewmodel.compose.viewModel<SchoolCalendarViewModel>(
+                        factory = SchoolCalendarViewModel.factory(context),
+                    )
+                    val announcements by announcementsViewModel.uiState.collectAsStateWithLifecycle()
+                    val calendar by calendarViewModel.uiState.collectAsStateWithLifecycle()
+                    CampusSearchScreen(
+                        announcements = announcements,
+                        calendar = calendar,
+                        unreadIds = announcementReminderUiState.unreadIds,
+                        onBack = { navigator.goBack() },
+                        onSearch = { keyword ->
+                            if (keyword != announcementsViewModel.uiState.value.searchQuery) {
+                                announcementsViewModel.search(keyword)
+                            }
+                            calendarViewModel.search(keyword)
+                        },
+                        onRetryAnnouncements = announcementsViewModel::refresh,
+                        onRetryCalendar = calendarViewModel::refresh,
+                        onLoadMore = announcementsViewModel::loadMore,
+                        onOpenAnnouncement = ::openAnnouncement,
+                        onOpenCalendarEvent = { navigator.navigate(SchoolCalendarRoute(it.id)) },
                     )
                 }
                 entry<SchoolCalendarRoute> { route ->
@@ -507,6 +673,19 @@ fun AppShell(
                         onRefresh = viewModel::refresh,
                         onSearch = viewModel::search,
                         onClearSearch = viewModel::clearSearch,
+                        onAddToSystemCalendar = { event ->
+                            event.toCalendarInsertIntent()?.let { intent ->
+                                try {
+                                    context.startActivity(intent)
+                                } catch (_: android.content.ActivityNotFoundException) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "找不到可新增活動的行事曆 App",
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            }
+                        },
                         onOpenGoogleCalendar = {
                             runCatching {
                                 context.startActivity(
@@ -531,29 +710,29 @@ fun AppShell(
                     val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<SchoolAnnouncementsViewModel>(
                         factory = SchoolAnnouncementsViewModel.factory(context),
                     )
+                    val bookmarksViewModel = androidx.lifecycle.viewmodel.compose.viewModel<AnnouncementBookmarksViewModel>(
+                        factory = AnnouncementBookmarksViewModel.factory(context),
+                    )
                     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+                    val bookmarksUiState by bookmarksViewModel.uiState.collectAsStateWithLifecycle()
                     com.clhs.score.ui.announcements.SchoolAnnouncementsScreen(
                         uiState = uiState,
-                        unreadIds = announcementReminderUiState.reminder.unreadIds,
+                        bookmarksUiState = bookmarksUiState,
+                        onToggleBookmark = bookmarksViewModel::toggle,
+                        onBookmarkMessageConsumed = bookmarksViewModel::consumeMessage,
+                        onRetryBookmarks = bookmarksViewModel::retry,
+                        unreadIds = announcementReminderUiState.unreadIds,
+                        isReadingAvailable = announcementReminderUiState.isReadingAvailable,
+                        isMarkingAllRead = announcementReminderUiState.isMarkingAllRead,
+                        onMarkAllRead = announcementReminderViewModel::markAllRead,
                         onBack = { navigator.goBack() },
                         onRefresh = viewModel::refresh,
                         onLoadMore = viewModel::loadMore,
                         onSearch = viewModel::search,
                         onClearSearch = viewModel::clearSearch,
-                        onOpenAnnouncement = { announcement ->
-                            if (announcement.contentType.equals("url", ignoreCase = true)) {
-                                announcement.externalUrl?.let(context::openAnnouncementUrl)
-                                    ?: android.widget.Toast.makeText(
-                                        context,
-                                        "這則消息的連結無法開啟",
-                                        android.widget.Toast.LENGTH_SHORT,
-                                    ).show()
-                            } else {
-                                navigator.navigate(
-                                    SchoolAnnouncementDetailRoute(announcement.id, announcement.category),
-                                )
-                            }
-                        },
+                        onSetFilters = viewModel::setFilters,
+                        onRefreshFilters = viewModel::refreshFilters,
+                        onOpenAnnouncement = ::openAnnouncement,
                         onOpenOfficialWebsite = {
                             context.openAnnouncementUrl(SCHOOL_ANNOUNCEMENTS_WEB_URL)
                         },
@@ -577,7 +756,7 @@ fun AppShell(
                         uiState = uiState,
                         onBack = { navigator.goBack() },
                         onRetry = viewModel::retry,
-                        onOpenUrl = context::openAnnouncementUrl,
+                        onOpenUrl = { context.openAnnouncementUrl(it) },
                         officialUrl = schoolAnnouncementOfficialUrl(route.id),
                     )
                 }
@@ -603,14 +782,12 @@ fun AppShell(
                         uiState = settingsUiState,
                         onBack = { navigator.goBack() },
                         onSetThemeMode = onSetThemeMode,
+                        onSetStartOnSchedule = onSetStartOnSchedule,
+                        onCycleProfileAvatarShape = onCycleProfileAvatarShape,
                         onSetDynamicColor = onSetDynamicColor,
                         onSetAmoledBlack = onSetAmoledBlack,
                         onSetNotificationsEnabled = onSetNotificationsEnabled,
                         onSetBiometricEnabled = onSetBiometricEnabled,
-                        onSetWeatherSource = onSetWeatherSource,
-                        onSaveCwaApiKey = onSaveCwaApiKey,
-                        onClearCwaApiKey = onClearCwaApiKey,
-                        onDismissCwaKeyMessage = onDismissCwaKeyMessage,
                         onCheckUpdate = onCheckUpdate,
                         onVersionTap = onVersionTap,
                         onDismissDeveloperToast = onDismissDeveloperToast,
@@ -618,6 +795,8 @@ fun AppShell(
                         onOpenSourceLicenses = { navigator.navigate(OpenSourceLicensesRoute) },
                         onOpenDeveloperSettings = { navigator.navigate(DeveloperSettingsRoute) },
                         onOpenWorkManagerInfo = { navigator.navigate(WorkManagerInfoRoute) },
+                        onOpenBackgroundPauseSettings = { navigator.navigate(BackgroundPauseSettingsRoute) },
+                        onOpenScheduleReliabilitySettings = { navigator.navigate(ScheduleReliabilitySettingsRoute) },
                         onLogout = onLogout,
                     )
                 }
@@ -645,6 +824,31 @@ fun AppShell(
                 entry<WorkManagerInfoRoute> {
                     WorkManagerInfoScreen(onBack = { navigator.goBack() })
                 }
+                entry<BackgroundPauseSettingsRoute> {
+                    BackgroundPauseSettingsScreen(
+                        settings = settings.backgroundPause,
+                        onBack = { navigator.goBack() },
+                        onSave = onSaveBackgroundPause,
+                    )
+                }
+                entry<ScheduleReliabilitySettingsRoute> {
+                    ScheduleReliabilitySettingsScreen(
+                        settings = settings,
+                        onBack = { navigator.goBack() },
+                        onSetPreferExactAlarms = onSetPreferExactCourseAlarms,
+                        onRefreshSystemState = onRefreshAlarmSystemState,
+                    )
+                }
+                entry<SettingsTransferRoute> {
+                    val transfer = androidx.lifecycle.viewmodel.compose.viewModel<com.clhs.score.viewmodel.SettingsTransferViewModel>(
+                        factory = com.clhs.score.viewmodel.SettingsTransferViewModel.factory(context, scheduleRepository,
+                            { if (scoreViewModel.authState.value is AuthState.Authenticated) scoreViewModel.getCurrentSession() else null },
+                            overviewViewModel::onLayoutRestored),
+                    )
+                    LaunchedEffect(authGeneration, authState is AuthState.Authenticated) { transfer.onAccountChanged() }
+                    val transferState by transfer.state.collectAsStateWithLifecycle()
+                    SettingsTransferScreen(transferState, transfer, onBack = { navigator.goBack() })
+                }
                 entry<UsageStatisticsRoute> {
                     val context = LocalContext.current
                     val statistics = remember(context) {
@@ -663,23 +867,29 @@ fun AppShell(
                         loginErrorMessage = loginState.errorMessage,
                         gradesErrorMessage = gradesState.errorMessage,
                         onBack = { navigator.goBack() },
-                        onSetDemoMode = onSetDemoMode,
                         onRestartOnboarding = ::restartOnboarding,
                         onDismissRestartDialog = onDismissRestartDialog,
+                        onOpenSettingsTransfer = {
+                            if (overviewEditor.editing) android.widget.Toast.makeText(context,
+                                "請先完成或取消首頁編輯", android.widget.Toast.LENGTH_SHORT).show()
+                            else navigator.navigate(SettingsTransferRoute)
+                        },
                     )
                 }
                 entry<WebViewLoginRoute> {
-                    WebViewLoginScreen(
-                        isProcessingLogin = loginState.isWebViewLoginInProgress,
-                        errorMessage = loginState.errorMessage,
-                        onLoginSuccess = ::handleWebViewLoginSuccess,
-                        onBack = { navigator.goBack() },
-                        onDismissError = onDismissLoginError,
-                    )
+                    if (!useFakeData) {
+                        WebViewLoginScreen(
+                            isProcessingLogin = loginState.isWebViewLoginInProgress,
+                            errorMessage = loginState.errorMessage,
+                            onLoginSuccess = ::handleWebViewLoginSuccess,
+                            onBack = { navigator.goBack() },
+                            onDismissError = onDismissLoginError,
+                        )
+                    }
                 }
         }
         Box(modifier = Modifier.fillMaxSize()) {
-            if (authState is AuthState.Authenticated && schoolWebsiteInBackStack) {
+            if (!useFakeData && authState is AuthState.Authenticated && schoolWebsiteInBackStack) {
                 scoreViewModel.getCurrentSession()?.let { session ->
                     key(authGeneration) {
                         SchoolWebsiteScreen(
@@ -691,26 +901,29 @@ fun AppShell(
                     }
                 }
             }
-            NavDisplay(
-                entries = navigationState.toEntries(appEntryProvider),
-                onBack = { navigator.goBack() },
-                transitionSpec = { navigationMotion.drillDownNavigationTransition() },
-                popTransitionSpec = { navigationMotion.drillUpNavigationTransition() },
-                predictivePopTransitionSpec = { _ -> navigationMotion.drillUpNavigationTransition() },
-            )
+            androidx.compose.runtime.CompositionLocalProvider(LocalRootBodyMotionEnabled provides true) {
+                NavDisplay(
+                    entries = navigationState.toEntries(appEntryProvider),
+                    sceneStrategies = remember { listOf(com.clhs.score.ui.navigation.RootSceneStrategy()) },
+                    onBack = { navigator.goBack() },
+                    transitionSpec = { navigationMotion.drillDownNavigationTransition() },
+                    popTransitionSpec = { navigationMotion.drillUpNavigationTransition() },
+                    predictivePopTransitionSpec = { _ -> navigationMotion.drillUpNavigationTransition() },
+                )
+            }
         }
     }
 }
 
-private fun android.content.Context.openAnnouncementUrl(value: String) {
+private fun android.content.Context.openAnnouncementUrl(value: String): Boolean {
     val url = safeAnnouncementWebUrl(value)
     if (url == null) {
         android.widget.Toast.makeText(this, "這個連結無法開啟", android.widget.Toast.LENGTH_SHORT).show()
-        return
+        return false
     }
-    runCatching {
+    return runCatching {
         startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, url.toUri()))
     }.onFailure {
         android.widget.Toast.makeText(this, "無法開啟連結", android.widget.Toast.LENGTH_SHORT).show()
-    }
+    }.isSuccess
 }

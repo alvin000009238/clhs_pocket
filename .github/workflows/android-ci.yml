@@ -53,4 +53,4 @@ jobs:
         run: python3 -m unittest discover -s .github/scripts -p "test_*.py"
 
       - name: Verify Android app
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --warning-mode all
+        run: ./gradlew --no-daemon :app:testDemoDebugUnitTest :app:testProductionDebugUnitTest --tests com.clhs.score.FlavorConfigurationTest :app:lintDemoDebug :app:assembleDemoDebug :app:assembleProductionDebug --warning-mode all

@@ -1,8 +1,9 @@
 [versions]
+room = "2.8.5"
 activityCompose = "1.13.0"
 benchmarkMacroJunit4 = "1.5.0"
 biometric = "1.4.0-alpha07"
-coil3 = "3.6.2"
+coil3 = "3.6.3"
 coreSplashscreen = "1.2.0"
 datastore = "1.2.1"
 espressoCore = "3.7.0"
@@ -13,17 +14,18 @@ junitVersion = "4.13.2"
 coroutines = "1.11.0"
 serialization = "1.11.0"
 lifecycle = "2.11.0"
-material3 = "1.5.0-alpha28"
+material3 = "1.5.0-beta01"
 mikepenz = "0.45.0"
-navigation3 = "1.1.7"
+navigation3 = "1.2.0"
 okhttp3 = "5.5.0"
 profileinstaller = "1.4.1"
-protobufJavalite = "4.36.1"
-turbine = "1.2.1"
+protobufJavalite = "4.36.2"
 uiautomator = "2.4.0"
-workRuntimeKtx = "2.11.2"
+workRuntimeKtx = "2.12.0"
 
 [libraries]
+androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
+androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmarkMacroJunit4" }
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
@@ -56,7 +58,6 @@ multiplatform-markdown-renderer-android = { group = "com.mikepenz", name = "mult
 multiplatform-markdown-renderer-m3-android = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-m3-android", version.ref = "mikepenz" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp3" }
 protobuf-javalite = { group = "com.google.protobuf", name = "protobuf-javalite", version.ref = "protobufJavalite" }
-turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 # Versions are supplied by the Compose and Firebase BOMs.
 androidx-compose-foundation = { module = "androidx.compose.foundation:foundation" }
 androidx-compose-runtime = { module = "androidx.compose.runtime:runtime" }

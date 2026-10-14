@@ -18,8 +18,8 @@ class GradeReminderNotifier(context: Context) {
     private val appContext = context.applicationContext
 
     fun showChangedNotification(changeSet: GradeChangeSet) {
-        if (!appContext.canPostNotifications()) return
         NotificationChannels.ensureCreated(appContext)
+        if (!appContext.canPostNotifications(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)) return
 
         val notification = Notification.Builder(appContext, NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_notification)
@@ -36,8 +36,8 @@ class GradeReminderNotifier(context: Context) {
     }
 
     fun showStoppedNotification(reason: String) {
-        if (!appContext.canPostNotifications()) return
         NotificationChannels.ensureCreated(appContext)
+        if (!appContext.canPostNotifications(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)) return
 
         val notification = Notification.Builder(appContext, NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_notification)

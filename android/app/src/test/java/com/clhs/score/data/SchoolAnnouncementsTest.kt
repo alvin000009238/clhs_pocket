@@ -50,6 +50,46 @@ class SchoolAnnouncementsTest {
     }
 
     @Test
+    fun categoryFiltersUseOfficialOptionsAndCombinedFlockWithoutReplacingDefaultCache() = runTest {
+        val options = SchoolAnnouncementParser.parseFilterOptions(
+            """
+            <select class='select-unit-x'><option value='425'>首頁</option></select>
+            <select class='select-attr-x'>
+              <option value='-1'>全部</option><option value='12'>升學資訊</option>
+              <option value='12'>重複</option><option value='bad'>不合法</option>
+            </select>
+            """.trimIndent(),
+        )
+        assertEquals(listOf("-1", "12"), options.categories.map(AnnouncementCategory::id))
+        assertEquals("升學資訊", options.categories.last().name)
+        repeat(3) { server.enqueue(jsonResponse(RECORDED_LIST_JSON)) }
+        val cacheDirectory = Files.createTempDirectory("announcement-filter-test").toFile()
+        val repository = NetworkSchoolAnnouncementsRepository(
+            cacheDirectory, baseUrl = server.url("/"), nowProvider = { Instant.parse("2026-10-01T00:00:00Z") },
+        )
+        try {
+            val original = repository.loadPage(0)
+            val cacheFile = cacheDirectory.resolve("school-announcements.json")
+            val cacheTimestamp = cacheFile.lastModified()
+            repository.loadPage(0, categoryId = "12")
+            repository.loadPage(1, keyword = "升學", unitId = "425", categoryId = "12")
+            server.awaitRequest()
+            assertTrue(server.awaitRequest().body.readUtf8().contains("flock=attr_12"))
+            val combined = server.awaitRequest()
+            val body = combined.body.readUtf8()
+            assertTrue(body.contains("flock=unit_425-attr_12"))
+            assertTrue(body.contains("pageNum=1"))
+            assertTrue(body.contains("keyword=%E5%8D%87%E5%AD%B8"))
+            assertNull(combined.getHeader("Cookie"))
+            assertEquals(original, repository.loadCached())
+            assertEquals(cacheTimestamp, cacheFile.lastModified())
+            assertTrue(runCatching { repository.loadPage(0, categoryId = "12-unit_1") }.isFailure)
+        } finally {
+            cacheDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun repositoryPostsEmptyFlockCachesFirstPageAndNeverStoresCookies() = runTest {
         server.enqueue(jsonResponse(RECORDED_LIST_JSON).setHeader("Set-Cookie", "session=must-not-return"))
         server.enqueue(jsonResponse(RECORDED_LIST_JSON))
@@ -68,8 +108,8 @@ class SchoolAnnouncementsTest {
 
             assertEquals(network.announcements, cached?.announcements)
             assertEquals(fetchedAt, cached?.fetchedAt)
-            val first = server.takeRequest()
-            val second = server.takeRequest()
+            val first = server.awaitRequest()
+            val second = server.awaitRequest()
             val firstBody = first.body.readUtf8()
             assertEquals("POST", first.method)
             assertTrue(firstBody.contains("flock="))
@@ -120,7 +160,7 @@ class SchoolAnnouncementsTest {
             assertEquals(listOf("-1", "425"), repository.loadUnits().map(AnnouncementUnit::id))
             runCatching { repository.loadUnits() }
             assertEquals(listOf("-1", "425"), repository.loadCachedUnits().map(AnnouncementUnit::id))
-            assertEquals("/home", server.takeRequest().path)
+            assertEquals("/home", server.awaitRequest().path)
         } finally {
             cacheDirectory.deleteRecursively()
         }
@@ -134,7 +174,7 @@ class SchoolAnnouncementsTest {
 
         try {
             repository.loadPage(0, unitId = "425")
-            val request = server.takeRequest()
+            val request = server.awaitRequest()
             val body = request.body.readUtf8()
             assertTrue(body.contains("flock=unit_425"))
             assertFalse(body.contains("&unit="))
@@ -163,9 +203,9 @@ class SchoolAnnouncementsTest {
             val cached = repository.loadCached()
 
             assertEquals(defaultPage.announcements, cached?.announcements)
-            val defaultRequest = server.takeRequest()
-            val firstSearchRequest = server.takeRequest()
-            val secondSearchRequest = server.takeRequest()
+            val defaultRequest = server.awaitRequest()
+            val firstSearchRequest = server.awaitRequest()
+            val secondSearchRequest = server.awaitRequest()
             assertTrue(defaultRequest.body.readUtf8().contains("keyword="))
             assertTrue(firstSearchRequest.body.readUtf8().contains("keyword=%E6%A8%A1%E6%93%AC%E8%80%83"))
             val secondBody = secondSearchRequest.body.readUtf8()
@@ -265,10 +305,10 @@ class SchoolAnnouncementsTest {
             val detail = repository.loadDetail("45072", "公告")
 
             assertEquals("45072", detail.id)
-            assertEquals("/ischool/public/news_view/show.php?nid=45072", server.takeRequest().path)
+            assertEquals("/ischool/public/news_view/show.php?nid=45072", server.awaitRequest().path)
             assertEquals(
                 "/ischool/widget/site_news/news_query_json_content.php?nid=45072&dir=0&uid=public-detail-uid",
-                server.takeRequest().path,
+                server.awaitRequest().path,
             )
         } finally {
             cacheDirectory.deleteRecursively()

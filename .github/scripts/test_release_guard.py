@@ -10,6 +10,10 @@ from release_guard import check_upgrade, provenance, version
 
 
 class ReleaseGuardTest(unittest.TestCase):
+    def test_release_workflow_preserves_pending_tags(self):
+        workflow = (Path(__file__).resolve().parents[1] / "workflows" / "android-release.yml").read_text()
+        self.assertIn("queue: max", workflow)
+
     def test_release_gates(self):
         original = Path.cwd()
         with tempfile.TemporaryDirectory() as directory:

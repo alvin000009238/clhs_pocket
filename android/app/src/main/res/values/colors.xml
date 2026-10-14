@@ -1,3 +1,5 @@
 <resources>
     <color name="score_splash_background">#FBFCFF</color>
+    <color name="clhs_pocket_icon_blue">#74A3DA</color>
+    <color name="course_notification_upcoming_yellow">#FFC107</color>
 </resources>

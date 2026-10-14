@@ -1,4 +1,11 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.clhs.score.ui
+
+import com.clhs.score.ui.navigation.navigationContentPadding
+import com.clhs.score.ui.navigation.PocketNavigationLayout
+
+import com.clhs.score.ui.theme.PocketVisual
 
 import android.Manifest
 import android.app.Activity
@@ -7,11 +14,25 @@ import android.content.ContextWrapper
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -42,7 +63,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonShapes
@@ -55,6 +75,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,12 +86,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import com.clhs.score.ui.theme.PocketMotion
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -89,8 +122,9 @@ import com.clhs.score.data.YearTermOption
 import com.clhs.score.data.parseYearTerm
 import com.clhs.score.data.shortenSubjectName
 import com.clhs.score.notifications.canPostNotifications
+import com.clhs.score.notifications.NotificationChannels
 import com.clhs.score.notifications.hasPostNotificationsPermission
-import com.clhs.score.notifications.openAppNotificationSettings
+import com.clhs.score.notifications.openNotificationChannelSettings
 import com.clhs.score.notifications.shouldShowPostNotificationsRationale
 import com.clhs.score.reminders.BatteryOptimizationHelper
 import com.clhs.score.ui.theme.ScoreTheme
@@ -135,6 +169,7 @@ fun GradesScreen(
     onGradeReminderPrerequisiteFailed: (String) -> Unit,
     onDismissGradeReminderChanges: () -> Unit,
     onOpenPersonal: () -> Unit,
+    dynamicColor: Boolean = false,
     showUpdateBadge: Boolean = false,
     onOpenScoreSimulator: () -> Unit,
     onOpenSubjectTrend: () -> Unit,
@@ -148,10 +183,22 @@ fun GradesScreen(
     val waitingForNotificationGrant = rememberSaveable { mutableStateOf(false) }
     val waitingForBatteryOptimizationGrant = rememberSaveable { mutableStateOf(false) }
     var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
+    var showGradeTabs by rememberSaveable { mutableStateOf(false) }
+    val currentShowGradeTabs by rememberUpdatedState(showGradeTabs)
+    var navigationBounds by remember { mutableStateOf(Rect.Zero) }
+    var contentPosition by remember { mutableStateOf(Offset.Zero) }
+    val navigationCompact = com.clhs.score.ui.navigation.LocalNavigationCompact.current
+    val expandNavigation = com.clhs.score.ui.navigation.LocalExpandNavigation.current
+    LaunchedEffect(navigationCompact) {
+        if (navigationCompact) showGradeTabs = false
+    }
+    var showGradeSelection by rememberSaveable { mutableStateOf(false) }
     var showMoreMenu by rememberSaveable { mutableStateOf(false) }
     var showGradeReminderDetails by rememberSaveable { mutableStateOf(false) }
     var showExportDialog by rememberSaveable { mutableStateOf(false) }
-    var isNotificationPermissionGranted by remember { mutableStateOf(context.hasPostNotificationsPermission()) }
+    var notificationsAvailable by remember {
+        mutableStateOf(context.canPostNotifications(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID))
+    }
     var isBatteryOptimizationIgnored by remember { mutableStateOf(BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)) }
 
     val pagerState = rememberPagerState(
@@ -164,13 +211,26 @@ fun GradesScreen(
     val overviewScrollState = rememberScrollState()
     val subjectsScrollState = rememberScrollState()
     val analysisScrollState = rememberScrollState()
+    val currentScrollState = when (pagerState.currentPage) {
+        1 -> subjectsScrollState
+        2 -> analysisScrollState
+        else -> overviewScrollState
+    }
+    com.clhs.score.ui.navigation.RegisterRootScroll {
+        showGradeTabs = false
+        if (currentScrollState.value > 0) currentScrollState.animateScrollTo(0)
+    }
     fun refreshReminderPrerequisites() {
-        isNotificationPermissionGranted = context.hasPostNotificationsPermission()
+        notificationsAvailable = context.canPostNotifications(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)
         isBatteryOptimizationIgnored = BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)
     }
 
     fun requestBatteryOptimizationOrStart() {
         refreshReminderPrerequisites()
+        if (!notificationsAvailable) {
+            currentOnGradeReminderPrerequisiteFailed("請先在通知設定中開啟段考更新提醒")
+            return
+        }
         if (isBatteryOptimizationIgnored) {
             currentOnStartGradeReminder()
             return
@@ -190,7 +250,7 @@ fun GradesScreen(
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        isNotificationPermissionGranted = granted
+        notificationsAvailable = context.canPostNotifications(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)
         if (granted) {
             currentOnSetNotificationsEnabled(true)
             requestBatteryOptimizationOrStart()
@@ -202,13 +262,13 @@ fun GradesScreen(
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver observer@{ _, event ->
+            if (event == Lifecycle.Event.ON_STOP) showGradeTabs = false
             if (event != Lifecycle.Event.ON_RESUME) {
                 return@observer
             }
-            val notificationGranted = context.hasPostNotificationsPermission()
-            val canPostNotifications = context.canPostNotifications()
+            val canPostNotifications = context.canPostNotifications(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)
             val batteryOptimizationIgnored = BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)
-            isNotificationPermissionGranted = notificationGranted
+            notificationsAvailable = canPostNotifications
             isBatteryOptimizationIgnored = batteryOptimizationIgnored
             if (waitingForNotificationGrant.value) {
                 waitingForNotificationGrant.value = false
@@ -222,8 +282,10 @@ fun GradesScreen(
             }
             if (waitingForBatteryOptimizationGrant.value) {
                 waitingForBatteryOptimizationGrant.value = false
-                if (batteryOptimizationIgnored) {
+                if (batteryOptimizationIgnored && canPostNotifications) {
                     currentOnStartGradeReminder()
+                } else if (!canPostNotifications) {
+                    currentOnGradeReminderPrerequisiteFailed("請先在通知設定中開啟段考更新提醒")
                 } else {
                     currentOnGradeReminderPrerequisiteFailed("需要開啟電池最佳化設定，才能準時提醒你。")
                 }
@@ -236,7 +298,7 @@ fun GradesScreen(
     }
 
     fun beginGradeReminderEnablement() {
-        if (context.canPostNotifications()) {
+        if (context.canPostNotifications(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)) {
             currentOnSetNotificationsEnabled(true)
             requestBatteryOptimizationOrStart()
         } else if (
@@ -250,7 +312,7 @@ fun GradesScreen(
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
             waitingForNotificationGrant.value = true
-            if (!context.openAppNotificationSettings()) {
+            if (!context.openNotificationChannelSettings(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)) {
                 waitingForNotificationGrant.value = false
                 currentOnGradeReminderPrerequisiteFailed("無法開啟通知設定，請手動到系統設定開啟")
             }
@@ -263,7 +325,7 @@ fun GradesScreen(
             selectedYearValue = state.selectedYearValue,
             selectedExamValue = state.selectedExamValue,
             isStarting = state.isStartingGradeReminder,
-            isNotificationPermissionGranted = isNotificationPermissionGranted,
+            notificationsAvailable = notificationsAvailable,
             isBatteryOptimizationIgnored = isBatteryOptimizationIgnored,
             onStart = {
                 showGradeReminderDetails = false
@@ -272,6 +334,11 @@ fun GradesScreen(
             onStop = {
                 showGradeReminderDetails = false
                 onStopGradeReminder()
+            },
+            onOpenNotificationSettings = {
+                if (!context.openNotificationChannelSettings(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID)) {
+                    currentOnGradeReminderPrerequisiteFailed("無法開啟通知設定，請手動到系統設定開啟")
+                }
             },
             onDismiss = { showGradeReminderDetails = false },
         )
@@ -293,168 +360,270 @@ fun GradesScreen(
         )
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        topBar = {
-            Column {
-                RootTopAppBar(
-                    title = "成績",
-                    actions = {
-                        GradeSelectionPill(
-                            state = state,
-                            onSelectYear = onSelectYear,
-                            onSelectExam = onSelectExam,
-                        )
-                        Box {
-                            IconButton(
-                                onClick = { showMoreMenu = true },
-                                shapes = IconButtonDefaults.shapes(),
-                            ) {
-                                OutlinedRoundedSymbol(
-                                    icon = "more_vert",
-                                    contentDescription = "更多選項",
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = showMoreMenu,
-                                onDismissRequest = { showMoreMenu = false },
-                                offset = DpOffset(x = 0.dp, y = 8.dp),
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("段考更新提醒") },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showGradeReminderDetails = true
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("匯出成績") },
-                                    enabled = !state.isExporting,
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showExportDialog = true
-                                    },
-                                )
+    val navigationClearance = com.clhs.score.ui.navigation.LocalNavigationClearance.current
+    val navigationOffset by animateDpAsState(
+        targetValue = if (navigationClearance > 0.dp && navigationCompact) {
+            PocketNavigationLayout.expandedHeight - PocketNavigationLayout.compactHeight
+        } else 0.dp,
+        animationSpec = PocketMotion.selection(),
+        label = "成績分頁隨導覽收合",
+    )
+    val bottomInset = androidx.compose.foundation.layout.WindowInsets.navigationBars
+        .asPaddingValues().calculateBottomPadding()
+    val tabsHeight = with(androidx.compose.ui.platform.LocalDensity.current) {
+        MaterialTheme.typography.labelLarge.lineHeight.toDp()
+    }.plus(24.dp).coerceAtLeast(48.dp)
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.clhs.score.ui.navigation.LocalNavigationClearance provides navigationClearance + tabsHeight + 16.dp,
+    ) {
+        Box(Modifier.fillMaxSize()
+            .onGloballyPositioned { contentPosition = it.positionInRoot() }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    if (currentShowGradeTabs && !navigationBounds.contains(down.position + contentPosition)) {
+                        showGradeTabs = false
+                    }
+                }
+            }) {
+            RootFloatingScaffold(
+                dynamicColor = dynamicColor,
+                actions = {
+                    Box {
+                        IconButton(onClick = { showGradeSelection = !showGradeSelection },
+                            shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape)) {
+                            OutlinedRoundedSymbol("swap_horiz", contentDescription = "選擇成績")
+                        }
+                        DropdownMenu(expanded = showGradeSelection,
+                            onDismissRequest = { showGradeSelection = false },
+                            shape = CircleShape,
+                            offset = DpOffset(0.dp, 8.dp)) {
+                            Box(Modifier.padding(horizontal = 4.dp)) {
+                                GradeSelectionPill(state, onSelectYear, onSelectExam)
                             }
                         }
-                        AccountIconButton(onClick = onOpenPersonal, showUpdateBadge = showUpdateBadge)
-                    },
-                )
-                PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {
-                    GradesDestination.entries.forEach { destination ->
-                        Tab(
-                            selected = pagerState.currentPage == destination.ordinal,
-                            onClick = {
-                                pagerScope.launch {
-                                    pagerState.animateScrollToPage(destination.ordinal)
-                                }
-                            },
-                            text = {
-                                Text(
-                                    text = destination.label,
-                                    fontWeight = if (pagerState.currentPage == destination.ordinal) {
-                                        FontWeight.SemiBold
-                                    } else {
-                                        FontWeight.Medium
+                    }
+                    Box {
+                        IconButton(
+                            onClick = { showMoreMenu = true },
+                            shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
+                        ) {
+                            OutlinedRoundedSymbol(
+                                icon = "more_vert",
+                                contentDescription = "更多選項",
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMoreMenu,
+                            onDismissRequest = { showMoreMenu = false },
+                            offset = DpOffset(x = 0.dp, y = 8.dp),
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("段考更新提醒") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    showGradeReminderDetails = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("匯出成績") },
+                                enabled = !state.isExporting,
+                                onClick = {
+                                    showMoreMenu = false
+                                    showExportDialog = true
+                                },
+                            )
+                        }
+                    }
+                    AccountIconButton(onClick = onOpenPersonal, showUpdateBadge = showUpdateBadge,
+                        animateShape = false)
+                },
+                snackbarHost = snackbarHost,
+            ) { padding, pageHeader ->
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = hapticClick(onReload),
+                    state = pullToRefreshState,
+                    modifier = Modifier
+                        .fillMaxSize(),
+                    indicator = {},
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        val report = state.report
+                        val analysis = state.analysis
+                        when {
+                            report == null && (state.isLoadingStructure || state.isLoadingGrades) -> GradesTabPage(
+                                scrollState = overviewScrollState,
+                                contentPadding = padding,
+                                pageHeader = pageHeader,
+                            ) { OverviewSkeleton() }
+
+                            report == null -> GradesTabPage(
+                                scrollState = overviewScrollState,
+                                contentPadding = padding,
+                                pageHeader = pageHeader,
+                            ) {
+                                EmptyPanel(
+                                    message = when {
+                                        state.structure.isEmpty() -> "尚未取得可查詢考試"
+                                        state.structure
+                                            .firstOrNull { it.value == state.selectedYearValue }
+                                            ?.exams
+                                            ?.isEmpty() == true -> "此學期尚無可查詢的考試"
+                                        else -> "請選擇考試"
                                     },
+                                    onReload = onReload,
                                 )
-                            },
+                            }
+
+                            analysis == null -> GradesTabPage(
+                                scrollState = overviewScrollState,
+                                contentPadding = padding,
+                                pageHeader = pageHeader,
+                            ) { OverviewSkeleton() }
+
+                            else -> HorizontalPager(
+                                state = pagerState,
+                                modifier = Modifier.fillMaxSize(),
+                                beyondViewportPageCount = GradesDestination.entries.lastIndex,
+                            ) { destination ->
+                                val tabScrollState = when (destination) {
+                                    GradesDestination.Overview.ordinal -> overviewScrollState
+                                    GradesDestination.Subjects.ordinal -> subjectsScrollState
+                                    else -> analysisScrollState
+                                }
+                                GradesTabPage(
+                                    scrollState = tabScrollState,
+                                    contentPadding = padding,
+                                    pageHeader = pageHeader,
+                                ) {
+                                    when (destination) {
+                                        GradesDestination.Overview.ordinal -> OverviewTab(
+                                            report = report,
+                                            analysis = analysis,
+                                            isLoadingComparison = state.isLoadingComparison,
+                                            comparisonError = state.comparisonError,
+                                            isLoadingTrend = state.isLoadingTrend,
+                                            trendError = state.trendError,
+                                            trend = state.trend,
+                                        )
+
+                                        GradesDestination.Subjects.ordinal -> SubjectsTab(
+                                            analyses = analysis.subjects,
+                                            expandedSubjectKeys = state.expandedSubjectKeys,
+                                            onToggleSubject = onToggleSubject,
+                                        )
+
+                                        GradesDestination.Analysis.ordinal -> AdvancedTab(
+                                            report = report,
+                                            analysis = analysis,
+                                            isLoadingTrend = state.isLoadingTrend,
+                                            trendError = state.trendError,
+                                            trend = state.trend,
+                                            onOpenScoreSimulator = onOpenScoreSimulator,
+                                            onOpenSubjectTrend = onOpenSubjectTrend,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        PullToRefreshDefaults.LoadingIndicator(
+                            state = pullToRefreshState,
+                            isRefreshing = isRefreshing,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = padding.calculateTopPadding())
+                                .zIndex(2f),
                         )
                     }
                 }
             }
-        },
-        snackbarHost = snackbarHost,
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) { padding ->
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = onReload,
-            state = pullToRefreshState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            indicator = {},
-        ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                val report = state.report
-                val analysis = state.analysis
-                when {
-                    report == null && (state.isLoadingStructure || state.isLoadingGrades) -> GradesTabPage(
-                        scrollState = overviewScrollState,
-                    ) { OverviewSkeleton() }
-
-                    report == null -> GradesTabPage(
-                        scrollState = overviewScrollState,
+            AnimatedVisibility(
+                visible = !navigationCompact,
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .zIndex(3f)
+                    .padding(bottom = navigationClearance - navigationOffset + bottomInset + 8.dp)
+                    .padding(horizontal = 24.dp),
+                enter = fadeIn(PocketMotion.stateChange()) +
+                    scaleIn(animationSpec = PocketMotion.contentReflow(), initialScale = 0.94f),
+                exit = fadeOut(PocketMotion.stateChange()) +
+                    scaleOut(animationSpec = PocketMotion.contentReflow(), targetScale = 0.94f),
+            ) {
+                BoxWithConstraints(
+                    modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth().height(tabsHeight),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val expandedWidth = maxWidth
+                    val navigationWidth by animateDpAsState(
+                        targetValue = if (showGradeTabs) expandedWidth else 88.dp.coerceAtMost(expandedWidth),
+                        animationSpec = PocketMotion.contentReflow(),
+                        label = "成績分頁展開收合",
+                    )
+                    Surface(
+                        modifier = Modifier.width(navigationWidth).height(tabsHeight)
+                            .onGloballyPositioned { navigationBounds = it.boundsInRoot() }
+                            .testTag("gradesPageNavigation"),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.82f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
-                        EmptyPanel(
-                            message = when {
-                                state.structure.isEmpty() -> "尚未取得可查詢考試"
-                                state.structure
-                                    .firstOrNull { it.value == state.selectedYearValue }
-                                    ?.exams
-                                    ?.isEmpty() == true -> "此學期尚無可查詢的考試"
-                                else -> "請選擇考試"
-                            },
-                            onReload = onReload,
-                        )
-                    }
-
-                    analysis == null -> GradesTabPage(
-                        scrollState = overviewScrollState,
-                    ) { OverviewSkeleton() }
-
-                    else -> HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier.fillMaxSize(),
-                        beyondViewportPageCount = GradesDestination.entries.lastIndex,
-                    ) { destination ->
-                        val tabScrollState = when (destination) {
-                            GradesDestination.Overview.ordinal -> overviewScrollState
-                            GradesDestination.Subjects.ordinal -> subjectsScrollState
-                            else -> analysisScrollState
-                        }
-                        GradesTabPage(
-                            scrollState = tabScrollState,
-                        ) {
-                            when (destination) {
-                                GradesDestination.Overview.ordinal -> OverviewTab(
-                                    report = report,
-                                    analysis = analysis,
-                                    isLoadingComparison = state.isLoadingComparison,
-                                    comparisonError = state.comparisonError,
-                                    isLoadingTrend = state.isLoadingTrend,
-                                    trendError = state.trendError,
-                                    trend = state.trend,
-                                )
-
-                                GradesDestination.Subjects.ordinal -> SubjectsTab(
-                                    analyses = analysis.subjects,
-                                    expandedSubjectKeys = state.expandedSubjectKeys,
-                                    onToggleSubject = onToggleSubject,
-                                )
-
-                                GradesDestination.Analysis.ordinal -> AdvancedTab(
-                                    report = report,
-                                    analysis = analysis,
-                                    isLoadingTrend = state.isLoadingTrend,
-                                    trendError = state.trendError,
-                                    trend = state.trend,
-                                    onOpenScoreSimulator = onOpenScoreSimulator,
-                                    onOpenSubjectTrend = onOpenSubjectTrend,
-                                )
+                        Crossfade(
+                            targetState = showGradeTabs,
+                            animationSpec = PocketMotion.stateChange(),
+                            label = "成績分頁內容",
+                        ) { expanded ->
+                            if (expanded) {
+                                PrimaryTabRow(
+                                    modifier = Modifier.requiredWidth(expandedWidth),
+                                    selectedTabIndex = pagerState.currentPage,
+                                    containerColor = Color.Transparent,
+                                    divider = {},
+                                ) {
+                                    GradesDestination.entries.forEach { destination ->
+                                        Tab(
+                                            selected = pagerState.currentPage == destination.ordinal,
+                                            enabled = showGradeTabs && !navigationCompact,
+                                            onClick = hapticClick {
+                                                showGradeTabs = false
+                                                pagerScope.launch { pagerState.animateScrollToPage(destination.ordinal) }
+                                            },
+                                            modifier = Modifier.height(tabsHeight),
+                                            text = {
+                                                Text(destination.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                                            },
+                                        )
+                                    }
+                                }
+                            } else {
+                                TextButton(
+                                    enabled = !showGradeTabs && !navigationCompact,
+                                    onClick = hapticClick {
+                                        expandNavigation()
+                                        showGradeTabs = true
+                                    },
+                                    modifier = Modifier.fillMaxWidth().height(tabsHeight).semantics {
+                                        contentDescription = "切換成績分頁"
+                                        stateDescription = GradesDestination.entries[pagerState.currentPage].label
+                                    },
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        GradesDestination.entries.forEach { destination ->
+                                            val selected = pagerState.currentPage == destination.ordinal
+                                            Box(
+                                                Modifier.size(if (selected) 8.dp else 6.dp)
+                                                    .background(
+                                                        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        CircleShape,
+                                                    ),
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
-
-                PullToRefreshDefaults.LoadingIndicator(
-                    state = pullToRefreshState,
-                    isRefreshing = isRefreshing,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .zIndex(2f),
-                )
             }
         }
     }
@@ -463,21 +632,27 @@ fun GradesScreen(
 @Composable
 private fun GradesTabPage(
     scrollState: ScrollState,
+    contentPadding: androidx.compose.foundation.layout.PaddingValues,
+    pageHeader: @Composable () -> Unit,
     content: @Composable () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+                .navigationContentPadding(),
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .widthIn(max = 1200.dp)
                 .fillMaxWidth()
-                .padding(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 16.dp),
+                .padding(contentPadding)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            content()
+            pageHeader()
+            Column(Modifier.rootBodyMotion(), verticalArrangement = Arrangement.spacedBy(16.dp)) { content() }
         }
     }
 }
@@ -497,7 +672,7 @@ private fun GradeSelectionPill(
     val enabled = state.structure.isNotEmpty() && !state.isLoadingStructure
     var yearMenuExpanded by remember { mutableStateOf(false) }
     var examMenuExpanded by remember { mutableStateOf(false) }
-    val buttonContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f)
+    val buttonContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
     val buttonContentColor = MaterialTheme.colorScheme.onSurface
     val buttonColors = ButtonDefaults.filledTonalButtonColors(
         containerColor = buttonContainerColor,
@@ -506,11 +681,12 @@ private fun GradeSelectionPill(
         disabledContentColor = buttonContentColor.copy(alpha = 0.42f),
     )
     val leadingButtonShapes = SplitButtonDefaults.leadingButtonShapesFor(48.dp)
-    val examButtonShapes = SplitButtonDefaults.trailingButtonShapesFor(48.dp)
+    val trailingShape = SplitButtonDefaults.trailingButtonShapesFor(48.dp).shape
+    val examButtonShapes = SplitButtonShapes(trailingShape, trailingShape, trailingShape)
     val yearButtonShapes = SplitButtonShapes(
         shape = leadingButtonShapes.shape,
-        pressedShape = leadingButtonShapes.pressedShape,
-        checkedShape = examButtonShapes.checkedShape,
+        pressedShape = leadingButtonShapes.shape,
+        checkedShape = leadingButtonShapes.shape,
     )
 
     Box {
@@ -690,10 +866,11 @@ private fun GradeReminderDetailsDialog(
     selectedYearValue: String?,
     selectedExamValue: String?,
     isStarting: Boolean,
-    isNotificationPermissionGranted: Boolean,
+    notificationsAvailable: Boolean,
     isBatteryOptimizationIgnored: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onOpenNotificationSettings: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val now = System.currentTimeMillis()
@@ -709,7 +886,7 @@ private fun GradeReminderDetailsDialog(
     val primaryActionLabel = when {
         isActiveForSelection -> "停止"
         isStarting -> "啟用中..."
-        !isNotificationPermissionGranted -> "開啟通知設定"
+        !notificationsAvailable -> "開啟通知設定"
         isBatteryOptimizationIgnored -> "開始"
         else -> "開啟電池設定"
     }
@@ -726,7 +903,13 @@ private fun GradeReminderDetailsDialog(
                 )
                 when {
                     isActiveForSelection -> {
-                        InlineStatus(message = "正在監控這次考試，每 15 分鐘會檢查一次更新")
+                        InlineStatus(
+                            message = if (notificationsAvailable) {
+                                "正在監控這次考試，每 15 分鐘會檢查一次更新"
+                            } else {
+                                "通知已關閉，背景檢查暫停"
+                            },
+                        )
                         Text(
                             text = "${formatRemaining(reminderState.expiresAtMillis, now)}後自動停止 · $lastCheckedText",
                             style = MaterialTheme.typography.bodySmall,
@@ -734,14 +917,20 @@ private fun GradeReminderDetailsDialog(
                         )
                     }
                     reminderState.isActive(now) -> {
-                        InlineStatus(message = "目前正在監控其他考試")
+                        InlineStatus(
+                            message = if (notificationsAvailable) {
+                                "目前正在監控其他考試"
+                            } else {
+                                "其他考試的提醒因通知關閉而暫停"
+                            },
+                        )
                         Text(
                             text = otherExamName,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    !isNotificationPermissionGranted && !isBatteryOptimizationIgnored -> {
+                    !notificationsAvailable && !isBatteryOptimizationIgnored -> {
                         InlineStatus(message = "需要開啟通知和電池最佳化設定")
                         Text(
                             text = "通知用來提醒你；電池最佳化設定能讓 app 在背景檢查更新。",
@@ -749,7 +938,7 @@ private fun GradeReminderDetailsDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    !isNotificationPermissionGranted -> {
+                    !notificationsAvailable -> {
                         InlineStatus(message = "需要開啟通知")
                         Text(
                             text = "允許 app 傳送通知，成績資訊更新時才能提醒你。",
@@ -768,6 +957,12 @@ private fun GradeReminderDetailsDialog(
                     else -> {
                         InlineStatus(message = "點擊開始以繼續")
                     }
+                }
+                if (reminderState.isActive(now) && !notificationsAvailable) {
+                    TextButton(
+                        onClick = hapticClick(onOpenNotificationSettings),
+                        shapes = ButtonDefaults.shapes(),
+                    ) { Text("開啟段考通知設定") }
                 }
             }
         },
@@ -852,8 +1047,8 @@ private fun HeroCard(
     val summary = report.examSummary
     val animatedAverage by animateFloatAsState(
         targetValue = analysis.weightedAverage.toFloat(),
-        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
-        label = "weightedAverage",
+        animationSpec = PocketMotion.stateChange(),
+        label = "grades-weighted-average",
     )
     val totalScore = summary?.totalScoreDisplay?.toDoubleOrNull()?.let { "%.0f".format(it) }
         ?: summary?.totalScoreDisplay?.takeIf { it.isNotBlank() }
@@ -862,11 +1057,11 @@ private fun HeroCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.largeIncreased,
+        shape = PocketVisual.heroShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top,
@@ -884,9 +1079,8 @@ private fun HeroCard(
                         Text(
                             text = "%.1f".format(animatedAverage),
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            style = MaterialTheme.typography.displaySmall.copy(fontFeatureSettings = "tnum"),
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                            style = MaterialTheme.typography.displayMediumEmphasized.copy(fontFeatureSettings = "tnum"),
+                            )
                         val deltaText = heroAverageDeltaTextShort(analysis)
                         if (deltaText != null) {
                             val deltaColor = diffColor(analysis.comparison?.averageDelta ?: 0.0)
@@ -900,8 +1094,7 @@ private fun HeroCard(
                                     color = deltaColor,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp),
                                     style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-                                    fontWeight = FontWeight.SemiBold,
-                                )
+                                            )
                             }
                         }
                     }

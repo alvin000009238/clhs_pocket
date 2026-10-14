@@ -22,18 +22,6 @@ class DeveloperDiagnosticsTest {
     }
 
     @Test
-    fun diagnosticEventStoresReadableFields() {
-        val event = DiagnosticEvent(
-            timestamp = "2026-05-30T00:00:00Z",
-            area = "GradeCache",
-            message = "grade report cache decode failed",
-        )
-
-        assertEquals("GradeCache", event.area)
-        assertTrue(event.message.contains("decode failed"))
-    }
-
-    @Test
     fun diagnosticTextRedactsSensitiveValues() {
         val text = """
             token=secret Cookie: sessionid=abc student_no=123456

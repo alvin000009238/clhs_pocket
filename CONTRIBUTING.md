@@ -60,4 +60,4 @@ chore(scope): 簡短說明
 - UI 截圖、行為錄影或可重現步驟（若適用）。
 - 風險、資料遷移、向下相容或安全性影響（若適用）。
 
-進一步的程式風格、功能落點與審查標準請看 [`docs/contributing/`](docs/contributing/)。行為規範見 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
+進一步的程式風格、功能落點與審查標準請看 [`docs/contributing/`](docs/contributing/)。

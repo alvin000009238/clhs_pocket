@@ -22,6 +22,67 @@ import com.clhs.score.viewmodel.GradesUiState
 import com.clhs.score.viewmodel.AuthState
 import com.clhs.score.viewmodel.LoginUiState
 import com.clhs.score.viewmodel.SettingsUiState
+import com.clhs.score.domain.overview.withPreferences
+
+@Preview(name = "首頁 · Compact", widthDp = 360, heightDp = 900, showBackground = true)
+@Preview(name = "首頁 · Dark", widthDp = 390, heightDp = 900, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "首頁 · Medium", widthDp = 700, heightDp = 1100)
+@Preview(name = "首頁 · Expanded", widthDp = 1100, heightDp = 1100)
+@Preview(name = "首頁 · 1.3x", widthDp = 360, heightDp = 1000, fontScale = 1.3f)
+@Preview(name = "首頁 · 1.5x", widthDp = 360, heightDp = 1000, fontScale = 1.5f)
+@Preview(name = "首頁 · 2.0x", widthDp = 320, heightDp = 1000, fontScale = 2f)
+@Composable
+private fun OverviewPreview() {
+    val now = java.time.LocalDateTime.of(2026, 10, 2, 22, 14)
+    val instant = now.atZone(com.clhs.score.domain.overview.SCHOOL_ZONE).toInstant()
+    val events = listOf(
+        com.clhs.score.data.SchoolCalendarEvent("reading", "中學生網站閱讀心得寫作比賽",
+            now.minusDays(7).toLocalDate().atStartOfDay(), now.plusDays(8).toLocalDate().atStartOfDay(), true),
+        com.clhs.score.data.SchoolCalendarEvent("books", "好書換換愛",
+            now.plusDays(26).toLocalDate().atStartOfDay(), now.plusDays(27).toLocalDate().atStartOfDay(), true),
+    )
+    val report = com.clhs.score.data.FakeScheduleData.report("114_2", "230", today = now.toLocalDate())
+    val announcements = FakeData.announcementPage
+    val state = com.clhs.score.domain.overview.OverviewState(
+        now = now, isInitialLoading = false, hasSchedule = true,
+        hero = com.clhs.score.domain.overview.scheduleOverviewHero(report, now),
+        calendarEvents = events,
+        items = com.clhs.score.domain.overview.calendarOverviewItems(
+            com.clhs.score.data.SchoolCalendarSnapshot(com.clhs.score.data.SchoolCalendarFeed(events), instant), now,
+        ) + com.clhs.score.domain.overview.announcementOverviewItems(announcements),
+        weather = com.clhs.score.domain.overview.OverviewWeatherState.Available(
+            com.clhs.score.domain.overview.WeatherSnapshot(com.clhs.score.data.WeatherSource.OPEN_METEO,
+                "中壢區", 24, 27, "晴時多雲", 58, now, now.plusHours(1), instant,
+                maximumTemperatureCelsius = 29, minimumTemperatureCelsius = 22)),
+        youBike = com.clhs.score.data.YouBikeState(com.clhs.score.data.fakeYouBikeSnapshot(instant)),
+    ).withPreferences(com.clhs.score.data.OverviewPreferences(countdownEventIds = events.map { it.id }.toSet()))
+    ScoreTheme {
+        com.clhs.score.ui.overview.OverviewScreen(state, {}, {},
+            unreadAnnouncementIds = announcements.announcements.map { it.id }.toSet())
+    }
+}
+
+@Preview(name = "首頁 · 無課表／來源失敗", widthDp = 360, heightDp = 900)
+@Composable
+private fun OverviewEmptyPreview() {
+    ScoreTheme {
+        com.clhs.score.ui.overview.OverviewScreen(
+            com.clhs.score.domain.overview.OverviewState(isInitialLoading = false, calendarFailed = true,
+                announcementsFailed = true, weather = com.clhs.score.domain.overview.OverviewWeatherState.Unavailable(),
+                youBike = com.clhs.score.data.YouBikeState(failed = true)), {}, {})
+    }
+}
+
+@Preview(name = "YouBike", showBackground = true, widthDp = 390)
+@Composable
+private fun YouBikePreview() {
+    val now = java.time.Instant.parse("2026-10-02T04:43:03Z")
+    ScoreTheme {
+        com.clhs.score.ui.overview.YouBikeCard(
+            com.clhs.score.data.YouBikeState(com.clhs.score.data.fakeYouBikeSnapshot(now)), now, {},
+        )
+    }
+}
 
 class ScenarioProvider : PreviewParameterProvider<StudentScenario> {
     override val values = sequenceOf(
@@ -124,21 +185,24 @@ private fun ScoreAppFakePreview(
             onDismissGradeReminderError = {},
             onDismissGradeReminderChanges = {},
             onSetThemeMode = {},
+            onSetStartOnSchedule = {},
+            onCycleProfileAvatarShape = {},
             onSetDynamicColor = {},
             onSetAmoledBlack = {},
             onSetNotificationsEnabled = {},
+            onSaveBackgroundPause = { true },
+            onSetPreferExactCourseAlarms = {},
+            onRefreshAlarmSystemState = {},
             onCheckUpdate = {},
             onDownloadUpdate = {},
             onDismissUpdateDownloadResult = {},
             onDismissUpdateResult = {},
             onVersionTap = {},
             onDismissDeveloperToast = {},
-            onSetDemoMode = {},
             onDismissRestartDialog = {},
             onExportGrades = {},
             onDismissExportResult = {},
             onSetBiometricEnabled = { _, _ -> },
-            onSetWeatherSource = {},
             onSaveCwaApiKey = {},
             onClearCwaApiKey = {},
             onDismissCwaKeyMessage = {},

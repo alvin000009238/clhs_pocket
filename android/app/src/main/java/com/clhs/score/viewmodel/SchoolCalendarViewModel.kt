@@ -8,6 +8,7 @@ import com.clhs.score.data.NetworkSchoolCalendarRepository
 import com.clhs.score.data.SchoolCalendarEvent
 import com.clhs.score.data.SchoolCalendarSnapshot
 import com.clhs.score.data.SCHOOL_CALENDAR_SEARCH_MAX_LENGTH
+import com.clhs.score.data.SCHOOL_COURSE_ZONE
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,7 +43,7 @@ data class SchoolCalendarUiState(
 class SchoolCalendarViewModel(
     private val loadCached: suspend () -> SchoolCalendarSnapshot?,
     private val loadSnapshot: suspend (forceRefresh: Boolean) -> SchoolCalendarSnapshot,
-    private val todayProvider: () -> LocalDate = LocalDate::now,
+    private val todayProvider: () -> LocalDate = { LocalDate.now(SCHOOL_COURSE_ZONE) },
     private val targetEventId: String? = null,
 ) : ViewModel() {
     private var loadJob: Job? = null

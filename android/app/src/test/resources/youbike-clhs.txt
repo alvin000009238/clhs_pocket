@@ -1,0 +1,33 @@
+[
+  {
+    "country_code": "00",
+    "area_code": "07",
+    "type": 2,
+    "status": 1,
+    "station_no": "500304002",
+    "name_tw": "中壢高中",
+    "district_tw": "中壢區",
+    "address_tw": "中央西路二段215號對面人行道",
+    "name_en": "Jhungli Senior High School",
+    "district_en": "Zhongli Dist.",
+    "address_en": "No.215, Sec. 2, Zhongyang W. Rd. (opposite)",
+    "name_cn": "",
+    "district_cn": "",
+    "address_cn": "",
+    "parking_spaces": 52,
+    "available_spaces": 4,
+    "available_spaces_detail": {
+      "yb1": 0,
+      "yb2": 2,
+      "eyb": 2
+    },
+    "available_spaces_level": 40,
+    "empty_spaces": 44,
+    "forbidden_spaces": 0,
+    "lat": "24.96082",
+    "lng": "121.21204",
+    "img": "/images/station/default.jpg",
+    "updated_at": "2026-10-02 12:43:03",
+    "time": "2026-10-02 21:06:03"
+  }
+]

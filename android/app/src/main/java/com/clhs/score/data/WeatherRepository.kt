@@ -1,6 +1,7 @@
 package com.clhs.score.data
 
 import com.clhs.score.domain.overview.WeatherSnapshot
+import com.clhs.score.domain.overview.WeatherForecastPeriod
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -34,6 +35,7 @@ data class WeatherRepositoryState(
     val snapshot: WeatherSnapshot?,
     val isRefreshing: Boolean,
     val needsCwaApiKey: Boolean = false,
+    val failed: Boolean = false,
 )
 
 internal enum class CwaKeyValidationResult {
@@ -57,16 +59,20 @@ class WeatherRepository internal constructor(
     private val openMeteoEndpoint: HttpUrl = OPEN_METEO_ENDPOINT,
     private val cwaEndpoint: HttpUrl = CWA_ENDPOINT,
 ) {
+    private val cacheDirectory = cacheDirectory
     private val openMeteoCache = LatestCacheFile(cacheDirectory, "weather-open-meteo-clhs.json")
     private val cwaCache = LatestCacheFile(cacheDirectory, "weather-cwa-zhongli-district.json")
 
-    fun observe(source: WeatherSource): Flow<WeatherRepositoryState> = flow {
-        val cache = cacheFor(source)
-        val cached = readCache(cache, source)
+    fun observe(source: WeatherSource, location: WeatherLocation = WeatherLocation.SCHOOL, forceRefresh: Boolean = false): Flow<WeatherRepositoryState> = flow {
+        require(location.latitude.isFinite() && location.latitude in -90.0..90.0 && location.longitude.isFinite() && location.longitude in -180.0..180.0)
+        ZoneId.of(location.timezoneId)
+        require(source != WeatherSource.CWA || location.supportsCwa)
+        val cache = cacheFor(source, location)
+        val cached = readCache(cache, source, location)
         val age = cached?.let { Duration.between(it.fetchedAt, now()) }
         val usableCache = cached?.takeIf { age != null && !age.isNegative && age <= MAX_STALE_AGE }
-        if (usableCache != null) emit(WeatherRepositoryState(usableCache, isRefreshing = age!! > FRESH_AGE))
-        if (usableCache != null && age!! <= FRESH_AGE) return@flow
+        if (usableCache != null) emit(WeatherRepositoryState(usableCache, isRefreshing = forceRefresh || age!! > FRESH_AGE))
+        if (usableCache != null && age!! <= FRESH_AGE && !forceRefresh) return@flow
 
         val key = if (source == WeatherSource.CWA) {
             try {
@@ -74,7 +80,7 @@ class WeatherRepository internal constructor(
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                emit(WeatherRepositoryState(usableCache, isRefreshing = false))
+                emit(WeatherRepositoryState(usableCache, isRefreshing = false, failed = true))
                 return@flow
             }
         } else {
@@ -86,14 +92,14 @@ class WeatherRepository internal constructor(
         }
         val generation = cache.beginWrite()
         try {
-            val raw = fetch(source, key)
+            val raw = fetch(source, key, location)
             val fetchedAt = now()
-            val snapshot = parse(source, raw, fetchedAt)
+            val snapshot = parse(source, raw, fetchedAt, location)
             cache.commit(raw.encodeToByteArray(), fetchedAt.toEpochMilli(), generation, currentCoroutineContext())
             emit(WeatherRepositoryState(snapshot, isRefreshing = false))
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            emit(WeatherRepositoryState(usableCache, isRefreshing = false))
+            emit(WeatherRepositoryState(usableCache, isRefreshing = false, failed = true))
         }
     }
 
@@ -122,11 +128,11 @@ class WeatherRepository internal constructor(
         }
     }
 
-    private suspend fun fetch(source: WeatherSource, cwaKey: String?): String = withContext(Dispatchers.IO) {
+    private suspend fun fetch(source: WeatherSource, cwaKey: String?, location: WeatherLocation = WeatherLocation.SCHOOL): String = withContext(Dispatchers.IO) {
         val request = when (source) {
-            WeatherSource.OPEN_METEO -> Request.Builder().url(openMeteoUrl(openMeteoEndpoint)).get().build()
+            WeatherSource.OPEN_METEO -> Request.Builder().url(openMeteoUrl(openMeteoEndpoint, location)).get().build()
             WeatherSource.CWA -> Request.Builder()
-                .url(cwaUrl(cwaEndpoint))
+                .url(cwaUrl(cwaEndpoint, location))
                 .header("Authorization", requireNotNull(cwaKey))
                 .get()
                 .build()
@@ -146,18 +152,18 @@ class WeatherRepository internal constructor(
         }
     }
 
-    private fun readCache(cache: LatestCacheFile, source: WeatherSource): WeatherSnapshot? {
+    private fun readCache(cache: LatestCacheFile, source: WeatherSource, location: WeatherLocation): WeatherSnapshot? {
         if (!cache.file.isFile || cache.file.length() !in 1..MAX_RESPONSE_BYTES.toLong()) return null
         val fetchedAt = Instant.ofEpochMilli(cache.file.lastModified())
-        return runCatching { parse(source, cache.file.readText(), fetchedAt) }.getOrNull()
+        return runCatching { parse(source, cache.file.readText(), fetchedAt, location) }.getOrNull()
     }
 
-    private fun parse(source: WeatherSource, raw: String, fetchedAt: Instant): WeatherSnapshot = when (source) {
-        WeatherSource.OPEN_METEO -> parseOpenMeteo(raw, fetchedAt)
-        WeatherSource.CWA -> parseCwa(raw, fetchedAt)
+    private fun parse(source: WeatherSource, raw: String, fetchedAt: Instant, location: WeatherLocation): WeatherSnapshot = when (source) {
+        WeatherSource.OPEN_METEO -> parseOpenMeteo(raw, fetchedAt, location)
+        WeatherSource.CWA -> parseCwa(raw, fetchedAt, location)
     }
 
-    private fun parseOpenMeteo(raw: String, fetchedAt: Instant): WeatherSnapshot {
+    private fun parseOpenMeteo(raw: String, fetchedAt: Instant, location: WeatherLocation): WeatherSnapshot {
         val root = SchoolJson.parseToJsonElement(raw).jsonObject
         val current = root.requiredObject("current")
         val currentTime = LocalDateTime.parse(current.requiredText())
@@ -175,9 +181,16 @@ class WeatherRepository internal constructor(
             require(it in 0..100)
         }
         val precipitationStart = nextIndex?.let { LocalDateTime.parse(times[it].jsonPrimitive.content) }
+        val daily = root["daily"] as? JsonObject
+        val today = fetchedAt.atZone(ZoneId.of(location.timezoneId)).toLocalDate().toString()
+        val dayIndex = (daily?.get("time") as? JsonArray)?.indexOfFirst { (it as? JsonPrimitive)?.contentOrNull == today }
+            ?.takeIf { it >= 0 }
+        fun dailyTemperature(name: String): Int? = dayIndex?.let { index ->
+            ((daily.get(name) as? JsonArray)?.getOrNull(index) as? JsonPrimitive)?.doubleOrNull?.validTemperature()
+        }
         return WeatherSnapshot(
             source = WeatherSource.OPEN_METEO,
-            locationLabel = "中壢區",
+            locationLabel = location.name,
             temperatureCelsius = temperature,
             apparentTemperatureCelsius = apparent,
             condition = weatherCodeLabel(weatherCode),
@@ -185,32 +198,50 @@ class WeatherRepository internal constructor(
             precipitationStart = precipitationStart,
             precipitationEndExclusive = precipitationStart?.plusHours(1),
             fetchedAt = fetchedAt,
+            timezoneId = location.timezoneId,
+            maximumTemperatureCelsius = dailyTemperature("temperature_2m_max"),
+            minimumTemperatureCelsius = dailyTemperature("temperature_2m_min"),
+            forecast = times.indices.mapNotNull { index ->
+                val local = runCatching { LocalDateTime.parse(times[index].jsonPrimitive.content) }.getOrNull() ?: return@mapNotNull null
+                val start = local.atZone(ZoneId.of(location.timezoneId)).toInstant()
+                WeatherForecastPeriod(start, start.plusSeconds(3600),
+                    (hourly["temperature_2m"] as? JsonArray)?.getOrNull(index)?.jsonPrimitive?.doubleOrNull?.validTemperature(),
+                    (hourly["weather_code"] as? JsonArray)?.getOrNull(index)?.jsonPrimitive?.intOrNull?.let(::weatherCodeLabel),
+                    probabilities[index].jsonPrimitive.intOrNull?.takeIf { it in 0..100 })
+            },
         )
     }
 
-    private fun parseCwa(raw: String, fetchedAt: Instant): WeatherSnapshot {
+    private fun parseCwa(raw: String, fetchedAt: Instant, requestedLocation: WeatherLocation): WeatherSnapshot {
         val root = SchoolJson.parseToJsonElement(raw)
         val success = root.findPrimitive("success")?.booleanOrNull
             ?: root.findPrimitive("success")?.contentOrNull?.equals("true", ignoreCase = true)
         require(success == true)
-        val location = root.findObject { it["LocationName"]?.jsonPrimitive?.contentOrNull == CWA_LOCATION }
-            ?: root.findObject { it["locationName"]?.jsonPrimitive?.contentOrNull == CWA_LOCATION }
-            ?: error("中央氣象署資料缺少中壢區")
+        val location = root.findObject { it["LocationName"]?.jsonPrimitive?.contentOrNull == requestedLocation.cwaLocationName }
+            ?: root.findObject { it["locationName"]?.jsonPrimitive?.contentOrNull == requestedLocation.cwaLocationName }
+            ?: error("中央氣象署資料缺少選定地點")
         val elements = (location["WeatherElement"] ?: location["weatherElement"])?.jsonArray
             ?: error("中央氣象署資料格式不符")
         val reference = LocalDateTime.ofInstant(fetchedAt, TAIPEI_ZONE)
         val temperature = elements.valueForPoint(listOf("溫度", "T"), reference)?.roundTemperature()
             ?: error("中央氣象署資料缺少溫度")
-        val apparent = elements.valueForPoint(listOf("體感溫度", "AT"), reference)?.roundTemperature()
+        val apparent = elements.valueForPoint(listOf("體感溫度", "AT"), reference)?.toDoubleOrNull()?.validTemperature()
         val condition = elements.valueForPoint(listOf("天氣現象", "Wx"), reference)
             ?.take(24)?.ifBlank { null } ?: "天氣狀況未提供"
         val probabilityNames = listOf("3小時降雨機率", "PoP6h", "PoP12h", "PoP")
         val probability = elements.valueForPeriod(probabilityNames, reference)
             ?.toDoubleOrNull()?.toInt()?.also { require(it in 0..100) }
         val period = elements.firstPeriodFor(probabilityNames, reference)
+        // The three-day product has temperature points, not official daily extrema.
+        val temperatures = elements.elementNamed(listOf("溫度", "T"))?.timeArray().orEmpty().mapNotNull { value ->
+            val time = value as? JsonObject ?: return@mapNotNull null
+            val point = time.cwaTime("DataTime", "dataTime") ?: return@mapNotNull null
+            if (point.isBefore(reference) || !point.isBefore(reference.plusHours(24))) return@mapNotNull null
+            (time.findPrimitive("Temperature") ?: time.findPrimitive("value"))?.doubleOrNull?.validTemperature()
+        }
         return WeatherSnapshot(
             source = WeatherSource.CWA,
-            locationLabel = "中壢區",
+            locationLabel = requestedLocation.name,
             temperatureCelsius = temperature,
             apparentTemperatureCelsius = apparent,
             condition = condition,
@@ -218,17 +249,34 @@ class WeatherRepository internal constructor(
             precipitationStart = period?.first,
             precipitationEndExclusive = period?.second,
             fetchedAt = fetchedAt,
+            timezoneId = requestedLocation.timezoneId,
+            maximumTemperatureCelsius = temperatures.maxOrNull(),
+            minimumTemperatureCelsius = temperatures.minOrNull(),
+            forecast = elements.elementNamed(listOf("溫度", "T"))?.timeArray().orEmpty()
+                .mapNotNull { (it as? JsonObject)?.cwaTime("DataTime", "dataTime", "StartTime", "startTime") }
+                .distinct().sorted().zipWithNext().map { (start, end) ->
+                    WeatherForecastPeriod(start.atZone(TAIPEI_ZONE).toInstant(), end.atZone(TAIPEI_ZONE).toInstant(),
+                        elements.valueForPoint(listOf("溫度", "T"), start)?.toDoubleOrNull()?.validTemperature(),
+                        elements.valueForPoint(listOf("天氣現象", "Wx"), start)?.take(24),
+                        elements.valueForPeriod(probabilityNames, start)?.toIntOrNull()?.takeIf { it in 0..100 })
+                },
         )
     }
 
-    private fun cacheFor(source: WeatherSource) = when (source) {
-        WeatherSource.OPEN_METEO -> openMeteoCache
-        WeatherSource.CWA -> cwaCache
+    private fun cacheFor(source: WeatherSource, location: WeatherLocation): LatestCacheFile {
+        if (location != WeatherLocation.SCHOOL) {
+            val identity = "$source|${location.latitude}|${location.longitude}|${location.timezoneId}|${location.cwaDataset}|${location.cwaLocationName}"
+            val digest = java.security.MessageDigest.getInstance("SHA-256").digest(identity.toByteArray()).joinToString("") { "%02x".format(it) }
+            return LatestCacheFile(cacheDirectory, "weather-$digest.json")
+        }
+        return when (source) {
+            WeatherSource.OPEN_METEO -> openMeteoCache
+            WeatherSource.CWA -> cwaCache
+        }
     }
 
     private companion object {
         const val MAX_RESPONSE_BYTES = 512 * 1024
-        const val CWA_LOCATION = "中壢區"
         val FRESH_AGE: Duration = Duration.ofMinutes(30)
         val MAX_STALE_AGE: Duration = Duration.ofHours(6)
 
@@ -236,19 +284,20 @@ class WeatherRepository internal constructor(
         val CWA_ENDPOINT: HttpUrl = HttpUrl.Builder().scheme("https").host("opendata.cwa.gov.tw").build()
         val TAIPEI_ZONE: ZoneId = ZoneId.of("Asia/Taipei")
 
-        fun openMeteoUrl(endpoint: HttpUrl): HttpUrl = endpoint.newBuilder()
+        fun openMeteoUrl(endpoint: HttpUrl, location: WeatherLocation): HttpUrl = endpoint.newBuilder()
             .addPathSegments("v1/forecast")
-            .addQueryParameter("latitude", "24.9621")
-            .addQueryParameter("longitude", "121.2112")
+            .addQueryParameter("latitude", location.latitude.toString())
+            .addQueryParameter("longitude", location.longitude.toString())
             .addQueryParameter("current", "temperature_2m,apparent_temperature,weather_code")
-            .addQueryParameter("hourly", "precipitation_probability")
+            .addQueryParameter("hourly", "temperature_2m,weather_code,precipitation_probability")
+            .addQueryParameter("daily", "temperature_2m_max,temperature_2m_min")
             .addQueryParameter("forecast_days", "2")
-            .addQueryParameter("timezone", "Asia/Taipei")
+            .addQueryParameter("timezone", location.timezoneId)
             .build()
 
-        fun cwaUrl(endpoint: HttpUrl): HttpUrl = endpoint.newBuilder()
-            .addPathSegments("api/v1/rest/datastore/F-D0047-005")
-            .addQueryParameter("LocationName", CWA_LOCATION)
+        fun cwaUrl(endpoint: HttpUrl, location: WeatherLocation): HttpUrl = endpoint.newBuilder()
+            .addPathSegments("api/v1/rest/datastore/${requireNotNull(location.cwaDataset)}")
+            .addQueryParameter("LocationName", requireNotNull(location.cwaLocationName))
             .addQueryParameter("ElementName", "溫度,體感溫度,3小時降雨機率,天氣現象")
             .build()
     }
@@ -266,6 +315,7 @@ private fun JsonObject.requiredTemperature(): Int =
 private fun JsonObject.optionalTemperature(): Int? =
     this["apparent_temperature"]?.jsonPrimitive?.doubleOrNull?.roundTemperature()
 private fun Double.roundTemperature(): Int = roundToInt().also { require(it in -100..70) }
+private fun Double.validTemperature(): Int? = takeIf { it.isFinite() && it in -100.0..70.0 }?.roundToInt()
 private fun String.roundTemperature(): Int = requireNotNull(toDoubleOrNull()).roundTemperature()
 
 private fun JsonElement.findPrimitive(name: String): JsonPrimitive? = when (this) {

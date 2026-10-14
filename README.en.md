@@ -23,7 +23,7 @@ CLHS Pocket is an Android app built with Kotlin, Jetpack Compose, and Material 3
 
 ## Features
 
-- 🧭 **Overview**: See the current or next class, weather, upcoming events, and important announcements in one place.
+- 🧭 **Overview**: See the current or next class, weather, YouBike, upcoming events, and important announcements in one place.
 - 📊 **Grades**: View weighted averages, rankings, subject statistics, historical trends, and use the score simulator to work toward a target.
 - 🗓️ **Schedule**: Check semester and weekly schedules, review schedule changes, customize subject information, and save timetable images.
 - 🏫 **Campus information**: Access school announcements, the public calendar, and the school system from one place.
@@ -94,7 +94,7 @@ For full setup details, see [development setup](docs/development/setup.md), [fak
 
 ## Contributing
 
-Please read the [contributing guide](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), and [security policy](SECURITY.md) first. Issues, logs, pull requests, and screenshots must not include student IDs, names, cookies, tokens, passwords, or real grade data.
+Please read the [contributing guide](CONTRIBUTING.md) and [security policy](SECURITY.md) first. Issues, logs, pull requests, and screenshots must not include student IDs, names, cookies, tokens, passwords, or real grade data.
 
 ## License
 
