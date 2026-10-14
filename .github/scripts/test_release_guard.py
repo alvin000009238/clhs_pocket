@@ -5,14 +5,28 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
+from zipfile import ZipFile
 
-from release_guard import check_upgrade, provenance, version
+from release_guard import check_upgrade, provenance, verify, version
 
 
 class ReleaseGuardTest(unittest.TestCase):
     def test_release_workflow_preserves_pending_tags(self):
         workflow = (Path(__file__).resolve().parents[1] / "workflows" / "android-release.yml").read_text()
         self.assertIn("queue: max", workflow)
+
+    def test_verify_checks_metadata_and_abi_without_signature_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "release.apk"
+            with ZipFile(apk, "w") as archive:
+                archive.writestr("lib/arm64-v8a/libapp.so", b"native")
+            with (
+                patch("release_guard.metadata", return_value=(35, "2.1.0")),
+                patch("release_guard.run") as run,
+            ):
+                verify(apk, "v2.1.0", 35)
+                run.assert_not_called()
 
     def test_release_gates(self):
         original = Path.cwd()

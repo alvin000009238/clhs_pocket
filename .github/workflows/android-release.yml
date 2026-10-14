@@ -120,7 +120,7 @@ jobs:
           echo "APK_PATH=$apk_path" >> "$GITHUB_ENV"
           echo "APK_NAME=$apk_name" >> "$GITHUB_ENV"
 
-      - name: Verify APK identity, versions, signature and ABI
+      - name: Verify APK identity, versions and ABI
         run: python3 .github/scripts/release_guard.py verify
 
       - name: Create GitHub Release
