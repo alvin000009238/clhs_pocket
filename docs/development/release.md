@@ -6,7 +6,7 @@
 4. 在 main 已包含的 commit 建立 `vMAJOR.MINOR.PATCH` tag（例如 `v2.0.1`），經維護者確認後推送。普通 main／dev push 不會發布。
 5. Workflow 完整 checkout、fetch `origin/main`，先驗證 tag 格式、tag 與 HEAD 一致、commit 為 main 的 ancestor，以及非空的對應 changelog 區塊，再產生 release notes。未合併 dev commit 會失敗。
 6. 比對所有已發布 APK 的 SHA-256 與實際 versionCode，通過後才解碼既有 signing secrets。CI 使用 Gradle 管理的 API 35 AOSP x86_64 模擬器，以 `demo` 假資料執行啟動及主要操作腳本，產生 Baseline／Startup Profile，複製到 `android/app/src/productionRelease/generated/baselineProfiles/` 後建置 signed arm64-v8a APK。產物不會自行提交；本機一般 `assembleProductionRelease` 不會自動啟動模擬器。
-7. 發布前確認 APK 含 `assets/dexopt/baseline.prof`，並驗證 `com.clhs.score`、tag 對應 versionName、指定 versionCode、APK 簽章、正式憑證 SHA-256 與精確的 `arm64-v8a` ABI 集合；任一失敗均停止。通過後建立 GitHub Release。
+7. 發布前確認 APK 含 `assets/dexopt/baseline.prof`，並驗證 `com.clhs.score`、tag 對應 versionName、指定 versionCode 與精確的 `arm64-v8a` ABI 集合；任一失敗均停止。APK 由 Gradle 使用既有 release keystore 簽署，release guard 不再比對簽章或憑證指紋。通過後建立 GitHub Release。
 8. 確認 Release 有 APK 與 release notes；App 內更新還要求 Release API 提供 APK 的 SHA-256 digest。
 
 ## 版本與相容性
@@ -17,7 +17,7 @@
 
 已發布版本不可覆寫；重跑已成功發布的 tag 會失敗。所有 release run 共用 concurrency group，使用 `queue: max` 保留所有尚未開始的 tag run，且不取消正在發布的 run；實際發布次序仍由 GitHub 排程，versionCode history guard 會阻擋逆序發布。workflow 遷移若造成 run number 重設，guard 會阻擋；維護者須先審核延續序列的方案，不能移除檢查。
 
-正式憑證指紋固定於 `.github/scripts/release_guard.py`，來源是公開 v2.0.0 APK。這不是私鑰；更換簽章前須另行規劃 signing lineage 與實際升級驗證。手動安裝 versionCode 999 的本機版不屬於公開 release 序列，不能保證由較小碼的正式版直接升級。
+手動安裝 versionCode 999 的本機版不屬於公開 release 序列，不能保證由較小碼的正式版直接升級。
 
 必要 secrets 維持：`ANDROID_RELEASE_KEYSTORE_BASE64`、`ANDROID_RELEASE_KEYSTORE_PASSWORD`、`ANDROID_RELEASE_KEY_ALIAS`、`ANDROID_RELEASE_KEY_PASSWORD`。只在 GitHub repository settings 設定，不放入 log、原始碼或 PR。release job 結束時移除暫存 keystore。
 
@@ -39,10 +39,10 @@
 
 ## 失敗恢復
 
-- 來源／changelog 錯誤：將修正透過 dev → main 合併，再使用新的合法版本 tag；不搬移或強推既有 tag。
+- 來源／changelog 錯誤：將修正透過 PR 合併 main。已發布 tag 不搬移或強推；尚未發布的 tag 需要更新時，須由維護者明確授權，並指向已合併 main 的 commit。
 - 暫時性網路／SDK／建置失敗，且尚未建立 Release：排除原因後重跑原 run，run number 不變，歷史檢查仍重新執行。
 - versionCode 或 versionName 退版：停止發布，檢查歷史與 workflow 序列；不能降低門檻或刪除歷史來繞過。
-- 簽章／package／ABI 不符：修正設定後重新走 PR 與版本流程，不略過驗證。
+- package／版本／ABI 不符：修正設定後重新走 PR 與版本流程，不略過驗證。
 - 已建立 Release 或上傳途中失敗：先人工確認公開 assets；guard 不覆寫已發布版本。需要替代 APK 時使用新版本，避免同版本不同內容。
 
 歷史檢查依賴 GitHub 上保留的完整 Release 資產；刪除歷史、外部手動發布或繞過 tag 保護不在 workflow 能保證的範圍內。發版期間勿另行手動修改 Release。

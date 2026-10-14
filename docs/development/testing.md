@@ -49,6 +49,8 @@ CI 在 `dev`／`main` push，以及目標為兩者的 PR 執行 `:app:testDemoDe
 
 上述 `--tests` 是 Production test task 的選項，Demo 仍執行完整 JVM suite；它不是全域篩選器。若需要驗證 Production 的完整 suite，省略該 task 的 `--tests`。
 
+JVM 測試失敗時，Gradle 輸出完整 assertion 與 stack trace，包含 coroutine 內的失敗行；不要只用測試函式起始行推測原因。首頁定向刷新測試先等待公開來源載入完成，再記下請求基準；自有 coroutine 的時序使用同一 test scheduler，不用固定睡眠等待 flow 傳播。
+
 CI 也執行 release guard 的離線測試。從 repository root 執行：
 
 ```powershell

@@ -1,6 +1,7 @@
 @file:Suppress("UnstableApiUsage")
 
 import com.google.protobuf.gradle.id
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 abstract class GenerateShortcutResources : DefaultTask() {
@@ -208,6 +209,7 @@ kotlin {
 }
 
 tasks.withType<Test>().configureEach {
+    testLogging.exceptionFormat = TestExceptionFormat.FULL
     // DataStore 1.2.1 bundles protobuf using Unsafe; remove after upstream fixes it.
     // JEP 498 compatibility is limited to test JVMs, not the Gradle daemon or Android app.
     jvmArgs("--sun-misc-unsafe-memory-access=allow")
