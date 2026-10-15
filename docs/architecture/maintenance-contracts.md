@@ -116,6 +116,7 @@
 - `demo` flavor 固定假資料、`.demo` applicationId suffix，不初始化 Firebase、訂閱 FCM 或開啟校務登入 WebView；`production` 固定真實資料與既有 Firebase client。`debug`／`release` 只決定建置型態，正式發布僅使用 `productionRelease`，`demoRelease` 不得使用正式 release key。
 - 更新檢查由 MainActivity 對共用 SettingsViewModel 觸發一次；自動檢查間隔 12 小時，手動不受限。保存 stable release 資訊，已安裝相同或更新版本清掉 cache。
 - APK 下載保留 HTTPS、大小、SHA-256、取消與 atomic replacement 驗證，再交 FileProvider／系統安裝器；不靜默安裝。檢查 `UpdateApkDownloaderTest` 與 `SettingsViewModelUpdateCheckTest`。
+- 啟動 SettingsViewModel 時，在還原更新資訊前檢查 `cache/updates/clhs-score-update.apk`：只有可解析、相同 package 且 versionCode 不高於已安裝版才刪除。新下載等待這次檢查完成；較新版、其他套件、解析或刪除失敗都保留供重試，不清除使用者資料。
 - Release 保留 R8 與 resource shrinking，不新增 broad keep。protobuf-lite message／欄位名與 biweekly 資源相對路徑、反射 constructor／欄位需保留；修改規則需檢查 release DEX／mapping，biweekly 用完整公開 ICS 驗證，不能只靠 debug 或簡化 ICS。
 - 保留 default／zh-TW resources、停用 App Bundle 語言分割、不封裝 `.proto`、維持未壓縮 DEX。Runtime 開源依賴異動同步授權清單與 `OpenSourceLicensesTest`。
 - Analytics 只經 `AnalyticsLogger`、常數與 sanitizer 白名單；不設 user ID，不送學生資料、成績內容、URL、憑證或錯誤原文。參數僅 enum、boolean、count、bucket；更新 `AnalyticsParameterSanitizerTest`。

@@ -17,6 +17,16 @@ class UpdateApkDownloader(
     private val cacheDirectory: File,
     private val client: OkHttpClient = OkHttpClient(),
 ) {
+    suspend fun removeInstalledUpdate(
+        installedVersionCode: Long,
+        readVersionCode: (File) -> Long?,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val apk = File(File(cacheDirectory, "updates"), FINAL_APK_NAME)
+        if (!apk.isFile) return@withContext false
+        val versionCode = readVersionCode(apk) ?: return@withContext false
+        versionCode <= installedVersionCode && apk.delete()
+    }
+
     suspend fun download(
         asset: ApkAsset,
         onProgress: (Float?) -> Unit,

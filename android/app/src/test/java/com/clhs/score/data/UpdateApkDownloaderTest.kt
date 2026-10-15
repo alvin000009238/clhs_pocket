@@ -35,6 +35,39 @@ class UpdateApkDownloaderTest {
     }
 
     @Test
+    fun cleanupRemovesOnlyAnInstalledOrOlderVerifiedUpdate() = runBlocking {
+        val updates = java.io.File(cacheDirectory, "updates").apply { mkdirs() }
+        val apk = java.io.File(updates, "clhs-score-update.apk")
+        val unrelated = java.io.File(updates, "other.apk").apply { writeText("keep") }
+        val downloader = UpdateApkDownloader(cacheDirectory)
+        for (version in listOf(null, 101L, 100L, 99L)) {
+            apk.writeText("verified")
+            val removed = downloader.removeInstalledUpdate(100L) { candidate ->
+                assertEquals(apk, candidate)
+                version
+            }
+            val obsolete = version != null && version <= 100L
+            assertEquals(obsolete, removed)
+            assertEquals(!obsolete, apk.exists())
+            assertTrue(unrelated.exists())
+        }
+        assertFalse(downloader.removeInstalledUpdate(100L) { error("No file to inspect") })
+    }
+
+    @Test
+    fun cleanupReadFailurePreservesUpdateForRetry() = runBlocking {
+        val updates = java.io.File(cacheDirectory, "updates").apply { mkdirs() }
+        val apk = java.io.File(updates, "clhs-score-update.apk").apply { writeText("verified") }
+        val result = runCatching {
+            UpdateApkDownloader(cacheDirectory).removeInstalledUpdate(100L) {
+                throw java.io.IOException("Package unavailable")
+            }
+        }
+        assertTrue(result.exceptionOrNull() is java.io.IOException)
+        assertTrue(apk.exists())
+    }
+
+    @Test
     fun failedAttemptDoesNotDeletePreviouslyVerifiedApk() = runBlocking {
         val updates = java.io.File(cacheDirectory, "updates").apply { mkdirs() }
         val installedApk = java.io.File(updates, "clhs-score-update.apk").apply { writeBytes("old".toByteArray()) }
