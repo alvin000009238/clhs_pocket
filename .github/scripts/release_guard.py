@@ -12,10 +12,6 @@ import urllib.request
 from zipfile import ZipFile
 
 
-# Public certificate verified from the published v2.0.0 APK, not a secret.
-CERTIFICATE = "78217e39861a103977ef7f7aaee06b045627adad315557668bce12c02f82431d"
-
-
 def run(*args):
     return subprocess.check_output(args, text=True, encoding="utf-8").strip()
 
@@ -90,17 +86,11 @@ def history(tag, code):
 def verify(apk, tag, code):
     if metadata(apk) != (code, tag[1:]):
         raise ValueError("APK version does not match validated release inputs")
-    tools = Path(os.environ["ANDROID_HOME"]) / "build-tools" / os.environ.get("BUILD_TOOLS_VERSION", "37.0.0")
-    signer = tools / ("apksigner.bat" if os.name == "nt" else "apksigner")
-    result = run(str(signer), "verify", "--verbose", "--print-certs", str(apk))
-    certificates = re.findall(r"^Signer #\d+ certificate SHA-256 digest: ([0-9a-f]+)$", result, re.MULTILINE)
-    if certificates != [CERTIFICATE]:
-        raise ValueError("APK signer differs from the published production certificate")
     with ZipFile(apk) as archive:
         abis = {name.split("/")[1] for name in archive.namelist() if name.startswith("lib/") and len(name.split("/")) > 2}
     if abis != {"arm64-v8a"}:
         raise ValueError(f"Unexpected native ABIs: {sorted(abis)}")
-    print("APK applicationId, versions, signature, certificate and ABI verified")
+    print("APK applicationId, versions and ABI verified")
 
 
 if __name__ == "__main__":

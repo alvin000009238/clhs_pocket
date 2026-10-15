@@ -13,7 +13,6 @@
   <img src="https://img.shields.io/badge/Android-10%2B-3DDC84?logo=android&logoColor=white" alt="Android 10+">
   <img src="https://img.shields.io/badge/Kotlin-7F52FF?logo=kotlin&logoColor=white" alt="Kotlin">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/alvin000009238/clhs_pocket" alt="MIT license"></a>
-  <a href="https://deepwiki.com/alvin000009238/clhs_pocket"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
 > [!IMPORTANT]
@@ -51,7 +50,13 @@
 
 ## 下載
 
-[下載最新 APK](https://github.com/alvin000009238/clhs_pocket/releases/latest)
+<a href="https://github.com/alvin000009238/clhs_score/releases/latest">
+  <img
+    src="https://raw.githubusercontent.com/rubenpgrady/get-it-on-github/refs/heads/main/get-it-on-github.png"
+    alt="Get it on GitHub"
+    height="60"
+  />
+</a>
 
 支援 Android 10 以上。尚未登入時，也可以使用首頁、天氣、近期行程、學校公告與公開行事曆；課表、成績與校務系統會在需要時引導登入。
 
@@ -94,7 +99,7 @@ cd clhs_pocket/android
 
 ## 參與貢獻
 
-請先閱讀 [貢獻指南](CONTRIBUTING.md)與 [安全性回報政策](SECURITY.md)。Issue、log、PR 與截圖都不得包含學號、姓名、Cookie、token、密碼或真實成績資料。
+請先閱讀 [貢獻指南](CONTRIBUTING.md) 與 [安全性回報政策](SECURITY.md)。Issue、log、PR 與截圖都不得包含學號、姓名、Cookie、token、密碼或真實成績資料。
 
 ## License
 
