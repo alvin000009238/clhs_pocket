@@ -41,9 +41,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clhs.score.data.GradeStandard
 import com.clhs.score.data.SubjectAnalysis
+import com.clhs.score.data.cleanSubjectName
 import com.clhs.score.data.deltaText
 import com.clhs.score.data.scoreDistributions
-import com.clhs.score.data.shortenSubjectName
 import com.clhs.score.ui.theme.ScoreTheme
 import com.clhs.score.ui.theme.PocketMotion
 import kotlinx.coroutines.delay
@@ -88,7 +88,7 @@ internal fun SubjectCard(
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = shortenSubjectName(subject.subjectName),
+                        text = cleanSubjectName(subject.subjectName),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )

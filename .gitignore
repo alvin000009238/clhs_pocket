@@ -68,6 +68,7 @@ extracted_aar/
 
 # Local Android verification artifacts
 /android/.artifacts/
+/.tmp/size-audit/
 
 # Logs
 *.log

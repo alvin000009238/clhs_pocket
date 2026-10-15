@@ -104,6 +104,7 @@ class SettingsViewModel internal constructor(
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     private val updateStateRestoreJob: Job = viewModelScope.launch {
+        removeInstalledUpdate()
         restoreLastKnownUpdate()
     }
 
@@ -306,6 +307,21 @@ class SettingsViewModel internal constructor(
         }
     }
 
+    private suspend fun removeInstalledUpdate() {
+        val context = appContext ?: return
+        try {
+            updateApkDownloader.removeInstalledUpdate(BuildConfig.VERSION_CODE.toLong()) { apk ->
+                context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
+                    ?.takeIf { it.packageName == context.packageName }
+                    ?.longVersionCode
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // Keep the cached installer and retry cleanup on the next app launch.
+        }
+    }
+
     private suspend fun restoreLastKnownUpdate() {
         val stored = try {
             repository.getLastKnownUpdate()
@@ -342,6 +358,7 @@ class SettingsViewModel internal constructor(
     fun downloadUpdateApk(asset: ApkAsset) {
         if (updateDownloadJob?.isActive == true) return
         updateDownloadJob = viewModelScope.launch {
+            updateStateRestoreJob.join()
             _uiState.update { it.copy(updateDownloadState = UpdateDownloadState.Downloading(0f)) }
             try {
                 val apk = updateApkDownloader.download(asset) { progress ->
