@@ -85,7 +85,8 @@ Run commands from `android/` in PowerShell (`./gradlew` on Unix).
 
 ## Release and documentation
 
-- Before pushing an Android update to GitHub, finish the matching changelog section and obtain the user's review/confirmation. Compare with the previous release using Features, Bug Fixes and Performance Improvements.
+- Before a formal production release, finish the matching changelog section and obtain the user's review/confirmation. Compare with the previous release using Features, Bug Fixes and Performance Improvements. Reviewed dev merges may automatically distribute internal productionRelease builds without a new formal release approval each time.
+- `android-release.yml` owns dev Firebase distribution and main stable-tag GitHub Releases. Preserve its exact shared `GITHUB_RUN_NUMBER`, one non-cancelling queue, both complete history checks and CI-before-signing order. Follow [release](docs/development/release.md) for Firebase credentials, branch protection and same-package upgrade limits.
 - Documentation, artwork or workflow-only changes do not get an Android version bump.
 - `demoDebug` is the daily fake-data build, except YouBike uses the public live API in both flavors; Compose previews and isolated YouBike tests retain fake data. `productionDebug` uses real data; only `productionRelease` is published. Demo never uses production Firebase or release signing. Keep signing material outside version control; `android/app/google-services.json` is the public production Firebase app configuration, not a service-account key.
 - Update the relevant linked guide when a durable contract changes. Keep this file a map, not a task log or feature specification.

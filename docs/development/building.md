@@ -13,11 +13,11 @@
 | Baseline Profile | `.\gradlew.bat :app:generateDemoReleaseBaselineProfile`（僅在明確要求裝置工作時） |
 | Macrobenchmark（實體裝置） | `.\gradlew.bat :benchmark:connectedBenchmarkReleaseAndroidTest` |
 | 裝置測試 | `.\gradlew.bat :app:connectedDemoDebugAndroidTest` |
-| signed release（CI） | 由 `v*` tag 觸發 release workflow |
+| signed release（CI） | `dev` push 分發 Firebase 測試版；main 已包含的 `v*` tag 發布 GitHub 正式版 |
 
 `demoDebug` 固定假資料且不初始化 Firebase；`productionDebug` 連接正式環境，使用時需謹慎。`productionRelease` 是唯一正式發布 variant。Debug build 不需要 release keystore；`demoRelease` 不使用正式 release key。不要在本機建立、提交或貼出任何正式 keystore 與密碼。
 
-Release workflow 會由 `CHANGELOG.md` 取出與 tag 對應的版本說明、建置 arm64-v8a APK、驗證簽章與 ABI，再建立 GitHub Release。推送 tag 前先完成並請維護者確認 changelog。
+兩個管道共用同一 release workflow 與 versionCode 序列，先檢查 GitHub 與 Firebase 歷史，再執行完整 CI，通過後才解碼簽章金鑰、產生 Profile 並建置 arm64-v8a APK。發布前驗證 package、版本與 ABI。正式 tag 使用 `CHANGELOG.md` 對應版本說明，推送前先請維護者確認。Dev 使用相同 package、簽章與真實資料，安裝會覆蓋正式版。設定與升降版限制見 [Release 流程](release.md)。
 
 Macrobenchmark 數據應在實體 Android 裝置取得；模擬器可用於功能檢查，但不把模擬器數字當成正式效能基準。
 
