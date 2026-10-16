@@ -27,12 +27,10 @@ class BaselineProfileGenerator {
         profileBlock = {
             ensureDemoSession()
             startActivityAndWait()
-            if (openDemoDestination("課表", "時間")) {
-                scrollContent()
-            }
-            if (openDemoDestination("成績", "科目")) {
-                scrollGradesContent()
-            }
+            openDemoDestination("課表", "時間")
+            scrollContent()
+            openDemoDestination("成績", "加權平均")
+            scrollGradesContent()
         },
     )
 }

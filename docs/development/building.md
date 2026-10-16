@@ -17,7 +17,7 @@
 
 `demoDebug` 固定假資料且不初始化 Firebase；`productionDebug` 連接正式環境，使用時需謹慎。`productionRelease` 是唯一正式發布 variant。Debug build 不需要 release keystore；`demoRelease` 不使用正式 release key。不要在本機建立、提交或貼出任何正式 keystore 與密碼。
 
-兩個管道共用同一 release workflow 與 versionCode 序列，先檢查 GitHub 與 Firebase 歷史，再執行完整 CI，通過後才解碼簽章金鑰、產生 Profile 並建置 arm64-v8a APK。發布前驗證 package、版本與 ABI。正式 tag 使用 `CHANGELOG.md` 對應版本說明，推送前先請維護者確認。Dev 使用相同 package、簽章與真實資料，安裝會覆蓋正式版。設定與升降版限制見 [Release 流程](release.md)。
+兩個管道共用同一 release workflow 與 versionCode 序列，先檢查 GitHub 與 Firebase 歷史，再執行完整 CI。通過後先驗證已提交的 Baseline 與 Startup Profile，再解碼簽章金鑰並建置 arm64-v8a APK。一般 Release 建置不啟動模擬器；Profile 由獨立的手動 workflow 產生，經人工提交與審閱後更新。發布前驗證 APK 內的 Profile、package、版本與 ABI。正式 tag 使用 `CHANGELOG.md` 對應版本說明，推送前先請維護者確認。Dev 使用相同 package、簽章與真實資料，安裝會覆蓋正式版。設定、Profile 更新與升降版限制見 [Release 流程](release.md)。
 
 Macrobenchmark 數據應在實體 Android 裝置取得；模擬器可用於功能檢查，但不把模擬器數字當成正式效能基準。
 

@@ -51,6 +51,7 @@ class ReleaseGuardTest(unittest.TestCase):
         self.assertIn("branches:\n      - dev\n    tags:\n      - 'v*'", workflow)
         self.assertEqual(workflow.count("concurrency:"), 1)
         self.assertLess(workflow.index(":app:testDemoDebugUnitTest :app:testProductionDebugUnitTest --tests 'com.clhs.score.FlavorConfigurationTest' :app:lintDemoDebug :app:assembleDemoDebug :app:assembleProductionDebug --warning-mode all"), workflow.index("- name: Decode release keystore"))
+        self.assertLess(workflow.index("python3 .github/scripts/baseline_profiles.py android/app/src/productionRelease/generated/baselineProfiles"), workflow.index("- name: Decode release keystore"))
 
     def test_verify_checks_metadata_and_abi_without_signature_check(self):
         with tempfile.TemporaryDirectory() as directory:

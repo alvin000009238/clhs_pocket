@@ -38,7 +38,7 @@ jobs:
           python3 .github/scripts/release_guard.py provenance
 
       - name: Test release policy
-        run: python3 -m unittest discover -s .github/scripts -p test_release_guard.py -v
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 
       - name: Validate Firebase distribution configuration
         env:
@@ -94,6 +94,9 @@ jobs:
         run: |
           ./gradlew --no-daemon :app:testDemoDebugUnitTest :app:testProductionDebugUnitTest --tests 'com.clhs.score.FlavorConfigurationTest' :app:lintDemoDebug :app:assembleDemoDebug :app:assembleProductionDebug --warning-mode all
 
+      - name: Validate committed Baseline and Startup Profiles
+        run: python3 .github/scripts/baseline_profiles.py android/app/src/productionRelease/generated/baselineProfiles
+
       - name: Decode release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
@@ -115,20 +118,6 @@ jobs:
             echo "ANDROID_RELEASE_KEY_ALIAS=$KEY_ALIAS"
             echo "ANDROID_RELEASE_KEY_PASSWORD=$KEY_PASSWORD"
           } >> "$GITHUB_ENV"
-
-      - name: Enable emulator acceleration
-        run: sudo chmod 666 /dev/kvm
-
-      - name: Generate release Baseline and Startup Profiles
-        working-directory: android
-        run: |
-          ./gradlew --no-daemon :app:generateDemoReleaseBaselineProfile --warning-mode all
-          profile_dir=app/src/demoRelease/generated/baselineProfiles
-          test -s "$profile_dir/baseline-prof.txt"
-          test -s "$profile_dir/startup-prof.txt"
-          grep -F 'Lcom/clhs/score/' "$profile_dir/baseline-prof.txt" > /dev/null
-          mkdir -p app/src/productionRelease/generated/baselineProfiles
-          cp "$profile_dir/baseline-prof.txt" "$profile_dir/startup-prof.txt" app/src/productionRelease/generated/baselineProfiles/
 
       - name: Build signed release APK
         working-directory: android
