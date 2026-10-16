@@ -42,6 +42,7 @@ gha-creds-*.json
 .agent/skills/
 .codex/
 android/.artifacts/
+android/app/src/demoRelease/generated/baselineProfiles/
 .qa/
 *.json
 !android/app/src/main/assets/weather_locations.json

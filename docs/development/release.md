@@ -47,11 +47,35 @@ git branch -d feat/schedule-cache
 .\gradlew.bat :app:testDemoDebugUnitTest :app:testProductionDebugUnitTest --tests 'com.clhs.score.FlavorConfigurationTest' :app:lintDemoDebug :app:assembleDemoDebug :app:assembleProductionDebug --warning-mode all
 ```
 
-每次發布沿用既有 Gradle 管理的 API 35 AOSP x86_64 模擬器，以 `demo` 假資料產生一次 Baseline 與 Startup Profile，複製到 `android/app/src/productionRelease/generated/baselineProfiles/`，再用既有 release keystore 建置 signed arm64-v8a `productionRelease`。產物不會自行提交。本機一般 `assembleProductionRelease` 不會自動啟動模擬器。
+發布使用已提交至 `android/app/src/productionRelease/generated/baselineProfiles/` 的 `baseline-prof.txt` 與 `startup-prof.txt`，不啟動模擬器。完整 Android gate 通過後，workflow 在解碼 signing key 前檢查兩個檔案均含有效的 app 規則，再用既有 release keystore 建置 signed arm64-v8a `productionRelease`。`automaticGenerationDuringBuild = false` 明確停用建置時自動產生，`saveInSrc = true` 保留手動產生的來源檔。
 
 發布前確認 APK 含 `assets/dexopt/baseline.prof`，並驗證 `com.clhs.score`、精確的已選 versionName、versionCode 與 `arm64-v8a` ABI 集合。任一失敗均停止。簽署由 Gradle 使用既有 keystore 完成，guard 不另行比對憑證指紋。Dev 以固定 `firebase-tools@15.28.1` CLI 上傳，帶入 release notes 與 tester group。正式版建立 GitHub Release。
 
 Dev 與正式版使用相同 package、簽章、正式資料與 Firebase 設定。安裝 dev 會覆蓋原正式版並保留相同 app 資料，測試操作也會使用真實服務。較低碼的舊正式 APK 無法直接覆蓋較高碼 dev；下一次碼更大的 main 正式版可正常升級。本機手動安裝 versionCode 999 的 APK 不在發布歷史內，仍可能阻擋碼較小的 CI 版本。不要為測試降版而任意清除使用者資料。
+
+## 更新 Baseline 與 Startup Profile
+
+入口、導航、主要互動路徑或主要相依套件變更後，手動更新兩個 Profile。一般發布沿用已提交版本。產生流程使用 `demo` 假資料與既有 Gradle 管理的 API 35 AOSP x86_64 模擬器，不需要 signing 或 Firebase secrets。
+
+採樣先完成首次設定，以 Demo 假登入進入首頁，再分別收集啟動與課表／成績概覽互動。缺少首頁、目的地或內容時直接失敗，不能略過互動後視為成功；首次設定或導覽文案變更時也要同步更新採樣腳本。
+
+1. 在 Actions 選擇 **Android Baseline Profiles**，以 **Run workflow** 指定要採樣的分支。
+2. 成功後下載 `android-baseline-profiles-<完整 commit SHA>` artifact，核對採樣 commit。Artifact 僅含 `baseline-prof.txt` 與 `startup-prof.txt`。
+3. 將兩個檔案一起放入 `android/app/src/productionRelease/generated/baselineProfiles/`，在 repository root 執行下列檢查。
+
+```powershell
+python .github/scripts/baseline_profiles.py android/app/src/productionRelease/generated/baselineProfiles
+```
+
+4. 將兩個檔案一併提交至以 `dev` 為目標的 PR，完成 CI 與人工審閱。Workflow 不提交檔案、不建立 PR，也不合併。
+
+`workflow_dispatch` 必須先存在於預設分支 `main`，GitHub 才提供手動觸發入口。第一次引入 workflow 時，先在本機產生真實檔案並隨 PR 提交，不能用空檔或手寫規則代替。取得使用者明確的裝置工作授權後，在 `android/` 執行 `:app:generateDemoReleaseBaselineProfile`，驗證 `app/src/demoRelease/generated/baselineProfiles/`，再將兩個檔案複製到上述 production 路徑。
+
+Windows 的深層 worktree 路徑可能超過 ADB 回收產物的路徑長度限制。改用短路徑 worktree，或將同一 worktree 以 `subst` 映射至未使用的磁碟代號，再從該短路徑執行 Gradle；完成後移除自己建立的映射。
+
+Validator 只確認兩個檔案可讀，且各自至少有一筆未註解的 `com.clhs.score` 類別或方法規則；它不解析完整 HRF 格式，也不驗證採樣新鮮度或效能。Release 建置與 APK 內 `assets/dexopt/baseline.prof` 檢查仍須通過。
+
+設定依據見 [Android Baseline Profile Gradle 外掛文件](https://developer.android.com/topic/performance/baselineprofiles/configure-baselineprofiles)。
 
 ## 設定 Firebase 與 GitHub secrets
 

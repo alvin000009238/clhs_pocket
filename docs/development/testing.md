@@ -51,14 +51,16 @@ CI 在 `dev`／`main` push，以及目標為兩者的 PR 執行 `:app:testDemoDe
 
 JVM 測試失敗時，Gradle 輸出完整 assertion 與 stack trace，包含 coroutine 內的失敗行；不要只用測試函式起始行推測原因。首頁定向刷新測試先等待公開來源載入完成，再記下請求基準；自有 coroutine 的時序使用同一 test scheduler，不用固定睡眠等待 flow 傳播。
 
-CI 也執行 release guard 的離線測試。從 repository root 執行：
+CI 也執行 release guard 與 Profile validator 的離線測試。從 repository root 執行：
 
 ```powershell
 python -m unittest discover -s .github/scripts -p "test_*.py" -v
 actionlint
 ```
 
-測試只在暫存 Git repository 建立 tag，覆蓋 main tag、未合併 dev tag、非法版本、缺少／空白 changelog，以及 versionCode 退版。
+Release guard 測試只在暫存 Git repository 建立 tag，覆蓋 main tag、未合併 dev tag、非法版本、缺少／空白 changelog，以及 versionCode 退版。Profile 測試使用暫存檔案，驗證兩份來源必須各有 app 規則，並拒絕缺檔、空白、僅註解及其他 namespace 的內容；不操作裝置。
+
+Release 使用已提交的 Profile，在解碼 signing key 前驗證來源，建置後檢查 APK 內的 `assets/dexopt/baseline.prof`。獨立的 **Android Baseline Profiles** workflow 僅接受手動觸發，使用 Demo 與 API 35 Gradle 管理的模擬器產生可供人工提交的兩份檔案。更新步驟與首次啟用限制見 [Release 流程](release.md#更新-baseline-與-startup-profile)。
 
 CodeQL 保留 main push、PR 與每週掃描。2026-09-13 run `34747861031` 的註記確認 java-kotlin autobuild 失敗，因此改成安裝 Android SDK，從 `android/` 手動 `:app:assembleProductionDebug`；停用 build/configuration cache 並強制重建，讓 CodeQL 擷取 Kotlin 編譯，不重跑 unit tests／Lint。必須在 GitHub 實際確認 Kotlin 覆蓋與 SARIF 上傳成功後，才考慮將 `Analyze (java-kotlin)` 設為 required check；本機 assemble 成功不能代替掃描驗證。
 
