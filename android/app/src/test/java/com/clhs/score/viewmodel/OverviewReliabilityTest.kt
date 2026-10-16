@@ -285,7 +285,10 @@ class OverviewReliabilityTest {
 
         vm.setClockEnabled(true)
         scheduler.runCurrent()
-        assertEquals(initial.now.plusSeconds(1), vm.uiState.value.now)
+        val resumed = withContext(Dispatchers.Default) {
+            awaitState(vm) { it.now != initial.now }
+        }
+        assertEquals(initial.now.plusSeconds(1), resumed.now)
         vm.setClockEnabled(false)
         currentMillis.addAndGet(1_000)
         scheduler.advanceTimeBy(1_100)
