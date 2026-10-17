@@ -85,7 +85,7 @@ Run commands from `android/` in PowerShell (`./gradlew` on Unix).
 
 ## Release and documentation
 
-- Before a formal production release, finish the matching changelog section and obtain the user's review/confirmation. Compare with the previous release using Features, Bug Fixes and Performance Improvements. Reviewed dev merges may automatically distribute internal productionRelease builds without a new formal release approval each time.
+- Update CHANGELOG.md only when publishing a new formal Android version, and obtain the user's review/confirmation before publishing that release. Compare with the previous release using Features, Bug Fixes and Performance Improvements. Ordinary feature/fix commits and pull requests do not require a changelog update or changelog approval. Reviewed dev merges may automatically distribute internal productionRelease builds without a new formal release approval each time.
 - `android-release.yml` owns dev Firebase distribution and main stable-tag GitHub Releases. Preserve its exact shared `GITHUB_RUN_NUMBER`, one non-cancelling queue, both complete history checks and CI-before-signing order. Follow [release](docs/development/release.md) for Firebase credentials, branch protection and same-package upgrade limits.
 - Release builds consume committed Baseline and Startup Profiles in `android/app/src/productionRelease/generated/baselineProfiles/`. Keep automatic generation disabled and validate both sources before decoding signing material. The separate manual `android-baseline-profiles.yml` generates the pair for human review and commit; it does not publish or merge.
 - Documentation, artwork or workflow-only changes do not get an Android version bump.

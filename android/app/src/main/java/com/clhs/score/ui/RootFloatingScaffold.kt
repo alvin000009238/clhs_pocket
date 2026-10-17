@@ -22,6 +22,7 @@ import com.clhs.score.ui.navigation.PocketScaffold
 import com.clhs.score.ui.theme.OutfitFontFamily
 
 internal val LocalRootBodyMotionEnabled = staticCompositionLocalOf { false }
+internal val LocalRootTopClearance = staticCompositionLocalOf { 0.dp }
 
 @Composable
 internal fun Modifier.rootBodyMotion(): Modifier {
@@ -62,6 +63,7 @@ internal fun RootFloatingScaffold(
     val density = LocalDensity.current
     val statusHeight = with(density) { WindowInsets.safeDrawing.getTop(this).toDp() }
     var actionsWidth by remember { mutableStateOf(152.dp) }
+    var actionsHeight by remember { mutableStateOf(0.dp) }
     Box(Modifier.fillMaxSize()
         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
         PocketScaffold(
@@ -69,9 +71,11 @@ internal fun RootFloatingScaffold(
             snackbarHost = snackbarHost,
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
-            content(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Bottom)
-                .add(WindowInsets(top = 8.dp)).asPaddingValues()) {
-                PocketBrand(dynamicColor, endPadding = actionsWidth)
+            CompositionLocalProvider(LocalRootTopClearance provides statusHeight + 8.dp + actionsHeight) {
+                content(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Bottom)
+                    .add(WindowInsets(top = 8.dp)).asPaddingValues()) {
+                    PocketBrand(dynamicColor, endPadding = actionsWidth)
+                }
             }
         }
         Box(Modifier.fillMaxWidth().height(statusHeight + 12.dp).background(
@@ -81,7 +85,12 @@ internal fun RootFloatingScaffold(
             modifier = Modifier.align(Alignment.TopEnd)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
                 .padding(top = 8.dp, end = 16.dp)
-                .onSizeChanged { actionsWidth = with(density) { it.width.toDp() } },
+                .onSizeChanged {
+                    with(density) {
+                        actionsWidth = it.width.toDp()
+                        actionsHeight = it.height.toDp()
+                    }
+                },
             shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surfaceContainer,
             tonalElevation = 3.dp, shadowElevation = 3.dp,

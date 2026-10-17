@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+)
 
 package com.clhs.score.ui
 
@@ -24,6 +27,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -496,6 +501,9 @@ fun GradesScreen(
                                     scrollState = tabScrollState,
                                     contentPadding = padding,
                                     pageHeader = pageHeader,
+                                    bringIntoViewSpec = if (destination == GradesDestination.Subjects.ordinal) {
+                                        SubjectCardBringIntoViewSpec
+                                    } else LocalBringIntoViewSpec.current,
                                 ) {
                                     when (destination) {
                                         GradesDestination.Overview.ordinal -> OverviewTab(
@@ -508,11 +516,15 @@ fun GradesScreen(
                                             trend = state.trend,
                                         )
 
-                                        GradesDestination.Subjects.ordinal -> SubjectsTab(
-                                            analyses = analysis.subjects,
-                                            expandedSubjectKeys = state.expandedSubjectKeys,
-                                            onToggleSubject = onToggleSubject,
-                                        )
+                                        GradesDestination.Subjects.ordinal -> androidx.compose.runtime.CompositionLocalProvider(
+                                            com.clhs.score.ui.navigation.LocalNavigationClearance provides navigationClearance,
+                                        ) {
+                                            SubjectsTab(
+                                                analyses = analysis.subjects,
+                                                expandedSubjectKeys = state.expandedSubjectKeys,
+                                                onToggleSubject = onToggleSubject,
+                                            )
+                                        }
 
                                         GradesDestination.Analysis.ordinal -> AdvancedTab(
                                             report = report,
@@ -634,25 +646,28 @@ private fun GradesTabPage(
     scrollState: ScrollState,
     contentPadding: androidx.compose.foundation.layout.PaddingValues,
     pageHeader: @Composable () -> Unit,
+    bringIntoViewSpec: BringIntoViewSpec = LocalBringIntoViewSpec.current,
     content: @Composable () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-                .navigationContentPadding(),
-    ) {
-        Column(
+    androidx.compose.runtime.CompositionLocalProvider(LocalBringIntoViewSpec provides bringIntoViewSpec) {
+        Box(
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .widthIn(max = 1200.dp)
-                .fillMaxWidth()
-                .padding(contentPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .navigationContentPadding(),
         ) {
-            pageHeader()
-            Column(Modifier.rootBodyMotion(), verticalArrangement = Arrangement.spacedBy(16.dp)) { content() }
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .widthIn(max = 1200.dp)
+                    .fillMaxWidth()
+                    .padding(contentPadding)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                pageHeader()
+                Column(Modifier.rootBodyMotion(), verticalArrangement = Arrangement.spacedBy(16.dp)) { content() }
+            }
         }
     }
 }
