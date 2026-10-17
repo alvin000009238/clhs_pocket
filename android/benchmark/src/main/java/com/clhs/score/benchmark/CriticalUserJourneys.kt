@@ -6,13 +6,30 @@ import androidx.test.uiautomator.Until
 
 internal const val TARGET_PACKAGE = "com.clhs.score.demo"
 internal const val UI_TIMEOUT_MILLIS = 5_000L
-private const val DEMO_SKIP_TIMEOUT_MILLIS = 3_000L
 
 internal fun MacrobenchmarkScope.ensureDemoSession() {
     startActivityAndWait()
-    if (device.findObject(By.desc("首頁")) == null) {
-        device.wait(Until.findObject(By.text("跳過")), DEMO_SKIP_TIMEOUT_MILLIS)?.click()
-        device.wait(Until.hasObject(By.desc("首頁")), UI_TIMEOUT_MILLIS)
+    if (!device.wait(Until.hasObject(By.desc("首頁")), UI_TIMEOUT_MILLIS)) {
+        checkNotNull(device.wait(Until.findObject(By.text("開始設定")), UI_TIMEOUT_MILLIS)) {
+            "Demo onboarding did not show welcome"
+        }.click()
+        checkNotNull(device.wait(Until.findObject(By.text("繼續")), UI_TIMEOUT_MILLIS)) {
+            "Demo onboarding did not show appearance settings"
+        }.click()
+        check(device.wait(Until.gone(By.text("選擇喜歡的外觀")), UI_TIMEOUT_MILLIS)) {
+            "Demo onboarding did not leave appearance settings"
+        }
+        checkNotNull(
+            device.wait(Until.findObject(By.text("先略過|繼續".toPattern())), UI_TIMEOUT_MILLIS),
+        ) {
+            "Demo onboarding did not show notification choice"
+        }.click()
+        checkNotNull(device.wait(Until.findObject(By.text("使用學校帳號登入")), UI_TIMEOUT_MILLIS)) {
+            "Demo onboarding did not show demo login"
+        }.click()
+    }
+    check(device.wait(Until.hasObject(By.desc("首頁")), UI_TIMEOUT_MILLIS)) {
+        "Demo onboarding did not reach home"
     }
     pressHome()
 }
@@ -20,18 +37,16 @@ internal fun MacrobenchmarkScope.ensureDemoSession() {
 internal fun MacrobenchmarkScope.openDemoDestination(
     destinationDescription: String,
     contentText: String,
-): Boolean {
-    if (device.findObject(By.desc(destinationDescription)) == null) {
-        device.wait(Until.findObject(By.text("跳過")), DEMO_SKIP_TIMEOUT_MILLIS)?.click()
-            ?: return false
+) {
+    val destination = checkNotNull(
+        device.wait(Until.findObject(By.desc(destinationDescription)), UI_TIMEOUT_MILLIS),
+    ) {
+        "Demo destination not found: $destinationDescription"
     }
-
-    val destination = device.wait(
-        Until.findObject(By.desc(destinationDescription)),
-        UI_TIMEOUT_MILLIS,
-    ) ?: return false
     destination.click()
-    return device.wait(Until.hasObject(By.text(contentText)), UI_TIMEOUT_MILLIS)
+    check(device.wait(Until.hasObject(By.text(contentText)), UI_TIMEOUT_MILLIS)) {
+        "Demo destination $destinationDescription did not show $contentText"
+    }
 }
 
 internal fun MacrobenchmarkScope.scrollContent() {

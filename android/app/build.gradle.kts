@@ -214,6 +214,12 @@ tasks.withType<Test>().configureEach {
     // JEP 498 compatibility is limited to test JVMs, not the Gradle daemon or Android app.
     jvmArgs("--sun-misc-unsafe-memory-access=allow")
 }
+
+baselineProfile {
+    automaticGenerationDuringBuild = false
+    saveInSrc = true
+}
+
 dependencies {
     implementation(libs.androidx.room.runtime)
     ksp(libs.androidx.room.compiler)

@@ -1,1 +1,2 @@
 /android/app/src/main/AndroidManifest.xml text eol=lf
+/android/app/src/productionRelease/generated/baselineProfiles/*.txt text eol=lf linguist-generated=true

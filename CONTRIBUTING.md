@@ -34,7 +34,7 @@ Set-Location clhs_pocket
 
 ## 分支與 commit
 
-日常開發整合到 `dev`；功能分支從 `dev` 建立並以 PR 合回 `dev`。`dev`／`main` push 與目標為這兩個分支的 PR 都會執行 Android CI。
+日常開發使用獨立 worktree；功能分支從 `dev` 建立並以 PR 合回 `dev`。`dev`／`main` push 與目標為這兩個分支的 PR 都會執行 Android CI。`dev` push 通過發布檢查後，自動將正式環境的簽署 `productionRelease` 發至 Firebase `dev-testers`。Worktree 命令、審閱後清理與測試版覆蓋正式版的限制見 [Release 流程](docs/development/release.md)。
 
 交付時開啟 `dev → main` PR，等待 `Test, lint, and assemble Debug APK` 通過並保持分支最新，再以 **Create a merge commit** 合併，保留長期分支的共同歷史。一般功能 PR 可依需要 squash。合併後才依 [Release 流程](docs/development/release.md) 在 main 已包含的 commit 標記版本。
 
