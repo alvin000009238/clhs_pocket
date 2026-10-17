@@ -4,15 +4,18 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -23,13 +26,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
@@ -37,6 +44,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clhs.score.data.GradeStandard
@@ -44,11 +52,17 @@ import com.clhs.score.data.SubjectAnalysis
 import com.clhs.score.data.cleanSubjectName
 import com.clhs.score.data.deltaText
 import com.clhs.score.data.scoreDistributions
+import com.clhs.score.ui.navigation.LocalNavigationClearance
 import com.clhs.score.ui.theme.ScoreTheme
 import com.clhs.score.ui.theme.PocketMotion
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.math.roundToInt
+
+internal object SubjectCardBringIntoViewSpec : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
+        if (size > containerSize) offset else super.calculateScrollDistance(offset, size, containerSize)
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -62,13 +76,30 @@ internal fun SubjectCard(
     val subject = analysis.subject
     val diffColor = diffColor(subject.diffValue)
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val cardSize = remember { mutableStateOf(IntSize.Zero) }
+    val density = LocalDensity.current
+    val topClearance = with(density) {
+        maxOf(LocalRootTopClearance.current.toPx(), WindowInsets.safeDrawing.getTop(this).toFloat())
+    }
+    val footerClearance = with(density) {
+        LocalNavigationClearance.current.toPx() + WindowInsets.safeDrawing.getBottom(this)
+    }
 
     LaunchedEffect(expanded, bringIntoViewOnExpand) {
         if (expanded && bringIntoViewOnExpand) {
+            suspend fun bringCardIntoView() {
+                val size = cardSize.value
+                bringIntoViewRequester.bringIntoView(Rect(
+                    left = 0f,
+                    top = -topClearance,
+                    right = size.width.toFloat(),
+                    bottom = size.height + footerClearance,
+                ))
+            }
             withFrameNanos { }
-            bringIntoViewRequester.bringIntoView()
+            bringCardIntoView()
             delay(320.milliseconds)
-            bringIntoViewRequester.bringIntoView()
+            bringCardIntoView()
             onBringIntoViewHandled()
         }
     }
@@ -77,6 +108,7 @@ internal fun SubjectCard(
         onClick = onToggle,
         modifier = Modifier
             .fillMaxWidth()
+            .onSizeChanged { cardSize.value = it }
             .bringIntoViewRequester(bringIntoViewRequester)
             .padding(bottom = 16.dp)
             .semantics { stateDescription = if (expanded) "已展開" else "已收合" },
