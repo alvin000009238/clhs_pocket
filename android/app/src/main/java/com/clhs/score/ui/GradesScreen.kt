@@ -23,7 +23,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -1060,14 +1059,8 @@ private fun HeroCard(
 ) {
     val student = report.studentInfo
     val summary = report.examSummary
-    val animatedAverage by animateFloatAsState(
-        targetValue = analysis.weightedAverage.toFloat(),
-        animationSpec = PocketMotion.stateChange(),
-        label = "grades-weighted-average",
-    )
-    val totalScore = summary?.totalScoreDisplay?.toDoubleOrNull()?.let { "%.0f".format(it) }
-        ?: summary?.totalScoreDisplay?.takeIf { it.isNotBlank() }
-        ?: "--"
+    val averageScore = summary?.averageScoreDisplay?.takeIf { it.isNotBlank() } ?: "--"
+    val totalScore = summary?.totalScoreDisplay?.takeIf { it.isNotBlank() } ?: "--"
     val rankLine = heroRankLine(summary, student)
 
     Card(
@@ -1092,7 +1085,7 @@ private fun HeroCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            text = "%.1f".format(animatedAverage),
+                            text = averageScore,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             style = MaterialTheme.typography.displayMediumEmphasized.copy(fontFeatureSettings = "tnum"),
                             )

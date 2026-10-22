@@ -946,9 +946,9 @@ private fun SubjectScoreSlider(
                 )
                 Text(
                     text = if (abs(diff) < 0.05) {
-                        "原始 ${"%.0f".format(subject.scoreValue)}｜班平均 ${"%.0f".format(subject.classAverageValue)}｜與原始相同"
+                        "原始 ${"%.0f".format(subject.scoreValue)}｜班平均 ${subject.classAverageDisplay.ifBlank { "--" }}｜與原始相同"
                     } else {
-                        "原始 ${"%.0f".format(subject.scoreValue)}｜班平均 ${"%.0f".format(subject.classAverageValue)}｜調整 ${signedDelta(diff)} 分"
+                        "原始 ${"%.0f".format(subject.scoreValue)}｜班平均 ${subject.classAverageDisplay.ifBlank { "--" }}｜調整 ${signedDelta(diff)} 分"
                     },
                     style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

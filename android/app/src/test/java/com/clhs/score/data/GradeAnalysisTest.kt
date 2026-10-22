@@ -255,10 +255,23 @@ class GradeAnalysisTest {
     }
 
     @Test
-    fun weightedAverageDefaultsToCurrentReportAverage() {
-        val report = MockGradeSystem.generateReport(StudentScenario.NORMAL)
+    fun weightedAverageUsesReportedAverageInsteadOfCalculatingFromSubjects() {
+        val report = MockGradeSystem.generateReport(customAverageScore = 12.34)
 
-        assertEquals(report.weightedAverage(), weightedAverageFor(report.subjects), 0.001)
+        assertEquals(12.34, report.weightedAverage(), 0.001)
+        assertEquals(12.34, buildGradeAnalysis(report).weightedAverage, 0.001)
+    }
+
+    @Test
+    fun missingReportedAverageDoesNotFallBackToSubjectCalculation() {
+        val report = MockGradeSystem.generateReport()
+
+        assertEquals(0.0, report.copy(examSummary = null).weightedAverage(), 0.001)
+        assertEquals(
+            0.0,
+            report.copy(examSummary = report.examSummary!!.copy(averageScoreDisplay = "")).weightedAverage(),
+            0.001,
+        )
     }
 
     @Test

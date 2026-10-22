@@ -125,7 +125,7 @@ internal fun SubjectCard(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = "平均 ${"%.1f".format(subject.classAverageValue)}",
+                        text = "平均 ${subject.classAverageDisplay.ifBlank { "--" }}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                     )
@@ -411,6 +411,11 @@ internal fun StandardPositionBar(score: Double, standard: GradeStandard) {
             )
         }
         ProportionalStandardMarks(marks = marks, low = low, high = high)
+        Text(
+            text = "標準差 ${standard.standardDeviation?.toString() ?: "--"}",
+            style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

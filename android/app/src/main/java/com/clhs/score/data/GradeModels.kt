@@ -158,12 +158,8 @@ fun subjectWeight(subjectName: String): Int {
     }?.value ?: 2
 }
 
-fun GradeReport.weightedAverage(): Double {
-    val totalWeight = subjects.sumOf { subjectWeight(it.subjectName) }
-    if (totalWeight <= 0) return 0.0
-    val weightedTotal = subjects.sumOf { it.scoreValue * subjectWeight(it.subjectName) }
-    return weightedTotal / totalWeight
-}
+fun GradeReport.weightedAverage(): Double =
+    examSummary?.averageScoreDisplay?.toDoubleOrNull() ?: 0.0
 
 fun GradeReport.highestScore(): Double? = subjects.maxOfOrNull { it.scoreValue }
 
