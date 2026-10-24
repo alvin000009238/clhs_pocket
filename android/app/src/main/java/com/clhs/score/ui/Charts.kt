@@ -137,7 +137,7 @@ fun RadarScoreChart(subjects: List<SubjectScore>) {
             prefix = "雷達圖。各科我的成績與班級平均：",
             separator = "；",
         ) { (subject, label) ->
-            "$label ${subject.scoreValue.formatScore()}，班平均 ${subject.classAverageValue.formatScore()}"
+            "$label ${subject.scoreValue.formatScore()}，班平均 ${subject.classAverageDisplay.ifBlank { "--" }}"
         }
     }
 
@@ -226,7 +226,7 @@ private fun HorizontalSubjectBar(subject: SubjectScore, focused: Boolean) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "${"%.0f".format(subject.scoreValue)} / 均 ${"%.0f".format(subject.classAverageValue)}",
+                text = "${"%.0f".format(subject.scoreValue)} / 均 ${subject.classAverageDisplay.ifBlank { "--" }}",
                 style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

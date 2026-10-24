@@ -15,6 +15,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -180,6 +181,32 @@ class GradeCacheStore internal constructor(
         recordDiagnostic("grade report cache expired or decode failed")
         removeCacheValue(key, "grade report")
         return null
+    }
+
+    suspend fun loadSimulatorCredits(studentNo: String, yearValue: String, examValue: String): SavedSimulatorCredits? {
+        val key = simulatorCreditsKey(studentNo, yearValue, examValue)
+        val serialized = dataStore.data.first()[key] ?: return null
+        return withContext(Dispatchers.Default) {
+            json.decodeFromString<SavedSimulatorCredits>(serialized)
+        }
+    }
+
+    suspend fun saveSimulatorCredits(
+        studentNo: String,
+        yearValue: String,
+        examValue: String,
+        settings: SavedSimulatorCredits?,
+        shouldCommit: () -> Boolean = { true },
+    ) {
+        val key = simulatorCreditsKey(studentNo, yearValue, examValue)
+        val serialized = withContext(Dispatchers.Default) {
+            settings?.copy(subjectNames = settings.subjectNames.toList(), credits = settings.credits.toMap())
+                ?.let { json.encodeToString(it) }
+        }
+        dataStore.edit { prefs ->
+            if (!shouldCommit()) throw CancellationException("Session changed")
+            if (serialized == null) prefs.remove(key) else prefs[key] = serialized
+        }
     }
 
     private suspend inline fun <reified T> decodeCacheValue(
@@ -352,6 +379,7 @@ class GradeCacheStore internal constructor(
         val structureKey = "structure_$studentNo"
         val studentInfoKey = "student_info_$studentNo"
         val gradePrefix = "grade_${studentNo}_"
+        val simulatorCreditsPrefix = simulatorCreditsPrefix(studentNo)
         val schedulePrefix = "schedule_${studentNo}_"
         val latestScheduleKey = "schedule_latest_$studentNo"
         dataStore.edit { prefs ->
@@ -361,6 +389,7 @@ class GradeCacheStore internal constructor(
                         key.name == studentInfoKey ||
                         key.name == latestScheduleKey ||
                         key.name.startsWith(gradePrefix) ||
+                        key.name.startsWith(simulatorCreditsPrefix) ||
                         key.name.startsWith(schedulePrefix)
                 }
                 .filterNot { key -> preserveSubjectOverrides && key == scheduleSubjectOverridesKey(studentNo) }
@@ -499,5 +528,10 @@ class GradeCacheStore internal constructor(
 
         fun scheduleSubjectOverridesKey(studentNo: String) =
             stringPreferencesKey("schedule_${studentNo}_subject_overrides")
+
+        fun simulatorCreditsPrefix(studentNo: String) = "simulator_credits_${studentNo.length}:$studentNo:"
+
+        fun simulatorCreditsKey(studentNo: String, yearValue: String, examValue: String) =
+            stringPreferencesKey("${simulatorCreditsPrefix(studentNo)}${yearValue.length}:$yearValue:$examValue")
     }
 }

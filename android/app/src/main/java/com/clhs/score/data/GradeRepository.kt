@@ -13,6 +13,19 @@ interface GradeRepository {
 
     suspend fun fetchStudentInfo(session: AuthenticatedSession): StudentInfo
 
+    suspend fun loadSimulatorCredits(
+        session: AuthenticatedSession,
+        yearValue: String,
+        examValue: String,
+    ): SavedSimulatorCredits? = null
+
+    suspend fun saveSimulatorCredits(
+        session: AuthenticatedSession,
+        yearValue: String,
+        examValue: String,
+        settings: SavedSimulatorCredits?,
+    ) { }
+
     suspend fun fetchGrades(
         session: AuthenticatedSession,
         yearValue: String,
@@ -113,6 +126,32 @@ class SchoolGradeRepository(
         }
         sessionStore.validateSession(session)
         return report
+    }
+
+    override suspend fun loadSimulatorCredits(
+        session: AuthenticatedSession,
+        yearValue: String,
+        examValue: String,
+    ): SavedSimulatorCredits? {
+        val generation = captureSessionGeneration(session)
+        val settings = cacheStore.loadSimulatorCredits(session.studentNo, yearValue, examValue)
+        sessionStore.validateSession(session)
+        if (!isCurrentSession(session, generation)) throw CancellationException("Session changed")
+        return settings
+    }
+
+    override suspend fun saveSimulatorCredits(
+        session: AuthenticatedSession,
+        yearValue: String,
+        examValue: String,
+        settings: SavedSimulatorCredits?,
+    ) {
+        val generation = captureSessionGeneration(session)
+        cacheStore.saveSimulatorCredits(session.studentNo, yearValue, examValue, settings) {
+            isCurrentSession(session, generation)
+        }
+        sessionStore.validateSession(session)
+        if (!isCurrentSession(session, generation)) throw CancellationException("Session changed")
     }
 
     override suspend fun logout(currentSession: AuthenticatedSession?) {
