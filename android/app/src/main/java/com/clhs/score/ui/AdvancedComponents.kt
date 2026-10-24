@@ -549,7 +549,7 @@ internal fun ScoreSimulatorScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    text = "選擇採計科目",
+                                    text = "自訂採計科目",
                                     modifier = Modifier.weight(1f),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold,
