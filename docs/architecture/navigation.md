@@ -41,6 +41,7 @@ flowchart TD
 - 外部入口先轉為 `AppLaunchTarget`；Widget、deep link 與通知不得在 UI 內另建 navigation state。
 - 不要在根層、登入頁或成績頁各自用 `BackHandler` 重複攔截 Predictive Back；交由 `NavDisplay`。
 - 成績頁的「摘要、科目、分析」是 feature 內 secondary navigation，固定浮在底部主導覽上方，位於內容的最上層，不隨內容捲動。預設收合為三點指示器，較大且高亮的圓點對應目前分頁；點擊展開半透明膠囊，選擇分頁或點擊膠囊外側後收合；外側偵測不消耗手勢，保留內容點擊與捲動，離開頁面或重選成績主導覽同樣收合，左右滑動仍同步更新指示器。往下捲動沿用 shell 的 compact 訊號，膠囊淡出並從中心輕微縮至 94% 後隱藏，反向捲動或重選成績主導覽時淡入並恢復大小；淡出沿用 default effects，縮放沿用 Expressive contentReflow；隱藏過渡期間仍隨導覽列上緣下移；膠囊以明確的寬度動畫從中心沿用 Expressive contentReflow 彈簧收合，文字與圓點交叉淡入淡出；退出的分頁文字保持展開寬度，避免文字被擠壓或大幅橫移；點擊圓點同時重設 shell compact，讓再次往下捲動仍可同步收合。分頁最少 48dp 且隨字體增加高度，其高度及間距加入 feature 內的 LocalNavigationClearance，內容與 Snackbar 同步避讓；Rail 版面同樣固定在內容區底部。
+- 成績科目卡片展開時優先顯示頂端，保留系統狀態列及右上操作膠囊的實際高度；整張卡片連同安全間距放得下時，才捲動至底端避開主導覽。卡片過高時對齊頂端，讓使用者往下閱讀。自動定位不為半透明的「摘要、科目、分析」分頁額外避讓；列表原有捲動留白與 Snackbar 避讓不變。
 - 課表／成績／校園使用 RootFloatingScaffold，將品牌列與頂部安全間距放進捲動內容，不縮小 viewport；PocketBrand 與首頁共用 SVG 衍生向量、Outfit 與動態色彩規則。右側操作膠囊常駐，按鈕形狀固定。成績的「選擇成績」按鈕展開學期／考試 split button；分頁固定浮在主導覽上方。Guest／restore 保留品牌及個人入口，AuthGate 繼續負責私人資料。
 
 - 頂層切換的 entry transition 為 None；內容透過 `rootBodyMotion()` 使用同一個 NavDisplay AnimatedContent scope，只做輕微位移，不做淡入／淡出，避免新頁背景先遮住舊內容後出現空白；品牌與操作膠囊不參與位移。課表直接在同一個 Compose composition 繪製，另存圖片使用 GraphicsLayer 擷取，不為匯出建立嵌入式 ComposeView，避免切換時等待 View 重新繪製。子頁轉場維持既有 slide／fade。

@@ -1,5 +1,7 @@
 package com.clhs.score.ui
 
+import java.math.BigDecimal
+import java.math.RoundingMode
 import android.os.Bundle
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
@@ -60,6 +62,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -83,16 +86,17 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.clhs.score.ui.theme.PocketMotion
-import com.clhs.score.data.GradeAnalysis
+import com.clhs.score.data.GradeSummaryDisplay
 import com.clhs.score.data.GradeReport
 import com.clhs.score.data.GradeTrend
 import com.clhs.score.data.SubjectScore
 import com.clhs.score.data.cleanSubjectName
-import com.clhs.score.data.shortenSubjectName
-import com.clhs.score.data.subjectWeight
+import com.clhs.score.data.SimulatorCredits
+import com.clhs.score.data.requiredSimulatorAverage
 import com.clhs.score.data.weightedAverageFor
-import com.clhs.score.data.weightedTotalFor
 import com.clhs.score.viewmodel.GradesUiState
+import com.clhs.score.viewmodel.SimulatorCreditUiState
+import com.clhs.score.viewmodel.simulatorCreditIdentity
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -122,16 +126,6 @@ internal fun scoreSimulatorSummaryOffsetPx(
     val centeredOffsetPx = statusBarHeightPx +
         (safeBottomPx - statusBarHeightPx - cardHeightPx).coerceAtLeast(0) / 2
     return maxOf(topSpacerHeightPx, centeredOffsetPx)
-}
-
-internal fun requiredUnlockedAverage(
-    targetTotalPoints: Double,
-    lockedPoints: Double,
-    unlockedWeights: Double,
-): Double? = if (unlockedWeights > 0.0) {
-    (targetTotalPoints - lockedPoints) / unlockedWeights
-} else {
-    null
 }
 
 internal data class ScoreSimulatorEditorState(
@@ -228,7 +222,7 @@ internal fun TrendChart(
 @Composable
 internal fun ScoreSimulatorEntryCard(
     report: GradeReport,
-    analysis: GradeAnalysis,
+    summaryDisplay: GradeSummaryDisplay,
     onOpen: () -> Unit,
 ) {
     val chipContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
@@ -252,9 +246,11 @@ internal fun ScoreSimulatorEntryCard(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 InfoChip(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).semantics {
+                        if (summaryDisplay.isAverageEstimated) stateDescription = "非官方試算平均"
+                    },
                     label = "目前平均",
-                    value = "%.2f".format(analysis.weightedAverage),
+                    value = summaryDisplay.averageText,
                     containerColor = chipContainerColor,
                     labelColor = chipLabelColor,
                     valueColor = chipValueColor,
@@ -267,6 +263,9 @@ internal fun ScoreSimulatorEntryCard(
                     labelColor = chipLabelColor,
                     valueColor = chipValueColor,
                 )
+            }
+            if (summaryDisplay.isAverageEstimated) {
+                Text("* 非官方試算", style = MaterialTheme.typography.labelSmall, color = chipLabelColor)
             }
         }
     }
@@ -301,6 +300,7 @@ internal fun ScoreSimulatorScreen(
     state: GradesUiState,
     snackbarHostState: SnackbarHostState,
     onBack: () -> Unit,
+    creditState: SimulatorCreditUiState,
 ) {
     val report = state.report
     if (report == null) {
@@ -324,9 +324,14 @@ internal fun ScoreSimulatorScreen(
     val reportSubjects = remember(report) {
         report.subjects.mapTo(mutableSetOf()) { cleanSubjectName(it.subjectName) }
     }
-    val reportIdentity = remember(state.studentNo, state.selectedYearValue, state.selectedExamValue) {
-        listOf(state.studentNo, state.selectedYearValue, state.selectedExamValue).joinToString("\u0000")
+    val reportIdentity = remember(state.studentNo, state.selectedYearValue, state.selectedExamValue, report) {
+        simulatorCreditIdentity(state.studentNo, state.selectedYearValue, state.selectedExamValue, report) +
+            report.subjects.joinToString("\u0000") { "${it.scoreDisplay}:${it.absent}:${it.cheating}" }
     }
+    val scopedCreditState = creditState.takeIf {
+        it.identity == simulatorCreditIdentity(state.studentNo, state.selectedYearValue, state.selectedExamValue, report)
+    } ?: SimulatorCreditUiState(isLoading = true)
+    val credits = scopedCreditState.appliedCredits
     var editorState by rememberSaveable(
         reportIdentity,
         stateSaver = ScoreSimulatorEditorStateSaver,
@@ -344,29 +349,37 @@ internal fun ScoreSimulatorScreen(
     val checkedSubjects = editorState.checkedSubjects
     val lockedSubjects = editorState.lockedSubjects
     val targetAverageStr = editorState.targetAverage
+    val targetAverage = targetAverageStr.takeIf { it.matches(Regex("[0-9]{1,3}(\\.[0-9]{0,8})?")) }
+        ?.toBigDecimalOrNull()?.takeIf { it >= BigDecimal.ZERO && it <= BigDecimal(100) }
 
     val activeSubjects = if (isCustomGroupEnabled) checkedSubjects else reportSubjects
 
-    val currentAverage = remember(report, activeSubjects) {
-        weightedAverageFor(report.subjects, emptyMap(), activeSubjects)
+    val currentAverage = remember(report, activeSubjects, credits) {
+        weightedAverageFor(report.subjects, emptyMap(), activeSubjects, credits)
     }
-    val adjustedAverage = remember(report, adjustedScores, activeSubjects) {
-        weightedAverageFor(report.subjects, adjustedScores, activeSubjects)
+    val adjustedAverage = remember(report, adjustedScores, activeSubjects, credits) {
+        weightedAverageFor(report.subjects, adjustedScores, activeSubjects, credits)
     }
-    val currentTotal = remember(report, activeSubjects) {
-        weightedTotalFor(report.subjects, emptyMap(), activeSubjects)
+    val includedSubjects = report.subjects.filter { cleanSubjectName(it.subjectName) in activeSubjects }
+    val activeCredits = credits.filterKeys { it in activeSubjects }
+    val currentCalculation = remember(includedSubjects, activeCredits) {
+        SimulatorCredits.calculate(includedSubjects, activeCredits)
     }
-    val adjustedTotal = remember(report, adjustedScores, activeSubjects) {
-        weightedTotalFor(report.subjects, adjustedScores, activeSubjects)
+    val adjustedCalculation = remember(includedSubjects, adjustedScores, activeCredits) {
+        val includedScores = adjustedScores.filterKeys { it in activeSubjects }
+        if (includedScores.values.any { !it.isFinite() }) SimulatorCredits.Calculation(issue = SimulatorCredits.Issue.INVALID_SCORE)
+        else SimulatorCredits.calculate(includedSubjects, activeCredits, includedScores.mapValues { BigDecimal.valueOf(it.value).setScale(8, RoundingMode.HALF_UP) })
     }
+    val calculationAvailable = credits.isNotEmpty() &&
+        currentCalculation.issue == null && adjustedCalculation.issue == null
 
     val historyMaxMin = remember(state.simulatorHistoryReports, report) {
         val reportSubjectKeys = report.subjects
-            .mapTo(mutableSetOf()) { shortenSubjectName(it.subjectName) }
+            .mapTo(mutableSetOf()) { cleanSubjectName(it.subjectName) }
         val map = mutableMapOf<String, Pair<Double, Double>>()
         state.simulatorHistoryReports.forEach { historyReport ->
             historyReport.subjects.forEach { subject ->
-                val key = shortenSubjectName(subject.subjectName)
+                val key = cleanSubjectName(subject.subjectName)
                 if (key in reportSubjectKeys) {
                     val score = subject.scoreValue
                     val range = map[key]
@@ -405,10 +418,11 @@ internal fun ScoreSimulatorScreen(
             containerColor = MaterialTheme.colorScheme.surface,
             summaryContent = {
                 SimulatorSummaryCard(
+                    available = calculationAvailable,
                     currentAverage = currentAverage,
-                    currentTotal = currentTotal,
+                    currentTotal = currentCalculation.weightedTotal?.stripTrailingZeros()?.toPlainString() ?: "--",
                     adjustedAverage = adjustedAverage,
-                    adjustedTotal = adjustedTotal,
+                    adjustedTotal = adjustedCalculation.weightedTotal?.stripTrailingZeros()?.toPlainString() ?: "--",
                     modifier = Modifier
                         .offset {
                             IntOffset(
@@ -472,6 +486,21 @@ internal fun ScoreSimulatorScreen(
                 }
 
                 item {
+                    if (!calculationAvailable) {
+                        Text(
+                            when {
+                                scopedCreditState.isLoading -> "學分載入中…"
+                                credits.isEmpty() -> "學分尚未載入，請至成績頁的學分設定重試"
+                                else -> "尚無可採計的完整成績"
+                            },
+                            modifier = Modifier.padding(top = 8.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                item {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -510,11 +539,6 @@ internal fun ScoreSimulatorScreen(
                                     role = Role.Switch,
                                     onValueChange = {
                                         editorState = editorState.copy(isCustomGroupEnabled = it)
-                                        if (it) {
-                                            coroutineScope.launch {
-                                                snackbarHostState.showSnackbar("已開啟自訂組合，請在下方取消勾選不計分的科目")
-                                            }
-                                        }
                                     },
                                 )
                                 .padding(16.dp),
@@ -525,18 +549,13 @@ internal fun ScoreSimulatorScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    text = "自訂採計組合",
+                                    text = "自訂採計科目",
                                     modifier = Modifier.weight(1f),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold,
                                 )
                                 Switch(checked = isCustomGroupEnabled, onCheckedChange = null)
                             }
-                            Text(
-                                text = "可排除不想計算分數的科目，僅試算有打勾的科目。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
                     }
                 }
@@ -560,11 +579,6 @@ internal fun ScoreSimulatorScreen(
                                                 isTargetReversalEnabled = it,
                                                 lockedSubjects = if (it) lockedSubjects else emptySet(),
                                             )
-                                            if (it) {
-                                                coroutineScope.launch {
-                                                    snackbarHostState.showSnackbar("已開啟目標反推模式，請鎖定科目分數後按計算")
-                                                }
-                                            }
                                         },
                                     )
                                     .padding(16.dp),
@@ -575,18 +589,13 @@ internal fun ScoreSimulatorScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    text = "目標反推模式",
+                                    text = "反推分數",
                                     modifier = Modifier.weight(1f),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold,
                                 )
                                 Switch(checked = isTargetReversalEnabled, onCheckedChange = null)
                             }
-                            Text(
-                                text = "鎖定科目分數，並設定目標平均，計算其他未鎖定科目需要達到的最低分數。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                             }
 
                             if (isTargetReversalEnabled) {
@@ -597,7 +606,7 @@ internal fun ScoreSimulatorScreen(
                                 ) {
                                     OutlinedTextField(
                                         value = targetAverageStr,
-                                        onValueChange = { editorState = editorState.copy(targetAverage = it) },
+                                        onValueChange = { if (it.length <= 12) editorState = editorState.copy(targetAverage = it) },
                                         label = { Text("目標平均") },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                         modifier = Modifier.weight(1f),
@@ -605,20 +614,23 @@ internal fun ScoreSimulatorScreen(
                                     )
                                     Button(
                                         onClick = {
-                                            val targetAvg = targetAverageStr.toDoubleOrNull() ?: return@Button
+                                            val targetAvg = targetAverage ?: return@Button
                                             val activeList = report.subjects.filter { cleanSubjectName(it.subjectName) in activeSubjects }
-                                            val totalWeights = activeList.sumOf { subjectWeight(it.subjectName).toDouble() }
-                                            val targetTotalPoints = targetAvg * totalWeights
+                                            val totalWeights = activeList.sumOf { credits[cleanSubjectName(it.subjectName)] ?: 1 }
+                                            val targetTotalPoints = targetAvg * BigDecimal(totalWeights)
 
                                             val lockedList = activeList.filter { cleanSubjectName(it.subjectName) in lockedSubjects }
-                                            val lockedPoints = lockedList.sumOf { (adjustedScores[cleanSubjectName(it.subjectName)] ?: it.scoreValue) * subjectWeight(it.subjectName) }
+                                            val lockedPoints = lockedList.fold(BigDecimal.ZERO) { total, subject ->
+                                                val name = cleanSubjectName(subject.subjectName)
+                                                total + BigDecimal.valueOf(adjustedScores[name] ?: subject.scoreValue) * BigDecimal(credits[name] ?: 1)
+                                            }
 
                                             val unlockedList = activeList.filter { cleanSubjectName(it.subjectName) !in lockedSubjects }
-                                            val neededAvg = requiredUnlockedAverage(
+                                            val neededAvg = requiredSimulatorAverage(
                                                 targetTotalPoints = targetTotalPoints,
                                                 lockedPoints = lockedPoints,
-                                                unlockedWeights = unlockedList.sumOf { subjectWeight(it.subjectName).toDouble() },
-                                            )
+                                                unlockedCredits = unlockedList.sumOf { credits[cleanSubjectName(it.subjectName)] ?: 1 },
+                                            )?.toDouble()
 
                                             if (neededAvg != null) {
                                                 if (neededAvg > 100.0) {
@@ -634,14 +646,14 @@ internal fun ScoreSimulatorScreen(
                                                     newScores[cleanSubjectName(subject.subjectName)] = neededAvg.coerceIn(0.0, 100.0)
                                                 }
                                                 editorState = editorState.copy(adjustedScores = newScores)
-                                                coroutineScope.launch {
-                                                    snackbarHostState.showSnackbar("反推計算完成")
-                                                }
+                                            } else coroutineScope.launch {
+                                                snackbarHostState.showSnackbar("沒有可調整且有採計學分的科目，請先解除分數鎖定。")
                                             }
                                         },
+                                        enabled = calculationAvailable && targetAverage != null,
                                         shapes = ButtonDefaults.shapes(),
                                     ) {
-                                        Text("開始計算")
+                                        Text("反推")
                                     }
                                 }
                             }
@@ -698,6 +710,7 @@ internal fun ScoreSimulatorScreen(
                                 }
                                 SubjectScoreSlider(
                                     subject = subject,
+                                    credit = credits[key] ?: 1,
                                     value = adjustedScores[key] ?: subject.scoreValue,
                                     isChecked = checkedSubjects.contains(key),
                                     onCheckedChange = { checked ->
@@ -713,7 +726,7 @@ internal fun ScoreSimulatorScreen(
                                         )
                                     },
                                     showLock = isTargetReversalEnabled,
-                                    historyMax = historyMaxMin[shortenSubjectName(subject.subjectName)]?.second,
+                                    historyMax = historyMaxMin[cleanSubjectName(subject.subjectName)]?.second,
                                     onValueChange = { score ->
                                         editorState = editorState.copy(adjustedScores = adjustedScores + (key to score))
                                     },
@@ -737,10 +750,11 @@ internal fun ScoreSimulatorScreen(
 
 @Composable
 private fun SimulatorSummaryCard(
+    available: Boolean,
     currentAverage: Double,
-    currentTotal: Double,
+    currentTotal: String,
     adjustedAverage: Double,
-    adjustedTotal: Double,
+    adjustedTotal: String,
     modifier: Modifier = Modifier,
 ) {
     val containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -749,7 +763,7 @@ private fun SimulatorSummaryCard(
     val changedValueColor = MaterialTheme.colorScheme.tertiary
     val arrowContainerColor = contentColor.copy(alpha = 0.12f)
     val isAdjusted = abs(adjustedAverage - currentAverage) > 0.01 ||
-        abs(adjustedTotal - currentTotal) > 0.01
+        adjustedTotal != currentTotal
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -768,6 +782,7 @@ private fun SimulatorSummaryCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             SummaryMetricColumn(
+                available = available,
                 modifier = Modifier.weight(1f),
                 label = "原始平均",
                 average = currentAverage,
@@ -792,6 +807,7 @@ private fun SimulatorSummaryCard(
             }
 
             SummaryMetricColumn(
+                available = available,
                 modifier = Modifier.weight(1f),
                 label = "調整後平均",
                 average = adjustedAverage,
@@ -815,9 +831,10 @@ private fun SimulatorSummaryCard(
 
 @Composable
 private fun SummaryMetricColumn(
+    available: Boolean,
     label: String,
     average: Double,
-    total: Double,
+    total: String,
     labelColor: Color,
     valueColor: Color,
     pillContainerColor: Color,
@@ -831,7 +848,7 @@ private fun SummaryMetricColumn(
     ) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = labelColor)
         Text(
-            text = "%.2f".format(average),
+            text = if (available) "%.2f".format(average) else "--",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = valueColor,
@@ -840,7 +857,7 @@ private fun SummaryMetricColumn(
             modifier = Modifier
                 .background(pillContainerColor, CircleShape)
                 .padding(horizontal = 10.dp, vertical = 4.dp),
-            text = "總分 ${formatWeightedTotal(total)}",
+            text = "總分 ${if (available) total else "--"}",
             style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
             color = pillContentColor,
         )
@@ -872,6 +889,7 @@ private fun SwipeDismissibleSnackbarHost(snackbarHostState: SnackbarHostState) {
 @Composable
 private fun SubjectScoreSlider(
     subject: SubjectScore,
+    credit: Int,
     value: Double,
     isChecked: Boolean = true,
     onCheckedChange: (Boolean) -> Unit = {},
@@ -886,11 +904,11 @@ private fun SubjectScoreSlider(
     val hapticFeedback = LocalHapticFeedback.current
     val diff = value - subject.scoreValue
     val isAboveMax = historyMax != null && value > historyMax
-    var lastDispatchedScore by remember(subject.subjectName, value.roundToInt()) {
-        mutableIntStateOf(value.roundToInt())
+    var lastDispatchedScore by remember(subject.subjectName, value) {
+        mutableDoubleStateOf(value)
     }
     fun updateScore(score: Double, haptic: Boolean = false) {
-        val roundedScore = score.coerceIn(0.0, 100.0).roundToInt()
+        val roundedScore = BigDecimal.valueOf(score.coerceIn(0.0, 100.0)).setScale(8, RoundingMode.HALF_UP).toDouble()
         if (roundedScore == lastDispatchedScore) {
             return
         }
@@ -898,7 +916,7 @@ private fun SubjectScoreSlider(
             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
         }
         lastDispatchedScore = roundedScore
-        onValueChange(roundedScore.toDouble())
+        onValueChange(roundedScore)
     }
 
     val scoreColor = if (isAboveMax) Color(0xFFFF5722) else MaterialTheme.colorScheme.primary
@@ -912,7 +930,7 @@ private fun SubjectScoreSlider(
                     colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary),
                     modifier = Modifier
                         .size(48.dp)
-                        .semantics { contentDescription = "${shortenSubjectName(subject.subjectName)}納入試算" },
+                        .semantics { contentDescription = "${cleanSubjectName(subject.subjectName)}納入試算" },
                 )
                 Spacer(modifier = Modifier.width(4.dp))
             }
@@ -930,9 +948,9 @@ private fun SubjectScoreSlider(
                         icon = if (isLocked) "lock" else "lock_open",
                         size = 20.dp,
                         contentDescription = if (isLocked) {
-                            "解除鎖定${shortenSubjectName(subject.subjectName)}分數"
+                            "解除鎖定${cleanSubjectName(subject.subjectName)}分數"
                         } else {
-                            "鎖定${shortenSubjectName(subject.subjectName)}分數"
+                            "鎖定${cleanSubjectName(subject.subjectName)}分數"
                         },
                     )
                 }
@@ -940,15 +958,20 @@ private fun SubjectScoreSlider(
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = shortenSubjectName(subject.subjectName),
+                    text = cleanSubjectName(subject.subjectName),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = if (abs(diff) < 0.05) {
-                        "原始 ${"%.0f".format(subject.scoreValue)}｜班平均 ${"%.0f".format(subject.classAverageValue)}｜與原始相同"
+                    text = "$credit 學分",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = if (abs(diff) < 0.000000005) {
+                        "原始 ${subject.scoreDisplay.ifBlank { "--" }}｜班平均 ${subject.classAverageDisplay.ifBlank { "--" }}｜與原始相同"
                     } else {
-                        "原始 ${"%.0f".format(subject.scoreValue)}｜班平均 ${"%.0f".format(subject.classAverageValue)}｜調整 ${signedDelta(diff)} 分"
+                        "原始 ${subject.scoreDisplay.ifBlank { "--" }}｜班平均 ${subject.classAverageDisplay.ifBlank { "--" }}｜調整 ${if (diff >= 0) "+" else ""}${formatSimulatorScore(diff)} 分"
                     },
                     style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -956,13 +979,13 @@ private fun SubjectScoreSlider(
             }
             TextButton(
                 modifier = Modifier.semantics {
-                    contentDescription = "目前調整分數 ${"%.0f".format(value)}，重設此科目"
+                    contentDescription = "目前調整分數 ${formatSimulatorScore(value)}，重設此科目"
                 },
                 onClick = onResetSubject,
                 shapes = ButtonDefaults.shapes(),
             ) {
                 Text(
-                    text = "%.0f".format(value),
+                    text = formatSimulatorScore(value),
                     style = MaterialTheme.typography.headlineSmall.copy(fontFeatureSettings = "tnum"),
                     color = scoreColor,
                     fontWeight = FontWeight.SemiBold,
@@ -976,7 +999,7 @@ private fun SubjectScoreSlider(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ScoreStepButton(
                     label = "-",
-                    contentDescription = "${shortenSubjectName(subject.subjectName)}減少 1 分",
+                    contentDescription = "${cleanSubjectName(subject.subjectName)}減少 1 分",
                     onClick = { updateScore(value - 1.0, haptic = true) },
                 )
             }
@@ -984,8 +1007,8 @@ private fun SubjectScoreSlider(
                 modifier = Modifier
                     .weight(1f)
                     .semantics {
-                        contentDescription = "${shortenSubjectName(subject.subjectName)}分數，可調整 0 到 100"
-                        stateDescription = "${value.roundToInt()} 分"
+                        contentDescription = "${cleanSubjectName(subject.subjectName)}分數，可調整 0 到 100"
+                        stateDescription = "${formatSimulatorScore(value)} 分"
                     },
                 value = value.toFloat(),
                 onValueChange = { updateScore(it.roundToInt().toDouble(), haptic = true) },
@@ -994,13 +1017,16 @@ private fun SubjectScoreSlider(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ScoreStepButton(
                     label = "+",
-                    contentDescription = "${shortenSubjectName(subject.subjectName)}增加 1 分",
+                    contentDescription = "${cleanSubjectName(subject.subjectName)}增加 1 分",
                     onClick = { updateScore(value + 1.0, haptic = true) },
                 )
             }
         }
     }
 }
+
+private fun formatSimulatorScore(value: Double): String =
+    BigDecimal.valueOf(value).setScale(8, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -1079,18 +1105,4 @@ private fun EmptyAnalysisState(message: String) {
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-}
-
-private fun signedDelta(value: Double): String = when {
-    value > 0.05 -> "+${"%.0f".format(value)}"
-    value < -0.05 -> "%.0f".format(value)
-    else -> "0"
-}
-
-private fun formatWeightedTotal(value: Double): String {
-    return if (abs(value - value.roundToInt()) < 0.005) {
-        "%.0f".format(value)
-    } else {
-        "%.1f".format(value)
-    }
 }

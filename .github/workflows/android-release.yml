@@ -2,6 +2,8 @@ name: Android Release APK
 
 on:
   push:
+    branches:
+      - dev
     tags:
       - 'v*'
 
@@ -29,10 +31,30 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate tag provenance and release notes
+      - name: Validate source provenance and release notes
         run: |
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git fetch --no-tags origin +refs/heads/dev:refs/remotes/origin/dev
           python3 .github/scripts/release_guard.py provenance
+
+      - name: Test release policy
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+
+      - name: Validate Firebase distribution configuration
+        env:
+          FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          CONFIGURED_FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+          CONFIGURED_FIREBASE_GROUP: ${{ vars.FIREBASE_DISTRIBUTION_GROUP }}
+        run: |
+          test -n "$FIREBASE_CREDENTIALS" || { echo "::error::Missing FIREBASE_SERVICE_ACCOUNT_JSON."; exit 1; }
+          python3 .github/scripts/release_guard.py firebase-config
+
+      - name: Authenticate Firebase distribution
+        id: firebase-auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          token_format: access_token
 
       - name: Set up JDK
         uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
@@ -57,10 +79,23 @@ jobs:
         with:
           cache-read-only: false
 
-      - name: Validate published versionCode history
+      - name: Validate GitHub and Firebase version history
         env:
           GH_TOKEN: ${{ github.token }}
+          FIREBASE_ACCESS_TOKEN: ${{ steps.firebase-auth.outputs.access_token }}
         run: python3 .github/scripts/release_guard.py history
+
+      - name: Make Gradle wrapper executable
+        working-directory: android
+        run: chmod +x gradlew
+
+      - name: Test, lint, and assemble Debug APK before signing
+        working-directory: android
+        run: |
+          ./gradlew --no-daemon :app:testDemoDebugUnitTest :app:testProductionDebugUnitTest --tests 'com.clhs.score.FlavorConfigurationTest' :app:lintDemoDebug :app:assembleDemoDebug :app:assembleProductionDebug --warning-mode all
+
+      - name: Validate committed Baseline and Startup Profiles
+        run: python3 .github/scripts/baseline_profiles.py android/app/src/productionRelease/generated/baselineProfiles
 
       - name: Decode release keystore
         env:
@@ -84,36 +119,16 @@ jobs:
             echo "ANDROID_RELEASE_KEY_PASSWORD=$KEY_PASSWORD"
           } >> "$GITHUB_ENV"
 
-      - name: Make Gradle wrapper executable
-        working-directory: android
-        run: chmod +x gradlew
-
-      - name: Enable emulator acceleration
-        run: sudo chmod 666 /dev/kvm
-
-      - name: Generate release Baseline and Startup Profiles
-        working-directory: android
-        run: |
-          ./gradlew --no-daemon :app:generateDemoReleaseBaselineProfile --warning-mode all
-          profile_dir=app/src/demoRelease/generated/baselineProfiles
-          test -s "$profile_dir/baseline-prof.txt"
-          test -s "$profile_dir/startup-prof.txt"
-          grep -F 'Lcom/clhs/score/' "$profile_dir/baseline-prof.txt" > /dev/null
-          mkdir -p app/src/productionRelease/generated/baselineProfiles
-          cp "$profile_dir/baseline-prof.txt" "$profile_dir/startup-prof.txt" app/src/productionRelease/generated/baselineProfiles/
-
       - name: Build signed release APK
         working-directory: android
         run: |
-          version_name="${GITHUB_REF_NAME#v}"
-          ./gradlew --no-daemon :app:testDemoDebugUnitTest :app:compileProductionDebugKotlin :app:compileDemoDebugAndroidTestKotlin :app:assembleProductionRelease \
-            -PversionName="$version_name" \
-            -PversionCode="${GITHUB_RUN_NUMBER}"
+          ./gradlew --no-daemon :app:compileDemoDebugAndroidTestKotlin :app:assembleProductionRelease --warning-mode all \
+            -PversionName="$RELEASE_VERSION_NAME" \
+            -PversionCode="$RELEASE_VERSION_CODE"
 
       - name: Prepare APK artifact
         run: |
-          tag="${GITHUB_REF_NAME}"
-          apk_name="clhs-pocket-${tag}-arm64-v8a-release.apk"
+          apk_name="clhs-pocket-v${RELEASE_VERSION_NAME}-arm64-v8a-release.apk"
           apk_path="$RUNNER_TEMP/$apk_name"
           cp android/app/build/outputs/apk/production/release/app-production-release.apk "$apk_path"
           unzip -Z1 "$apk_path" | grep -Fx 'assets/dexopt/baseline.prof' > /dev/null
@@ -124,6 +139,7 @@ jobs:
         run: python3 .github/scripts/release_guard.py verify
 
       - name: Create GitHub Release
+        if: env.RELEASE_CHANNEL == 'stable'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -131,6 +147,16 @@ jobs:
             --verify-tag \
             --title "CLHS Pocket $GITHUB_REF_NAME" \
             --notes-file "$RUNNER_TEMP/release-notes.md"
+
+      - name: Distribute dev APK to Firebase testers
+        if: env.RELEASE_CHANNEL == 'dev'
+        run: |
+          node --version
+          npx --yes firebase-tools@15.28.1 appdistribution:distribute "$APK_PATH" \
+            --app "$FIREBASE_APP_ID" \
+            --groups "$FIREBASE_GROUP" \
+            --release-notes-file "$RUNNER_TEMP/release-notes.md" \
+            --non-interactive
 
       - name: Remove signing material
         if: always()

@@ -98,6 +98,27 @@
 
 檢查：`ScheduleViewModelTest`、`ScheduleGridTest`、`ScheduleSubjectOverrideTest`、`ScheduleWidgetDaySwitchTest`、`ArchitectureBoundaryTest`。尺寸、預覽與 RemoteViews 規則見 DESIGN.md。
 
+## 成績模擬器學分
+
+入口：`ui/GradesScreen.kt` 右上角更多選單的「學分設定」、`ui/SimulatorCreditPanel.kt` 的 Bottom Sheet、`viewmodel/SimulatorCreditStateOwner.kt`、`data/SimulatorCredits.kt`；`ui/AdvancedComponents.kt` 的模擬器只讀取已套用學分，不提供學分編輯。
+
+- 官方總分為加權總分。模擬使用 `Σ(科目成績 × 合計學分)`，平均除以採計學分總和；使用者設定及推算候選不回寫 `GradeReport`。同一份考試成績對應多門課時，只保存合計學分，不推測個別課程配置。
+- 成績頁摘要與模擬器入口共用 `data/GradeSummaryDisplay.kt`。官方總分、平均各自保留有效的 API 原文，包含真正的 0；空白、`--` 或非數字視為尚未公布，只有缺少的欄位才用目前範圍的 `appliedCredits` 試算並附 `*`。試算總分僅移除尾端小數 0，平均以 HALF_UP 顯示兩位小數，並顯示「* 非官方試算」。不改寫官方報表、分析、歷史、匯出、首頁或 Widget。官方平均不可用時隱藏 Hero 與近期變化的本次平均比較。
+- 滾動公布期間只以有效、無缺考／作弊註記的已公布分數及其學分計算分母，不能把缺漏或無效分數當成 0。整份已套用學分必須完整對應清理後的完整科目名稱，且全部為 1～4；沒有有效分數、缺學分或初次載入失敗時顯示 `--`，不標星號。同範圍重載失敗可保留既有有效 map 試算；換帳號、學期、考試或科目簽章不可沿用。
+- 成績更多選單與「學分設定」項目顯示紅點，無障礙狀態為「學分待確認」。只有已套用狀態可靠載入或成功儲存，且同時符合已公布的官方總分與平均，才能清除紅點。開啟選單／設定、編輯、選候選、恢復預設及僅按儲存不會獨立清除；缺少官方摘要或數值不符時持續提醒。草稿不影響摘要或紅點，可靠性與供編輯用的 `isLoaded` 分開記錄。
+- 未設定時先用國文、數學、英文各 4 學分，其餘各 2 學分；符合官方總分與平均時沿用，不符才推算調整。這是可調整的預設，不是固定限制。手動設定及推算支援每科 1～4 的整數，排除科目由採計選擇處理，最多 64 科。依清理後的完整科目名稱對應，不能縮寫合併；空白或重複名稱拒絕推算及保存。歷史分數提示亦僅比對完整名稱。
+- `SimulatorCredits` 以十進位計算。官方顯示值依其小數位視為正數 HALF_UP 的半單位區間，同時比對加權總分與平均；這是顯示精度的容差，不保證涵蓋校方其他截斷規則。原始科目分數須有效且無缺考／作弊註記；不能透過 0 學分略過無效分數。
+- 推算在背景執行，最多搜尋 50,000 節點、保留 32 組候選，達上限必須標示搜尋未完成，不能宣稱唯一或無解。完整搜尋僅一組時可先填入設定草稿，但仍標示未確認；多解由使用者選取或固定已知學分縮小範圍。候選吻合官方數值不代表校方確認了各科學分，也不將國文或數學無條件固定為 4。
+- 已找到的候選先排全科皆為偶數學分的方案，再排含奇數學分的方案；各組內依國、英、數為 4 學分的科數由多到少排序，同順位保留搜尋順序。排序不排除有效解；搜尋未完成時不保證已找到全域最優先的方案。
+- 合計學分統一用於模擬總分、平均、自訂採計組合與目標反推。反推以十進位運算並向上取至小數第 2 位，使可達目標不因四捨五入而落空；超過 100 或沒有未鎖定的採計學分時提示原因。試算摘要顯示平均至小數第 2 位，與官方原文顯示分開。
+- `ScoreViewModel` 持有學分 state owner；設定透過 `GradeRepository → GradeCacheStore` 的獨立 key 保存，僅明確確認才寫入。帳號、學期、考試隔離，保存完整科目簽章；科目改變不套用舊設定，同考試分數更新則保留確認的學分並重新比對官方值。不自動跨考試沿用，亦不納入設定 JSON 備份。
+- owner 分開保存草稿輸入、已提交快照與 `appliedCredits`。手動編輯、選候選及「恢復預設」只改草稿；按「儲存」且持久化成功後才更新模擬器並關閉 sheet。關閉未儲存 sheet 會取消推算並還原已保存學分，尚未保存則還原預設；不刪除既有設定。儲存失敗保留草稿與原有效學分供重試，儲存中禁止使用者關閉。讀取失敗禁止保存覆蓋未知設定，已有的有效 map 保留，不能把讀取失敗當成沒有設定。
+- 已確認的解碼／驗證錯誤可按「恢復預設」建立恢復草稿，仍須明確儲存才能取代損壞設定；取消回到恢復前的錯誤與有效 map。I/O 讀取失敗只允許重新載入，不能以恢復預設繞過保存保護。
+- sheet 開啟狀態及草稿由 owner 持有，配置重建保留；離開成績頁會放棄草稿，帳號、學期、考試、科目或成績內容變更會關閉並重新準備目前範圍。不要用舊 route 的 dispose callback 清掉新範圍狀態。
+- 讀取 I/O／解碼失敗須與沒有設定區分；儲存與刪除錯誤必須回報。Session generation 檢查涵蓋交易提交前；登出取消並等待 owner 工作，再沿用私人快取清理刪除學分設定，不能因課表自訂科目可保留而保留學分表。
+
+檢查：`GradeSummaryDisplayTest`、`SimulatorCreditsTest`、`SimulatorCreditStorageTest`、`SimulatorCreditStateOwnerTest`、`GradeAnalysisTest`、`ScoreSimulatorAdaptiveLayoutTest`；這些 JVM 檢查不代表裝置 UI 驗收。
+
 ## 設定匯入／匯出
 
 入口：個人頁「開發者選項」→「備份與還原」。主要操作是儲存目前配置與從檔案還原；備份範圍另以說明視窗呈現，JSON 編輯／複製收合於進階區域。檔案讀入後直接呈現還原確認，尚未確認不寫入。資料由 SettingsTransferRepository 經既有 SettingsRepository、OverviewLayoutRepository、AnnouncementReminderRepository、CourseNotificationPreferences 及 ScheduleRepository 讀寫；Composable 只呈現 SettingsTransferViewModel 狀態。

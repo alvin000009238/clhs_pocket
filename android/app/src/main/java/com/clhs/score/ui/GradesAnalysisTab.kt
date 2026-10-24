@@ -9,14 +9,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.clhs.score.data.GradeAnalysis
 import com.clhs.score.data.GradeReport
+import com.clhs.score.data.GradeSummaryDisplay
 import com.clhs.score.data.GradeTrend
 
 @Composable
 internal fun AdvancedTab(
     report: GradeReport,
-    analysis: GradeAnalysis,
+    summaryDisplay: GradeSummaryDisplay,
     isLoadingTrend: Boolean,
     trendError: String?,
     trend: GradeTrend?,
@@ -37,7 +37,7 @@ internal fun AdvancedTab(
             )
             ScoreSimulatorEntryCard(
                 report = report,
-                analysis = analysis,
+                summaryDisplay = summaryDisplay,
                 onOpen = onOpenScoreSimulator,
             )
             SubjectTrendEntryCard(onOpen = onOpenSubjectTrend)

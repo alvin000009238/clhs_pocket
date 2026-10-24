@@ -6,6 +6,8 @@
 
 CLHS Pocket 是繁體中文校園工具，讓學生快速掌握課表、成績與校園資訊。介面使用 Material 3 Expressive，以清楚的主次、tonal surface 與短文案組織內容。摘要可以有 Hero，資訊列則依內容分組，避免每筆資料都做成大型卡片。
 
+優先用操作元件、狀態與即時結果表達流程，避免常駐的教學段落及重複通知；必要限制與錯誤提示只在相關操作時呈現。
+
 - App 頂層依序為「首頁、課表、成績、校園」。手機直向使用 icon-only Floating Navigation Toolbar；寬度達 600dp 或可用高度不足 480dp 使用 Navigation Rail，個人入口在頂層頁的右上角。
 - 四個目的地保留各自 back stack；頂層導航僅在首頁、課表、成績、校園 root 顯示，重按目前目的地回到捲動頂端。登入、設定與其他子頁使用同一個 Navigation 3 `NavDisplay`，隱藏頂層導航並取消 overlay clearance；手機 IME 顯示時也隱藏 floating toolbar。
 - Guest 可以使用公開內容與設定。私人內容以 `AuthGate` 顯示登入入口；登入成功回到原目的地，不切換另一套 App shell。
