@@ -149,15 +149,6 @@ fun getSubjectBaseName(name: String): String {
 
 private val SubjectSuffixRegex = Regex("""([A-Z甲乙]|I{1,3}|IV|V)$""")
 
-private val SUBJECT_WEIGHTS = mapOf("國語文" to 4, "英語文" to 4, "數學" to 4)
-
-fun subjectWeight(subjectName: String): Int {
-    SUBJECT_WEIGHTS[subjectName]?.let { return it }
-    return SUBJECT_WEIGHTS.entries.firstOrNull { (key, _) ->
-        subjectName.contains(key) || key.contains(subjectName)
-    }?.value ?: 2
-}
-
 fun GradeReport.weightedAverage(): Double =
     examSummary?.averageScoreDisplay?.toDoubleOrNull() ?: 0.0
 

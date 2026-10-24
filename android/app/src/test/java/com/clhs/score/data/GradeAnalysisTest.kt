@@ -286,8 +286,8 @@ class GradeAnalysisTest {
 
         val activeSubjects = report.subjects.filter { cleanSubjectName(it.subjectName) in includedSubjects }
         val expected = activeSubjects.sumOf { subject ->
-            adjustedScores[cleanSubjectName(subject.subjectName)]!! * subjectWeight(subject.subjectName)
-        } / activeSubjects.sumOf { subjectWeight(it.subjectName) }.toDouble()
+            adjustedScores[cleanSubjectName(subject.subjectName)]!!
+        } / activeSubjects.size.toDouble()
 
         assertEquals(
             expected,
@@ -298,6 +298,21 @@ class GradeAnalysisTest {
             ),
             0.001,
         )
+    }
+
+    @Test
+    fun simulatorTotalsAveragesAndSubsetsUseExplicitCombinedCredits() {
+        val subjects = MockGradeSystem.generateReport().subjects.take(5).mapIndexed { index, subject ->
+            subject.copy(subjectName = "subject$index", scoreDisplay = listOf("50", "67", "58", "77", "80")[index], absent = false, cheating = false)
+        }
+        val credits = listOf(4, 2, 4, 3, 3).mapIndexed { index, credit -> "subject$index" to credit }.toMap()
+        assertEquals(1037.0, weightedTotalFor(subjects, credits = credits), 0.000001)
+        assertEquals(64.8125, weightedAverageFor(subjects, credits = credits), 0.000001)
+        val adjusted = mapOf("subject2" to 68.0)
+        assertEquals(1077.0, weightedTotalFor(subjects, adjusted, credits = credits), 0.000001)
+        assertEquals(67.3125, weightedAverageFor(subjects, adjusted, credits = credits), 0.000001)
+        assertEquals(471.0, weightedTotalFor(subjects, includedSubjects = setOf("subject3", "subject4"), credits = credits), 0.000001)
+        assertEquals(78.5, weightedAverageFor(subjects, includedSubjects = setOf("subject3", "subject4"), credits = credits), 0.000001)
     }
 
     @Test
@@ -312,7 +327,7 @@ class GradeAnalysisTest {
 
         val activeSubjects = report.subjects.filter { cleanSubjectName(it.subjectName) in includedSubjects }
         val expected = activeSubjects.sumOf { subject ->
-            adjustedScores[cleanSubjectName(subject.subjectName)]!! * subjectWeight(subject.subjectName)
+            adjustedScores[cleanSubjectName(subject.subjectName)]!!
         }
 
         assertEquals(
@@ -338,8 +353,8 @@ class GradeAnalysisTest {
         val activeSubjects = report.subjects.filter { cleanSubjectName(it.subjectName) in includedSubjects }
         val expected = activeSubjects.sumOf { subject ->
             val score = adjustedScores[cleanSubjectName(subject.subjectName)]!!.coerceIn(0.0, 100.0)
-            score * subjectWeight(subject.subjectName)
-        } / activeSubjects.sumOf { subjectWeight(it.subjectName) }.toDouble()
+            score
+        } / activeSubjects.size.toDouble()
 
         assertEquals(
             expected,
@@ -365,7 +380,7 @@ class GradeAnalysisTest {
         val activeSubjects = report.subjects.filter { cleanSubjectName(it.subjectName) in includedSubjects }
         val expected = activeSubjects.sumOf { subject ->
             val score = adjustedScores[cleanSubjectName(subject.subjectName)]!!.coerceIn(0.0, 100.0)
-            score * subjectWeight(subject.subjectName)
+            score
         }
 
         assertEquals(

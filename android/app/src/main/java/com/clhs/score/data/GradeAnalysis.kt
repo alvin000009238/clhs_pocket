@@ -1,5 +1,7 @@
 package com.clhs.score.data
 
+import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -295,23 +297,40 @@ fun weightedAverageFor(
     subjects: List<SubjectScore>,
     adjustedScores: Map<String, Double> = emptyMap(),
     includedSubjects: Set<String>? = null,
-): Double {
-    val activeSubjects = activeWeightedSubjects(subjects, includedSubjects)
-    val totalWeight = activeSubjects.sumOf { subjectWeight(it.subjectName) }
-    if (totalWeight <= 0) return 0.0
-    return weightedTotalFor(activeSubjects, adjustedScores) / totalWeight
-}
+    credits: Map<String, Int> = emptyMap(),
+): Double = simulatorCalculation(subjects, adjustedScores, includedSubjects, credits).weightedAverage?.toDouble() ?: 0.0
 
 fun weightedTotalFor(
     subjects: List<SubjectScore>,
     adjustedScores: Map<String, Double> = emptyMap(),
     includedSubjects: Set<String>? = null,
-): Double {
-    return activeWeightedSubjects(subjects, includedSubjects).sumOf { subject ->
-        val score = adjustedScores[cleanSubjectName(subject.subjectName)] ?: subject.scoreValue
-        score.coerceIn(0.0, 100.0) * subjectWeight(subject.subjectName)
-    }
+    credits: Map<String, Int> = emptyMap(),
+): Double = simulatorCalculation(subjects, adjustedScores, includedSubjects, credits).weightedTotal?.toDouble() ?: 0.0
+
+private fun simulatorCalculation(
+    subjects: List<SubjectScore>,
+    adjustedScores: Map<String, Double>,
+    includedSubjects: Set<String>?,
+    credits: Map<String, Int>,
+): SimulatorCredits.Calculation {
+    val active = activeWeightedSubjects(subjects, includedSubjects)
+    val names = active.mapTo(mutableSetOf()) { cleanSubjectName(it.subjectName) }
+    val includedScores = adjustedScores.filterKeys { it in names && (credits[it] ?: 1) > 0 }
+    if (includedScores.values.any { !it.isFinite() }) return SimulatorCredits.Calculation(issue = SimulatorCredits.Issue.INVALID_SCORE)
+    return SimulatorCredits.calculate(
+        active,
+        credits.filterKeys { it in names },
+        includedScores.mapValues { BigDecimal.valueOf(it.value.coerceIn(0.0, 100.0)).setScale(8, RoundingMode.HALF_UP) },
+    )
 }
+
+fun requiredSimulatorAverage(
+    targetTotalPoints: BigDecimal,
+    lockedPoints: BigDecimal,
+    unlockedCredits: Int,
+): BigDecimal? = if (unlockedCredits > 0) {
+    (targetTotalPoints - lockedPoints).divide(BigDecimal(unlockedCredits), 2, RoundingMode.CEILING)
+} else null
 
 private fun activeWeightedSubjects(
     subjects: List<SubjectScore>,

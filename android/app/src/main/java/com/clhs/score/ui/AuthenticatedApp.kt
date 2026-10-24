@@ -246,6 +246,15 @@ fun AppShell(
 
     ReportDrawnWhen { !overviewState.isInitialLoading }
 
+    LaunchedEffect(navigationState.currentRoute, gradesState.studentNo, gradesState.selectedYearValue, gradesState.selectedExamValue, gradesState.report) {
+        if (navigationState.currentRoute != GradesRoute) scoreViewModel.simulatorCreditOwner.discardDraft(leavingRoute = true)
+        if (gradesState.report == null || gradesState.selectedYearValue == null || gradesState.selectedExamValue == null) {
+            scoreViewModel.simulatorCreditOwner.reset()
+        } else if (navigationState.currentRoute == GradesRoute || navigationState.currentRoute == ScoreSimulatorRoute) {
+            scoreViewModel.prepareSimulatorCredits()
+        }
+    }
+
     LaunchedEffect(navigationState.currentRoute) {
         val route = navigationState.currentRoute as? AppRoute ?: return@LaunchedEffect
         analyticsLogger.logEvent(
@@ -559,8 +568,10 @@ fun AppShell(
                         fallback = rootAuthFallback,
                         restoring = rootAuthFallback,
                     ) {
+                        val creditState by scoreViewModel.simulatorCreditState.collectAsStateWithLifecycle()
                         GradesScreen(
                             state = gradesState,
+                            creditState = creditState,
                             dynamicColor = settings.dynamicColor,
                             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                             onSelectYear = onSelectYear,
@@ -574,6 +585,10 @@ fun AppShell(
                             onDismissGradeReminderChanges = onDismissGradeReminderChanges,
                             onOpenPersonal = { navigator.navigate(PersonalRoute) },
                             showUpdateBadge = showUpdateBadge,
+                            onOpenCreditSettings = {
+                                scoreViewModel.prepareSimulatorCredits()
+                                scoreViewModel.simulatorCreditOwner.beginEditing()
+                            },
                             onOpenScoreSimulator = {
                                 analyticsLogger.logEvent(
                                     AnalyticsEvents.SCORE_SIMULATOR_USED,
@@ -590,6 +605,24 @@ fun AppShell(
                             },
                             onExportGrades = onExportGrades,
                         )
+                        val report = gradesState.report
+                        if (creditState.isEditing && report != null && creditState.identity == com.clhs.score.viewmodel.simulatorCreditIdentity(
+                                gradesState.studentNo, gradesState.selectedYearValue, gradesState.selectedExamValue, report,
+                            )
+                        ) {
+                            SimulatorCreditSheet(
+                                report = report,
+                                state = creditState,
+                                onEdit = scoreViewModel.simulatorCreditOwner::edit,
+                                onToggleFixed = scoreViewModel.simulatorCreditOwner::toggleFixed,
+                                onInfer = scoreViewModel.simulatorCreditOwner::infer,
+                                onCandidate = scoreViewModel.simulatorCreditOwner::applyCandidate,
+                                onSave = scoreViewModel.simulatorCreditOwner::save,
+                                onReset = scoreViewModel.simulatorCreditOwner::restoreDefaults,
+                                onRetry = scoreViewModel.simulatorCreditOwner::retryLoad,
+                                onDismiss = { scoreViewModel.simulatorCreditOwner.discardDraft() },
+                            )
+                        }
                     }
                 }
                 entry<ScoreSimulatorRoute> {
@@ -598,10 +631,12 @@ fun AppShell(
                         requirement = ScoreSimulatorRoute.authRequirement(),
                         onRequestLogin = ::requestLogin,
                     ) {
+                        val creditState by scoreViewModel.simulatorCreditState.collectAsStateWithLifecycle()
                         ScoreSimulatorScreen(
                             state = gradesState,
                             snackbarHostState = snackbarHostState,
                             onBack = { navigator.goBack() },
+                            creditState = creditState,
                         )
                     }
                 }

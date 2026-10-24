@@ -221,11 +221,16 @@ private fun GradesScreenFakePreview(
     val state = fakeGradesState(scenario = scenario)
     ScoreTheme {
         GradesScreen(
+            creditState = com.clhs.score.viewmodel.SimulatorCreditUiState(
+                identity = com.clhs.score.viewmodel.simulatorCreditIdentity(state.studentNo, state.selectedYearValue, state.selectedExamValue, state.report!!),
+                appliedCredits = com.clhs.score.data.SimulatorCredits.defaultCredits(state.report.subjects).orEmpty(),
+                isAppliedStateReliable = true,
+            ),
             state = state.copy(
-                expandedSubjectKeys = state.report?.subjects
-                    ?.take(1)
-                    ?.map { cleanSubjectName(it.subjectName) }
-                    ?.toSet() ?: emptySet()
+                expandedSubjectKeys = state.report.subjects
+                    .take(1)
+                    .map { cleanSubjectName(it.subjectName) }
+                    .toSet()
             ),
             snackbarHost = {},
             onSelectYear = {},
@@ -239,6 +244,7 @@ private fun GradesScreenFakePreview(
             onDismissGradeReminderChanges = {},
             onOpenPersonal = {},
             onOpenScoreSimulator = {},
+            onOpenCreditSettings = {},
             onOpenSubjectTrend = {},
             onExportGrades = {},
         )
@@ -253,10 +259,17 @@ private fun ScoreSimulatorFakePreview(
     @PreviewParameter(ScenarioProvider::class) scenario: StudentScenario
 ) {
     ScoreTheme {
+        val state = fakeGradesState(scenario = scenario)
         ScoreSimulatorScreen(
-            state = fakeGradesState(scenario = scenario),
+            state = state,
             snackbarHostState = androidx.compose.material3.SnackbarHostState(),
             onBack = {},
+            creditState = com.clhs.score.viewmodel.SimulatorCreditUiState(
+                identity = com.clhs.score.viewmodel.simulatorCreditIdentity(state.studentNo, state.selectedYearValue, state.selectedExamValue, state.report!!),
+                inputs = com.clhs.score.data.SimulatorCredits.defaultCredits(state.report.subjects).orEmpty().mapValues { it.value.toString() },
+                appliedCredits = com.clhs.score.data.SimulatorCredits.defaultCredits(state.report.subjects).orEmpty(),
+                isLoaded = true,
+            ),
         )
     }
 }

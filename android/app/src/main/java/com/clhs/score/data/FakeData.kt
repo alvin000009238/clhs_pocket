@@ -1,8 +1,12 @@
 package com.clhs.score.data
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.coroutines.CancellationException
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Instant
 import java.time.LocalDate
+import java.util.Locale
 
 internal fun fakeYouBikeSnapshot(now: Instant): YouBikeSnapshot = YouBikeSnapshot(
     availableBikes = 4, emptyDocks = 44, totalDocks = 52,
@@ -99,7 +103,7 @@ object MockGradeSystem {
             val scoreDisplay = when {
                 isAbsent -> "缺考"
                 isCheating -> "作弊"
-                else -> "%.2f".format(actualScore)
+                else -> "%.2f".format(Locale.ROOT, actualScore)
             }
 
             val subjectClassRank = if (isAbsent || isCheating) classCount else subjectRank(actualScore, classAverage, index)
@@ -109,7 +113,7 @@ object MockGradeSystem {
                 subjectName = subjectName,
                 scoreDisplay = scoreDisplay,
                 score = if (isAbsent || isCheating) null else actualScore,
-                classAverageDisplay = "%.2f".format(classAverage),
+                classAverageDisplay = "%.2f".format(Locale.ROOT, classAverage),
                 classAverage = classAverage,
                 classRank = subjectClassRank,
                 classRankCount = classCount,
@@ -122,10 +126,21 @@ object MockGradeSystem {
             )
         }
 
-        val computedTotal = subjects.sumOf { it.score ?: 0.0 }
-        val computedAverage = if (subjects.isNotEmpty()) computedTotal / subjects.size else 0.0
-        val finalTotalScore = customTotalScore ?: computedTotal
-        val finalAverageScore = customAverageScore ?: computedAverage
+        val credits = checkNotNull(SimulatorCredits.defaultCredits(subjects))
+        val computedTotal = subjects.fold(BigDecimal.ZERO) { total, subject ->
+            val score = if (subject.absent || subject.cheating) BigDecimal.ZERO else subject.scoreDisplay.toBigDecimal()
+            total + score * BigDecimal(credits.getValue(cleanSubjectName(subject.subjectName)))
+        }
+        val totalCredits = credits.values.sum()
+        val computedAverage = if (totalCredits > 0) {
+            computedTotal.divide(BigDecimal(totalCredits), 2, RoundingMode.HALF_UP)
+        } else {
+            BigDecimal.ZERO.setScale(2)
+        }
+        val finalTotalScore = customTotalScore?.let { "%.2f".format(Locale.ROOT, it) }
+            ?: computedTotal.setScale(2, RoundingMode.HALF_UP).toPlainString()
+        val finalAverageScore = customAverageScore?.let { "%.2f".format(Locale.ROOT, it) }
+            ?: computedAverage.toPlainString()
         
         val finalClassRank = customClassRank ?: when (scenario) {
             StudentScenario.EXCELLENT -> 1.0
@@ -151,8 +166,8 @@ object MockGradeSystem {
                 year = year,
                 termText = termText,
                 examName = examName,
-                totalScoreDisplay = "%.2f".format(finalTotalScore),
-                averageScoreDisplay = "%.2f".format(finalAverageScore),
+                totalScoreDisplay = finalTotalScore,
+                averageScoreDisplay = finalAverageScore,
                 classRank = finalClassRank,
                 classCount = classCount,
                 categoryRank = finalCategoryRank,
@@ -258,37 +273,37 @@ object FakeData {
         mapOf(
             ("114_1" to "114_1_E4") to MockGradeSystem.generateReport(
                 year = 114, termText = "第 1 學期", examName = "期末考",
-                customTotalScore = 566.0, customAverageScore = 80.9, customClassRank = 7.0, customCategoryRank = 38.0,
+                customClassRank = 7.0, customCategoryRank = 38.0,
                 customScores = listOf(84.0, 78.0, 92.0, 88.0, 73.0, 81.0, 70.0),
                 customSubjectNames = listOf("國文", "英文", "選修數學甲", "自然", "社會", "地理", "歷史")
             ),
             ("114_1" to "114_1_E2") to MockGradeSystem.generateReport(
                 year = 114, termText = "第 1 學期", examName = "第二次段考",
-                customTotalScore = 523.0, customAverageScore = 74.7, customClassRank = 14.0, customCategoryRank = 71.0,
+                customClassRank = 14.0, customCategoryRank = 71.0,
                 customScores = listOf(76.0, 72.0, 82.0, 80.0, 68.0, 75.0, 70.0),
                 customSubjectNames = listOf("國文", "英文", "數學A", "自然", "社會", "地理", "歷史")
             ),
             ("114_1" to "114_1_E1") to MockGradeSystem.generateReport(
                 year = 114, termText = "第 1 學期", examName = "第一次段考",
-                customTotalScore = 506.0, customAverageScore = 72.3, customClassRank = 18.0, customCategoryRank = 90.0,
-                customScores = listOf(72.0, 70.0, 78.0, 76.0, 66.0, 73.0, -1.0),
+                customClassRank = 18.0, customCategoryRank = 90.0,
+                customScores = listOf(72.0, 70.0, 78.0, 76.0, 66.0, 73.0, 71.0),
                 customSubjectNames = listOf("國文", "英文", "數學A", "自然", "社會", "地理", "歷史")
             ),
             ("113_2" to "113_2_E3") to MockGradeSystem.generateReport(
                 year = 113, termText = "第 2 學期", examName = "期末考",
-                customTotalScore = 514.0, customAverageScore = 73.4, customClassRank = 16.0, customCategoryRank = 82.0,
+                customClassRank = 16.0, customCategoryRank = 82.0,
                 customScores = listOf(74.0, 71.0, 80.0, 78.0, 67.0, 75.0, 69.0),
                 customSubjectNames = listOf("國文", "英文", "數學", "自然", "社會", "地理", "歷史")
             ),
             ("113_2" to "113_2_E2") to MockGradeSystem.generateReport(
                 year = 113, termText = "第 2 學期", examName = "第二次段考",
-                customTotalScore = 510.0, customAverageScore = 72.8, customClassRank = 17.0, customCategoryRank = 85.0,
+                customClassRank = 17.0, customCategoryRank = 85.0,
                 customScores = listOf(70.0, 68.0, 78.0, 75.0, 65.0, 72.0, 65.0),
                 customSubjectNames = listOf("國文", "英文", "數學", "自然", "社會", "地理", "歷史")
             ),
             ("113_2" to "113_2_E1") to MockGradeSystem.generateReport(
                 year = 113, termText = "第 2 學期", examName = "第一次段考",
-                customTotalScore = 495.0, customAverageScore = 70.7, customClassRank = 19.0, customCategoryRank = 92.0,
+                customClassRank = 19.0, customCategoryRank = 92.0,
                 customScores = listOf(68.0, 65.0, 75.0, 72.0, 62.0, 70.0, 62.0),
                 customSubjectNames = listOf("國文", "英文", "數學", "自然", "社會", "地理", "歷史")
             ),
@@ -318,12 +333,22 @@ class FakeGradeRepository(
     private val sessionStore: SessionStore? = null,
     private val cacheStore: GradeCacheStore? = null,
 ) : GradeRepository {
+    private val sessionLock = Any()
+    private var sessionGeneration = 0L
+    private var simulatorSessionRevoked = false
+    private val simulatorCredits = mutableMapOf<Triple<String, String, String>, SavedSimulatorCredits>()
+    @Volatile
     private var activeSession: AuthenticatedSession? = null
 
     override suspend fun restoreSession(): AuthenticatedSession? = activeSession
 
     override fun activateSession(session: AuthenticatedSession) {
-        activeSession = session
+        check(sessionStore?.isAuthorized(session) != false) { "Session authority cannot be verified" }
+        synchronized(sessionLock) {
+            activeSession = session
+            sessionGeneration++
+            simulatorSessionRevoked = false
+        }
     }
 
     override suspend fun loadStructure(session: AuthenticatedSession, forceRefresh: Boolean): List<YearTermOption> = FakeData.structure
@@ -338,8 +363,75 @@ class FakeGradeRepository(
         forceRefresh: Boolean,
     ): GradeReport = FakeData.reportFor(yearValue, examValue)
 
+    override suspend fun loadSimulatorCredits(
+        session: AuthenticatedSession,
+        yearValue: String,
+        examValue: String,
+    ): SavedSimulatorCredits? {
+        val generation = captureSimulatorSessionGeneration(session)
+        val settings = if (cacheStore != null) {
+            cacheStore.loadSimulatorCredits(session.studentNo, yearValue, examValue)
+        } else {
+            synchronized(sessionLock) {
+                if (!isCurrentSimulatorSession(session, generation)) throw CancellationException("Session changed")
+                simulatorCredits[Triple(session.studentNo, yearValue, examValue)]
+            }
+        }
+        sessionStore?.validateSession(session)
+        if (!isCurrentSimulatorSession(session, generation)) throw CancellationException("Session changed")
+        return settings?.copy(subjectNames = settings.subjectNames.toList(), credits = settings.credits.toMap())
+    }
+
+    override suspend fun saveSimulatorCredits(
+        session: AuthenticatedSession,
+        yearValue: String,
+        examValue: String,
+        settings: SavedSimulatorCredits?,
+    ) {
+        val generation = captureSimulatorSessionGeneration(session)
+        if (cacheStore != null) {
+            cacheStore.saveSimulatorCredits(session.studentNo, yearValue, examValue, settings) {
+                isCurrentSimulatorSession(session, generation)
+            }
+        } else {
+            val snapshot = settings?.copy(subjectNames = settings.subjectNames.toList(), credits = settings.credits.toMap())
+            synchronized(sessionLock) {
+                if (!isCurrentSimulatorSession(session, generation)) throw CancellationException("Session changed")
+                val key = Triple(session.studentNo, yearValue, examValue)
+                if (snapshot == null) simulatorCredits.remove(key) else simulatorCredits[key] = snapshot
+            }
+        }
+        sessionStore?.validateSession(session)
+        if (!isCurrentSimulatorSession(session, generation)) throw CancellationException("Session changed")
+    }
+
+    private suspend fun captureSimulatorSessionGeneration(session: AuthenticatedSession): Long {
+        sessionStore?.validateSession(session)
+        return synchronized(sessionLock) {
+            when {
+                simulatorSessionRevoked -> throw CancellationException("Session revoked")
+                activeSession == null -> {
+                    activeSession = session
+                    sessionGeneration++
+                }
+                activeSession != session -> throw CancellationException("Session changed")
+            }
+            sessionGeneration
+        }
+    }
+
+    private fun isCurrentSimulatorSession(session: AuthenticatedSession, generation: Long): Boolean =
+        synchronized(sessionLock) {
+            sessionStore?.isAuthorized(session) != false && activeSession == session && sessionGeneration == generation
+        }
+
     override suspend fun logout(currentSession: AuthenticatedSession?) {
-        activeSession = null
+        synchronized(sessionLock) {
+            activeSession = null
+            sessionGeneration++
+            simulatorSessionRevoked = true
+            simulatorCredits.clear()
+        }
         val failures = linkedSetOf<SessionCleanupFailure>()
         if (sessionStore != null) {
             sessionStore.cleanupStep(failures, SessionCleanupFailure.SESSION_DELETE_FAILED) { sessionStore.clear() }
@@ -357,7 +449,7 @@ class FakeGradeRepository(
         cookies: Map<String, String>,
     ): AuthenticatedSession {
         val authenticated = sessionStore?.establishSession(FakeData.session) ?: FakeData.session
-        activeSession = authenticated
+        activateSession(authenticated)
         FakeScheduleRepository(cacheStore, { activeSession }, sessionStore).getLatestSchedule()
         return authenticated
     }

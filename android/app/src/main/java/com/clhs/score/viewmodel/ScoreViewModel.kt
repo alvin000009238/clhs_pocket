@@ -155,6 +155,28 @@ class ScoreViewModel(
     )
     val subjectTrendState: StateFlow<SubjectTrendUiState> = subjectTrendOwner.state
 
+    internal val simulatorCreditOwner = SimulatorCreditStateOwner(
+        repository = repository,
+        scope = viewModelScope,
+        dispatcher = analysisDispatcher,
+        onAuthenticationExpired = ::handleSessionExpired,
+    )
+    val simulatorCreditState: StateFlow<SimulatorCreditUiState> = simulatorCreditOwner.state
+
+    fun prepareSimulatorCredits() {
+        val currentSession = session ?: return
+        val state = _gradesState.value
+        val report = state.report ?: return
+        val year = state.selectedYearValue ?: return
+        val exam = state.selectedExamValue ?: return
+        val generation = authGeneration
+        simulatorCreditOwner.open(currentSession, year, exam, report) {
+            session == currentSession && authGeneration == generation &&
+                _gradesState.value.selectedYearValue == year && _gradesState.value.selectedExamValue == exam &&
+                _gradesState.value.report == report
+        }
+    }
+
     init {
         if (!demoMode) {
             viewModelScope.launch {
@@ -443,6 +465,7 @@ class ScoreViewModel(
                 }
             }.onSuccess { authenticatedSession ->
                 resetSubjectTrendState()
+                simulatorCreditOwner.reset()
                 publishAuthenticated(authenticatedSession)
                 _loginState.update {
                     it.copy(isWebViewLoginInProgress = false, errorMessage = null)
@@ -1250,7 +1273,8 @@ class ScoreViewModel(
         pendingReminderTarget = null
         ensuredGradeReminderWorkKey = null
         val subjectTrendJob = resetSubjectTrendState()
-        val jobs = sessionJobs() + listOfNotNull(subjectTrendJob)
+        val simulatorCreditJob = simulatorCreditOwner.reset()
+        val jobs = sessionJobs() + listOfNotNull(subjectTrendJob, simulatorCreditJob)
         jobs.forEach(Job::cancel)
         val previousLogout = logoutJob
         logoutJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {

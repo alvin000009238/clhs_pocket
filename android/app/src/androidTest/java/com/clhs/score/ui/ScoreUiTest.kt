@@ -349,6 +349,11 @@ class ScoreUiTest {
         ) else null
         var expanded by remember { mutableStateOf(emptySet<String>()) }
         GradesScreen(
+            creditState = com.clhs.score.viewmodel.SimulatorCreditUiState(
+                identity = com.clhs.score.viewmodel.simulatorCreditIdentity("DEMO-000", "114_1", "E2", report),
+                appliedCredits = com.clhs.score.data.SimulatorCredits.defaultCredits(report.subjects).orEmpty(),
+                isAppliedStateReliable = true,
+            ),
             state = GradesUiState(
                 studentNo = "DEMO-000",
                 structure = listOf(
@@ -382,6 +387,7 @@ class ScoreUiTest {
             onDismissGradeReminderChanges = {},
             onOpenPersonal = {},
             onOpenScoreSimulator = {},
+            onOpenCreditSettings = {},
             onOpenSubjectTrend = {},
             onExportGrades = {},
         )

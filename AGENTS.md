@@ -27,6 +27,7 @@ Paths below are relative to the repository root.
 - Routes, Guest access, onboarding: [navigation](docs/architecture/navigation.md).
 - Credentials, WebView, public clients: [school system](docs/architecture/school-system.md).
 - Feature-specific invariants and regression-test entry points: [maintenance contracts](docs/architecture/maintenance-contracts.md). Read the affected section before changing persistence, reminders, schedule, Widget or integrations.
+- Grade simulator credits: read the simulator section in [maintenance contracts](docs/architecture/maintenance-contracts.md); credits must be integers from 1 to 4, exclusions use subject selection, and inferred or user-confirmed credits stay exam/account scoped and separate from official reports. Verify defaults against the official summary before inferring replacements.
 - UI work: [DESIGN.md](DESIGN.md), then the referenced theme and component source.
 - Adding Overview dashboard widgets: use [clhs-overview-widget](.agents/skills/clhs-overview-widget/SKILL.md) for integration points and reusable UI/test templates. This is separate from the Android home-screen Glance Widget.
 - Floating navigation, root reselect and overlay clearance: [navigation](docs/architecture/navigation.md), `ui/navigation/PocketFloatingNavigation.kt`, `NavigationOverlay.kt` and `PocketScaffold.kt`. Add clearance inside scroll content, not around its viewport; keep common child route state scoped to its top-level stack.

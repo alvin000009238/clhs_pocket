@@ -54,6 +54,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -119,12 +121,15 @@ import com.clhs.score.data.GradeChangeSet
 import com.clhs.score.data.GradeReminderState
 import com.clhs.score.data.GradeReminderText
 import com.clhs.score.data.GradeReport
+import com.clhs.score.data.GradeSummaryDisplay
 import com.clhs.score.data.GradeTrend
 import com.clhs.score.data.StudentInfo
 import com.clhs.score.data.SubjectScore
 import com.clhs.score.data.YearTermOption
 import com.clhs.score.data.parseYearTerm
 import com.clhs.score.data.shortenSubjectName
+import com.clhs.score.viewmodel.SimulatorCreditUiState
+import com.clhs.score.viewmodel.summaryDisplay
 import com.clhs.score.notifications.canPostNotifications
 import com.clhs.score.notifications.NotificationChannels
 import com.clhs.score.notifications.hasPostNotificationsPermission
@@ -162,6 +167,7 @@ private enum class GradesDestination(val label: String) {
 @Composable
 fun GradesScreen(
     state: GradesUiState,
+    creditState: SimulatorCreditUiState,
     snackbarHost: @Composable () -> Unit,
     onSelectYear: (String) -> Unit,
     onSelectExam: (String) -> Unit,
@@ -176,9 +182,11 @@ fun GradesScreen(
     dynamicColor: Boolean = false,
     showUpdateBadge: Boolean = false,
     onOpenScoreSimulator: () -> Unit,
+    onOpenCreditSettings: () -> Unit,
     onOpenSubjectTrend: () -> Unit,
     onExportGrades: (List<ExamSelection>) -> Unit,
 ) {
+    val summaryDisplay = creditState.summaryDisplay(state.report, state.studentNo, state.selectedYearValue, state.selectedExamValue)
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentOnStartGradeReminder by rememberUpdatedState(onStartGradeReminder)
@@ -410,18 +418,35 @@ fun GradesScreen(
                     Box {
                         IconButton(
                             onClick = { showMoreMenu = true },
+                            modifier = Modifier.semantics {
+                                if (summaryDisplay.needsCreditAttention) stateDescription = "學分待確認"
+                            },
                             shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
                         ) {
-                            OutlinedRoundedSymbol(
-                                icon = "more_vert",
-                                contentDescription = "更多選項",
-                            )
+                            BadgedBox(badge = { if (summaryDisplay.needsCreditAttention) Badge() }) {
+                                OutlinedRoundedSymbol(
+                                    icon = "more_vert",
+                                    contentDescription = "更多選項",
+                                )
+                            }
                         }
                         DropdownMenu(
                             expanded = showMoreMenu,
                             onDismissRequest = { showMoreMenu = false },
                             offset = DpOffset(x = 0.dp, y = 8.dp),
                         ) {
+                            DropdownMenuItem(
+                                text = { Text("學分設定") },
+                                trailingIcon = { if (summaryDisplay.needsCreditAttention) Badge() },
+                                modifier = Modifier.semantics {
+                                    if (summaryDisplay.needsCreditAttention) stateDescription = "學分待確認"
+                                },
+                                enabled = state.report != null && state.selectedYearValue != null && state.selectedExamValue != null,
+                                onClick = {
+                                    showMoreMenu = false
+                                    onOpenCreditSettings()
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("段考更新提醒") },
                                 onClick = {
@@ -508,6 +533,7 @@ fun GradesScreen(
                                         GradesDestination.Overview.ordinal -> OverviewTab(
                                             report = report,
                                             analysis = analysis,
+                                            summaryDisplay = summaryDisplay,
                                             isLoadingComparison = state.isLoadingComparison,
                                             comparisonError = state.comparisonError,
                                             isLoadingTrend = state.isLoadingTrend,
@@ -527,7 +553,7 @@ fun GradesScreen(
 
                                         GradesDestination.Analysis.ordinal -> AdvancedTab(
                                             report = report,
-                                            analysis = analysis,
+                                            summaryDisplay = summaryDisplay,
                                             isLoadingTrend = state.isLoadingTrend,
                                             trendError = state.trendError,
                                             trend = state.trend,
@@ -838,6 +864,7 @@ private fun compactYearTermLabel(yearTerm: YearTermOption): String {
 private fun OverviewTab(
     report: GradeReport,
     analysis: GradeAnalysis,
+    summaryDisplay: GradeSummaryDisplay,
     isLoadingComparison: Boolean,
     comparisonError: String?,
     isLoadingTrend: Boolean,
@@ -845,7 +872,7 @@ private fun OverviewTab(
     trend: GradeTrend?,
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        HeroCard(report = report, analysis = analysis)
+        HeroCard(report = report, analysis = analysis, summaryDisplay = summaryDisplay)
         SubjectSnapshotCard(analysis = analysis)
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -854,6 +881,7 @@ private fun OverviewTab(
         ) {
             HistorySummaryCard(
                 analysis = analysis,
+                hasOfficialAverage = summaryDisplay.hasOfficialAverage,
                 isLoadingComparison = isLoadingComparison,
                 comparisonError = comparisonError,
                 isLoadingTrend = isLoadingTrend,
@@ -1056,11 +1084,10 @@ private fun GradeReminderChangeDialog(
 private fun HeroCard(
     report: GradeReport,
     analysis: GradeAnalysis,
+    summaryDisplay: GradeSummaryDisplay,
 ) {
     val student = report.studentInfo
     val summary = report.examSummary
-    val averageScore = summary?.averageScoreDisplay?.takeIf { it.isNotBlank() } ?: "--"
-    val totalScore = summary?.totalScoreDisplay?.takeIf { it.isNotBlank() } ?: "--"
     val rankLine = heroRankLine(summary, student)
 
     Card(
@@ -1085,11 +1112,14 @@ private fun HeroCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            text = averageScore,
+                            text = summaryDisplay.averageText,
+                            modifier = Modifier.semantics {
+                                if (summaryDisplay.isAverageEstimated) stateDescription = "非官方試算平均"
+                            },
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             style = MaterialTheme.typography.displayMediumEmphasized.copy(fontFeatureSettings = "tnum"),
                             )
-                        val deltaText = heroAverageDeltaTextShort(analysis)
+                        val deltaText = if (summaryDisplay.hasOfficialAverage) heroAverageDeltaTextShort(analysis) else null
                         if (deltaText != null) {
                             val deltaColor = diffColor(analysis.comparison?.averageDelta ?: 0.0)
                             Surface(
@@ -1109,11 +1139,21 @@ private fun HeroCard(
                 }
             }
             Text(
-                text = "總分 $totalScore",
+                text = "總分 ${summaryDisplay.totalText}",
+                modifier = Modifier.semantics {
+                    if (summaryDisplay.isTotalEstimated) stateDescription = "非官方試算總分"
+                },
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
                 style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                 fontWeight = FontWeight.Medium,
             )
+            if (summaryDisplay.isTotalEstimated || summaryDisplay.isAverageEstimated) {
+                Text(
+                    text = "* 非官方試算",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                )
+            }
             Text(
                 text = rankLine,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
@@ -1191,15 +1231,17 @@ private fun heroAverageDeltaTextShort(analysis: GradeAnalysis): String? {
 @Composable
 private fun HistorySummaryCard(
     analysis: GradeAnalysis,
+    hasOfficialAverage: Boolean,
     isLoadingComparison: Boolean,
     comparisonError: String?,
     isLoadingTrend: Boolean,
     trendError: String?,
     trend: GradeTrend?,
 ) {
+    val comparison = analysis.comparison.takeIf { hasOfficialAverage }
     val hasPartialHistory = comparisonError == "部分資料無法載入" ||
         trendError == "部分資料無法載入"
-    val hasComparisonStatus = isLoadingComparison || analysis.comparison != null ||
+    val hasComparisonStatus = isLoadingComparison || comparison != null ||
         (comparisonError != null && !hasPartialHistory)
     val hasTrendStatus = isLoadingTrend || (trend != null && trend.points.size >= 2) ||
         (trendError != null && !hasPartialHistory)
@@ -1221,7 +1263,7 @@ private fun HistorySummaryCard(
             )
             when {
                 isLoadingComparison -> InlineStatus("正在載入上一考比較...")
-                analysis.comparison != null -> InlineStatus("${analysis.comparison.previousExamName}：${analysis.comparison.summaryText}")
+                comparison != null -> InlineStatus("${comparison.previousExamName}：${comparison.summaryText}")
                 comparisonError != null && !hasPartialHistory -> InlineStatus(comparisonError)
             }
             when {
