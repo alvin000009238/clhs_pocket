@@ -154,12 +154,14 @@ class AnnouncementReminderRepository internal constructor(
     }
 
     suspend fun enableWithBaseline(
+        expectedUnitIds: Set<String>,
         announcements: List<SchoolAnnouncement>,
         checkedAtMillis: Long,
     ) {
         initializeReading?.invoke()
         dataStore.edit { prefs ->
             val current = stateFromPreferences(prefs)
+            check(current.selectedUnitIds == expectedUnitIds) { "Announcement units changed during baseline load" }
             if (current.enabled) return@edit
             val outcome = applyAnnouncementCheck(
                 current.copy(enabled = true),

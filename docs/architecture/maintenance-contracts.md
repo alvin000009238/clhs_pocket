@@ -71,7 +71,7 @@
 - `GradeReportDiffer` 比對可見資訊及區塊新增／移除，不比 rawResult、HTTP 格式或學生資料時間戳。啟動可補排未過期工作，不因每次 state 更新重排。
 - 公告更新提醒權威讀取必須傳遞 I/O 失敗給 Worker retry；ViewModel 保留前值／排程並標示 unavailable，每五秒可取消地重新訂閱。驗證 `AnnouncementReminderRepositoryTest` 與 `SettingsIoRecoveryTest`。
 - 公告更新提醒 `school_announcement_poll` 與 FCM、段考更新提醒獨立；不要求忽略電池最佳化。多單位依序查詢並按 ID 去重。
-- 首次啟用／更換單位讀最新三頁建立不通知的基準；已有 known ID 時查到已知項目或最多 20 頁。使用 v2 基準及未讀 keys，不沿用舊篩選結果。
+- 首次啟用／更換單位讀最新三頁建立不通知的基準；已有 known ID 時查到已知項目或最多 20 頁。啟用基準提交時須在同一 DataStore 交易內比對查詢時的接收單位；單位已變更則拒絕舊結果、保留目前設定並回報失敗，讓使用者重新啟用。使用 v2 基準及未讀 keys，不沿用舊篩選結果。
 - 一筆新公告直達詳情，多筆到列表；以一次性 capability 發出通知 action。停用或權限撤銷只清通知比對基準，保留單位／頻率偏好及 Room 閱讀紀錄。更換提醒單位重建通知基準，不清閱讀紀錄。
 - 公告閱讀狀態由 `AnnouncementReadRepository.kt` 的單表 Room 管理，僅 `announcementKey`（API `newsId`）與 `isRead`。無閱讀紀錄且發布日期早於固定 cutoff 時視為已讀、不插入；等於／晚於 cutoff 或無法解析日期時首次發現插入未讀。cutoff 為首次導入時的 Asia/Taipei 日期，放在原提醒 DataStore；列表日期及詳情時間一律比較日期，不以當天時分秒推測新舊。先以 insert-ignore 匯入 `unread_ids_v2`，Room 成功後才保存遷移完成並移除舊 unread key；失敗保留 cutoff／舊未讀供重試，提醒狀態修改須先完成遷移。通知 `known_ids_v2` 不由閱讀操作修改。
 - 列表快取、搜尋、分頁、首頁第一頁與 Worker 查詢沿用既有資料取得流程，只登記已取得公告；不抓全庫、不另建公告 cache。列表／首頁／入口 Badge 共用 Room 未讀集合。詳情成功載入或合法外部連結 Intent 成功啟動後才寫入已讀；失敗保留未讀並提示。全部已讀僅更新操作開始時的 key 快照，分批更新置於同一 Room transaction，之後發現的新公告維持未讀。Worker 閱讀登記失敗須 retry，不能先推進通知 baseline。檢查 `AnnouncementReadRepositoryTest`（JVM policy／遷移協作，使用記憶體 DAO，不代表真實裝置 SQLite 驗收）、`AnnouncementReminderRepositoryTest` 與 `SchoolAnnouncementsTest`。
