@@ -13,11 +13,11 @@ Set-Location ../clhs-pocket-schedule-cache
 ```
 
 1. 修改、驗證並提交功能，將分支推送後開啟以 `dev` 為目標的 PR。一般功能 PR 可依需要 squash。
-2. 等待 **Test, lint, and assemble Debug APK** 通過，保持分支最新並完成審閱，再合併 `dev`。合併會觸發 Android CI 與同一份 `android-release.yml` 發布流程。
+2. 等待 PR 的 **Test, lint, and assemble Debug APK** 通過，保持分支最新並完成審閱，再合併 `dev`。Android CI 僅在 PR 執行；合併會觸發 `android-release.yml`，發布流程仍會在簽署前執行完整 Android gate。
 3. 發布流程先驗證 checkout 等於觸發的 commit，且該 commit 是 `origin/dev` 的 ancestor。完整 CI、歷史版本檢查與 APK 檢查通過後，將簽署 APK 發到 `dev-testers`。
 4. 由測試者確認 Firebase 版本。準備正式發布時，完成 `CHANGELOG.md` 對應區塊，與前一正式版比較 Features、Bug Fixes 及 Performance Improvements，交由維護者確認。
-5. 開啟 `dev → main` PR，等待相同 required check 通過並保持分支最新，以 **Create a merge commit** 合併，保留長期分支的共同歷史。普通 main push 執行 CI，不發布 APK。
-6. 確認預定 release commit 的 main 檢查通過。在 main 已包含的 commit 建立新 tag，例如 `v2.0.1`，經維護者確認後推送。對應 changelog 不可為空。
+5. 開啟 `dev → main` PR，等待相同 required check 通過並保持分支最新，以 **Create a merge commit** 合併，保留長期分支的共同歷史。普通 main push 不觸發 Android CI，也不發布 APK。
+6. 確認對應的 `dev → main` PR 檢查通過。在 main 已包含的 commit 建立新 tag，例如 `v2.0.1`，經維護者確認後推送；發布流程會再次驗證發布 commit。對應 changelog 不可為空。
 7. 確認 GitHub Release 有 APK、release notes 與 API 提供的 APK SHA-256 digest。App 內正式更新仍使用既有 GitHub Releases 流程，不透過 Firebase 偵測更新。
 
 功能完成後保留 worktree 供審閱。確認 PR 已合併、工作目錄乾淨且不再需要後，才在主要 checkout 清理。以下命令不會自動執行。
