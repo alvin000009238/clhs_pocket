@@ -66,7 +66,7 @@ CodeQL 保留 main push、PR 與每週掃描。2026-09-13 run `34747861031` 的�
 
 ## JDK 25 的 DataStore 相容設定
 
-DataStore 1.2.1 內嵌的 `androidx.datastore.preferences.protobuf` 仍呼叫 `sun.misc.Unsafe`，因此 JDK 25 執行偏好儲存測試時會發出棄用警告。這份內嵌程式不會隨 App 的 `protobuf-javalite` 版本更新。
+DataStore 內嵌的 `androidx.datastore.preferences.protobuf` 仍呼叫 `sun.misc.Unsafe`，因此 JDK 25 執行偏好儲存測試時會發出棄用警告。這份內嵌程式不會隨 App 的 `protobuf-javalite` 版本更新。
 
 `app/build.gradle.kts` 只對 JVM `Test` 任務加入 `--sun-misc-unsafe-memory-access=allow`，暫時停止這類警告；這不是上游 Unsafe 實作的修復，也不是全面關閉 compiler／Lint／Gradle 警告。此選項作用於整個測試 JVM，無法僅限定 DataStore；不會傳給 Gradle daemon 或 Android App。
 

@@ -210,7 +210,7 @@ kotlin {
 
 tasks.withType<Test>().configureEach {
     testLogging.exceptionFormat = TestExceptionFormat.FULL
-    // DataStore 1.2.1 bundles protobuf using Unsafe; remove after upstream fixes it.
+    // DataStore bundles protobuf using Unsafe; remove after upstream fixes it.
     // JEP 498 compatibility is limited to test JVMs, not the Gradle daemon or Android app.
     jvmArgs("--sun-misc-unsafe-memory-access=allow")
 }
@@ -224,7 +224,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     ksp(libs.androidx.room.compiler)
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
-    val firebaseBom = platform("com.google.firebase:firebase-bom:34.19.0")
+    val firebaseBom = platform("com.google.firebase:firebase-bom:35.1.0")
 
     implementation(composeBom)
     implementation(firebaseBom)
