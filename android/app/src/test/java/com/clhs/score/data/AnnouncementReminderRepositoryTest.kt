@@ -1,5 +1,6 @@
 package com.clhs.score.data
 
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.mutablePreferencesOf
@@ -10,9 +11,45 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class AnnouncementReminderRepositoryTest {
+    @get:Rule val temporaryFolder = TemporaryFolder()
+
+    @Test
+    fun enablingAfterUnitChangeRejectsOldBaselineAndCanRetryWithCurrentUnits() = runTest {
+        val store = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = { temporaryFolder.root.resolve("reminder.preferences_pb") },
+        )
+        val repository = AnnouncementReminderRepository(store)
+        val requestedUnits = repository.loadState().selectedUnitIds
+        val staleAnnouncements = listOf(announcement("old-unit"))
+
+        // The unit-page request finishes before the earlier enable request.
+        repository.applySelectedUnitIds(setOf("44"), listOf(announcement("current-unit")), 10L)
+        repository.setIntervalMinutes(180)
+        val before = repository.loadState()
+        val failure = runCatching {
+            repository.enableWithBaseline(requestedUnits, staleAnnouncements, 20L)
+        }.exceptionOrNull()
+
+        assertTrue("A baseline for $requestedUnits must not enable ${before.selectedUnitIds}", failure is IllegalStateException)
+        assertEquals(before, repository.loadState())
+
+        repository.enableWithBaseline(before.selectedUnitIds, listOf(announcement("current-unit")), 30L)
+        val enabled = repository.loadState()
+        assertTrue(enabled.enabled)
+        assertEquals(setOf("44"), enabled.selectedUnitIds)
+        assertEquals(180, enabled.intervalMinutes)
+        assertEquals(setOf("current-unit"), enabled.knownIds)
+        assertTrue(enabled.baselineInitialized)
+        assertEquals(30L, enabled.lastCheckedAtMillis)
+        assertTrue(repository.recordCheck(setOf("44"), listOf(announcement("current-unit")), 40L).isEmpty())
+    }
+
     @Test
     fun authorityReadPropagatesIoFailureAndCanRecover() = runTest {
         var fail = true
