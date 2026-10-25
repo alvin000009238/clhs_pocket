@@ -1,15 +1,26 @@
 package com.clhs.score.data
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okio.Buffer
+import okio.ForwardingSource
+import okio.buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class UpdateCheckerTest {
     private lateinit var server: MockWebServer
@@ -271,9 +282,51 @@ class UpdateCheckerTest {
         assertEquals("1.2.0", result.versionName)
     }
 
-    private fun checker(): UpdateChecker =
+    @Test
+    fun cancellationStopsCheckWhileWaitingForHeaders() = assertCheckCancellation(waitForBody = false)
+
+    @Test
+    fun cancellationStopsCheckWhileReadingBody() = assertCheckCancellation(waitForBody = true)
+
+    private fun assertCheckCancellation(waitForBody: Boolean) = runBlocking {
+        val bodyStarted = CountDownLatch(1)
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val response = chain.proceed(chain.request())
+            val body = response.body
+            val source = object : ForwardingSource(body.source()) {
+                override fun read(sink: Buffer, byteCount: Long): Long {
+                    bodyStarted.countDown()
+                    return super.read(sink, byteCount)
+                }
+            }.buffer()
+            response.newBuilder().body(object : ResponseBody() {
+                override fun contentType() = body.contentType()
+                override fun contentLength() = body.contentLength()
+                override fun source() = source
+            }).build()
+        }.build()
+        val response = jsonResponse("""{"tag_name":"v1.2.0","assets":[]}""")
+        if (waitForBody) response.setBodyDelay(5, TimeUnit.SECONDS)
+        else response.setHeadersDelay(5, TimeUnit.SECONDS)
+        server.enqueue(response)
+        val check = launch(Dispatchers.Default) { checker(client).check("1.0") }
+        try {
+            assertTrue("Check must reach the server", server.takeRequest(2, TimeUnit.SECONDS) != null)
+            if (waitForBody) {
+                assertTrue("Check must start reading the response", bodyStarted.await(2, TimeUnit.SECONDS))
+            }
+            withTimeout(1_000L) { check.cancelAndJoin() }
+            assertTrue(check.isCancelled)
+        } finally {
+            check.cancelAndJoin()
+            client.dispatcher.executorService.shutdown()
+            client.connectionPool.evictAll()
+        }
+    }
+
+    private fun checker(client: OkHttpClient = OkHttpClient()): UpdateChecker =
         UpdateChecker(
-            client = OkHttpClient(),
+            client = client,
             latestReleaseUrl = server.url("/release/latest").toString(),
         )
 
