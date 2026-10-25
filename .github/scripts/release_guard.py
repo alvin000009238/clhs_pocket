@@ -37,10 +37,17 @@ class ReleaseTarget:
     version_code: int
 
 
+def validate_trigger(event, ref):
+    if not (event == "workflow_dispatch" and ref == "refs/heads/dev"
+            or event == "push" and ref.startswith("refs/tags/v")):
+        raise ValueError("Expected a manual dev release or a pushed stable version tag")
+
+
 def release_target(event, ref, code, sha, latest_stable):
+    validate_trigger(event, ref)
     code = version_code(code)
-    if event != "push" or not re.fullmatch(r"[0-9a-f]{40}", sha):
-        raise ValueError("Expected a push with a full commit SHA")
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("Expected a full commit SHA")
     if ref == "refs/heads/dev":
         version(latest_stable)
         return ReleaseTarget("dev", f"{latest_stable[1:]}-dev.{code}.{sha[:7]}", code)
@@ -185,8 +192,7 @@ def verify(apk, name, code):
 
 if __name__ == "__main__":
     ref = os.environ["GITHUB_REF"]
-    if os.environ["GITHUB_EVENT_NAME"] != "push":
-        raise ValueError("Only push events may publish")
+    validate_trigger(os.environ["GITHUB_EVENT_NAME"], ref)
     if sys.argv[1] == "provenance":
         if ref == "refs/heads/dev":
             dev_provenance(os.environ["GITHUB_SHA"])

@@ -31,7 +31,7 @@ class ReleaseGuardTest(unittest.TestCase):
             for index, group in enumerate(("", "abcd", "a" * 63, "abc", "a" * 64, "dev testers", "dev\ntesters")):
                 with self.subTest(group=group):
                     output = Path(directory) / f"environment-{index}"
-                    env = dict(os.environ, GITHUB_REF="refs/heads/dev", GITHUB_EVENT_NAME="push",
+                    env = dict(os.environ, GITHUB_REF="refs/heads/dev", GITHUB_EVENT_NAME="workflow_dispatch",
                                GITHUB_ENV=str(output), CONFIGURED_FIREBASE_APP_ID="",
                                CONFIGURED_FIREBASE_GROUP=group)
                     result = subprocess.run([sys.executable, str(root / ".github/scripts/release_guard.py"),
@@ -48,7 +48,7 @@ class ReleaseGuardTest(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] / "workflows" / "android-release.yml").read_text()
         self.assertIn("queue: max", workflow)
         self.assertIn("group: android-release\n  cancel-in-progress: false", workflow)
-        self.assertIn("branches:\n      - dev\n    tags:\n      - 'v*'", workflow)
+        self.assertIn("on:\n  workflow_dispatch:\n  push:\n    tags:\n      - 'v*'", workflow)
         self.assertEqual(workflow.count("concurrency:"), 1)
         self.assertLess(workflow.index(":app:testDemoDebugUnitTest :app:testProductionDebugUnitTest --tests 'com.clhs.score.FlavorConfigurationTest' :app:lintDemoDebug :app:assembleDemoDebug :app:assembleProductionDebug --warning-mode all"), workflow.index("- name: Decode release keystore"))
         self.assertLess(workflow.index("python3 .github/scripts/baseline_profiles.py android/app/src/productionRelease/generated/baselineProfiles"), workflow.index("- name: Decode release keystore"))
@@ -77,16 +77,20 @@ class ReleaseGuardTest(unittest.TestCase):
     def test_targets_use_exact_shared_run_number_and_latest_stable(self):
         stable = release_target("push", "refs/tags/v2.1.0", "35", SHA, "v2.0.9")
         self.assertEqual((stable.channel, stable.version_name, stable.version_code), ("stable", "2.1.0", 35))
-        dev = release_target("push", "refs/heads/dev", "36", SHA, "v2.0.9")
+        dev = release_target("workflow_dispatch", "refs/heads/dev", "36", SHA, "v2.0.9")
         self.assertEqual((dev.channel, dev.version_name, dev.version_code), ("dev", "2.0.9-dev.36.aaaaaaa", 36))
         for event, ref, code, sha, latest in (
             ("pull_request", "refs/heads/dev", "36", SHA, "v2.0.9"),
+            ("push", "refs/heads/dev", "36", SHA, "v2.0.9"),
+            ("workflow_dispatch", "refs/heads/main", "36", SHA, "v2.0.9"),
+            ("workflow_dispatch", "refs/heads/feature/test", "36", SHA, "v2.0.9"),
+            ("workflow_dispatch", "refs/tags/v2.1.0", "36", SHA, "v2.0.9"),
             ("push", "refs/heads/main", "36", SHA, "v2.0.9"),
             ("push", "refs/tags/v2.0.9", "36", SHA, "v2.0.9"),
             ("push", "refs/tags/v2.0.8", "36", SHA, "v2.0.9"),
-            ("push", "refs/heads/dev", "2100000001", SHA, "v2.0.9"),
-            ("push", "refs/heads/dev", "36", "short", "v2.0.9"),
-            ("push", "refs/heads/dev", "36", SHA, ""),
+            ("workflow_dispatch", "refs/heads/dev", "2100000001", SHA, "v2.0.9"),
+            ("workflow_dispatch", "refs/heads/dev", "36", "short", "v2.0.9"),
+            ("workflow_dispatch", "refs/heads/dev", "36", SHA, ""),
         ):
             with self.subTest(ref=ref, code=code), self.assertRaises(ValueError):
                 release_target(event, ref, code, sha, latest)
