@@ -31,6 +31,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
+import com.clhs.score.ui.navigation.OnboardingSceneStrategy
+import com.clhs.score.ui.navigation.OnboardingStepKey
 import com.clhs.score.BuildConfig
 import com.clhs.score.analytics.AnalyticsEvents
 import com.clhs.score.analytics.AnalyticsLogger
@@ -368,36 +370,41 @@ fun AppShell(
         navigator = navigator,
         unreadAnnouncementCount = announcementReminderUiState.unreadIds.size,
     ) {
+        val onboardingContent = androidx.compose.runtime.rememberUpdatedState<@Composable (Int) -> Unit>({ step ->
+            OnboardingScreen(
+                step = step, settings = settings,
+                onSetThemeMode = onSetThemeMode,
+                onSetDynamicColor = onSetDynamicColor,
+                onSetAmoledBlack = onSetAmoledBlack,
+                onSetNotificationsEnabled = onSetNotificationsEnabled,
+                onBack = { navigator.goBack() },
+                onContinue = {
+                    navigator.navigate(when (step) {
+                        0 -> AppearanceRoute
+                        1 -> PermissionsRoute
+                        else -> AccountRoute
+                    })
+                },
+                onLogin = ::requestLogin, onSkip = ::finishOnboarding,
+            )
+        })
+        val sceneStrategies = remember {
+            listOf(OnboardingSceneStrategy { step -> onboardingContent.value(step) },
+                com.clhs.score.ui.navigation.RootSceneStrategy())
+        }
         val topLevelTransitions = topLevelNavigationMetadata()
         val appEntryProvider = entryProvider<NavKey> {
-                entry<WelcomeRoute> {
-                    OnboardingWelcomeScreen(
-                        onContinue = { navigator.navigate(AppearanceRoute) },
-                    )
+                entry<WelcomeRoute>(metadata = mapOf(OnboardingStepKey to 0)) {
+                    onboardingContent.value(0)
                 }
-                entry<AppearanceRoute> {
-                    OnboardingAppearanceScreen(
-                        settings = settings,
-                        onSetThemeMode = onSetThemeMode,
-                        onSetDynamicColor = onSetDynamicColor,
-                        onSetAmoledBlack = onSetAmoledBlack,
-                        onBack = { navigator.goBack() },
-                        onContinue = { navigator.navigate(PermissionsRoute) },
-                    )
+                entry<AppearanceRoute>(metadata = mapOf(OnboardingStepKey to 1)) {
+                    onboardingContent.value(1)
                 }
-                entry<PermissionsRoute> {
-                    OnboardingPermissionsScreen(
-                        onBack = { navigator.goBack() },
-                        onContinue = { navigator.navigate(AccountRoute) },
-                        onSetNotificationsEnabled = onSetNotificationsEnabled,
-                    )
+                entry<PermissionsRoute>(metadata = mapOf(OnboardingStepKey to 2)) {
+                    onboardingContent.value(2)
                 }
-                entry<AccountRoute> {
-                    OnboardingAccountScreen(
-                        onBack = { navigator.goBack() },
-                        onLogin = ::requestLogin,
-                        onSkip = ::finishOnboarding,
-                    )
+                entry<AccountRoute>(metadata = mapOf(OnboardingStepKey to 3)) {
+                    onboardingContent.value(3)
                 }
                 entry<OverviewRoute>(metadata = topLevelTransitions) {
                     val context = LocalContext.current
@@ -936,7 +943,7 @@ fun AppShell(
             androidx.compose.runtime.CompositionLocalProvider(LocalRootBodyMotionEnabled provides true) {
                 NavDisplay(
                     entries = navigationState.toEntries(appEntryProvider),
-                    sceneStrategies = remember { listOf(com.clhs.score.ui.navigation.RootSceneStrategy()) },
+                    sceneStrategies = sceneStrategies,
                     onBack = { navigator.goBack() },
                     transitionSpec = { navigationMotion.drillDownNavigationTransition() },
                     popTransitionSpec = { navigationMotion.drillUpNavigationTransition() },
