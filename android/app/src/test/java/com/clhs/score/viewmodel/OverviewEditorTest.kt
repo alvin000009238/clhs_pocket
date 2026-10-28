@@ -58,6 +58,29 @@ import java.time.ZoneId
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class OverviewEditorTest {
+    @Test fun calendarCountdownPreservesDraftAndCommitsOnlyOnSave() = runBlocking {
+        val initial = defaultOverviewWidgets()
+        val dao = OverviewTestLayoutDao(initial, OverviewLayoutMetadata())
+        val vm = viewModel(dao)
+        awaitLoaded(vm)
+        assertFalse(vm.addCalendarCountdown("", "期中考"))
+        assertFalse(vm.editor.value.editing)
+        vm.beginEditing()
+        vm.removeWidget(initial.first().id)
+        assertTrue(vm.addCalendarCountdown("exam", "期中考"))
+        val added = vm.editor.value.draft!!.first()
+        assertEquals("countdown", added.type)
+        assertEquals(OverviewWidgetConfig.SchoolEvent("exam", "期中考"), added.config())
+        assertFalse(vm.editor.value.draft!!.any { it.id == initial.first().id })
+        assertEquals(0, dao.saveAttempts)
+        vm.cancelEditing()
+        assertEquals(initial, vm.editor.value.committed)
+        assertTrue(vm.addCalendarCountdown("exam", "期中考"))
+        assertTrue(vm.saveLayout())
+        assertEquals(OverviewWidgetConfig.SchoolEvent("exam", "期中考"), dao.rows.value.first().instance().config())
+        assertEquals(initial.size + 1, dao.rows.value.size)
+    }
+
     @Test fun preparingLegacyVisualOrderDoesNotSaveOrMakeUnchangedDraftDirty() = runBlocking {
         val initial = legacyResizeWidgets()
         val dao = OverviewTestLayoutDao(initial, OverviewLayoutMetadata())
@@ -280,6 +303,7 @@ class OverviewEditorTest {
         val handle = SavedStateHandle(mapOf("overview_draft" to OverviewLayoutJson.encodeToString(draft)))
         val vm = viewModel(dao, handle)
         val failed = withTimeout(10_000) { vm.editor.first { !it.loading && it.layoutError != null } }
+        assertFalse(vm.addCalendarCountdown("exam", "期中考"))
         assertTrue(failed.editing)
         assertTrue(failed.hasChanges)
         assertEquals(draft, failed.draft)
