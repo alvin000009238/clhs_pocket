@@ -56,6 +56,7 @@ class NetworkSchoolCalendarRepository(
 ) {
     private val cache = LatestCacheFile(cacheDirectory, CACHE_FILE_NAME)
     private val cacheFile = cache.file
+    private var decodedFeed: DecodedFeed? = null
 
     suspend fun loadCached(): SchoolCalendarSnapshot? = withContext(Dispatchers.IO) {
         readCache()
@@ -84,7 +85,7 @@ class NetworkSchoolCalendarRepository(
                     throw IOException("Calendar response is too large")
                 }
                 val bytes = readLimited(body.source())
-                val feed = SchoolCalendarIcsParser.parse(bytes.toString(Charsets.UTF_8))
+                val feed = decodeFeed(bytes.toString(Charsets.UTF_8))
                 currentCoroutineContext().ensureActive()
                 cache.commit(bytes, now.toEpochMilli(), cacheGeneration, requestContext)
                 SchoolCalendarSnapshot(feed = feed, fetchedAt = now)
@@ -96,11 +97,19 @@ class NetworkSchoolCalendarRepository(
         if (!cacheFile.isFile || cacheFile.length() !in 1..MAX_FEED_BYTES) return null
         return runCatching {
             SchoolCalendarSnapshot(
-                feed = SchoolCalendarIcsParser.parse(cacheFile.readText(Charsets.UTF_8)),
+                feed = decodeFeed(cacheFile.readText(Charsets.UTF_8)),
                 fetchedAt = Instant.ofEpochMilli(cacheFile.lastModified()),
             )
         }.getOrNull()
     }
+
+    @Synchronized
+    private fun decodeFeed(source: String): SchoolCalendarFeed {
+        decodedFeed?.takeIf { it.source == source }?.let { return it.feed }
+        return SchoolCalendarIcsParser.parse(source).also { decodedFeed = DecodedFeed(source, it) }
+    }
+
+    private data class DecodedFeed(val source: String, val feed: SchoolCalendarFeed)
 
     private fun readLimited(source: okio.BufferedSource): ByteArray {
         val buffer = Buffer()
