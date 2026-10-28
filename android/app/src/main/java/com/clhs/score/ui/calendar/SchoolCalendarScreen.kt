@@ -35,8 +35,8 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -94,7 +94,7 @@ fun SchoolCalendarScreen(
     onSearch: (String) -> Unit,
     onClearSearch: () -> Unit,
     onOpenGoogleCalendar: () -> Unit,
-    onAddToSystemCalendar: (SchoolCalendarEvent) -> Unit,
+    onAddToHome: (SchoolCalendarEvent) -> Unit,
     onNoticeShown: () -> Unit,
     targetEventId: String? = null,
 ) {
@@ -174,7 +174,7 @@ fun SchoolCalendarScreen(
                     clearFocusAndHideKeyboard()
                     onOpenGoogleCalendar()
                 },
-                onAddToSystemCalendar = onAddToSystemCalendar,
+                onAddToHome = onAddToHome,
             )
             PullToRefreshDefaults.LoadingIndicator(
                 state = pullToRefreshState,
@@ -230,7 +230,7 @@ private fun CalendarAgenda(
     onRefresh: () -> Unit,
     onClearSearch: () -> Unit,
     onOpenGoogleCalendar: () -> Unit,
-    onAddToSystemCalendar: (SchoolCalendarEvent) -> Unit,
+    onAddToHome: (SchoolCalendarEvent) -> Unit,
 ) {
     val today = LocalDate.now(SCHOOL_COURSE_ZONE)
     val listState = rememberLazyListState()
@@ -353,7 +353,7 @@ private fun CalendarAgenda(
                         CalendarEventCard(
                             event = event,
                             highlighted = event.id == targetEventId,
-                            onAddToSystemCalendar = onAddToSystemCalendar,
+                            onAddToHome = onAddToHome,
                         )
                     }
                 }
@@ -399,7 +399,7 @@ private fun CalendarAgenda(
 private fun CalendarEventCard(
     event: SchoolCalendarEvent,
     highlighted: Boolean,
-    onAddToSystemCalendar: (SchoolCalendarEvent) -> Unit,
+    onAddToHome: (SchoolCalendarEvent) -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -437,14 +437,13 @@ private fun CalendarEventCard(
                     )
                 }
             }
-            if (event.toCalendarEventIntentTimes() != null) {
-                // Compact layout size; Compose retains its minimum touch target.
+            if (event.id.isNotBlank()) {
                 CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-                    IconButton(onClick = hapticClick { onAddToSystemCalendar(event) },
+                    IconButton(onClick = hapticClick { onAddToHome(event) },
                         modifier = Modifier.size(32.dp)) {
                         OutlinedRoundedSymbol(
-                            icon = "calendar_today",
-                            contentDescription = "加入系統行事曆",
+                            icon = "add",
+                            contentDescription = "加入首頁倒數元件",
                         )
                     }
                 }

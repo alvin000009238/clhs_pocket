@@ -51,7 +51,6 @@ import com.clhs.score.data.ThemeMode
 import com.clhs.score.data.safeAnnouncementWebUrl
 import com.clhs.score.data.schoolAnnouncementOfficialUrl
 import com.clhs.score.domain.overview.OverviewDestination
-import com.clhs.score.ui.calendar.toCalendarInsertIntent
 import com.clhs.score.ui.navigation.AppNavigator
 import com.clhs.score.ui.navigation.AppLaunchTarget
 import com.clhs.score.ui.navigation.AppRoute
@@ -708,17 +707,15 @@ fun AppShell(
                         onRefresh = viewModel::refresh,
                         onSearch = viewModel::search,
                         onClearSearch = viewModel::clearSearch,
-                        onAddToSystemCalendar = { event ->
-                            event.toCalendarInsertIntent()?.let { intent ->
-                                try {
-                                    context.startActivity(intent)
-                                } catch (_: android.content.ActivityNotFoundException) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "找不到可新增活動的行事曆 App",
-                                        android.widget.Toast.LENGTH_SHORT,
-                                    ).show()
-                                }
+                        onAddToHome = { event ->
+                            if (overviewViewModel.addCalendarCountdown(event.id, event.title)) {
+                                navigator.navigate(OverviewRoute)
+                            } else {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "首頁暫時無法編輯，請稍後重試",
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
                             }
                         },
                         onOpenGoogleCalendar = {
