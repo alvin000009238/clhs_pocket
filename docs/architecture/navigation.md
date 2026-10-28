@@ -17,7 +17,7 @@ flowchart TD
 - 受保護 route 由 `AuthGate` 顯示行內登入入口；登入完成後只移除登入 route，保留使用者原本想開啟的目的地。課表與成績的未登入畫面共用預設登入提示，不顯示功能頁的上方標題或選項列。
 - App 圖示長按的「課表」捷徑使用 `scoreapp://schedule?entry=launcher_shortcut`，建置時依 variant applicationId 產生明確的自身套件與 `MainActivity` 目標，避免 Demo／Debug 入口交給其他安裝版本；沿用 `AppLaunchTarget.Schedule`、首次設定與登入 gate。`entry` 只標記入口來源，不能放入學生資料；處理後清除 Intent data，且不把捷徑誤記為 Widget 開啟。
 - 個人頁的「啟動時開啟課表」偏好預設關閉並存在 `app_settings`。只有新建立的 Activity 收到一般桌面 `ACTION_MAIN`、沒有資料 URI 或明確 `AppLaunchTarget` 時，才把偏好轉為既有 `AppLaunchTarget.Schedule`；捷徑、通知及其他指定入口優先；設定載入期間收到的新指定入口同樣優先，套用啟動偏好前須再次確認沒有待處理目標。Android 還原的 Activity back stack 保留原目的地。切換偏好不會改變目前頁面。
-- Welcome、外觀、權限、帳號是同一個 `NavDisplay` 的首次設定 route；首次設定期間不顯示 App-level Navigation Bar／Rail。
+- Welcome、外觀、權限、帳號保留同一個 `NavDisplay` 的四個首次設定 route，由 `OnboardingSceneStrategy` 共用固定頁框。只有內容以短距離水平位移與淡入淡出切換，返回鍵、進度列與底部操作位置固定；各步驟保留捲動位置。首次設定期間不顯示 App-level Navigation Bar／Rail。
 - 首次設定以 `app_settings` 的 `has_completed_onboarding_v2` 判定。缺少旗標時原子清空 App 設定並寫入 `false`，所以舊版升級會重跑 Welcome；完成或選「稍後登入」後寫入 `true`，後續啟動不再重設。這與 session authority 分開：舊 session 不遷移，私人功能需要重新登入，新格式 VALID session 則保留正常 restore。
 - 「個人」同時是 Profile 與設定 Hub，不再建立獨立的 Settings／About route；使用統計、開源授權、開發者選項與背景工作狀態仍是 secondary route。
 
@@ -46,4 +46,4 @@ flowchart TD
 
 - 頂層切換的 entry transition 為 None；內容透過 `rootBodyMotion()` 使用同一個 NavDisplay AnimatedContent scope，只做輕微位移，不做淡入／淡出，避免新頁背景先遮住舊內容後出現空白；品牌與操作膠囊不參與位移。課表直接在同一個 Compose composition 繪製，另存圖片使用 GraphicsLayer 擷取，不為匯出建立嵌入式 ComposeView，避免切換時等待 View 重新繪製。子頁轉場維持既有 slide／fade。
 
-- 頂層頁使用 `RootSceneStrategy` 保留首頁 composition，避免返回時重建並測量全部可見 widget。隱藏首頁維持 CREATED lifecycle、不放置或繪製內容、不提供 accessibility 子節點及 root reselect callback；其他目的地的返回紀錄不變。子頁與首次設定仍交由預設 SceneStrategy，沿用原轉場。
+- 頂層頁使用 `RootSceneStrategy` 保留首頁 composition，避免返回時重建並測量全部可見 widget。隱藏首頁維持 CREATED lifecycle、不放置或繪製內容、不提供 accessibility 子節點及 root reselect callback；其他目的地的返回紀錄不變。首次設定使用獨立的 `OnboardingSceneStrategy`；登入與其他子頁仍交由預設 SceneStrategy。

@@ -1,5 +1,15 @@
 package com.clhs.score.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.platform.LocalDensity
+import com.clhs.score.ui.theme.PocketMotion
 import android.Manifest
 import android.os.Build
 import android.widget.Toast
@@ -42,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,117 +81,29 @@ import com.clhs.score.ui.theme.OutfitFontFamily
 
 private const val ONBOARDING_STEP_COUNT = 4
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun OnboardingWelcomeScreen(onContinue: () -> Unit) {
-    OnboardingScaffold(step = 0, actions = { PrimaryOnboardingButton("開始設定", onContinue) }) {
-        Spacer(modifier = Modifier.height(28.dp))
-        Surface(
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .size(96.dp),
-            shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ) {
-            Image(
-                painter = painterResource(R.drawable.clhs_pocket_foreground),
-                contentDescription = "壢中 Pocket 圖示",
-                modifier = Modifier
-                    .fillMaxSize()
-                    .scale(1.45f),
-            )
-        }
-        Spacer(modifier = Modifier.height(28.dp))
-        Text(
-            text = "壢中 Pocket",
-            modifier = Modifier.fillMaxWidth(),
-            style = MaterialTheme.typography.headlineLarge,
-            fontFamily = OutfitFontFamily,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = "校園生活需要的資訊，都在這裡。",
-            modifier = Modifier.fillMaxWidth(),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = "課表 · 成績 · 公告 · 行事曆 · 天氣",
-            modifier = Modifier.fillMaxWidth(),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-    }
+    OnboardingScreen(step = 0, onContinue = onContinue)
+}
+
+@Composable
+fun OnboardingAccountScreen(onBack: () -> Unit, onLogin: () -> Unit, onSkip: () -> Unit) {
+    OnboardingScreen(step = 3, onBack = onBack, onLogin = onLogin, onSkip = onSkip)
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun OnboardingAppearanceScreen(
-    settings: AppSettings,
-    onSetThemeMode: (ThemeMode) -> Unit,
-    onSetDynamicColor: (Boolean) -> Unit,
-    onSetAmoledBlack: (Boolean) -> Unit,
-    onBack: () -> Unit,
-    onContinue: () -> Unit,
-) {
-    OnboardingScaffold(step = 1, onBack = onBack, actions = { PrimaryOnboardingButton("繼續", onContinue) }) {
-        OnboardingTitle(
-            title = "選擇喜歡的外觀",
-            subtitle = "之後也可以隨時在設定中更改。",
-        )
-        Spacer(modifier = Modifier.height(28.dp))
-        ThemeSelector(
-            selected = settings.themeMode,
-            onSelected = onSetThemeMode,
-            systemLabel = "跟隨系統",
-        )
-        Text(
-            "更多外觀選項",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(vertical = 8.dp),
-        )
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-        ) {
-            Column {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    SettingsSwitchRow(
-                        icon = "palette",
-                        title = "動態色彩",
-                        supportingText = "使用系統桌布的配色",
-                        checked = settings.dynamicColor,
-                        onCheckedChange = onSetDynamicColor,
-                    )
-                }
-                SettingsSwitchRow(
-                    icon = "dark_mode",
-                    title = "AMOLED 純黑",
-                    supportingText = "深色模式使用純黑背景",
-                    checked = settings.amoledBlack,
-                    onCheckedChange = onSetAmoledBlack,
-                    enabled = settings.themeMode == ThemeMode.DARK ||
-                        (settings.themeMode == ThemeMode.SYSTEM && isSystemInDarkTheme()),
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-fun OnboardingPermissionsScreen(
-    onBack: () -> Unit,
-    onContinue: () -> Unit,
-    onSetNotificationsEnabled: (Boolean) -> Unit,
+internal fun OnboardingScreen(
+    step: Int,
+    settings: AppSettings = AppSettings(),
+    onSetThemeMode: (ThemeMode) -> Unit = {},
+    onSetDynamicColor: (Boolean) -> Unit = {},
+    onSetAmoledBlack: (Boolean) -> Unit = {},
+    onSetNotificationsEnabled: (Boolean) -> Unit = {},
+    onBack: () -> Unit = {},
+    onContinue: () -> Unit = {},
+    onLogin: () -> Unit = {},
+    onSkip: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -201,9 +124,10 @@ fun OnboardingPermissionsScreen(
         refreshNotificationState()
     }
 
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, step) {
+        if (step == 2) refreshNotificationState()
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
+            if (event == Lifecycle.Event.ON_RESUME && step == 2) {
                 refreshNotificationState()
             }
         }
@@ -240,73 +164,188 @@ fun OnboardingPermissionsScreen(
         !context.areNotificationsEnabled()
     }
 
+    val pageState = rememberSaveableStateHolder()
+    val motion = PocketMotion.navigation()
+    val displacement = with(LocalDensity.current) { 32.dp.roundToPx() }
     OnboardingScaffold(
-        step = 2,
-        onBack = onBack,
-        actions = { PrimaryOnboardingButton(if (notificationsAllowed) "繼續" else "先略過", onContinue) },
-    ) {
-        OnboardingTitle(
-            title = "不錯過重要消息",
-            subtitle = "接收 App 更新與推播消息。你可以選擇開啟通知，也可以稍後再設定。",
-        )
-        Spacer(modifier = Modifier.height(28.dp))
-        PermissionItem(
-            enabled = notificationsAllowed,
-            actionLabel = if (needsNotificationSettings) "前往設定" else "開啟通知",
-            onAction = ::requestNotifications,
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-fun OnboardingAccountScreen(
-    onBack: () -> Unit,
-    onLogin: () -> Unit,
-    onSkip: () -> Unit,
-) {
-    OnboardingScaffold(
-        step = 3,
-        onBack = onBack,
+        step = step,
+        onBack = onBack.takeIf { step > 0 },
         actions = {
-            PrimaryOnboardingButton("使用學校帳號登入", onLogin)
-            TextButton(
-                onClick = onSkip,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                shapes = ButtonDefaults.shapes(),
-            ) { Text("先逛逛") }
+            PrimaryOnboardingButton(
+                when (step) {
+                    0 -> "開始設定"
+                    2 -> if (notificationsAllowed) "繼續" else "先略過"
+                    3 -> "使用學校帳號登入"
+                    else -> "繼續"
+                },
+                if (step == 3) onLogin else onContinue,
+            )
+            Box(Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                if (step == 3) {
+                    TextButton(
+                        onClick = onSkip,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        shapes = ButtonDefaults.shapes(),
+                    ) { Text("先逛逛") }
+                }
+            }
         },
     ) {
-        OnboardingTitle(
-            title = "連結學校帳號",
-            subtitle = "登入後查看個人成績與課表。\n不登入也能使用公告、行事曆與天氣。",
-        )
-        Spacer(modifier = Modifier.height(28.dp))
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-        ) {
-            Row(
-                modifier = Modifier.padding(20.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Surface(
-                    modifier = Modifier.size(40.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        AnimatedContent(
+            targetState = step,
+            modifier = Modifier.fillMaxSize(),
+            transitionSpec = {
+                val direction = if (targetState > initialState) 1 else -1
+                (slideInHorizontally(motion.position) { direction * displacement } +
+                    fadeIn(motion.enterEffects)).togetherWith(
+                    slideOutHorizontally(motion.position) { -direction * displacement } +
+                        fadeOut(motion.exitEffects),
+                ).using(null)
+            },
+            label = "Onboarding step",
+        ) { visibleStep ->
+            pageState.SaveableStateProvider(visibleStep) {
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                        .padding(top = 24.dp, bottom = 16.dp),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        OutlinedRoundedSymbol("lock", contentDescription = null)
+                    when (visibleStep) {
+                        0 -> {
+                            Spacer(modifier = Modifier.height(28.dp))
+                            Surface(
+                                modifier = Modifier
+                                    .align(Alignment.CenterHorizontally)
+                                    .size(96.dp),
+                                shape = MaterialTheme.shapes.extraLarge,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ) {
+                                Image(
+                                    painter = painterResource(R.drawable.clhs_pocket_foreground),
+                                    contentDescription = "壢中 Pocket 圖示",
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .scale(1.45f),
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(28.dp))
+                            Text(
+                                text = "壢中 Pocket",
+                                modifier = Modifier.fillMaxWidth(),
+                                style = MaterialTheme.typography.headlineLarge,
+                                fontFamily = OutfitFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "校園生活需要的資訊，都在這裡。",
+                                modifier = Modifier.fillMaxWidth(),
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "課表 · 成績 · 公告 · 行事曆 · 天氣",
+                                modifier = Modifier.fillMaxWidth(),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                        1 -> {
+                            OnboardingTitle(
+                                title = "選擇喜歡的外觀",
+                                subtitle = "之後也可以隨時在設定中更改。",
+                            )
+                            Spacer(modifier = Modifier.height(28.dp))
+                            ThemeSelector(
+                                selected = settings.themeMode,
+                                onSelected = onSetThemeMode,
+                                systemLabel = "跟隨系統",
+                            )
+                            Text(
+                                "更多外觀選項",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.large,
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            ) {
+                                Column {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        SettingsSwitchRow(
+                                            icon = "palette",
+                                            title = "動態色彩",
+                                            supportingText = "使用系統桌布的配色",
+                                            checked = settings.dynamicColor,
+                                            onCheckedChange = onSetDynamicColor,
+                                        )
+                                    }
+                                    SettingsSwitchRow(
+                                        icon = "dark_mode",
+                                        title = "AMOLED 純黑",
+                                        supportingText = "深色模式使用純黑背景",
+                                        checked = settings.amoledBlack,
+                                        onCheckedChange = onSetAmoledBlack,
+                                        enabled = settings.themeMode == ThemeMode.DARK ||
+                                            (settings.themeMode == ThemeMode.SYSTEM && isSystemInDarkTheme()),
+                                    )
+                                }
+                            }
+                        }
+                        2 -> {
+                            OnboardingTitle(
+                                title = "不錯過重要消息",
+                                subtitle = "接收 App 更新與推播消息。你可以選擇開啟通知，也可以稍後再設定。",
+                            )
+                            Spacer(modifier = Modifier.height(28.dp))
+                            PermissionItem(
+                                enabled = notificationsAllowed,
+                                actionLabel = if (needsNotificationSettings) "前往設定" else "開啟通知",
+                                onAction = ::requestNotifications,
+                            )
+                        }
+                        3 -> {
+                            OnboardingTitle(
+                                title = "連結學校帳號",
+                                subtitle = "登入後查看個人成績與課表。\n不登入也能使用公告、行事曆與天氣。",
+                            )
+                            Spacer(modifier = Modifier.height(28.dp))
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.large,
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(20.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalAlignment = Alignment.Top,
+                                ) {
+                                    Surface(
+                                        modifier = Modifier.size(40.dp),
+                                        shape = MaterialTheme.shapes.medium,
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            OutlinedRoundedSymbol("lock", contentDescription = null)
+                                        }
+                                    }
+                                    Text(
+                                        text = "帳號密碼直接提交至學校校務系統，壢中 Pocket 不保存你的密碼。",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
-                Text(
-                    text = "帳號密碼直接提交至學校校務系統，壢中 Pocket 不保存你的密碼。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }
@@ -379,9 +418,7 @@ private fun OnboardingScaffold(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(top = 24.dp, bottom = 16.dp),
+                        .fillMaxWidth(),
                     content = content,
                 )
                 Column(
@@ -389,7 +426,6 @@ private fun OnboardingScaffold(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     actions()
-                    if (step != ONBOARDING_STEP_COUNT - 1) Spacer(Modifier.height(48.dp))
                 }
             }
         }
@@ -409,17 +445,19 @@ private fun OnboardingProgress(step: Int) {
     ) {
         Text("${step + 1} / $ONBOARDING_STEP_COUNT", style = MaterialTheme.typography.labelMedium)
         repeat(ONBOARDING_STEP_COUNT) { index ->
+            val width by animateDpAsState(
+                if (index == step) 24.dp else 8.dp,
+                animationSpec = PocketMotion.selection(), label = "Onboarding progress width",
+            )
+            val color by animateColorAsState(
+                if (index == step) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceContainerHighest,
+                animationSpec = PocketMotion.stateChange(), label = "Onboarding progress color",
+            )
             Box(
                 modifier = Modifier
-                    .size(width = if (index == step) 24.dp else 8.dp, height = 8.dp)
-                    .background(
-                        if (index == step) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHighest
-                        },
-                        CircleShape,
-                    ),
+                    .size(width = width, height = 8.dp)
+                    .background(color, CircleShape),
             )
         }
     }
