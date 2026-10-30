@@ -47,6 +47,8 @@ AMOLED 將 background、surface、surfaceDim、surfaceContainerLowest 改為黑�
 
 以 primary 表達選取與主要操作；以 surface container 層級區分群組。成績、調課與錯誤必須保留文字或數字語意，不只依賴顏色。課表差異沿用 tertiary container；科目色沿用既有課表配色與自訂偏好。
 
+首頁天氣、成績摘要與校園公告主卡使用 `ui/theme/PocketMeshBackground.kt` 的靜態 `MeshGradientPainter`。沿用各卡片的 Material 主題底色，以低強度 primary／tertiary container 混色；Painter 隨色彩更新並快取，不加入常駐動畫，也不改變元件量測尺寸。密集資料列保留純色表面。
+
 ## 字型、尺寸與形狀
 
 - 文字使用 `MaterialTheme.typography` 的 display／headline／title／body／label roles；根主題套用 `PocketTypography`。display、headline、titleLarge（含 emphasized）使用封裝的 Huninn 粉圓，建立親切圓潤的頁名、區塊標題與主要數值；titleMedium／Small、body、label 維持 Material 預設，讓公告、課表與設定容易掃讀。沿用官方字級與行高，中文標題字距為 0sp，不壓縮字體縮放。
@@ -145,3 +147,5 @@ AMOLED 將 background、surface、surfaceDim、surfaceContainerLowest 改為黑�
 UI 修改依 [測試策略](docs/development/testing.md) 執行本機檢查；裝置截圖與互動驗證需明確授權。此文件是原始碼對照結果，不代表已做實機視覺驗收。
 
 本次 Expressive 設計方向、官方研究及 Device Hub 驗證紀錄見 [視覺重構紀錄](docs/design/expressive-review.md)。
+
+浮動主導覽使用單層靜態 `dropShadow`（8dp 半徑、2dp 垂直偏移、16% scrim），取代 Toolbar 的 elevation 陰影；形狀沿用 `FloatingToolbarDefaults.ContainerShape`，不改變量測與內容避讓。其他卡片不全面套用陰影；模糊與內陰影需有明確閱讀或互動用途才採用。

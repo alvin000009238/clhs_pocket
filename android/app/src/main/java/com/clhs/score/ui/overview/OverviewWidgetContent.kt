@@ -1,5 +1,7 @@
 package com.clhs.score.ui.overview
 
+import com.clhs.score.ui.theme.pocketMeshBackground
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -141,7 +143,7 @@ internal fun OverviewWidgetContent(
             }
             Surface(onClick = hapticClick(onClick), enabled = !editing, modifier = modifier.fillMaxSize(), shape = PocketVisual.metricShape,
                 color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Box(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().pocketMeshBackground()) {
                     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = if (widget.size.rows == 1) 10.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (weatherConfig.location.countryCode != "TW") {
                             Text("請重新選擇台灣地點", style = MaterialTheme.typography.bodyMedium)
