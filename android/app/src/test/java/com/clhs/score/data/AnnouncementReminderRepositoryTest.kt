@@ -163,8 +163,8 @@ class AnnouncementReminderRepositoryTest {
             checkedAtMillis = 30L,
         )
 
-        assertEquals(500, outcome.state.knownIds.size)
-        assertEquals(100, outcome.state.unreadIds.size)
+        assertEquals((501..1_000).map(Int::toString), outcome.state.knownIds.toList())
+        assertEquals((501..600).map(Int::toString), outcome.state.unreadIds.toList())
         assertEquals("99+", announcementBadgeText(outcome.state.unreadIds.size))
         assertEquals("9", announcementBadgeText(9))
     }
