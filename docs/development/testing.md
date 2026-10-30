@@ -1,6 +1,6 @@
 # 測試策略
 
-預設只執行本機編譯、單元測試與 Lint；只有使用者明確要求時才操作實機／emulator、安裝 APK、截圖或產生 Baseline Profile。編譯通過不代表完成視覺驗收。
+預設執行本機編譯、單元測試與 Lint；每次 UI 修改後執行 Android CLI Preview 渲染並檢視 PNG。使用者已授權 UI 修改必要的裝置驗證；多台或目標不明時仍先確認目標。其他裝置工作與 Baseline Profile 生成需明確要求。編譯通過不代表完成視覺驗收。命令、已驗證能力與 ADB 替代規則見 [Android CLI 工作流](android-cli.md)。
 
 ## 測試品質與成本
 
@@ -9,8 +9,6 @@
 JVM 測試撰寫不需先操作裝置。需要撰寫或修改裝置測試時，先依下方裝置驗證流程確認互動，再使用語意定位與明確等待。記憶體 DAO 驗證 policy，不代表真實 Room transaction；JVM pass 不代表 Android Keystore、Compose 或 OEM 背景行為已驗收。
 
 Coroutine 自有 timer 使用同一 test scheduler 與虛擬時間；實際 HTTP／thread 邊界保留真實同步與有上限的等待。MockWebServer 請求可共用 `data/MockWebServerRequests.kt` 的 `awaitRequest()`，逾時應明確失敗。保留 server、DataStore scope、ViewModel job 與全域 dispatcher／timezone 的清理。
-
-本次套件整理與限制見 [測試套件審查](../audit/test-suite-audit.md)。
 
 ## 分層
 
@@ -31,7 +29,7 @@ Coroutine 自有 timer 使用同一 test scheduler 與虛擬時間；實際 HTTP
 - 改 WebView、session、Widget、deep link、提醒或通知：先跑 `ArchitectureBoundaryTest`，再跑對應本機測試；真實入口的裝置驗證需使用者明確要求，且不得紀錄真實憑證。
 - 改登入／導航／首次設定：補跑 OverviewAuthTest、AppNavigationTest 與 SettingsRepositoryTest；AuthGateTest／AppNavigationStateTest 屬於 androidTest，需明確要求裝置驗證。
 - 改公告更新提醒／首頁／天氣：補跑公告更新提醒、OverviewCoordinator 與 WeatherRepository 相關測試；公告更新提醒不得用校務 Session 或 FCM topic。
-- 改 Compose UI：跑 `:app:lintDemoDebug`、`:app:assembleDemoDebug`，有明確裝置驗證要求時，再以 fake data 做截圖或互動檢查。
+- 改 Compose UI：跑既有完整交付 gate，並使用 `android preview render ':app@demoDebug'` 搭配 `preview list` 的 FQN 渲染受影響的預覽、開啟 PNG 檢查；需要互動或平台驗證時，再以 fake data 做裝置檢查。
 - 改 workflow／文件：檢查 YAML 或 Markdown links，並保留既有 release 流程的 secrets 邊界。
 
 ## 裝置驗證工作流
@@ -39,9 +37,9 @@ Coroutine 自有 timer 使用同一 test scheduler 與虛擬時間；實際 HTTP
 使用開發環境可用的裝置／模擬器工具。裝置驗證不取代 JVM、Lint、組建或既有 `androidTest`。
 
 1. 先完成相關本機測試與 Debug APK 組建。模擬器驗證使用 `demoDebug`：APK 位於 `android/app/build/outputs/apk/demo/debug/app-demo-debug.apk`，套件 ID 為 `com.clhs.score.demo.debug`。不要使用已移除的 `-PuseFakeData` 或舊的 `com.clhs.score.debug` 套件。
-2. 列出可用裝置，多台或目標不明時請使用者選擇，再開啟指定模擬器。用 `adb devices -l` 核對 online serial，不得自行改用實機。
+2. 透過 host 的 `device_list` 列出可用裝置，多台或目標不明時請使用者選擇，再以 `device_open` 開啟指定模擬器。核對目標與 serial，不得自行改用實機；沒有相應 CLI／host 盤點能力時，才用 `adb devices -l` 補充連線診斷。
 3. 每個操作明確指定同一裝置，保留工具要求的 target／session 設定。優先使用 resource ID、文字或其他語意定位；無動態定位時才使用截圖確認的座標。撰寫裝置測試前先探索相關互動，測試碼使用明確等待條件。
-4. 原地更新 Demo APK 並啟動；簽章不符時先比較簽章，保留資料，不自動 uninstall、wipe data 或 factory reset。使用 ADB 操作、Logcat 或檔案傳輸時，明確指定 `-s <serial>`。
+4. 使用 `android install --device=<serial> <apk>` 原地更新 Demo APK，再依 host 規則用 `device_open` 回傳的 `agent-device` 命令啟動、操作、擷取畫面。簽章不符時先比較簽章，保留資料，不自動 uninstall、wipe data 或 factory reset。原本 ADB 工作優先使用 CLI；CLI 無對應功能的 Logcat、檔案傳輸或 shell 診斷才使用 `adb -s <serial> ...`。
 5. 啟動失敗先確認 emulator process 與錯誤，不重複啟動同一 AVD。需要額外日誌時捕捉 stdout／stderr；Windows 背景程序使用 `Start-Process -WindowStyle Hidden`。若報 RAM commit 不足，先備份 AVD 設定，再降低該測試 AVD RAM；不要用 Wipe Data 解決。舊 session 鎖定時核對 session 建立時間與裝置是否已重啟，僅關閉確認失效的 session。
 6. 留存必要截圖、日誌或其他驗證證據，分別回報 APK、AVD／serial、Android 版本、操作結果、crash 與未驗證項目。測試後還原字體、尺寸與主題等臨時設定。單一模擬器流程通過不等同全面視覺、無障礙或實機驗收。
 
