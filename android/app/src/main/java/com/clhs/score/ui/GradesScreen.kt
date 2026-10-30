@@ -5,6 +5,8 @@
 
 package com.clhs.score.ui
 
+import com.clhs.score.ui.theme.pocketMeshBackground
+
 import com.clhs.score.ui.navigation.navigationContentPadding
 import com.clhs.score.ui.navigation.PocketNavigationLayout
 
@@ -1096,7 +1098,7 @@ private fun HeroCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().pocketMeshBackground(MaterialTheme.colorScheme.primaryContainer).padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top,

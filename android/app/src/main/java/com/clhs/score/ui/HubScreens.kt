@@ -5,6 +5,7 @@ package com.clhs.score.ui
 import com.clhs.score.ui.navigation.navigationContentPadding
 
 import com.clhs.score.ui.theme.PocketVisual
+import com.clhs.score.ui.theme.pocketMeshBackground
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -133,7 +134,7 @@ private fun AnnouncementHeroCard(
         ),
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier.fillMaxWidth().pocketMeshBackground(MaterialTheme.colorScheme.secondaryContainer).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(

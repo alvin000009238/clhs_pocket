@@ -20,6 +20,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -30,6 +32,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.DpOffset
 import com.clhs.score.ui.FilledRoundedSymbol
 import com.clhs.score.ui.OutlinedRoundedSymbol
 import com.clhs.score.ui.theme.PocketMotion
@@ -123,13 +126,22 @@ internal fun PocketFloatingNavigation(
         PocketMotion.selection(), label = "指示器高度")
     HorizontalFloatingToolbar(
         expanded = true,
-        modifier = modifier.widthIn(max = PocketNavigationLayout.maxWidth).height(toolbarHeight),
+        modifier = modifier.widthIn(max = PocketNavigationLayout.maxWidth).height(toolbarHeight)
+            .dropShadow(
+                shape = FloatingToolbarDefaults.ContainerShape,
+                shadow = Shadow(
+                    radius = 8.dp,
+                    color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.16f),
+                    offset = DpOffset(0.dp, 2.dp),
+                ),
+            ),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = verticalPadding),
         colors = FloatingToolbarDefaults.standardFloatingToolbarColors(
             toolbarContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             toolbarContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
-        expandedShadowElevation = 2.dp,
+        expandedShadowElevation = 0.dp,
+        collapsedShadowElevation = 0.dp,
     ) {
         BoxWithConstraints(Modifier.widthIn(min = 192.dp, max = 288.dp).fillMaxWidth()) {
             val slot = maxWidth / destinations.size
