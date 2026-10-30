@@ -106,11 +106,18 @@ internal fun applyAnnouncementCheck(
 internal fun announcementBadgeText(unreadCount: Int): String =
     if (unreadCount > ANNOUNCEMENT_BADGE_MAX_COUNT) "$ANNOUNCEMENT_BADGE_MAX_COUNT+" else unreadCount.toString()
 
-private fun boundedIds(priority: List<String>, existing: Set<String>, limit: Int): Set<String> =
-    buildList {
-        addAll(priority)
-        addAll(existing)
-    }.distinct().take(limit).toSet()
+private fun boundedIds(priority: List<String>, existing: Set<String>, limit: Int): Set<String> {
+    val result = LinkedHashSet<String>()
+    for (id in priority) {
+        result.add(id)
+        if (result.size == limit) return result
+    }
+    for (id in existing) {
+        result.add(id)
+        if (result.size == limit) return result
+    }
+    return result
+}
 
 private val Context.announcementReminderDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "announcement_reminder",
