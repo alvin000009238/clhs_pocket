@@ -444,7 +444,7 @@ internal fun WeatherStrip(state: OverviewWeatherState, now: LocalDateTime, modif
                     Text(weather.locationLabel, Modifier.weight(1f),
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (compact && state.failed) Text("更新失敗", style = MaterialTheme.typography.labelSmall,
+                    if (state.failed) Text(if (compact) "更新失敗" else "更新失敗，顯示上次資料", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error)
                 }
                 if (compact) {
@@ -479,7 +479,7 @@ internal fun WeatherStrip(state: OverviewWeatherState, now: LocalDateTime, modif
                             color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
-                val updateLabel = if (state.failed) "更新失敗，顯示上次資料" else if (!state.isRefreshing &&
+                val updateLabel = if (!state.failed && !state.isRefreshing &&
                     Duration.between(weather.fetchedAt, now.atZone(SCHOOL_ZONE).toInstant()).toMinutes() > 30
                 ) "上次更新 ${weather.fetchedAt.atZone(SCHOOL_ZONE).format(DateTimeFormatter.ofPattern("HH:mm"))}" else null
                 updateLabel?.takeIf { !compact }?.let { Text(it, style = MaterialTheme.typography.labelSmall,
