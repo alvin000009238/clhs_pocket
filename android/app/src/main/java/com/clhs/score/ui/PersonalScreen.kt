@@ -5,29 +5,16 @@ package com.clhs.score.ui
 import com.clhs.score.ui.navigation.navigationContentPadding
 
 import com.clhs.score.ui.theme.PocketVisual
-import androidx.compose.material3.SegmentedListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.toShape
 
-import android.Manifest
-import android.content.Intent
-import android.os.Build
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,7 +24,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -45,167 +31,57 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import com.clhs.score.ui.navigation.PocketScaffold as Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.clhs.score.ui.theme.PocketMotion
-import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
-import com.clhs.score.BuildConfig
-import com.clhs.score.R
 import com.clhs.score.data.AppSettings
 import com.clhs.score.data.BiometricHelper
-import com.clhs.score.data.ThemeMode
-import com.clhs.score.notifications.canPostNotifications
-import com.clhs.score.notifications.hasPostNotificationsPermission
-import com.clhs.score.notifications.openAppNotificationSettings
-import com.clhs.score.notifications.shouldShowPostNotificationsRationale
 import com.clhs.score.ui.components.PinSetupDialog
-import com.clhs.score.ui.theme.OutfitFontFamily
 import com.clhs.score.viewmodel.GradesUiState
 import com.clhs.score.viewmodel.AuthState
-import com.clhs.score.viewmodel.SettingsUiState
-import com.clhs.score.viewmodel.UpdateState
-import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 
-private const val ProfileSourceCodeUrl = "https://github.com/alvin000009238/clhs_pocket"
-private const val ProfileFeedbackFormUrlKey = "feedback_form_url"
 private val ProfileMaxWidth = 720.dp
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun PersonalScreen(
     state: GradesUiState,
     authState: AuthState = AuthState.Authenticated(0L),
     onRequestLogin: () -> Unit = {},
     settings: AppSettings,
-    uiState: SettingsUiState,
     onBack: () -> Unit,
-    onSetThemeMode: (ThemeMode) -> Unit,
-    onSetStartOnSchedule: (Boolean) -> Unit,
     onCycleProfileAvatarShape: () -> Unit,
-    onSetDynamicColor: (Boolean) -> Unit,
-    onSetAmoledBlack: (Boolean) -> Unit,
-    onSetNotificationsEnabled: (Boolean) -> Unit,
     onSetBiometricEnabled: (Boolean, String?) -> Unit,
-    onCheckUpdate: () -> Unit,
-    onVersionTap: () -> Unit,
-    onDismissDeveloperToast: () -> Unit,
-    onOpenUsageStatistics: () -> Unit,
-    onOpenSourceLicenses: () -> Unit,
-    onOpenDeveloperSettings: () -> Unit,
-    onOpenWorkManagerInfo: () -> Unit,
-    onOpenBackgroundPauseSettings: () -> Unit = {},
-    onOpenScheduleReliabilitySettings: () -> Unit = {},
+    onOpenSettings: () -> Unit,
+    onOpenAttendance: () -> Unit,
+    onOpenMerits: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val snackbarHostState = remember { SnackbarHostState() }
-    val rootMotionScheme = MaterialTheme.motionScheme
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showPinSetupDialog by remember { mutableStateOf(false) }
-    var awaitingNotificationSettings by rememberSaveable { mutableStateOf(false) }
-    var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
-    val currentOnSetNotificationsEnabled by rememberUpdatedState(onSetNotificationsEnabled)
-    val currentOnDismissDeveloperToast by rememberUpdatedState(onDismissDeveloperToast)
-    val remoteConfig = remember {
-        if (BuildConfig.USE_FAKE_DATA) null else FirebaseRemoteConfig.getInstance().also {
-            it.setDefaultsAsync(mapOf(ProfileFeedbackFormUrlKey to ""))
-        }
-    }
-    var isFetchingFeedback by remember { mutableStateOf(false) }
-
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        currentOnSetNotificationsEnabled(granted)
-        notificationPermissionDenied = !granted
-        Toast.makeText(
-            context,
-            if (granted) "已開啟推播通知" else "未取得通知權限，可再次嘗試開啟",
-            Toast.LENGTH_SHORT,
-        ).show()
-    }
-
-    DisposableEffect(lifecycleOwner, settings.notificationsEnabled) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && awaitingNotificationSettings) {
-                awaitingNotificationSettings = false
-                val enabled = context.canPostNotifications()
-                currentOnSetNotificationsEnabled(enabled)
-                notificationPermissionDenied = !enabled
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    LaunchedEffect(uiState.showDeveloperUnlockedToast) {
-        if (uiState.showDeveloperUnlockedToast) {
-            Toast.makeText(context, "已開啟開發者選項", Toast.LENGTH_SHORT).show()
-            currentOnDismissDeveloperToast()
-        }
-    }
-
-    fun setNotifications(enabled: Boolean) {
-        if (!enabled) {
-            onSetNotificationsEnabled(false)
-        } else if (context.canPostNotifications()) {
-            onSetNotificationsEnabled(true)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            !context.hasPostNotificationsPermission() &&
-            (!notificationPermissionDenied || context.shouldShowPostNotificationsRationale())
-        ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            awaitingNotificationSettings = true
-            if (context.openAppNotificationSettings()) {
-                Toast.makeText(context, "請在系統設定中開啟通知", Toast.LENGTH_SHORT).show()
-            } else {
-                awaitingNotificationSettings = false
-                Toast.makeText(context, "無法開啟通知設定，請手動到系統設定開啟", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     if (showLogoutDialog) {
         LogoutConfirmDialog(
             onDismiss = { showLogoutDialog = false },
@@ -224,247 +100,124 @@ fun PersonalScreen(
             onDismiss = { showPinSetupDialog = false },
         )
     }
-    MaterialTheme(motionScheme = rootMotionScheme) {
-        Scaffold(
-            topBar = {
-                RootTopAppBar(
-                    title = "個人",
-                    navigationIcon = {
-                        IconButton(onClick = onBack, shapes = IconButtonDefaults.shapes()) {
-                            OutlinedRoundedSymbol("arrow_back", contentDescription = "返回")
-                        }
-                    },
-                )
-            },
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            containerColor = MaterialTheme.colorScheme.surface,
-        ) { scaffoldPadding ->
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(scaffoldPadding),
-                contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, top = 20.dp, end = 16.dp, bottom = 40.dp)),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(24.dp),
-            ) {
-                item {
-                    ProfileHero(state, authState, onRequestLogin, settings.profileAvatarShapeIndex, onCycleProfileAvatarShape)
-                }
-
-                item {
-                    SettingsSection("外觀") {
-                        SettingsGroup {
-                            ThemeSelector(settings.themeMode, onSetThemeMode)
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                SettingsSwitchRow(
-                                    icon = "palette",
-                                    title = "動態色彩",
-                                    supportingText = "依照桌布色彩調整",
-                                    checked = settings.dynamicColor,
-                                    onCheckedChange = onSetDynamicColor,
-                                )
-                            }
-                            SettingsSwitchRow(
-                                icon = "dark_mode",
-                                title = "AMOLED 純黑",
-                                supportingText = "深色模式使用純黑背景",
-                                checked = settings.amoledBlack,
-                                onCheckedChange = onSetAmoledBlack,
-                                enabled = settings.themeMode == ThemeMode.DARK ||
-                                    (settings.themeMode == ThemeMode.SYSTEM && isSystemInDarkTheme()),
-                            )
-                        }
+    FloatingSubpageLayout(
+        actionsPadding = PaddingValues(0.dp),
+        onBack = onBack,
+        actions = {
+            PocketCircleIconButton("settings", "設定", hapticClick(onOpenSettings))
+        },
+    ) { scaffoldPadding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, top = scaffoldPadding.calculateTopPadding() + 8.dp, end = 16.dp, bottom = scaffoldPadding.calculateBottomPadding() + 40.dp)),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
+            item {
+                ProfileHero(state, authState, onRequestLogin, settings.profileAvatarShapeIndex, onCycleProfileAvatarShape)
+            }
+            item {
+                SettingsSection("在校紀錄") {
+                    SettingsGroup {
+                        ProfileRecordDestination("event", "缺曠統計", "學期分類、日期與節次", onOpenAttendance)
+                        ProfileRecordDestination("school", "獎懲紀錄", "獎勵、懲處與核定資訊", onOpenMerits)
                     }
                 }
-
+            }
+            if (BiometricHelper.canAuthenticate(context)) {
                 item {
-                    SettingsSection("啟動與導覽") {
+                    SettingsSection("帳號安全") {
                         SettingsGroup {
-                            SettingsSwitchRow(
-                                icon = "calendar_view_week",
-                                title = "啟動時開啟課表",
-                                supportingText = "從桌面啟動時直接顯示課表",
-                                checked = settings.startOnSchedule,
-                                onCheckedChange = onSetStartOnSchedule,
-                            )
-                        }
-                    }
-                }
-
-                item {
-                    SettingsSection("通知與提醒") {
-                        SettingsGroup {
-                            SettingsSwitchRow(
-                                icon = "notifications",
-                                title = "通知",
-                                supportingText = "接收 App 更新與公告推播",
-                                checked = settings.notificationsEnabled,
-                                onCheckedChange = ::setNotifications,
-                            )
-                            SettingsRow(
-                                icon = "info",
-                                title = "執行資訊",
-                                supportingText = "查看所有背景工作的即時狀態",
-                                onClick = onOpenWorkManagerInfo,
-                            )
-                            SettingsRow(
-                                icon = "schedule",
-                                title = "排程暫停時段",
-                                supportingText = if (settings.backgroundPause.enabled) {
-                                    "每天 ${formatPauseTime(settings.backgroundPause.startMinute)}–${formatPauseTime(settings.backgroundPause.endMinute)}"
-                                } else "未啟用",
-                                onClick = onOpenBackgroundPauseSettings,
-                            )
-                            SettingsRow(
-                                icon = "alarm",
-                                title = "排程可靠性",
-                                supportingText = "管理課程通知與小工具的背景排程",
-                                onClick = onOpenScheduleReliabilitySettings,
-                            )
-                        }
-                    }
-                }
-
-                item {
-                    SettingsSection("資料與隱私") {
-                        SettingsGroup {
-                            if (BiometricHelper.canAuthenticate(context)) {
-                                AuthGate(
-                                    authState = authState,
-                                    requirement = com.clhs.score.ui.navigation.AuthRequirement.Session,
-                                    onRequestLogin = onRequestLogin,
-                                    fallback = {
-                                        SettingsRow(
-                                            icon = "fingerprint",
-                                            title = "生物識別解鎖",
-                                            supportingText = "登入後可設定生物識別與備用密碼",
-                                            value = if (authState is AuthState.Authenticating) "確認中" else "登入",
-                                            enabled = authState is AuthState.Guest,
-                                            onClick = onRequestLogin,
-                                        )
-                                    },
-                                ) {
-                                    SettingsSwitchRow(
+                            AuthGate(
+                                authState = authState,
+                                requirement = com.clhs.score.ui.navigation.AuthRequirement.Session,
+                                onRequestLogin = onRequestLogin,
+                                fallback = {
+                                    SettingsRow(
                                         icon = "fingerprint",
                                         title = "生物識別解鎖",
-                                        supportingText = "啟動時驗證，並設定 4–6 位備用密碼",
-                                        checked = settings.biometricEnabled,
-                                        onCheckedChange = { enabled ->
-                                            if (enabled) showPinSetupDialog = true
-                                            else onSetBiometricEnabled(false, null)
-                                        },
+                                        supportingText = "登入後可設定生物識別與備用密碼",
+                                        value = if (authState is AuthState.Authenticating) "確認中" else "登入",
+                                        enabled = authState is AuthState.Guest,
+                                        onClick = onRequestLogin,
                                     )
-                                }
-                            }
-                            SettingsRow(
-                                icon = "data_usage",
-                                title = "使用統計",
-                                supportingText = "查看各項功能的使用次數",
-                                onClick = onOpenUsageStatistics,
-                            )
-                        }
-                    }
-                }
-
-                item {
-                    val updateState = uiState.updateState
-                    val updateValue = when (updateState) {
-                        is UpdateState.UpdateAvailable -> "v${updateState.release.versionName} 可用"
-                        is UpdateState.Checking -> "正在檢查"
-                        is UpdateState.UpToDate -> "已是最新版本"
-                        is UpdateState.Error -> "檢查失敗"
-                        is UpdateState.Idle -> null
-                    }
-                    SettingsSection("關於") {
-                        SettingsGroup {
-                            AppIdentityRow(
-                                onVersionTap = onVersionTap,
-                            )
-                            SettingsRow(
-                                icon = "system_update",
-                                title = "App 更新",
-                                value = updateValue,
-                                loading = uiState.isCheckingUpdate,
-                                enabled = !uiState.isCheckingUpdate,
-                                iconBadge = updateState is UpdateState.UpdateAvailable,
-                                onClick = onCheckUpdate,
-                            )
-                            SettingsRow(
-                                icon = "code",
-                                title = "原始碼",
-                                value = "GitHub",
-                                onClick = { openProfileUrl(context, ProfileSourceCodeUrl) },
-                            )
-                            SettingsRow(
-                                icon = "license",
-                                title = "開源授權",
-                                value = "MIT License",
-                                onClick = onOpenSourceLicenses,
-                            )
-                            if (remoteConfig != null) {
-                                SettingsRow(
-                                    icon = "thumbs_up_down",
-                                    title = "意見回饋",
-                                    loading = isFetchingFeedback,
-                                    enabled = !isFetchingFeedback,
-                                    onClick = {
-                                        isFetchingFeedback = true
-                                        remoteConfig.fetchAndActivate().addOnCompleteListener {
-                                            isFetchingFeedback = false
-                                            val url = remoteConfig.getString(ProfileFeedbackFormUrlKey)
-                                            if (isAllowedFeedbackFormUrl(url)) {
-                                                openProfileUrl(context, url)
-                                            } else {
-                                                Toast.makeText(
-                                                    context,
-                                                    "暫時無法取得回饋表單，請稍後再試",
-                                                    Toast.LENGTH_SHORT,
-                                                ).show()
-                                            }
-                                        }
+                                },
+                            ) {
+                                SettingsSwitchRow(
+                                    icon = "fingerprint",
+                                    title = "生物識別解鎖",
+                                    supportingText = "啟動時驗證，並設定 4–6 位備用密碼",
+                                    checked = settings.biometricEnabled,
+                                    onCheckedChange = { enabled ->
+                                        if (enabled) showPinSetupDialog = true
+                                        else onSetBiometricEnabled(false, null)
                                     },
                                 )
                             }
-                        }
-                    }
-                }
-
-                if (settings.developerEnabled) {
-                    item {
-                        SettingsSection("開發者選項", subdued = true) {
-                            SettingsGroup {
-                                SettingsRow(
-                                    icon = "science",
-                                    title = "開發者選項",
-                                    supportingText = "更多進階設定",
-                                    onClick = onOpenDeveloperSettings,
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (authState is AuthState.Authenticated) {
-                    item {
-                        OutlinedButton(
-                            onClick = { showLogoutDialog = true },
-                            modifier = Modifier
-                                .widthIn(max = ProfileMaxWidth)
-                                .fillMaxWidth()
-                                .heightIn(min = 52.dp),
-                            shapes = ButtonDefaults.shapes(),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                            border = ButtonDefaults.outlinedButtonBorder(enabled = true).copy(
-                                brush = androidx.compose.ui.graphics.SolidColor(
-                                    MaterialTheme.colorScheme.error.copy(alpha = 0.55f),
-                                ),
-                            ),
-                        ) {
-                            Text("登出帳號")
                         }
                     }
                 }
             }
+            if (authState is AuthState.Authenticated) {
+                item {
+                    TextButton(
+                        onClick = hapticClick { showLogoutDialog = true },
+                        modifier = Modifier.widthIn(max = ProfileMaxWidth).fillMaxWidth().heightIn(min = 56.dp),
+                        shapes = ButtonDefaults.shapes(),
+                        colors = ButtonDefaults.textButtonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        ),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            OutlinedRoundedSymbol("meeting_room", contentDescription = null)
+                            Text("登出帳號", style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Preview(name = "個人 · Compact", widthDp = 390, heightDp = 900)
+@Preview(name = "個人 · Dark", widthDp = 390, heightDp = 900, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "個人 · Expanded", widthDp = 1100, heightDp = 1000)
+@Composable
+private fun PersonalScreenPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        PersonalScreen(
+            state = GradesUiState(studentNo = com.clhs.score.data.FakeData.session.studentNo),
+            settings = AppSettings(),
+            onBack = {},
+            onCycleProfileAvatarShape = {},
+            onSetBiometricEnabled = { _, _ -> },
+            onOpenSettings = {},
+            onOpenAttendance = {},
+            onOpenMerits = {},
+            onLogout = {},
+        )
+    }
+}
+
+@Composable
+private fun ProfileRecordDestination(icon: String, title: String, supportingText: String, onClick: () -> Unit) {
+    Surface(onClick = hapticClick(onClick), modifier = Modifier.semantics { role = Role.Button }, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            PocketOptionIcon(icon)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMediumEmphasized)
+                Text(supportingText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            OutlinedRoundedSymbol("keyboard_arrow_right", contentDescription = null)
         }
     }
 }
@@ -577,236 +330,8 @@ private fun ProfileAvatar(shapeIndex: Int, onCycleShape: () -> Unit) {
 @Composable
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 private fun ProfileGuestHero(authState: AuthState, onRequestLogin: () -> Unit) {
-    Column(
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Surface(
-                modifier = Modifier.size(56.dp),
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    OutlinedRoundedSymbol("account_circle", size = 34.dp, contentDescription = null)
-                }
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text("使用學校帳號登入", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "登入後查看成績、排名、課表與個人資料",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.78f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        if (authState is AuthState.Authenticating) {
-            LoadingIndicator(modifier = Modifier.align(Alignment.End))
-        } else {
-            Button(
-                onClick = onRequestLogin,
-                shapes = ButtonDefaults.shapes(),
-                modifier = Modifier.align(Alignment.End),
-            ) {
-                Text("登入")
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsSection(
-    title: String,
-    subdued: Boolean = false,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .widthIn(max = ProfileMaxWidth)
-            .fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleMediumEmphasized,
-            color = if (subdued) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-            modifier = Modifier.padding(horizontal = 8.dp),
-        )
-        content()
-    }
-}
-
-@Composable
-private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Column(content = content)
-    }
-}
-
-@Composable
-internal fun ThemeSelector(
-    selected: ThemeMode,
-    onSelected: (ThemeMode) -> Unit,
-    systemLabel: String = "系統",
-) {
-    Column(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("主題", style = MaterialTheme.typography.bodyLarge)
-        val options = listOf(systemLabel to ThemeMode.SYSTEM, "淺色" to ThemeMode.LIGHT, "深色" to ThemeMode.DARK)
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            options.forEachIndexed { index, (label, mode) ->
-                SegmentedButton(
-                    selected = selected == mode,
-                    onClick = { onSelected(mode) },
-                    icon = {
-                        if (selected == mode && mode != ThemeMode.SYSTEM) {
-                            OutlinedRoundedSymbol(
-                                icon = if (mode == ThemeMode.LIGHT) "light_mode" else "dark_mode",
-                                size = 18.dp,
-                                contentDescription = null,
-                            )
-                        }
-                    },
-                    shape = SegmentedButtonDefaults.itemShape(index, options.size),
-                ) { Text(label) }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun SettingsRow(
-    icon: String,
-    title: String,
-    onClick: () -> Unit,
-    supportingText: String? = null,
-    value: String? = null,
-    loading: Boolean = false,
-    enabled: Boolean = true,
-    iconBadge: Boolean = false,
-) {
-    SegmentedListItem(
-        onClick = hapticClick(onClick), enabled = enabled,
-        modifier = Modifier.fillMaxWidth().heightIn(min = if (supportingText == null) 64.dp else 76.dp),
-        shapes = ListItemDefaults.shapes(),
-        colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        leadingContent = {
-            Box {
-                OutlinedRoundedSymbol(icon, size = 24.dp, contentDescription = null)
-                if (iconBadge) Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape))
-            }
-        },
-        supportingContent = supportingText?.let { text -> {
-            Text(text, style = MaterialTheme.typography.bodyMedium)
-        } },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                value?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
-                if (loading) LoadingIndicator(Modifier.size(28.dp))
-                else OutlinedRoundedSymbol("keyboard_arrow_right", size = 24.dp, contentDescription = null)
-            }
-        },
-    ) { Text(title, style = MaterialTheme.typography.bodyLarge) }
-}
-
-@Composable
-internal fun SettingsSwitchRow(
-    icon: String,
-    title: String,
-    supportingText: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 76.dp)
-            .semantics { stateDescription = if (checked) "已開啟" else "已關閉" }
-            .toggleable(
-                value = checked,
-                enabled = enabled,
-                role = Role.Switch,
-                onValueChange = hapticToggle(onCheckedChange),
-            )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        OutlinedRoundedSymbol(
-            icon,
-            size = 24.dp,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            contentDescription = null,
-        )
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                supportingText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
-    }
-}
-
-@Composable
-private fun AppIdentityRow(onVersionTap: () -> Unit) {
-    Surface(
-        onClick = onVersionTap,
-        color = Color.Transparent,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Surface(
-                modifier = Modifier.size(44.dp),
-                shape = MaterialTheme.shapes.medium,
-                color = Color.White,
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.clhs_pocket_foreground),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .scale(1.5f),
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "CLHS Pocket",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontFamily = OutfitFontFamily,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    "版本 ${BuildConfig.VERSION_NAME}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
+    GuestLoginContent(authState, "\u767b\u5165\u5b78\u6821\u5e33\u865f",
+        "\u67e5\u770b\u500b\u4eba\u8cc7\u6599\u3001\u7f3a\u66e0\u8207\u734e\u61f2\u7d00\u9304\u3002", "account_circle", onRequestLogin)
 }
 
 @Composable
@@ -854,12 +379,4 @@ internal fun ProfileCwaApiKeyDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("取消") } },
     )
-}
-
-private fun openProfileUrl(context: android.content.Context, url: String) {
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
-    } catch (_: Exception) {
-        Toast.makeText(context, "無法開啟連結", Toast.LENGTH_SHORT).show()
-    }
 }

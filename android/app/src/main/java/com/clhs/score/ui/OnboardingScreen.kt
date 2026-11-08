@@ -398,12 +398,7 @@ private fun OnboardingScaffold(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (onBack != null) {
-                        IconButton(
-                            onClick = onBack,
-                            shapes = IconButtonDefaults.shapes(),
-                        ) {
-                            OutlinedRoundedSymbol("arrow_back", contentDescription = "返回")
-                        }
+                        PocketBackButton(onBack)
                     } else {
                         Spacer(modifier = Modifier.size(48.dp))
                     }

@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.clhs.score.ui.schedule
 
 import com.clhs.score.ui.navigation.navigationContentPadding
@@ -6,6 +8,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,7 +18,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.toggleable
@@ -27,6 +30,11 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.clhs.score.ui.PocketCircleIconButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
@@ -34,12 +42,11 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.clhs.score.ui.FilledRoundedSymbol
+import com.clhs.score.ui.PocketOptionIcon
 import com.clhs.score.ui.hapticToggle
 import com.clhs.score.ui.OutlinedRoundedSymbol
-import com.clhs.score.ui.SubpageLayout
+import com.clhs.score.ui.FloatingSubpageLayout
 import com.clhs.score.ui.theme.PocketMotion
 
 @Composable
@@ -48,14 +55,34 @@ internal fun CourseNotificationSettingsScreen(
     onBack: () -> Unit,
     onOpenScheduleReliability: () -> Unit,
 ) {
-    val control = rememberCourseNotificationControl(allowed)
-    SubpageLayout(title = "當前課程通知", onBack = onBack) {
+    CourseNotificationSettingsContent(rememberCourseNotificationControl(allowed), allowed, onBack, onOpenScheduleReliability)
+}
+
+@Composable
+private fun CourseNotificationSettingsContent(
+    control: CourseNotificationControl,
+    allowed: Boolean,
+    onBack: () -> Unit,
+    onOpenScheduleReliability: () -> Unit,
+) {
+    var showInfo by rememberSaveable { mutableStateOf(false) }
+    if (showInfo) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text("課程通知功能") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) { CourseNotificationFeaturesCard() } },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("知道了") } },
+        )
+    }
+    FloatingSubpageLayout(
+        onBack = onBack,
+        actions = { PocketCircleIconButton("info", "功能介紹", { showInfo = true }) },
+    ) { pagePadding ->
         LazyColumn(
             modifier = Modifier
-                .align(Alignment.TopCenter)
                 .widthIn(max = 720.dp)
                 .fillMaxWidth(),
-            contentPadding = navigationContentPadding(PaddingValues(horizontal = 16.dp, vertical = 16.dp)),
+            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = 16.dp)),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
@@ -76,13 +103,14 @@ internal fun CourseNotificationSettingsScreen(
                             enabled = control.ready && !control.busy,
                             role = Role.Switch,
                             onValueChange = hapticToggle(control.setRemindBeforeClass),
-                        ).padding(horizontal = 20.dp, vertical = 16.dp),
+                        ).padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
+                        PocketOptionIcon("alarm", enabled = control.ready && !control.busy)
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("上課前 5 分鐘提醒", style = MaterialTheme.typography.titleMedium)
-                            Text("提前顯示下一節課資訊。", style = MaterialTheme.typography.bodyMedium,
+                            Text("課前提醒", style = MaterialTheme.typography.titleMediumEmphasized)
+                            Text("上課前 5 分鐘顯示下一節課。", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(checked = control.remindBeforeClass, onCheckedChange = null,
@@ -96,27 +124,23 @@ internal fun CourseNotificationSettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.extraLarge,
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     ),
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        OutlinedRoundedSymbol(
-                            icon = "alarm",
-                            tint = MaterialTheme.colorScheme.primary,
-                            contentDescription = null,
-                        )
+                        PocketOptionIcon("settings")
                         Column(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Text("排程可靠性", style = MaterialTheme.typography.titleMedium)
+                            Text("排程可靠性", style = MaterialTheme.typography.titleMediumEmphasized)
                             Text(
                                 "管理精確鬧鐘與電池最佳化設定。",
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -128,16 +152,25 @@ internal fun CourseNotificationSettingsScreen(
                     }
                 }
             }
-            item {
-                Text(
-                    "功能介紹",
-                    modifier = Modifier.padding(start = 4.dp, top = 4.dp),
-                    style = MaterialTheme.typography.titleLarge,
-                )
-            }
-            item { CourseNotificationFeaturesCard() }
             item { Spacer(Modifier.height(8.dp)) }
         }
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "課程通知選項", widthDp = 390)
+@androidx.compose.ui.tooling.preview.Preview(name = "課程通知選項 · 大字", widthDp = 360, fontScale = 1.5f)
+@Composable
+private fun CourseNotificationOptionPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        CourseNotificationSettingsContent(
+            control = CourseNotificationControl(
+                enabled = false, pausedToday = false, ready = true, busy = false,
+                blocked = false, available = true, denied = false, canToggle = true,
+                toggle = {}, openNotificationSettings = {}, remindBeforeClass = false,
+                setRemindBeforeClass = {},
+            ),
+            allowed = true, onBack = {}, onOpenScheduleReliability = {},
+        )
     }
 }
 
@@ -191,35 +224,18 @@ private fun CourseNotificationSwitchCard(
                         else -> "已關閉"
                     }
                 }
-                .padding(horizontal = 20.dp, vertical = 20.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (control.enabled) {
-                FilledRoundedSymbol(
-                    "notifications_active",
-                    size = 32.dp,
-                    tint = contentColor,
-                )
-            } else {
-                OutlinedRoundedSymbol(
-                    "notifications",
-                    size = 32.dp,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            PocketOptionIcon(if (control.enabled) "notifications_active" else "notifications", enabled = control.canToggle)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    when {
-                        !control.ready -> "當前課程通知"
-                        control.enabled -> "通知已開啟"
-                        else -> "通知已暫停"
-                    },
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
+                    "當前課程通知",
+                    style = MaterialTheme.typography.titleMediumEmphasized,
                 )
                 AnimatedContent(
                     targetState = status,
@@ -234,7 +250,7 @@ private fun CourseNotificationSwitchCard(
                 ) { summary ->
                     Text(
                         summary,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = if (control.enabled) {
                             contentColor.copy(alpha = 0.76f)
                         } else {

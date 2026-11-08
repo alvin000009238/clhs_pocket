@@ -124,6 +124,10 @@ class AnnouncementStateProvider : PreviewParameterProvider<SchoolAnnouncementsUi
         ),
         SchoolAnnouncementsUiState(isInitialLoading = false),
         SchoolAnnouncementsUiState(
+            isInitialLoading = false, searchQuery = "圖書館",
+            announcements = FakeData.announcementPage.announcements,
+        ),
+        SchoolAnnouncementsUiState(
             isInitialLoading = false,
             errorMessage = "暫時無法取得學校消息，請檢查網路後再試一次。",
         ),
@@ -345,4 +349,15 @@ private fun fakeGradesState(
         analysis = analysis,
         expandedSubjectKeys = expandedSubjectKeys,
     )
+}
+
+@Preview(name = "Announcement loading clearance", widthDp = 390, heightDp = 844)
+@Composable
+private fun AnnouncementLoadingClearancePreview() {
+    ScoreTheme {
+        com.clhs.score.ui.announcements.SchoolAnnouncementDetailScreen(
+            uiState = SchoolAnnouncementDetailUiState(isLoading = true),
+            onBack = {}, onRetry = {}, onOpenUrl = {}, officialUrl = "https://example.invalid/",
+        )
+    }
 }

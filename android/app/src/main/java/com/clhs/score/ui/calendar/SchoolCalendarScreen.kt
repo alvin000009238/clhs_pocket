@@ -25,8 +25,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -37,7 +35,6 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -66,7 +63,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -75,15 +71,32 @@ import com.clhs.score.data.SCHOOL_CALENDAR_SEARCH_MAX_LENGTH
 import com.clhs.score.data.SCHOOL_COURSE_ZONE
 import com.clhs.score.ui.hapticClick
 import com.clhs.score.ui.OutlinedRoundedSymbol
-import com.clhs.score.ui.SubpageLayout
+import com.clhs.score.ui.FloatingSubpageLayout
 import com.clhs.score.ui.rememberLoadingShimmerProgress
 import com.clhs.score.ui.theme.PocketMotion
 import com.clhs.score.viewmodel.SchoolCalendarUiState
 import java.time.LocalDate
+import androidx.compose.ui.tooling.preview.Preview
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.launch
+
+@Preview(name = "行事曆", widthDp = 390, heightDp = 844)
+@Composable
+private fun CalendarContentPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        val start = LocalDate.now(SCHOOL_COURSE_ZONE).atStartOfDay()
+        SchoolCalendarScreen(
+            uiState = SchoolCalendarUiState(isInitialLoading = false, events = listOf(
+                SchoolCalendarEvent("preview-event", "校園活動", start, start.plusDays(1), true),
+            )),
+            onBack = {}, onRefresh = {}, onSearch = {}, onClearSearch = {},
+            onOpenGoogleCalendar = {}, onAddToHome = {}, onNoticeShown = {},
+            targetEventId = "preview-event",
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -116,20 +129,8 @@ fun SchoolCalendarScreen(
         clearSearch()
         clearFocusAndHideKeyboard()
     }
-    val searchField: @Composable (Modifier) -> Unit = { modifier ->
-        CalendarSearchField(
-            value = searchText,
-            onValueChange = { value ->
-                if (value.length <= SCHOOL_CALENDAR_SEARCH_MAX_LENGTH) {
-                    searchText = value
-                    onSearch(value)
-                }
-            },
-            onClear = clearSearch,
-            onSearch = { keyboardController?.hide() },
-            modifier = modifier,
-        )
-    }
+    var showSearch by rememberSaveable { mutableStateOf(false) }
+
     LaunchedEffect(uiState.noticeMessage, uiState.lastUpdatedAt) {
         uiState.noticeMessage?.let { message ->
             val fetchedAt = uiState.lastUpdatedAt?.let(calendarCacheTimeFormatter::format)
@@ -139,17 +140,23 @@ fun SchoolCalendarScreen(
         }
     }
 
-    SubpageLayout(
+    FloatingSubpageLayout(
         onBack = onBack,
         modifier = Modifier.clickable(
             interactionSource = interactionSource,
             indication = null,
             onClick = clearFocusAndHideKeyboard,
         ),
-        title = "行事曆",
-        containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-    ) {
+        toolbar = {
+            com.clhs.score.ui.PocketSearchToolbar(
+                expanded = showSearch, onExpandedChange = { showSearch = it },
+                query = searchText, onQueryChange = { searchText = it; onSearch(it) },
+                maxLength = SCHOOL_CALENDAR_SEARCH_MAX_LENGTH,
+                searchLabel = "搜尋行事曆",
+            )
+        },
+    ) { pagePadding ->
         PullToRefreshBox(
             isRefreshing = uiState.isRefreshing,
             onRefresh = hapticClick {
@@ -161,10 +168,10 @@ fun SchoolCalendarScreen(
             indicator = {},
         ) {
             CalendarAgenda(
+                topPadding = pagePadding.calculateTopPadding(),
                 uiState = uiState,
                 targetEventId = targetEventId,
                 onTargetMissing = { snackbarHostState.showSnackbar("找不到這個事件，可能已從行事曆移除。") },
-                searchField = searchField,
                 onRefresh = hapticClick {
                     clearFocusAndHideKeyboard()
                     onRefresh()
@@ -181,52 +188,20 @@ fun SchoolCalendarScreen(
                 isRefreshing = uiState.isRefreshing,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .padding(top = pagePadding.calculateTopPadding() - 56.dp)
                     .zIndex(2f),
             )
         }
     }
 }
 
-@Composable
-private fun CalendarSearchField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onClear: () -> Unit,
-    onSearch: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        placeholder = { Text("輸入行事曆關鍵字") },
-        leadingIcon = {
-            OutlinedRoundedSymbol(icon = "search", contentDescription = null)
-        },
-        trailingIcon = if (value.isNotEmpty()) {
-            {
-                IconButton(onClick = onClear) {
-                    OutlinedRoundedSymbol(icon = "close", contentDescription = "清除搜尋")
-                }
-            }
-        } else {
-            null
-        },
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-        singleLine = true,
-        shape = MaterialTheme.shapes.extraLarge,
-    )
-}
 
 @Composable
 private fun CalendarAgenda(
+    topPadding: androidx.compose.ui.unit.Dp,
     uiState: SchoolCalendarUiState,
     targetEventId: String?,
     onTargetMissing: suspend () -> Unit,
-    searchField: @Composable (Modifier) -> Unit,
     onRefresh: () -> Unit,
     onClearSearch: () -> Unit,
     onOpenGoogleCalendar: () -> Unit,
@@ -249,7 +224,7 @@ private fun CalendarAgenda(
     LaunchedEffect(targetEventId, groupedEvents, uiState.isInitialLoading, uiState.isRefreshing, uiState.errorMessage, uiState.searchQuery) {
         if (targetEventId == null || targetHandled || uiState.isInitialLoading ||
             uiState.errorMessage != null || uiState.searchQuery.isNotEmpty()) return@LaunchedEffect
-        val index = calendarEventListIndex(groupedEvents, targetEventId, uiState.skippedRecurringEvents > 0)
+        val index = calendarEventListIndex(groupedEvents, targetEventId, uiState.skippedRecurringEvents > 0, includeDateHeading = true)
         if (index != null) {
             listState.scrollToItem(index)
             targetHandled = true
@@ -268,10 +243,9 @@ private fun CalendarAgenda(
                 .semantics {
                     if (uiState.isInitialLoading) contentDescription = "正在載入行事曆"
                 },
-            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp)),
+            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, top = topPadding + 8.dp, end = 16.dp, bottom = 88.dp)),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item(key = "calendar-search") { searchField(Modifier) }
 
             if (uiState.skippedRecurringEvents > 0 && visibleEvents.isNotEmpty()) {
                 item(key = "recurring-warning") {
@@ -571,17 +545,18 @@ private val calendarCacheTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm", Locale.TAIWAN)
         .withZone(ZoneId.of("Asia/Taipei"))
 
-/** Includes the search row, optional recurrence warning, and each date heading. */
+/** Locates an event or its date heading after the optional recurrence warning. */
 internal fun calendarEventListIndex(
     groups: Map<LocalDate, List<SchoolCalendarEvent>>,
     eventId: String,
     hasRecurringWarning: Boolean,
+    includeDateHeading: Boolean = false,
 ): Int? {
-    var index = if (hasRecurringWarning) 2 else 1
+    var index = if (hasRecurringWarning) 1 else 0
     for (events in groups.values) {
         index += 1
         val eventIndex = events.indexOfFirst { it.id == eventId }
-        if (eventIndex >= 0) return index + eventIndex
+        if (eventIndex >= 0) return if (includeDateHeading) index - 1 else index + eventIndex
         index += events.size
     }
     return null

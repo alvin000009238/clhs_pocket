@@ -70,7 +70,7 @@ fun subjectPercentLabel(rank: Int?, count: Int?, scope: String = "班級"): Stri
 fun AccountIconButton(
     onClick: () -> Unit,
     showUpdateBadge: Boolean = false,
-    animateShape: Boolean = true,
+    animateShape: Boolean = false,
 ) {
     IconButton(onClick = hapticClick(onClick), shapes = if (animateShape) IconButtonDefaults.shapes() else
         androidx.compose.material3.IconButtonShapes(CircleShape, CircleShape)) {

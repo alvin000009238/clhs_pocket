@@ -16,6 +16,7 @@
 - 生物識別使用 PIN 衍生 Session key 與 biometric-bound PIN wrapping；備用 PIN 失敗由持久化 `PinAttemptLimiter` 執行最長五分鐘 backoff。解鎖先 activate 記憶體 Session，再解除鎖定，不恢復一般儲存副本。
 - `MainActivity` 保留 biometric prompt single-flight，避免 prompt lifecycle 被誤認為背景返回；隱私鎖啟用時保留 `FLAG_SECURE`。Manifest 與 backup rules 禁止備份／轉移 Session 材料。
 - 個人頁進入時才從 `ICampus/Home/Index2` 的 `userInfo` 載入學生資訊；保留 single-flight、學號比對與按學生 cache。restore 只讀 cache，不在登入／還原時預抓或改從成績報告取資料。
+- 缺曠與獎懲只在開啟對應頁面時查詢，由 `ScoreViewModel` 持有的 `StudentRecordsStateOwner` 隔離帳號與學期請求；跨學期官方統計和學期明細各自載入、失敗與重試。學期更新保留仍存在的選擇，選擇消失時清除舊明細。資料不持久化，不推算出席率或功過相抵；缺曠顯示原始分類數量，實際節次只讀 `SectionListDisplay`／`AbsentSectionList`，不能把所有節次標頭當成缺席節次。獎懲保留官方分類、獎／懲群組、事由與各日期。檢查 `StudentRecordsTest`、`StudentRecordsStateOwnerTest` 及 `ScoreViewModelTest`。
 - 啟動設定讀取／migration I/O 失敗顯示重試頁；訂閱失敗保留前值並阻止進入內容，成功重新訂閱後才 ready。不得以預設 biometric=false 取代讀取失敗。驗證 `SettingsIoRecoveryTest`。
 - 「啟動時開啟課表」與精準鬧鐘偏好寫入 I/O 失敗時，保留原值並提示重試，不得讓例外造成崩潰；精準鬧鐘偏好儲存成功後才重排既有鬧鐘。取消例外仍須傳播。
 - 缺少 `has_completed_onboarding_v2` 時原子清空 `app_settings` 並寫入 false；完成或稍後登入才設 true。重新執行首次設定只重設旗標，不清除 Session。
@@ -65,7 +66,7 @@
 - 當前課程通知僅從課表 overflow 選用，獨立偏好預設關閉；共用授權快照與 `CourseResolution.kt`。目標日期落在有效 CURRENT_WEEK 範圍內時，週課表為權威來源，即使當日或整週沒有可解析課節，也不回退學期快取；範圍結束後才回退同學生／班級的學期快取，按星期與節次循環且沒有截止日，假日或學期結束後仍可能通知。快照提交、偏好、滑除恢復及明確關閉由 `CourseNotificationCoordinator` 序列化，撤銷時同步取消。快照讀取／Receiver timeout 暫時失敗時，僅排一次五分鐘後的 recovery Alarm；timeout 後最多用一秒嘗試完成 recovery 判斷與補排。該次 recovery 再失敗不連鎖重試，成功後恢復真正課程邊界。停用與 session invalidation 清通知與 Alarm；有效週內無課時清通知，但保留週末邊界 Alarm 以在過期後重新解析。通知要求 promoted ongoing Live Update，不支援／未允許時降級為同一標準 ongoing 通知。一般排程預設使用 `setAndAllowWhileIdle(RTC_WAKEUP)`；只有使用者開啟「排程可靠性」中的精確鬧鐘偏好，且 API 31+ `canScheduleExactAlarms()` 仍允許時，真正課程邊界才用 `setExactAndAllowWhileIdle()`。API 29–30 不需特殊存取；授權撤銷或註冊時遭系統拒絕，保留 App 偏好並回退一般排程。Recovery 永遠使用一般非精確 Alarm。精確鬧鐘可能增加耗電且不保證準時。忽略電池最佳化是獨立系統能力，以 `isIgnoringBatteryOptimizations()` 回讀，不能使一般 Alarm 變精確。頁面回到前景及授權狀態廣播後重新評估並 re-arm。授權變更 Receiver 使用八秒 timeout 與 finally finish，逾時沿用 Widget recovery 及最多一秒的通知 recovery；協調器僅在通知及 Widget 都完成 re-arm 後記錄已處理狀態；暫時失敗、例外或取消均保留後續事件重試能力。通知和 Widget 各保留唯一 boundary Alarm owner；不加 FGS 或週期 polling。Android 14+ 收到滑除 deleteIntent 時依當下狀態恢復；展開通知的「暫停一日」以 generation 保存暫停至 Asia/Taipei 次日零時，保留 enabled=true，撤下通知並以同一 boundary Alarm 排定隔日恢復；永久停用須在 App 設定頁關閉開關。一次性 schedule capability 每次發布須替換舊 token，消耗後刷新 ongoing 通知。實作邊界及手動驗證見 [當前課程通知](../development/current-course-notification.md)。檢查 `CourseResolutionTest`、`GradeCacheStoreTest`、`CourseNotificationCoordinatorTest` 及 `ArchitectureBoundaryTest`。
 - 「排程可靠性」中的電池豁免只在使用者主動點擊時呼叫 `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`；若已豁免，提供系統設定入口讓使用者撤回。Android 官方／Google Play 對直接豁免請求有核心功能限制，發布前須按實際上架功能審查。
 
-- 個人頁「排程暫停時段」沿用 `app_settings` 保存共用每日區間，預設關閉、23:00–07:00，依裝置當地時間且開始包含／結束不包含，禁止相同起訖時間。成績與公告 Worker 完成必要清理、期限／權限檢查後，於連網前讀取設定；時段內正常結束，不更新檢查時間、失敗次數、快照、比對基準或未讀。讀取失敗重試；時段結束後由下一次原定工作恢復，不補排喚醒。已開始的查詢允許完成，成績提醒 48 小時期限不延長。前景載入、手動更新、課程通知、Widget 及 FCM 不受影響；課表目前沒有定期連網 Worker。檢查 `BackgroundPauseTest`、`SettingsRepositoryTest`、`SettingsIoRecoveryTest` 與 `ArchitectureBoundaryTest`。
+- 設定頁「排程暫停時段」沿用 `app_settings` 保存共用每日區間，預設關閉、23:00–07:00，依裝置當地時間且開始包含／結束不包含，禁止相同起訖時間。成績與公告 Worker 完成必要清理、期限／權限檢查後，於連網前讀取設定；時段內正常結束，不更新檢查時間、失敗次數、快照、比對基準或未讀。讀取失敗重試；時段結束後由下一次原定工作恢復，不補排喚醒。已開始的查詢允許完成，成績提醒 48 小時期限不延長。前景載入、手動更新、課程通知、Widget 及 FCM 不受影響；課表目前沒有定期連網 Worker。檢查 `BackgroundPauseTest`、`SettingsRepositoryTest`、`SettingsIoRecoveryTest` 與 `ArchitectureBoundaryTest`。
 
 - 段考更新提醒 `grade_reminder_poll` 為 WorkManager 15 分鐘週期，開始前需通知權限與忽略電池最佳化許可；仍不保證即時。只能讀提醒專用 Session，最長 48 小時，不 fallback 到一般 Session。
 - 成績及公告提醒在連網前與更新比對基準前檢查 App、所屬 notification channel 與 group 能力。channel 關閉時略過查詢、保留 enabled 與基準；成績全域通知關閉亦暫停，48 小時期限與必要清理仍生效。公告全域權限撤銷沿用原有停用／取消政策。系統重新允許後由下一次原排程恢復，無法送達期間不補排工作。設定 UI 以文字揭露暫停並提供 channel 設定入口，保留停止操作。
@@ -102,7 +103,7 @@
 
 ## 成績模擬器學分
 
-入口：`ui/GradesScreen.kt` 右上角更多選單的「學分設定」、`ui/SimulatorCreditPanel.kt` 的 Bottom Sheet、`viewmodel/SimulatorCreditStateOwner.kt`、`data/SimulatorCredits.kt`；`ui/AdvancedComponents.kt` 的模擬器只讀取已套用學分，不提供學分編輯。
+入口：`ui/GradesScreen.kt` 右上角更多選單，以及 `ui/AdvancedComponents.kt` 模擬器進階面板中的「學分設定」。兩個入口共用 `ui/SimulatorCreditPanel.kt` 的 Bottom Sheet、`viewmodel/SimulatorCreditStateOwner.kt` 與 `data/SimulatorCredits.kt`；學分儲存後重新計算模擬結果，保留已調整的分數、採計選擇與鎖定。
 
 - 官方總分為加權總分。模擬使用 `Σ(科目成績 × 合計學分)`，平均除以採計學分總和；使用者設定及推算候選不回寫 `GradeReport`。同一份考試成績對應多門課時，只保存合計學分，不推測個別課程配置。
 - 成績頁摘要與模擬器入口共用 `data/GradeSummaryDisplay.kt`。官方總分、平均各自保留有效的 API 原文，包含真正的 0；空白、`--` 或非數字視為尚未公布，只有缺少的欄位才用目前範圍的 `appliedCredits` 試算並附 `*`。試算總分僅移除尾端小數 0，平均以 HALF_UP 顯示兩位小數，並顯示「* 非官方試算」。不改寫官方報表、分析、歷史、匯出、首頁或 Widget。官方平均不可用時隱藏 Hero 與近期變化的本次平均比較。
@@ -116,14 +117,14 @@
 - `ScoreViewModel` 持有學分 state owner；設定透過 `GradeRepository → GradeCacheStore` 的獨立 key 保存，僅明確確認才寫入。帳號、學期、考試隔離，保存完整科目簽章；科目改變不套用舊設定，同考試分數更新則保留確認的學分並重新比對官方值。不自動跨考試沿用，亦不納入設定 JSON 備份。
 - owner 分開保存草稿輸入、已提交快照與 `appliedCredits`。手動編輯、選候選及「恢復預設」只改草稿；按「儲存」且持久化成功後才更新模擬器並關閉 sheet。關閉未儲存 sheet 會取消推算並還原已保存學分，尚未保存則還原預設；不刪除既有設定。儲存失敗保留草稿與原有效學分供重試，儲存中禁止使用者關閉。讀取失敗禁止保存覆蓋未知設定，已有的有效 map 保留，不能把讀取失敗當成沒有設定。
 - 已確認的解碼／驗證錯誤可按「恢復預設」建立恢復草稿，仍須明確儲存才能取代損壞設定；取消回到恢復前的錯誤與有效 map。I/O 讀取失敗只允許重新載入，不能以恢復預設繞過保存保護。
-- sheet 開啟狀態及草稿由 owner 持有，配置重建保留；離開成績頁會放棄草稿，帳號、學期、考試、科目或成績內容變更會關閉並重新準備目前範圍。不要用舊 route 的 dispose callback 清掉新範圍狀態。
+- sheet 開啟狀態及草稿由 owner 持有，配置重建保留；離開成績與模擬器頁的編輯範圍會放棄草稿，帳號、學期、考試、科目或成績內容變更會關閉並重新準備目前範圍。不要用舊 route 的 dispose callback 清掉新範圍狀態。
 - 讀取 I/O／解碼失敗須與沒有設定區分；儲存與刪除錯誤必須回報。Session generation 檢查涵蓋交易提交前；登出取消並等待 owner 工作，再沿用私人快取清理刪除學分設定，不能因課表自訂科目可保留而保留學分表。
 
 檢查：`GradeSummaryDisplayTest`、`SimulatorCreditsTest`、`SimulatorCreditStorageTest`、`SimulatorCreditStateOwnerTest`、`GradeAnalysisTest`、`ScoreSimulatorAdaptiveLayoutTest`；這些 JVM 檢查不代表裝置 UI 驗收。
 
 ## 設定匯入／匯出
 
-入口：個人頁「開發者選項」→「備份與還原」。主要操作是儲存目前配置與從檔案還原；備份範圍另以說明視窗呈現，JSON 編輯／複製收合於進階區域。檔案讀入後直接呈現還原確認，尚未確認不寫入。資料由 SettingsTransferRepository 經既有 SettingsRepository、OverviewLayoutRepository、AnnouncementReminderRepository、CourseNotificationPreferences 及 ScheduleRepository 讀寫；Composable 只呈現 SettingsTransferViewModel 狀態。
+入口：個人頁齒輪 → 設定「開發者選項」→「備份與還原」。主要操作是儲存目前配置與從檔案還原；備份範圍另以說明視窗呈現，JSON 編輯／複製收合於進階區域。檔案讀入後直接呈現還原確認，尚未確認不寫入。資料由 SettingsTransferRepository 經既有 SettingsRepository、OverviewLayoutRepository、AnnouncementReminderRepository、CourseNotificationPreferences 及 ScheduleRepository 讀寫；Composable 只呈現 SettingsTransferViewModel 狀態。
 
 - JSON 備份格式 1 必須包含 app 與 version；保留首頁元件身份、原排列版本、停用項目、不透明的新元件設定與各實例內容。空首頁是有效配置。設定白名單包括外觀、啟動、頭像形狀、推播偏好、精確鬧鐘偏好、背景暫停、天氣來源及開發者偏好；公告備份包括開關、間隔與單位，另含課前提醒偏好。
 - 不匯出登入 Session、學號、PIN／生物識別、API key、onboarding、成績／課表快取、閱讀狀態、提醒 baseline／generation／當日暫停、目前課程／成績提醒啟用狀態或各 GlanceId 配置。自訂科目文字可能包含個人資訊，檔案與剪貼簿由使用者自行保管。

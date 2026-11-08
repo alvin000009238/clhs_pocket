@@ -156,106 +156,99 @@ fun DeveloperSettingsScreen(
         )
     }
 
-    val developerItemCount = if (BuildConfig.DEBUG) 5 else 4
-    SubpageLayout(
-        onBack = onBack,
-        title = "開發者選項",
-    ) {
+    FloatingSubpageLayout(onBack = onBack) { pagePadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .navigationContentPadding()
-                .padding(start = 16.dp, top = 8.dp, end = 16.dp)
+                .padding(start = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, end = 16.dp)
                 .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            DeveloperActionItem(
-                icon = "refresh",
-                title = "重跑 onboarding",
-                subtitle = "重新進行 onboarding 流程。",
-                enabled = !isBusy,
-                index = 0,
-                count = developerItemCount,
-                onClick = onRestartOnboarding,
-            )
-
-            if (BuildConfig.DEBUG) {
-                DeveloperActionItem(
-                    icon = "notifications_active",
-                    title = "段考更新提醒測試通知",
-                    subtitle = "發送一則模擬資訊更新通知，測試手機是否能收到提醒。",
+            SettingsGroup {
+                SettingsRow(
+                    icon = "refresh",
+                    title = "重跑 onboarding",
+                    supportingText = "重新進行 onboarding 流程。",
                     enabled = !isBusy,
-                    index = 1,
-                    count = developerItemCount,
+
+                    onClick = onRestartOnboarding,
+                )
+
+                if (BuildConfig.DEBUG) {
+                    SettingsRow(
+                        icon = "notifications_active",
+                        title = "段考更新提醒測試通知",
+                        supportingText = "發送一則模擬資訊更新通知，測試手機是否能收到提醒。",
+                        enabled = !isBusy,
+
+                        onClick = {
+                            showGradeReminderTestNotification(context)
+                        },
+                    )
+                }
+
+                SettingsRow(
+                    icon = "settings",
+                    title = "本機資料與儲存空間",
+                    supportingText = "查看各項資料大小，並只清除選取的本機資料。",
+                    enabled = !isBusy,
+
                     onClick = {
-                        showGradeReminderTestNotification(context)
+                        isBusy = true
+                        scope.launch {
+                            cleanupResult = null
+                            selectedCleanupCategories = defaultSelectedLocalDataCategories()
+                            runCatching {
+                                diagnostics.collectStorageDiagnostics()
+                            }.onSuccess { result ->
+                                storageDiagnostics = result
+                            }.onFailure {
+                                Toast.makeText(context, "讀取儲存空間失敗", Toast.LENGTH_SHORT).show()
+                            }
+                            isBusy = false
+                        }
                     },
                 )
+
+                SettingsRow(
+                    icon = "settings",
+                    title = "備份與還原",
+                    supportingText = "設定、首頁配置與自訂科目",
+                    enabled = !isBusy,
+
+                    onClick = onOpenSettingsTransfer,
+                )
+
+                SettingsRow(
+                    icon = "science",
+                    title = "錯誤診斷包",
+                    supportingText = "產生偵錯用診斷文字。",
+                    enabled = !isBusy,
+
+                    onClick = {
+                        isBusy = true
+                        scope.launch {
+                            runCatching {
+                                diagnostics.buildErrorReport(
+                                    ErrorDiagnosticContext(
+                                        isLoggedIn = isLoggedIn,
+                                        loginErrorMessage = loginErrorMessage,
+                                        gradesErrorMessage = gradesErrorMessage,
+                                    ),
+                                )
+                            }.onSuccess { report ->
+                                diagnosticReport = report
+                            }.onFailure {
+                                Toast.makeText(context, "產生診斷包失敗", Toast.LENGTH_SHORT).show()
+                            }
+                            isBusy = false
+                        }
+                    },
+                )
+
             }
-
-            DeveloperActionItem(
-                icon = "settings",
-                title = "本機資料與儲存空間",
-                subtitle = "查看各項資料大小，並只清除選取的本機資料。",
-                enabled = !isBusy,
-                index = if (BuildConfig.DEBUG) 2 else 1,
-                count = developerItemCount,
-                onClick = {
-                    isBusy = true
-                    scope.launch {
-                        cleanupResult = null
-                        selectedCleanupCategories = defaultSelectedLocalDataCategories()
-                        runCatching {
-                            diagnostics.collectStorageDiagnostics()
-                        }.onSuccess { result ->
-                            storageDiagnostics = result
-                        }.onFailure {
-                            Toast.makeText(context, "讀取儲存空間失敗", Toast.LENGTH_SHORT).show()
-                        }
-                        isBusy = false
-                    }
-                },
-            )
-
-            DeveloperActionItem(
-                icon = "settings",
-                title = "備份與還原",
-                subtitle = "設定、首頁配置與自訂科目",
-                enabled = !isBusy,
-                index = developerItemCount - 2,
-                count = developerItemCount,
-                onClick = onOpenSettingsTransfer,
-            )
-
-            DeveloperActionItem(
-                icon = "science",
-                title = "錯誤診斷包",
-                subtitle = "產生偵錯用診斷文字。",
-                enabled = !isBusy,
-                index = developerItemCount - 1,
-                count = developerItemCount,
-                onClick = {
-                    isBusy = true
-                    scope.launch {
-                        runCatching {
-                            diagnostics.buildErrorReport(
-                                ErrorDiagnosticContext(
-                                    isLoggedIn = isLoggedIn,
-                                    loginErrorMessage = loginErrorMessage,
-                                    gradesErrorMessage = gradesErrorMessage,
-                                ),
-                            )
-                        }.onSuccess { report ->
-                            diagnosticReport = report
-                        }.onFailure {
-                            Toast.makeText(context, "產生診斷包失敗", Toast.LENGTH_SHORT).show()
-                        }
-                        isBusy = false
-                    }
-                },
-            )
-
             if (isBusy) {
                 Row(
                     modifier = Modifier
@@ -318,44 +311,17 @@ private fun showGradeReminderTestNotification(context: Context) {
     Toast.makeText(context, "已發送段考更新提醒測試通知", Toast.LENGTH_SHORT).show()
 }
 
+@androidx.compose.ui.tooling.preview.Preview(name = "開發者選項", widthDp = 390, showBackground = true)
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun DeveloperActionItem(
-    icon: String,
-    title: String,
-    subtitle: String,
-    enabled: Boolean,
-    index: Int,
-    count: Int,
-    onClick: () -> Unit,
-) {
-    SegmentedListItem(
-        onClick = onClick,
-        enabled = enabled,
-        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
-        leadingContent = {
-            OutlinedRoundedSymbol(
-                icon = icon,
-                size = 24.dp,
-                contentDescription = null,
-            )
-        },
-        supportingContent = {
-            Text(
-                text = subtitle,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        },
-        colors = ListItemDefaults.segmentedColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            leadingContentColor = MaterialTheme.colorScheme.primary,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        verticalAlignment = Alignment.CenterVertically,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(text = title)
+private fun DeveloperOptionsPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            SettingsGroup {
+                SettingsRow(icon = "data_usage", title = "本機資料與儲存空間", supportingText = "查看各類資料占用與清除快取", enabled = true, onClick = {})
+                SettingsRow(icon = "notifications", title = "測試通知", supportingText = "目前無法傳送測試通知", enabled = false, onClick = {})
+            }
+        }
     }
 }
 

@@ -6,24 +6,24 @@ import android.os.Bundle
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.toggleable
@@ -61,7 +61,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,11 +69,11 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -83,7 +82,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.clhs.score.ui.theme.PocketMotion
 import com.clhs.score.data.GradeSummaryDisplay
@@ -101,32 +99,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-internal fun scoreSimulatorUsesSplitLayout(width: Dp): Boolean =
+internal fun scoreSimulatorUsesWideLayout(width: Dp): Boolean =
     gradesAdaptiveLayoutForWidth(width) != GradesAdaptiveLayout.SingleColumn
-
-internal fun scoreSimulatorSummaryOffsetPx(
-    usesSplitLayout: Boolean,
-    viewportHeightPx: Int,
-    cardHeightPx: Int,
-    statusBarHeightPx: Int,
-    topSpacerHeightPx: Int,
-    navigationBarHeightPx: Int,
-    firstVisibleItemIndex: Int,
-    firstVisibleItemScrollOffset: Int,
-): Int {
-    if (!usesSplitLayout) {
-        return if (firstVisibleItemIndex == 0) {
-            maxOf(statusBarHeightPx, topSpacerHeightPx - firstVisibleItemScrollOffset)
-        } else {
-            statusBarHeightPx
-        }
-    }
-
-    val safeBottomPx = viewportHeightPx - navigationBarHeightPx
-    val centeredOffsetPx = statusBarHeightPx +
-        (safeBottomPx - statusBarHeightPx - cardHeightPx).coerceAtLeast(0) / 2
-    return maxOf(topSpacerHeightPx, centeredOffsetPx)
-}
 
 internal data class ScoreSimulatorEditorState(
     val adjustedScores: Map<String, Double>,
@@ -301,6 +275,7 @@ internal fun ScoreSimulatorScreen(
     snackbarHostState: SnackbarHostState,
     onBack: () -> Unit,
     creditState: SimulatorCreditUiState,
+    onEditCredits: () -> Unit = {},
 ) {
     val report = state.report
     if (report == null) {
@@ -309,7 +284,7 @@ internal fun ScoreSimulatorScreen(
             snackbarHost = { SwipeDismissibleSnackbarHost(snackbarHostState) },
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 EmptyAnalysisState("尚未載入成績資料。")
             }
         }
@@ -394,354 +369,290 @@ internal fun ScoreSimulatorScreen(
         map
     }
 
-    val density = LocalDensity.current
-    val statusBars = WindowInsets.statusBars
-    val navigationBars = WindowInsets.navigationBars
-    val statusBarHeightPx = statusBars.getTop(density)
-    val navigationBarHeightPx = navigationBars.getBottom(density)
-    val topSpacerHeightPx = statusBarHeightPx + with(density) { 56.dp.toPx() }.roundToInt()
-
     val listState = rememberLazyListState()
-    var cardHeightPx by remember { mutableIntStateOf(0) }
-    var showAdvancedModes by rememberSaveable(reportIdentity) {
-        mutableStateOf(isCustomGroupEnabled || isTargetReversalEnabled)
-    }
-
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val usesSplitLayout = scoreSimulatorUsesSplitLayout(maxWidth)
-        val summaryPaneWidth = (maxWidth * 0.4f).coerceIn(280.dp, 400.dp)
-        val viewportHeightPx = with(density) { maxHeight.toPx().roundToInt() }
-
-        SubpageLayout(
-            onBack = onBack,
-            snackbarHost = { SwipeDismissibleSnackbarHost(snackbarHostState) },
-            containerColor = MaterialTheme.colorScheme.surface,
-            summaryContent = {
-                SimulatorSummaryCard(
-                    available = calculationAvailable,
-                    currentAverage = currentAverage,
-                    currentTotal = currentCalculation.weightedTotal?.stripTrailingZeros()?.toPlainString() ?: "--",
-                    adjustedAverage = adjustedAverage,
-                    adjustedTotal = adjustedCalculation.weightedTotal?.stripTrailingZeros()?.toPlainString() ?: "--",
-                    modifier = Modifier
-                        .offset {
-                            IntOffset(
-                                x = 0,
-                                y = scoreSimulatorSummaryOffsetPx(
-                                    usesSplitLayout = usesSplitLayout,
-                                    viewportHeightPx = viewportHeightPx,
-                                    cardHeightPx = cardHeightPx,
-                                    statusBarHeightPx = statusBarHeightPx,
-                                    topSpacerHeightPx = topSpacerHeightPx,
-                                    navigationBarHeightPx = navigationBarHeightPx,
-                                    firstVisibleItemIndex = listState.firstVisibleItemIndex,
-                                    firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset,
-                                ),
-                            )
-                        }
-                        .then(
-                            if (usesSplitLayout) {
-                                Modifier
-                                    .padding(start = 16.dp)
-                                    .width(summaryPaneWidth)
-                            } else {
-                                Modifier
-                                    .padding(horizontal = 16.dp)
-                                    .fillMaxWidth()
-                            }
-                        )
-                        .onGloballyPositioned { coordinates ->
-                            cardHeightPx = coordinates.size.height
-                        }
-                )
-            }
-        ) {
-            LazyColumn(
-                contentPadding = com.clhs.score.ui.navigation.navigationContentPadding(
-                    androidx.compose.foundation.layout.PaddingValues(0.dp),
-                ),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(
-                        start = if (usesSplitLayout) summaryPaneWidth + 32.dp else 16.dp,
-                        end = 16.dp,
-                    )
-                    .navigationBarsPadding()
-                    .imePadding(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                state = listState,
+    var showAdvancedModes by rememberSaveable(reportIdentity) { mutableStateOf(false) }
+    val resetAll: () -> Unit = {
+        val previousState = editorState
+        editorState = editorState.copy(
+            adjustedScores = initialScores,
+            checkedSubjects = reportSubjects,
+        )
+        coroutineScope.launch {
+            if (
+                snackbarHostState.showSnackbar(
+                    message = "已恢復所有科目",
+                    actionLabel = "復原",
+                    duration = SnackbarDuration.Short,
+                ) == SnackbarResult.ActionPerformed
             ) {
-                item {
-                    Spacer(
-                        modifier = Modifier.height(
-                            with(density) {
-                                if (usesSplitLayout) {
-                                    topSpacerHeightPx.toDp()
-                                } else {
-                                    (topSpacerHeightPx + cardHeightPx).toDp()
-                                }
-                            }
-                        )
-                    )
-                }
-
-                item {
-                    if (!calculationAvailable) {
-                        Text(
-                            when {
-                                scopedCreditState.isLoading -> "學分載入中…"
-                                credits.isEmpty() -> "學分尚未載入，請至成績頁的學分設定重試"
-                                else -> "尚無可採計的完整成績"
-                            },
-                            modifier = Modifier.padding(top = 8.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
+                editorState = previousState
+            }
+        }
+    }
+    if (showAdvancedModes) {
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = { showAdvancedModes = false },
+            sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            LazyColumn(Modifier.fillMaxWidth().imePadding(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                    FilledTonalButton(
-                        onClick = { showAdvancedModes = !showAdvancedModes },
-                        modifier = Modifier.fillMaxWidth(),
-                        shapes = ButtonDefaults.shapes(),
-                    ) {
-                        Text(
-                            when {
-                                showAdvancedModes -> "收合進階模式"
-                                isCustomGroupEnabled || isTargetReversalEnabled -> "進階模式（已啟用）"
-                                else -> "進階模式"
-                            },
-                        )
-                    }
-                    Column(
-                        modifier = Modifier.animateContentSize(
-                            animationSpec = PocketMotion.contentReflow(),
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        if (showAdvancedModes) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.large,
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     ) {
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .toggleable(
-                                    value = isCustomGroupEnabled,
-                                    role = Role.Switch,
-                                    onValueChange = {
-                                        editorState = editorState.copy(isCustomGroupEnabled = it)
-                                    },
-                                )
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.animateContentSize(
+                                animationSpec = PocketMotion.contentReflow(),
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = "自訂採計科目",
-                                    modifier = Modifier.weight(1f),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                Switch(checked = isCustomGroupEnabled, onCheckedChange = null)
-                            }
-                        }
-                    }
-                }
-
-                    if (showAdvancedModes) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.large,
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                    ) {
-                        Column {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .toggleable(
-                                        value = isTargetReversalEnabled,
-                                        role = Role.Switch,
-                                        onValueChange = {
-                                            editorState = editorState.copy(
-                                                isTargetReversalEnabled = it,
-                                                lockedSubjects = if (it) lockedSubjects else emptySet(),
-                                            )
-                                        },
-                                    )
-                                    .padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = "反推分數",
-                                    modifier = Modifier.weight(1f),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                Switch(checked = isTargetReversalEnabled, onCheckedChange = null)
-                            }
-                            }
-
-                            if (isTargetReversalEnabled) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                            if (showAdvancedModes) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = MaterialTheme.shapes.large,
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                                 ) {
-                                    OutlinedTextField(
-                                        value = targetAverageStr,
-                                        onValueChange = { if (it.length <= 12) editorState = editorState.copy(targetAverage = it) },
-                                        label = { Text("目標平均") },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        modifier = Modifier.weight(1f),
-                                        singleLine = true,
-                                    )
-                                    Button(
-                                        onClick = {
-                                            val targetAvg = targetAverage ?: return@Button
-                                            val activeList = report.subjects.filter { cleanSubjectName(it.subjectName) in activeSubjects }
-                                            val totalWeights = activeList.sumOf { credits[cleanSubjectName(it.subjectName)] ?: 1 }
-                                            val targetTotalPoints = targetAvg * BigDecimal(totalWeights)
-
-                                            val lockedList = activeList.filter { cleanSubjectName(it.subjectName) in lockedSubjects }
-                                            val lockedPoints = lockedList.fold(BigDecimal.ZERO) { total, subject ->
-                                                val name = cleanSubjectName(subject.subjectName)
-                                                total + BigDecimal.valueOf(adjustedScores[name] ?: subject.scoreValue) * BigDecimal(credits[name] ?: 1)
-                                            }
-
-                                            val unlockedList = activeList.filter { cleanSubjectName(it.subjectName) !in lockedSubjects }
-                                            val neededAvg = requiredSimulatorAverage(
-                                                targetTotalPoints = targetTotalPoints,
-                                                lockedPoints = lockedPoints,
-                                                unlockedCredits = unlockedList.sumOf { credits[cleanSubjectName(it.subjectName)] ?: 1 },
-                                            )?.toDouble()
-
-                                            if (neededAvg != null) {
-                                                if (neededAvg > 100.0) {
-                                                    coroutineScope.launch {
-                                                        snackbarHostState.showSnackbar(
-                                                            "即使其他未鎖定科目皆為 100 分，也無法達到目標平均",
-                                                        )
-                                                    }
-                                                    return@Button
-                                                }
-                                                val newScores = adjustedScores.toMutableMap()
-                                                unlockedList.forEach { subject ->
-                                                    newScores[cleanSubjectName(subject.subjectName)] = neededAvg.coerceIn(0.0, 100.0)
-                                                }
-                                                editorState = editorState.copy(adjustedScores = newScores)
-                                            } else coroutineScope.launch {
-                                                snackbarHostState.showSnackbar("沒有可調整且有採計學分的科目，請先解除分數鎖定。")
-                                            }
-                                        },
-                                        enabled = calculationAvailable && targetAverage != null,
-                                        shapes = ButtonDefaults.shapes(),
+                                    Column(
+                                        modifier = Modifier
+                                        .fillMaxWidth()
+                                        .toggleable(
+                                            value = isCustomGroupEnabled,
+                                            role = Role.Switch,
+                                            onValueChange = {
+                                                editorState = editorState.copy(isCustomGroupEnabled = it)
+                                            },
+                                        )
+                                        .padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
                                     ) {
-                                        Text("反推")
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text(
+                                                text = "自訂採計科目",
+                                                modifier = Modifier.weight(1f),
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                            Switch(checked = isCustomGroupEnabled, onCheckedChange = null)
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (showAdvancedModes) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = MaterialTheme.shapes.large,
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                                ) {
+                                    Column {
+                                        Column(
+                                            modifier = Modifier
+                                            .fillMaxWidth()
+                                            .toggleable(
+                                                value = isTargetReversalEnabled,
+                                                role = Role.Switch,
+                                                onValueChange = {
+                                                    editorState = editorState.copy(
+                                                        isTargetReversalEnabled = it,
+                                                        lockedSubjects = if (it) lockedSubjects else emptySet(),
+                                                    )
+                                                },
+                                            )
+                                            .padding(16.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Text(
+                                                    text = "反推分數",
+                                                    modifier = Modifier.weight(1f),
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                )
+                                                Switch(checked = isTargetReversalEnabled, onCheckedChange = null)
+                                            }
+                                        }
+
+                                        if (isTargetReversalEnabled) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                                            ) {
+                                                OutlinedTextField(
+                                                    value = targetAverageStr,
+                                                    onValueChange = { if (it.length <= 12) editorState = editorState.copy(targetAverage = it) },
+                                                    label = { Text("目標平均") },
+                                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                    modifier = Modifier.weight(1f),
+                                                    singleLine = true,
+                                                )
+                                                Button(
+                                                    onClick = {
+                                                        val targetAvg = targetAverage ?: return@Button
+                                                        val activeList = report.subjects.filter { cleanSubjectName(it.subjectName) in activeSubjects }
+                                                        val totalWeights = activeList.sumOf { credits[cleanSubjectName(it.subjectName)] ?: 1 }
+                                                        val targetTotalPoints = targetAvg * BigDecimal(totalWeights)
+
+                                                        val lockedList = activeList.filter { cleanSubjectName(it.subjectName) in lockedSubjects }
+                                                        val lockedPoints = lockedList.fold(BigDecimal.ZERO) { total, subject ->
+                                                            val name = cleanSubjectName(subject.subjectName)
+                                                            total + BigDecimal.valueOf(adjustedScores[name] ?: subject.scoreValue) * BigDecimal(credits[name] ?: 1)
+                                                        }
+
+                                                        val unlockedList = activeList.filter { cleanSubjectName(it.subjectName) !in lockedSubjects }
+                                                        val neededAvg = requiredSimulatorAverage(
+                                                            targetTotalPoints = targetTotalPoints,
+                                                            lockedPoints = lockedPoints,
+                                                            unlockedCredits = unlockedList.sumOf { credits[cleanSubjectName(it.subjectName)] ?: 1 },
+                                                        )?.toDouble()
+
+                                                        if (neededAvg != null) {
+                                                            if (neededAvg > 100.0) {
+                                                                coroutineScope.launch {
+                                                                    snackbarHostState.showSnackbar(
+                                                                        "即使其他未鎖定科目皆為 100 分，也無法達到目標平均",
+                                                                    )
+                                                                }
+                                                                return@Button
+                                                            }
+                                                            val newScores = adjustedScores.toMutableMap()
+                                                            unlockedList.forEach { subject ->
+                                                                newScores[cleanSubjectName(subject.subjectName)] = neededAvg.coerceIn(0.0, 100.0)
+                                                            }
+                                                            editorState = editorState.copy(adjustedScores = newScores)
+                                                        } else coroutineScope.launch {
+                                                            snackbarHostState.showSnackbar("沒有可調整且有採計學分的科目，請先解除分數鎖定。")
+                                                        }
+                                                    },
+                                                    enabled = calculationAvailable && targetAverage != null,
+                                                    shapes = ButtonDefaults.shapes(),
+                                                ) {
+                                                    Text("反推")
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                    }
-                    }
-                    }
                 }
+                item { SettingsGroup {
+                        SettingsRow("school", "\u5b78\u5206\u8a2d\u5b9a", onClick = {
+                                showAdvancedModes = false
+                                onEditCredits()
+                        })
+                        SettingsRow("refresh", "\u6062\u5fa9\u5168\u90e8", onClick = {
+                                showAdvancedModes = false
+                                resetAll()
+                        })
+                    } }
+            }
+        }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wideLayout = scoreSimulatorUsesWideLayout(maxWidth)
+        val summaryMaxWidth = if (wideLayout) 480.dp else maxWidth
+        val density = LocalDensity.current
+        var summaryHeight by remember { mutableStateOf(0.dp) }
+        FloatingSubpageLayout(
+            onBack = onBack,
+            actions = { PocketCircleIconButton("settings", "\u9032\u968e\u6a21\u5f0f", { showAdvancedModes = true }) },
+            snackbarHost = { Box(Modifier.padding(bottom = summaryHeight + 24.dp)) {
+                    SwipeDismissibleSnackbarHost(snackbarHostState)
+                } },
+        ) { pagePadding ->
+            Box(Modifier.fillMaxSize().consumeWindowInsets(pagePadding)) {
+                LazyColumn(
+                    modifier = Modifier.align(Alignment.TopCenter)
+                    .then(if (wideLayout) Modifier.widthIn(max = 720.dp) else Modifier).fillMaxSize(),
+                    contentPadding = com.clhs.score.ui.navigation.navigationContentPadding(
+                        androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp,
+                            top = pagePadding.calculateTopPadding() + 8.dp,
+                            bottom = pagePadding.calculateBottomPadding() + summaryHeight + 32.dp)),
+                    verticalArrangement = Arrangement.spacedBy(16.dp), state = listState,
+                ) {
+                    item {
+                        if (!calculationAvailable) {
+                            Text(
+                                when {
+                                    scopedCreditState.isLoading -> "學分載入中…"
+                                    credits.isEmpty() -> "學分尚未載入，請至成績頁的學分設定重試"
+                                    else -> "尚無可採計的完整成績"
+                                },
+                                modifier = Modifier.padding(top = 8.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.large,
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
 
-            item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.large,
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    modifier = Modifier.weight(1f),
-                                    text = "科目分數",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                TextButton(
-                                    onClick = {
-                                        val previousState = editorState
-                                        editorState = editorState.copy(
-                                            adjustedScores = initialScores,
-                                            checkedSubjects = reportSubjects,
-                                        )
-                                        coroutineScope.launch {
-                                            if (
-                                                snackbarHostState.showSnackbar(
-                                                    message = "已恢復所有科目",
-                                                    actionLabel = "復原",
-                                                    duration = SnackbarDuration.Short,
-                                                ) == SnackbarResult.ActionPerformed
-                                            ) {
-                                                editorState = previousState
-                                            }
-                                        }
-                                    },
-                                    shapes = ButtonDefaults.shapes(),
-                                ) {
-                                    Text("恢復全部")
+                                report.subjects.forEachIndexed { index, subject ->
+                                    val key = cleanSubjectName(subject.subjectName)
+                                    if (index > 0) {
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                    }
+                                    SubjectScoreSlider(
+                                        subject = subject,
+                                        credit = credits[key] ?: 1,
+                                        value = adjustedScores[key] ?: subject.scoreValue,
+                                        isChecked = checkedSubjects.contains(key),
+                                        onCheckedChange = { checked ->
+                                            editorState = editorState.copy(
+                                                checkedSubjects = if (checked) checkedSubjects + key else checkedSubjects - key
+                                            )
+                                        },
+                                        showCheckbox = isCustomGroupEnabled,
+                                        isLocked = lockedSubjects.contains(key),
+                                        onLockedChange = { locked ->
+                                            editorState = editorState.copy(
+                                                lockedSubjects = if (locked) lockedSubjects + key else lockedSubjects - key
+                                            )
+                                        },
+                                        showLock = isTargetReversalEnabled,
+                                        historyMax = historyMaxMin[cleanSubjectName(subject.subjectName)]?.second,
+                                        onValueChange = { score ->
+                                            editorState = editorState.copy(adjustedScores = adjustedScores + (key to score))
+                                        },
+                                        onResetSubject = {
+                                            editorState = editorState.copy(
+                                                adjustedScores = adjustedScores + (key to subject.scoreValue)
+                                            )
+                                        },
+                                    )
                                 }
-                            }
-                            report.subjects.forEachIndexed { index, subject ->
-                                val key = cleanSubjectName(subject.subjectName)
-                                if (index > 0) {
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                                }
-                                SubjectScoreSlider(
-                                    subject = subject,
-                                    credit = credits[key] ?: 1,
-                                    value = adjustedScores[key] ?: subject.scoreValue,
-                                    isChecked = checkedSubjects.contains(key),
-                                    onCheckedChange = { checked ->
-                                        editorState = editorState.copy(
-                                            checkedSubjects = if (checked) checkedSubjects + key else checkedSubjects - key
-                                        )
-                                    },
-                                    showCheckbox = isCustomGroupEnabled,
-                                    isLocked = lockedSubjects.contains(key),
-                                    onLockedChange = { locked ->
-                                        editorState = editorState.copy(
-                                            lockedSubjects = if (locked) lockedSubjects + key else lockedSubjects - key
-                                        )
-                                    },
-                                    showLock = isTargetReversalEnabled,
-                                    historyMax = historyMaxMin[cleanSubjectName(subject.subjectName)]?.second,
-                                    onValueChange = { score ->
-                                        editorState = editorState.copy(adjustedScores = adjustedScores + (key to score))
-                                    },
-                                    onResetSubject = {
-                                        editorState = editorState.copy(
-                                            adjustedScores = adjustedScores + (key to subject.scoreValue)
-                                        )
-                                    },
-                                )
                             }
                         }
                     }
                 }
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
+                Box(Modifier.align(Alignment.BottomCenter)
+                    .padding(start = 16.dp, end = 16.dp, bottom = pagePadding.calculateBottomPadding() + 8.dp)
+                    .widthIn(max = summaryMaxWidth)) {
+                    SimulatorSummaryCard(
+                        available = calculationAvailable, currentAverage = currentAverage,
+                        currentTotal = currentCalculation.weightedTotal?.stripTrailingZeros()?.toPlainString() ?: "--",
+                        adjustedAverage = adjustedAverage,
+                        adjustedTotal = adjustedCalculation.weightedTotal?.stripTrailingZeros()?.toPlainString() ?: "--",
+                        modifier = Modifier.onSizeChanged { summaryHeight = with(density) { it.height.toDp() } },
+                    )
                 }
             }
         }
@@ -757,16 +668,17 @@ private fun SimulatorSummaryCard(
     adjustedTotal: String,
     modifier: Modifier = Modifier,
 ) {
-    val containerColor = MaterialTheme.colorScheme.primaryContainer
-    val contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-    val labelColor = contentColor.copy(alpha = 0.78f)
-    val changedValueColor = MaterialTheme.colorScheme.tertiary
-    val arrowContainerColor = contentColor.copy(alpha = 0.12f)
+    val containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+    val contentColor = MaterialTheme.colorScheme.onSurface
+    val changedValueColor = MaterialTheme.colorScheme.primary
+    val arrowContainerColor = MaterialTheme.colorScheme.primaryContainer
+    val totalContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+    val secondaryContentColor = MaterialTheme.colorScheme.onSurfaceVariant
     val isAdjusted = abs(adjustedAverage - currentAverage) > 0.01 ||
         adjustedTotal != currentTotal
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().pocketFloatingShadow(MaterialTheme.shapes.largeIncreased),
         shape = MaterialTheme.shapes.largeIncreased,
         colors = CardDefaults.cardColors(
             containerColor = containerColor,
@@ -777,7 +689,7 @@ private fun SimulatorSummaryCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 20.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -787,21 +699,20 @@ private fun SimulatorSummaryCard(
                 label = "原始平均",
                 average = currentAverage,
                 total = currentTotal,
-                labelColor = labelColor,
                 valueColor = contentColor,
-                pillContainerColor = contentColor.copy(alpha = 0.10f),
-                pillContentColor = contentColor.copy(alpha = 0.82f),
+                pillContainerColor = totalContainerColor,
+                pillContentColor = secondaryContentColor,
             )
 
             Box(
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(32.dp)
                     .background(arrowContainerColor, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 OutlinedRoundedSymbol(
                     icon = "arrow_forward",
-                    tint = contentColor,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     contentDescription = null,
                 )
             }
@@ -812,17 +723,16 @@ private fun SimulatorSummaryCard(
                 label = "調整後平均",
                 average = adjustedAverage,
                 total = adjustedTotal,
-                labelColor = labelColor,
                 valueColor = if (isAdjusted) changedValueColor else contentColor,
                 pillContainerColor = if (isAdjusted) {
-                    changedValueColor.copy(alpha = 0.16f)
+                    changedValueColor.copy(alpha = 0.12f)
                 } else {
-                    contentColor.copy(alpha = 0.10f)
+                    totalContainerColor
                 },
                 pillContentColor = if (isAdjusted) {
                     changedValueColor
                 } else {
-                    contentColor.copy(alpha = 0.82f)
+                    secondaryContentColor
                 },
             )
         }
@@ -835,21 +745,19 @@ private fun SummaryMetricColumn(
     label: String,
     average: Double,
     total: String,
-    labelColor: Color,
     valueColor: Color,
     pillContainerColor: Color,
     pillContentColor: Color,
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier,
+        modifier = modifier.semantics(mergeDescendants = true) { contentDescription = label },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = labelColor)
         Text(
             text = if (available) "%.2f".format(average) else "--",
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             color = valueColor,
         )

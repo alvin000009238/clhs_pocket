@@ -85,6 +85,7 @@ internal fun RootFloatingScaffold(
             modifier = Modifier.align(Alignment.TopEnd)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
                 .padding(top = 8.dp, end = 16.dp)
+                .pocketFloatingShadow(MaterialTheme.shapes.extraLarge)
                 .onSizeChanged {
                     with(density) {
                         actionsWidth = it.width.toDp()
@@ -93,7 +94,8 @@ internal fun RootFloatingScaffold(
                 },
             shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surfaceContainer,
-            tonalElevation = 3.dp, shadowElevation = 3.dp,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            tonalElevation = 3.dp,
         ) {
             Row(Modifier.padding(horizontal = 4.dp).heightIn(min = 48.dp),
                 verticalAlignment = Alignment.CenterVertically, content = actions)

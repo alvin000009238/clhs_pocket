@@ -2,6 +2,8 @@ package com.clhs.score.ui
 
 import com.clhs.score.ui.navigation.navigationContentPadding
 
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -55,16 +57,17 @@ internal fun BackgroundPauseSettingsScreen(
     var saving by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    SubpageLayout(title = "排程暫停時段", onBack = onBack) {
+    FloatingSubpageLayout(onBack = onBack) { pagePadding ->
         LazyColumn(
-            modifier = Modifier.align(Alignment.TopCenter).widthIn(max = 720.dp).fillMaxWidth(),
-            contentPadding = navigationContentPadding(PaddingValues(16.dp)),
+            modifier = Modifier.fillMaxSize().wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 720.dp).fillMaxWidth(),
+            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = pagePadding.calculateBottomPadding() + 16.dp)),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                     SettingsSwitchRow(
-                        icon = "schedule",
+                        icon = "battery_saver",
                         title = "每天暫停背景檢查",
                         supportingText = "讓背景資料檢查在休息時間暫停",
                         checked = current.enabled,
@@ -87,25 +90,28 @@ internal fun BackgroundPauseSettingsScreen(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.extraLarge,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                 ) {
                     Surface(onClick = { editingStart = true }, enabled = !saving, color = Color.Transparent) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 20.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("開始時間", style = MaterialTheme.typography.bodyLarge)
+                            PocketOptionIcon("schedule", enabled = !saving)
+                            Text("開始時間", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMediumEmphasized)
                             Text(formatPauseTime(current.startMinute), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     Surface(onClick = { editingStart = false }, enabled = !saving, color = Color.Transparent) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 20.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("結束時間", style = MaterialTheme.typography.bodyLarge)
+                            PocketOptionIcon("alarm", enabled = !saving)
+                            Text("結束時間", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMediumEmphasized)
                             Text(formatPauseTime(current.endMinute), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }

@@ -102,6 +102,7 @@ import com.clhs.score.data.getSubjectColors
 import com.clhs.score.data.refreshAt
 import com.clhs.score.data.shouldRefreshAt
 import com.clhs.score.ui.hapticClick
+import com.clhs.score.ui.PocketBackButton
 import com.clhs.score.ui.OutlinedRoundedSymbol
 import com.clhs.score.ui.FilledRoundedSymbol
 import com.clhs.score.ui.AccountIconButton
@@ -185,9 +186,7 @@ fun ScheduleScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         actions = {
             if (onBack != null) {
-                IconButton(onClick = onBack, shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape)) {
-                    OutlinedRoundedSymbol("arrow_back", contentDescription = "返回")
-                }
+                PocketBackButton(onBack)
             }
 
             if (uiState.report?.scope == ScheduleScope.CURRENT_WEEK) {
@@ -229,12 +228,12 @@ fun ScheduleScreen(
                         onClick = { showMoreMenu = true },
                         shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
                     ) {
-                        OutlinedRoundedSymbol(icon = "more_vert", contentDescription = "更多選項")
+                        OutlinedRoundedSymbol(icon = "more_vert", tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "更多選項")
                     }
                     DropdownMenu(
                         expanded = showMoreMenu,
                         onDismissRequest = { showMoreMenu = false },
-                        offset = DpOffset(x = 0.dp, y = 8.dp),
+                        offset = DpOffset(x = 0.dp, y = 10.dp),
                     ) {
                         notificationMenu { showMoreMenu = false }
                         if (!uiState.report?.items.isNullOrEmpty()) {
@@ -336,7 +335,7 @@ fun ScheduleScreen(
                             colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                             singleLine = true
                         )
-                        DropdownMenu(
+                        DropdownMenu(offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
                             expanded = yearExpanded,
                             onDismissRequest = { yearExpanded = false },
                             modifier = Modifier.exposedDropdownSize(),
@@ -368,7 +367,7 @@ fun ScheduleScreen(
                             colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                             singleLine = true
                         )
-                        DropdownMenu(
+                        DropdownMenu(offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
                             expanded = classExpanded,
                             onDismissRequest = { classExpanded = false },
                             modifier = Modifier.exposedDropdownSize(),

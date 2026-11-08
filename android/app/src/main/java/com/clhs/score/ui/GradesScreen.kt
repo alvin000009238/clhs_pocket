@@ -406,12 +406,12 @@ fun GradesScreen(
                     Box {
                         IconButton(onClick = { showGradeSelection = !showGradeSelection },
                             shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape)) {
-                            OutlinedRoundedSymbol("swap_horiz", contentDescription = "選擇成績")
+                            OutlinedRoundedSymbol("swap_horiz", tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "選擇成績")
                         }
                         DropdownMenu(expanded = showGradeSelection,
                             onDismissRequest = { showGradeSelection = false },
                             shape = CircleShape,
-                            offset = DpOffset(0.dp, 8.dp)) {
+                            offset = DpOffset(0.dp, 10.dp)) {
                             Box(Modifier.padding(horizontal = 4.dp)) {
                                 GradeSelectionPill(state, onSelectYear, onSelectExam)
                             }
@@ -428,6 +428,7 @@ fun GradesScreen(
                             BadgedBox(badge = { if (summaryDisplay.needsCreditAttention) Badge() }) {
                                 OutlinedRoundedSymbol(
                                     icon = "more_vert",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     contentDescription = "更多選項",
                                 )
                             }
@@ -435,7 +436,7 @@ fun GradesScreen(
                         DropdownMenu(
                             expanded = showMoreMenu,
                             onDismissRequest = { showMoreMenu = false },
-                            offset = DpOffset(x = 0.dp, y = 8.dp),
+                            offset = DpOffset(x = 0.dp, y = 10.dp),
                         ) {
                             DropdownMenuItem(
                                 text = { Text("學分設定") },
@@ -760,7 +761,7 @@ private fun GradeSelectionPill(
                     DropdownMenu(
                         expanded = yearMenuExpanded,
                         onDismissRequest = { yearMenuExpanded = false },
-                        offset = DpOffset(x = 0.dp, y = 8.dp),
+                        offset = DpOffset(x = 0.dp, y = 10.dp),
                     ) {
                         state.structure.forEach { year ->
                             DropdownMenuItem(
@@ -812,7 +813,7 @@ private fun GradeSelectionPill(
                     DropdownMenu(
                         expanded = examMenuExpanded,
                         onDismissRequest = { examMenuExpanded = false },
-                        offset = DpOffset(x = 0.dp, y = 8.dp),
+                        offset = DpOffset(x = 0.dp, y = 10.dp),
                     ) {
                         if (selectedYear == null || selectedYear.exams.isEmpty()) {
                             DropdownMenuItem(
