@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.clhs.score.domain.overview.OverviewItem
 import com.clhs.score.domain.overview.OverviewItemKind
@@ -60,7 +61,7 @@ fun CampusScreen(
         dynamicColor = dynamicColor,
         actions = {
             IconButton(onClick = hapticClick(onOpenSearch)) {
-                OutlinedRoundedSymbol("search", contentDescription = "搜尋公告與行事曆")
+                OutlinedRoundedSymbol("search", tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "搜尋公告與行事曆")
             }
             AccountIconButton(onClick = onOpenPersonal, showUpdateBadge = showUpdateBadge,
                 animateShape = false)
@@ -77,7 +78,11 @@ fun CampusScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             header()
-            Column(Modifier.rootBodyMotion(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().rootBodyMotion(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 val announcement = state.items.firstOrNull { it.kind == OverviewItemKind.Announcement }
                 val calendarEvent = state.items.firstOrNull { it.kind == OverviewItemKind.CalendarEvent }
                 AnnouncementHeroCard(
@@ -95,7 +100,6 @@ fun CampusScreen(
                     },
                     icon = "calendar_today",
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    iconContainerColor = MaterialTheme.colorScheme.primaryContainer,
                     onClick = onOpenCalendar,
                 )
                 if (onOpenSchoolWebsite != null) {
@@ -104,7 +108,6 @@ fun CampusScreen(
                         description = "前往校務系統",
                         icon = "local_library",
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        iconContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
                         onClick = onOpenSchoolWebsite,
                     )
                 }
@@ -197,7 +200,6 @@ private fun CampusModuleCard(
     description: String,
     icon: String,
     containerColor: androidx.compose.ui.graphics.Color,
-    iconContainerColor: androidx.compose.ui.graphics.Color,
     onClick: () -> Unit,
 ) {
     Card(
@@ -216,23 +218,14 @@ private fun CampusModuleCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Surface(
-                modifier = Modifier.size(48.dp),
-                shape = MaterialTheme.shapes.medium,
-                color = iconContainerColor,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    OutlinedRoundedSymbol(icon, size = 24.dp, contentDescription = null)
-                }
-            }
+            PocketOptionIcon(icon)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
                     title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.titleLargeEmphasized,
                 )
                 Text(
                     description,
@@ -244,5 +237,22 @@ private fun CampusModuleCard(
             }
             OutlinedRoundedSymbol("arrow_forward", size = 24.dp, contentDescription = null)
         }
+    }
+}
+
+@Preview(name = "校園 · Compact", widthDp = 390, heightDp = 844)
+@Preview(name = "校園 · Expanded", widthDp = 1100, heightDp = 900)
+@Preview(name = "校園 · Large Text", widthDp = 320, heightDp = 1000, fontScale = 1.5f)
+@Composable
+private fun CampusScreenPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        CampusScreen(
+            state = OverviewState(isInitialLoading = false),
+            onOpenPersonal = {},
+            onOpenAnnouncements = {},
+            onOpenCalendar = {},
+            onOpenSearch = {},
+            onOpenSchoolWebsite = {},
+        )
     }
 }

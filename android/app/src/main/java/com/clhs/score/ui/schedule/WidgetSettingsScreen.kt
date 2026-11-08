@@ -23,22 +23,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import com.clhs.score.ui.navigation.PocketScaffold as Scaffold
-import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -49,6 +44,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,8 +63,10 @@ import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleScope
 import com.clhs.score.data.displayItems
-import com.clhs.score.ui.hapticToggle
+import com.clhs.score.ui.FloatingSubpageLayout
 import com.clhs.score.ui.OutlinedRoundedSymbol
+import com.clhs.score.ui.SettingsGroup
+import com.clhs.score.ui.SettingsSwitchRow
 import com.clhs.score.widget.ScheduleWidgetPreferences
 import com.clhs.score.widget.classifyWidgetScheduleItems
 import com.clhs.score.widget.selectWidgetSchedule
@@ -106,29 +105,10 @@ internal fun WidgetSettingsScreen(
         24.dp
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        topBar = {
-            TopAppBar(
-                title = { Text("Widget 設定") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                    actionIconContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-                navigationIcon = {
-                    IconButton(
-                        onClick = onDismiss,
-                        shapes = IconButtonDefaults.shapes(),
-                    ) {
-                        OutlinedRoundedSymbol(icon = "arrow_back", contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    Button(
-                        enabled = !isSaving,
+    FloatingSubpageLayout(onBack = onDismiss,
+        actions = {
+                    WidgetDoneButton(
+                        isSaving = isSaving,
                         onClick = {
                             if (!isSaving) {
                                 isSaving = true
@@ -151,36 +131,20 @@ internal fun WidgetSettingsScreen(
                                 }
                             }
                         },
-                        modifier = Modifier.padding(end = 8.dp),
-                        shapes = ButtonDefaults.shapes(),
-                    ) {
-                        if (isSaving) {
-                            LoadingIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("儲存中")
-                        } else {
-                            Text("完成")
-                        }
-                    }
-                }
-            )
+                    )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .wrapContentWidth(Alignment.CenterHorizontally)
                 .widthIn(max = 720.dp)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState())
                 .navigationContentPadding()
-                .padding(bottom = 32.dp)
+                .padding(top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 32.dp)
         ) {
             Text(
                 text = "即時預覽",
@@ -219,32 +183,30 @@ internal fun WidgetSettingsScreen(
                 modifier = Modifier.padding(bottom = 12.dp),
             )
 
-            Column(
-                verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
-            ) {
-                SettingSwitchRow(
+            SettingsGroup {
+                SettingsSwitchRow(
+                    icon = "person",
                     title = "任課教師",
-                    subtitle = "顯示授課教師；小尺寸會自動隱藏",
+                    supportingText = "顯示授課教師；小尺寸會自動隱藏",
                     checked = showTeacher,
                     onCheckedChange = { showTeacher = it },
-                    index = 0,
-                    count = 3,
+
                 )
-                SettingSwitchRow(
+                SettingsSwitchRow(
+                    icon = "meeting_room",
                     title = "上課地點",
-                    subtitle = "顯示上課地點；小尺寸會自動隱藏",
+                    supportingText = "顯示上課地點；小尺寸會自動隱藏",
                     checked = showClassroom,
                     onCheckedChange = { showClassroom = it },
-                    index = 1,
-                    count = 3,
+
                 )
-                SettingSwitchRow(
+                SettingsSwitchRow(
+                    icon = "schedule",
                     title = "上課時間",
-                    subtitle = "顯示每節課的起訖時間",
+                    supportingText = "顯示每節課的起訖時間",
                     checked = showTime,
                     onCheckedChange = { showTime = it },
-                    index = 2,
-                    count = 3,
+
                 )
             }
 
@@ -256,14 +218,16 @@ internal fun WidgetSettingsScreen(
                 modifier = Modifier.padding(bottom = 12.dp),
             )
 
-            SettingSwitchRow(
-                title = "放學後顯示下一個上課日",
-                subtitle = "開啟後，最後一節下課即切換；關閉則於午夜切換",
-                checked = afterLastClass,
-                onCheckedChange = { afterLastClass = it },
-                index = 0,
-                count = 1,
-            )
+            SettingsGroup {
+                SettingsSwitchRow(
+                    icon = "calendar_today",
+                    title = "放學後顯示下一個上課日",
+                    supportingText = "開啟後，最後一節下課即切換；關閉則於午夜切換",
+                    checked = afterLastClass,
+                    onCheckedChange = { afterLastClass = it },
+
+                )
+            }
 
         }
     }
@@ -271,36 +235,55 @@ internal fun WidgetSettingsScreen(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun SettingSwitchRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    index: Int,
-    count: Int,
-) {
-    SegmentedListItem(
-        checked = checked,
-        onCheckedChange = hapticToggle(onCheckedChange),
-        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
-        supportingContent = {
-            Text(
-                text = subtitle,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        },
-        trailingContent = {
-            Switch(checked = checked, onCheckedChange = null)
-        },
-        colors = ListItemDefaults.segmentedColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+private fun WidgetDoneButton(isSaving: Boolean, onClick: () -> Unit) {
+    IconButton(
+        enabled = !isSaving,
+        onClick = onClick,
+        modifier = Modifier.size(48.dp),
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            disabledContainerColor = MaterialTheme.colorScheme.primary,
+            disabledContentColor = MaterialTheme.colorScheme.onPrimary,
         ),
-        verticalAlignment = Alignment.CenterVertically,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        modifier = Modifier.fillMaxWidth(),
     ) {
-        Text(text = title)
+        if (isSaving) {
+            LoadingIndicator(modifier = Modifier.size(24.dp).semantics { contentDescription = "儲存中" }, color = MaterialTheme.colorScheme.onPrimary)
+        } else {
+            OutlinedRoundedSymbol("check", tint = MaterialTheme.colorScheme.onPrimary, contentDescription = "完成")
+        }
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Widget Done", widthDp = 390, heightDp = 140)
+@androidx.compose.ui.tooling.preview.Preview(name = "Widget Done Large", widthDp = 320, heightDp = 160, fontScale = 1.5f)
+@Composable
+private fun WidgetDoneButtonPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        FloatingSubpageLayout(onBack = {}, actions = { WidgetDoneButton(false, {}) }) {}
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Widget Saving", widthDp = 390, heightDp = 140)
+@Composable
+private fun WidgetSavingButtonPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        FloatingSubpageLayout(onBack = {}, actions = { WidgetDoneButton(true, {}) }) {}
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Widget 設定選項", widthDp = 390, showBackground = true)
+@androidx.compose.ui.tooling.preview.Preview(name = "Widget 設定選項 · 1.5x", widthDp = 390, fontScale = 1.5f, showBackground = true)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun WidgetOptionsPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        Column(Modifier.padding(16.dp)) {
+            SettingsGroup {
+                SettingsSwitchRow("person", "任課教師", "顯示授課教師；小尺寸會自動隱藏", true, {})
+                SettingsSwitchRow("calendar_today", "放學後顯示下一個上課日", "開啟後，最後一節下課即切換；關閉則於午夜切換", false, {})
+            }
+        }
     }
 }
 

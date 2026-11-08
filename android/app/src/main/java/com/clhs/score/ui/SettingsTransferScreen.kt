@@ -47,7 +47,7 @@ internal fun SettingsTransferScreen(state: SettingsTransferUiState, owner: Setti
     SubpageLayout(title = "備份與還原", onBack = { if (!state.busy) onBack() }, snackbarHost = { SnackbarHost(snackbar) }) {
         Column(Modifier.wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 720.dp)
             .fillMaxSize().align(Alignment.TopCenter).imePadding().verticalScroll(rememberScrollState())
-            .padding(navigationContentPadding(PaddingValues(horizontal = 20.dp, vertical = 12.dp))),
+            .padding(navigationContentPadding(PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp))),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -82,17 +82,19 @@ internal fun SettingsTransferScreen(state: SettingsTransferUiState, owner: Setti
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             }
             Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-                SegmentedListItem(onClick = hapticClick { showContents = true }, modifier = Modifier.fillMaxWidth(), shapes = ListItemDefaults.segmentedShapes(index = 0, count = 2),
+                SegmentedListItem(onClick = hapticClick { showContents = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp), shapes = ListItemDefaults.segmentedShapes(index = 0, count = 2),
                     colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    leadingContent = { OutlinedRoundedSymbol("info", contentDescription = null) },
-                    trailingContent = { OutlinedRoundedSymbol("keyboard_arrow_right", contentDescription = null) }) { Text("備份範圍") }
+                    leadingContent = { PocketOptionIcon("info") },
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                    trailingContent = { OutlinedRoundedSymbol("keyboard_arrow_right", contentDescription = null) }) { Text("備份範圍", style = MaterialTheme.typography.titleMediumEmphasized) }
                 SegmentedListItem(onClick = hapticClick { advanced = !advanced }, enabled = enabled,
-                    modifier = Modifier.fillMaxWidth().semantics { stateDescription = if (advanced) "已展開" else "已收合" },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp).semantics { stateDescription = if (advanced) "已展開" else "已收合" },
                     shapes = ListItemDefaults.segmentedShapes(index = 1, count = 2),
                     colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    leadingContent = { OutlinedRoundedSymbol("code", contentDescription = null) },
+                    leadingContent = { PocketOptionIcon("code", enabled = enabled) },
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                     trailingContent = { OutlinedRoundedSymbol(if (advanced) "keyboard_arrow_up" else "keyboard_arrow_down", contentDescription = null) }) {
-                    Text("進階：JSON 編輯")
+                    Text("進階：JSON 編輯", style = MaterialTheme.typography.titleMediumEmphasized)
                 }
             }
             AnimatedVisibility(advanced) {

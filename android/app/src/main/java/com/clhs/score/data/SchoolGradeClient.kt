@@ -167,6 +167,62 @@ class SchoolGradeClient(
         )
     }
 
+    suspend fun fetchRecordSemesters(session: AuthenticatedSession): List<RecordSemester> =
+        StudentRecordsParser.semesters(recordRequest(
+            session, prepareSession(session), "CommonData/GetStudentYearTermDropdownList",
+        ))
+
+    suspend fun fetchAttendanceHistory(session: AuthenticatedSession): List<RecordHistoryStatistic> =
+        StudentRecordsParser.history(recordRequest(
+            session, prepareSession(session), "TutorShSheAbsentStatistics/GetTutorShSheAbsentStatistics",
+        ), "AbsentType")
+
+    suspend fun fetchMeritHistory(session: AuthenticatedSession): List<RecordHistoryStatistic> =
+        StudentRecordsParser.history(recordRequest(
+            session, prepareSession(session), "TutorShSheMoralMeritPenalty/GetMeritPenaltyStatisticsList",
+        ), "MeritPenaltyType")
+
+    suspend fun fetchAttendance(session: AuthenticatedSession, semester: RecordSemester): AttendanceRecord {
+        val generation = prepareSession(session)
+        return coroutineScope {
+            val summary = async {
+                StudentRecordsParser.attendanceSummary(recordRequest(
+                    session, generation, "TutorShSheAbsentStatistics/GetTutorShSheAbsentTermStatistics", semester,
+                ))
+            }
+            val details = async {
+                StudentRecordsParser.attendanceDetails(recordRequest(
+                    session, generation, "TutorShSheAbsentStatistics/GetTutorShSheAbsentDetails", semester,
+                ))
+            }
+            AttendanceRecord(summary.await(), details.await())
+        }
+    }
+
+    suspend fun fetchMerits(session: AuthenticatedSession, semester: RecordSemester): List<MeritRecord> =
+        StudentRecordsParser.merits(recordRequest(
+            session, prepareSession(session), "TutorShSheMoralMeritPenalty/GetMeritPenaltyDetailsList", semester,
+        ))
+
+    private suspend fun recordRequest(
+        session: AuthenticatedSession,
+        generation: Long,
+        path: String,
+        semester: RecordSemester? = null,
+    ): String = postForm(
+        generation = generation,
+        path = "ICampus/$path",
+        referer = resolve("ICampus/StudentInfo/Index").toString(),
+        form = buildMap {
+            put("studentNo", session.studentNo)
+            put("__RequestVerificationToken", session.apiToken)
+            if (semester != null) {
+                put("searchItem[Year]", semester.year.toString())
+                put("searchItem[Term]", semester.term.toString())
+            }
+        },
+    )
+
     private suspend fun getSchedulePageToken(generation: Long): String {
         synchronized(sessionLock) {
             if (sessionGeneration != generation) throw CancellationException("Session changed")

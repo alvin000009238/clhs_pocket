@@ -83,6 +83,9 @@ class AppNavigationTest {
         assertEquals(AuthRequirement.Session, SchoolWebsiteRoute.authRequirement())
         assertEquals(AuthRequirement.Public, OverviewRoute.authRequirement())
         assertEquals(AuthRequirement.Public, PersonalRoute.authRequirement())
+        assertEquals(AuthRequirement.Public, GeneralSettingsRoute.authRequirement())
+        assertEquals(AuthRequirement.Session, AttendanceRoute.authRequirement())
+        assertEquals(AuthRequirement.Session, MeritRoute.authRequirement())
         assertEquals(AuthRequirement.Public, SchoolAnnouncementsRoute.authRequirement())
     }
 

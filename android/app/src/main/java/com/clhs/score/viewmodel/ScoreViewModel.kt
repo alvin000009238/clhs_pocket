@@ -144,6 +144,18 @@ class ScoreViewModel(
     private val _authState = MutableStateFlow<AuthState>(AuthState.Restoring)
     val authState: StateFlow<AuthState> = _authState
 
+    private val studentRecordsOwner = StudentRecordsStateOwner(
+        repository = repository,
+        scope = viewModelScope,
+        currentSession = { getCurrentSession()?.takeIf { _authState.value is AuthState.Authenticated } },
+        onAuthenticationExpired = ::handleSessionExpired,
+    )
+    val studentRecords: StateFlow<StudentRecordsState> = studentRecordsOwner.state
+
+    fun loadAttendanceRecords(force: Boolean = false) = studentRecordsOwner.loadAttendance(force)
+    fun loadMeritRecords(force: Boolean = false) = studentRecordsOwner.loadMerits(force)
+    fun selectRecordSemester(semester: com.clhs.score.data.RecordSemester) = studentRecordsOwner.selectSemester(semester)
+
     private val _gradesState = MutableStateFlow(GradesUiState())
     val gradesState: StateFlow<GradesUiState> = _gradesState
 
@@ -396,6 +408,7 @@ class ScoreViewModel(
 
     fun loginWithBiometricSession(restored: AuthenticatedSession) {
         restoreJob?.cancel()
+        studentRecordsOwner.reset()
         _authState.value = AuthState.Authenticating
         loginJob?.cancel()
         loginJob = viewModelScope.launch {
@@ -447,6 +460,7 @@ class ScoreViewModel(
             mapOf(AnalyticsParams.METHOD to method),
         )
         restoreJob?.cancel()
+        studentRecordsOwner.reset()
         _authState.value = AuthState.Authenticating
         loginJob?.cancel()
         loginJob = viewModelScope.launch {
@@ -1253,6 +1267,7 @@ class ScoreViewModel(
     private fun resetSubjectTrendState(): Job? = subjectTrendOwner.reset()
 
     private fun publishAuthenticated(authenticatedSession: AuthenticatedSession) {
+        studentRecordsOwner.reset()
         if (!demoMode && sessionStore?.isAuthorized(authenticatedSession) == false) {
             session = null
             _authState.value = AuthState.Guest
@@ -1265,6 +1280,7 @@ class ScoreViewModel(
 
     private fun clearSession(reason: String) {
         val sessionToClear = session
+        val studentRecordsJobs = studentRecordsOwner.reset()
         session = null
         _authState.value = AuthState.Guest
         sessionStore?.revoke()
@@ -1274,7 +1290,7 @@ class ScoreViewModel(
         ensuredGradeReminderWorkKey = null
         val subjectTrendJob = resetSubjectTrendState()
         val simulatorCreditJob = simulatorCreditOwner.reset()
-        val jobs = sessionJobs() + listOfNotNull(subjectTrendJob, simulatorCreditJob)
+        val jobs = sessionJobs() + listOfNotNull(subjectTrendJob, simulatorCreditJob) + studentRecordsJobs
         jobs.forEach(Job::cancel)
         val previousLogout = logoutJob
         logoutJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {

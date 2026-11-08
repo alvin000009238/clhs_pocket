@@ -106,11 +106,11 @@ fun ScheduleCustomizationsScreen(
                 IconButton(
                     onClick = { showMoreMenu = true },
                     enabled = !state.isSaving,
-                    shapes = IconButtonDefaults.shapes(),
+                    shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
                 ) {
                     OutlinedRoundedSymbol("more_vert", contentDescription = "更多選項")
                 }
-                DropdownMenu(
+                DropdownMenu(offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
                     expanded = showMoreMenu,
                     onDismissRequest = { showMoreMenu = false },
                 ) {
@@ -131,7 +131,7 @@ fun ScheduleCustomizationsScreen(
             state.overrides.isEmpty() -> EmptyCustomizationList()
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = navigationContentPadding(androidx.compose.foundation.layout.PaddingValues(16.dp)),
+                contentPadding = navigationContentPadding(androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(state.overrides, key = ScheduleSubjectOverride::originalSubjectName) { override ->

@@ -98,6 +98,24 @@ class ScoreViewModelTest {
     }
 
     @Test
+    fun studentRecordsRemainLazyAndLogoutClearsThemBeforeGuestIsPublished() = runTest(dispatcher) {
+        val viewModel = createViewModel(FakeGradeRepository(), demoMode = true)
+        runCurrent()
+        assertEquals(StudentRecordsState(), viewModel.studentRecords.value)
+        viewModel.loadAttendanceRecords()
+        runCurrent()
+        assertTrue(viewModel.studentRecords.value.attendance.data != null)
+
+        viewModel.logout()
+
+        assertEquals(AuthState.Guest, viewModel.authState.value)
+        assertEquals(StudentRecordsState(), viewModel.studentRecords.value)
+        viewModel.loadAttendanceRecords()
+        runCurrent()
+        assertEquals(StudentRecordsState(), viewModel.studentRecords.value)
+    }
+
+    @Test
     fun sessionRestoreLoadsStudentInfoOnlyWhenRequested() = runTest(dispatcher) {
         val repository = ControllableGradeRepository()
         val viewModel = createViewModel(repository)

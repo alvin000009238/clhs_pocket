@@ -98,8 +98,9 @@ fun AnnouncementReminderSettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var awaitingNotificationSettings by rememberSaveable { mutableStateOf(false) }
     var permissionDenied by rememberSaveable { mutableStateOf(false) }
+    val inspectionMode = androidx.compose.ui.platform.LocalInspectionMode.current
     var notificationsAvailable by remember {
-        mutableStateOf(context.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID))
+        mutableStateOf(inspectionMode || context.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID))
     }
     val currentOnSetEnabled by rememberUpdatedState(onSetEnabled)
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -116,7 +117,7 @@ fun AnnouncementReminderSettingsScreen(
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
+            if (event == Lifecycle.Event.ON_RESUME && !inspectionMode) {
                 notificationsAvailable = context.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)
                 if (awaitingNotificationSettings) {
                     awaitingNotificationSettings = false
@@ -169,14 +170,13 @@ fun AnnouncementReminderSettingsScreen(
         onCheckResultConsumed()
     }
 
-    SubpageLayout(
-        title = "公告更新提醒",
+    FloatingSubpageLayout(
         onBack = onBack,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-    ) {
+    ) { pagePadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = navigationContentPadding(PaddingValues(horizontal = 16.dp, vertical = 20.dp)),
+            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = 16.dp)),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
@@ -473,8 +473,7 @@ fun AnnouncementReminderUnitsScreen(
         }
     }
 
-    SubpageLayout(
-        title = "選擇接收單位",
+    FloatingSubpageLayout(
         onBack = onBack,
         modifier = Modifier.clickable(
             interactionSource = interactionSource,
@@ -504,10 +503,10 @@ fun AnnouncementReminderUnitsScreen(
                 }
             }
         },
-    ) {
+    ) { pagePadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = navigationContentPadding(PaddingValues(horizontal = 16.dp, vertical = 16.dp)),
+            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = 16.dp)),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -525,7 +524,7 @@ fun AnnouncementReminderUnitsScreen(
                         if (query.isNotEmpty()) {
                             IconButton(
                                 onClick = { query = "" },
-                                shapes = IconButtonDefaults.shapes(),
+                                shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
                             ) {
                                 OutlinedRoundedSymbol("close", contentDescription = "清除搜尋")
                             }
@@ -713,4 +712,13 @@ internal fun announcementIntervalLabel(minutes: Int): String = when (minutes) {
     720 -> "12 小時"
     1_440 -> "24 小時"
     else -> "$minutes 分鐘"
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Reminder floating layout", widthDp = 390, heightDp = 844)
+@Composable
+private fun ReminderFloatingPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        AnnouncementReminderSettingsScreen(AnnouncementReminderUiState(isStateAvailable = true, isLoadingUnits = false),
+            onBack = {}, onSetEnabled = {}, onSetIntervalMinutes = {}, onOpenUnits = {}, onCheckResultConsumed = {})
+    }
 }

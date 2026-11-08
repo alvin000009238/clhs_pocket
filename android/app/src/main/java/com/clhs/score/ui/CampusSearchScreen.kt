@@ -2,6 +2,8 @@
 
 package com.clhs.score.ui
 
+import androidx.compose.foundation.layout.consumeWindowInsets
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -67,7 +69,6 @@ import com.clhs.score.ui.announcements.orderAnnouncements
 import com.clhs.score.ui.announcements.shouldPrefetchAnnouncements
 import com.clhs.score.viewmodel.SchoolAnnouncementsUiState
 import com.clhs.score.viewmodel.SchoolCalendarUiState
-import com.clhs.score.ui.navigation.PocketScaffold
 import com.clhs.score.ui.theme.PocketMotion
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -76,6 +77,20 @@ import java.util.Locale
 
 private enum class CampusSearchFilter(val label: String) {
     All("全部"), Calendar("行事曆"), Announcements("學校公告"),
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "校園搜尋", widthDp = 390, heightDp = 844)
+@androidx.compose.ui.tooling.preview.Preview(name = "校園搜尋短視窗", widthDp = 390, heightDp = 320)
+@Composable
+private fun CampusSearchFloatingPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        CampusSearchScreen(
+            announcements = SchoolAnnouncementsUiState(isInitialLoading = false),
+            calendar = SchoolCalendarUiState(isInitialLoading = false), unreadIds = emptySet(),
+            onBack = {}, onSearch = {}, onRetryAnnouncements = {}, onRetryCalendar = {},
+            onLoadMore = {}, onOpenAnnouncement = {}, onOpenCalendarEvent = {},
+        )
+    }
 }
 
 @Composable
@@ -145,17 +160,10 @@ fun CampusSearchScreen(
         }
     }
 
-    PocketScaffold(
-        topBar = {
-            RootTopAppBar(title = "校園搜尋", navigationIcon = {
-                IconButton(onClick = onBack) {
-                    OutlinedRoundedSymbol("arrow_back", contentDescription = "返回")
-                }
-            })
-        },
-        containerColor = MaterialTheme.colorScheme.surface,
+    FloatingSubpageLayout(
+        onBack = onBack,
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).imePadding()
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()
             .wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 720.dp).fillMaxWidth()) {
             SearchBarDefaults.InputField(
                 textFieldState = searchField,

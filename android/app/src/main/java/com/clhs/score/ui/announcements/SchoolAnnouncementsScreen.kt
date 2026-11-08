@@ -37,8 +37,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -54,16 +52,14 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -95,10 +91,8 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
@@ -118,8 +112,7 @@ import com.clhs.score.data.SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH
 import com.clhs.score.data.safeAnnouncementWebUrl
 import com.clhs.score.ui.hapticClick
 import com.clhs.score.ui.OutlinedRoundedSymbol
-import com.clhs.score.ui.SubpageLayout
-import com.clhs.score.ui.CountBadge
+import com.clhs.score.ui.FloatingSubpageLayout
 import com.clhs.score.ui.highlightedSearchText
 import com.clhs.score.ui.rememberLoadingShimmerProgress
 import com.clhs.score.ui.theme.PocketMotion
@@ -169,6 +162,7 @@ fun SchoolAnnouncementsScreen(
     var showFilters by rememberSaveable { mutableStateOf(false) }
     var showBookmarks by rememberSaveable { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
+    var returnToTopAfterMarkAllRead by rememberSaveable { mutableStateOf(false) }
     var searchText by rememberSaveable { mutableStateOf(uiState.searchQuery) }
     val bookmarkCount = bookmarksUiState.bookmarks.size
     val bookmarkedIds = remember(bookmarksUiState.bookmarks) {
@@ -182,30 +176,8 @@ fun SchoolAnnouncementsScreen(
         clearSearch()
         clearFocusAndHideKeyboard()
     }
-    val searchField: @Composable (Modifier) -> Unit = { modifier ->
-        AnnouncementSearchField(
-            value = searchText,
-            onValueChange = { value ->
-                if (value.length <= SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH) {
-                    searchText = value
-                    onSearch(value)
-                }
-            },
-            onClear = clearSearch,
-            onSearch = { keyboardController?.hide() },
-            hasFilters = uiState.hasFilters,
-            filterSummary = listOfNotNull(
-                uiState.filterOptions.units.find { it.id == uiState.unitId && it.id != ALL_UNITS_ID }?.name,
-                uiState.filterOptions.categories.find { it.id == uiState.categoryId && it.id != ALL_UNITS_ID }?.name,
-            ).joinToString(" · "),
-            onFilter = {
-                clearFocusAndHideKeyboard()
-                showFilters = true
-                onRefreshFilters()
-            },
-            modifier = modifier,
-        )
-    }
+    var showSearch by rememberSaveable { mutableStateOf(false) }
+
     LaunchedEffect(uiState.noticeMessage, uiState.lastUpdatedAt) {
         uiState.noticeMessage?.let { message ->
             val fetchedAt = uiState.lastUpdatedAt?.let(announcementCacheTimeFormatter::format)
@@ -282,59 +254,47 @@ fun SchoolAnnouncementsScreen(
         }
     }
 
-    SubpageLayout(
+    FloatingSubpageLayout(
         onBack = onBack,
         modifier = Modifier.clickable(
             interactionSource = interactionSource,
             indication = null,
             onClick = clearFocusAndHideKeyboard,
         ),
-        title = "學校公告",
-        containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        actions = {
-            IconButton(
-                onClick = onMarkAllRead,
-                enabled = isReadingAvailable && !isMarkingAllRead && unreadIds.isNotEmpty(),
-                shapes = IconButtonDefaults.shapes(),
+        toolbar = {
+            com.clhs.score.ui.PocketSearchToolbar(
+                expanded = showSearch, onExpandedChange = { showSearch = it; showMoreMenu = false },
+                query = searchText, onQueryChange = { searchText = it; onSearch(it) },
+                maxLength = SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH,
+                searchLabel = "搜尋公告", collapsedWidth = 96.dp,
             ) {
-                OutlinedRoundedSymbol(
-                    icon = "done_all",
-                    contentDescription = if (isMarkingAllRead) "正在標記全部已讀" else "全部已讀",
-                )
-            }
-            Box(Modifier.size(48.dp)) {
-                IconButton(
-                    onClick = {
-                        clearFocusAndHideKeyboard()
-                        showBookmarks = true
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                    shapes = IconButtonDefaults.shapes(),
-                ) {
-                    OutlinedRoundedSymbol(
-                        icon = "bookmark",
-                        contentDescription = if (bookmarkCount > 0) {
-                            "已收藏公告，$bookmarkCount 則"
-                        } else {
-                            "已收藏公告"
-                        },
-                    )
-                }
-                if (bookmarkCount > 0) {
-                    CountBadge(bookmarkCount.toString(), Modifier.align(Alignment.TopEnd).clearAndSetSemantics {})
-                }
-            }
             IconButton(
                 onClick = { showMoreMenu = true },
-                shapes = IconButtonDefaults.shapes(),
+                shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
             ) {
                 OutlinedRoundedSymbol(icon = "more_vert", contentDescription = "更多選項")
             }
-            DropdownMenu(
+            DropdownMenu(offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
                 expanded = showMoreMenu,
                 onDismissRequest = { showMoreMenu = false },
             ) {
+                DropdownMenuItem(
+                    text = { Text(if (isMarkingAllRead) "正在標記全部已讀" else "全部已讀") },
+                    enabled = isReadingAvailable && !isMarkingAllRead && unreadIds.isNotEmpty(),
+                    leadingIcon = { OutlinedRoundedSymbol("done_all", contentDescription = null) },
+                    onClick = { showMoreMenu = false; returnToTopAfterMarkAllRead = true; onMarkAllRead() },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (bookmarkCount > 0) "已收藏公告（$bookmarkCount）" else "已收藏公告") },
+                    leadingIcon = { OutlinedRoundedSymbol("bookmark", contentDescription = null) },
+                    onClick = { showMoreMenu = false; clearFocusAndHideKeyboard(); showBookmarks = true },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (uiState.hasFilters) "篩選公告（已套用）" else "篩選公告") },
+                    leadingIcon = { OutlinedRoundedSymbol("filter_list", contentDescription = null) },
+                    onClick = { showMoreMenu = false; clearFocusAndHideKeyboard(); showFilters = true; onRefreshFilters() },
+                )
                 DropdownMenuItem(
                     text = { Text("公告更新提醒") },
                     onClick = {
@@ -344,8 +304,9 @@ fun SchoolAnnouncementsScreen(
                     },
                 )
             }
+            }
         },
-    ) {
+    ) { pagePadding ->
         Column(modifier = Modifier.fillMaxSize()) {
             if (!isReadingAvailable) {
                 Text(
@@ -368,10 +329,12 @@ fun SchoolAnnouncementsScreen(
                 indicator = {},
             ) {
                 AnnouncementList(
+                    returnToTopAfterMarkAllRead = returnToTopAfterMarkAllRead,
+                    onMarkAllReadPositionRestored = { returnToTopAfterMarkAllRead = false },
+                    topPadding = pagePadding.calculateTopPadding(),
                     uiState = uiState,
                     unreadIds = unreadIds,
                     bookmarkedIds = bookmarkedIds,
-                    searchField = searchField,
                     onRefresh = onRefresh,
                     onClearSearch = clearSearchAndHideKeyboard,
                     onClearFilters = { onSetFilters(ALL_UNITS_ID, ALL_UNITS_ID) },
@@ -394,6 +357,7 @@ fun SchoolAnnouncementsScreen(
                     isRefreshing = uiState.isRefreshing,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
+                        .padding(top = pagePadding.calculateTopPadding() - 56.dp)
                         .zIndex(2f),
                 )
             }
@@ -401,51 +365,6 @@ fun SchoolAnnouncementsScreen(
     }
 }
 
-@Composable
-private fun AnnouncementSearchField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onClear: () -> Unit,
-    onSearch: () -> Unit,
-    hasFilters: Boolean,
-    filterSummary: String,
-    onFilter: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        placeholder = { Text("輸入公告關鍵字") },
-        leadingIcon = {
-            OutlinedRoundedSymbol(icon = "search", contentDescription = null)
-        },
-        trailingIcon = {
-            Row {
-                if (value.isNotEmpty()) {
-                    IconButton(onClick = onClear) {
-                        OutlinedRoundedSymbol(icon = "close", contentDescription = "清除搜尋")
-                    }
-                }
-                IconButton(onClick = onFilter) {
-                    BadgedBox(badge = { if (hasFilters) Badge() }) {
-                        OutlinedRoundedSymbol(
-                            icon = "filter_list",
-                            contentDescription = if (hasFilters) "篩選公告，已套用" else "篩選公告",
-                        )
-                    }
-                }
-            }
-        },
-        supportingText = if (hasFilters) ({ Text(filterSummary) }) else null,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-        singleLine = true,
-        shape = MaterialTheme.shapes.extraLarge,
-    )
-}
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -466,7 +385,7 @@ private fun AnnouncementFilterSelector(
                 Text(options.find { it.first == selectedId }?.second ?: selectedId, modifier = Modifier.weight(1f))
                 OutlinedRoundedSymbol(icon = "keyboard_arrow_down", contentDescription = null)
             }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenu(offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp), expanded = expanded, onDismissRequest = { expanded = false }) {
                 options.forEach { (id, name) ->
                     DropdownMenuItem(
                         text = { Text(name) },
@@ -485,10 +404,12 @@ private fun AnnouncementFilterSelector(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AnnouncementList(
+    returnToTopAfterMarkAllRead: Boolean,
+    onMarkAllReadPositionRestored: () -> Unit,
+    topPadding: androidx.compose.ui.unit.Dp,
     uiState: SchoolAnnouncementsUiState,
     unreadIds: Set<String>,
     bookmarkedIds: Set<String>,
-    searchField: @Composable (Modifier) -> Unit,
     onRefresh: () -> Unit,
     onClearSearch: () -> Unit,
     onClearFilters: () -> Unit,
@@ -504,8 +425,25 @@ private fun AnnouncementList(
     }
     val coroutineScope = rememberCoroutineScope()
 
+    LaunchedEffect(returnToTopAfterMarkAllRead, unreadIds) {
+        if (returnToTopAfterMarkAllRead && unreadIds.isEmpty()) {
+            listState.scrollToItem(0)
+            onMarkAllReadPositionRestored()
+        }
+    }
+
+    var previousSearchQuery by rememberSaveable { mutableStateOf(uiState.searchQuery) }
+    var previousUnitId by rememberSaveable { mutableStateOf(uiState.unitId) }
+    var previousCategoryId by rememberSaveable { mutableStateOf(uiState.categoryId) }
     LaunchedEffect(uiState.searchQuery, uiState.unitId, uiState.categoryId) {
-        listState.scrollToItem(0)
+        if (previousSearchQuery != uiState.searchQuery ||
+            previousUnitId != uiState.unitId || previousCategoryId != uiState.categoryId
+        ) {
+            listState.scrollToItem(0)
+            previousSearchQuery = uiState.searchQuery
+            previousUnitId = uiState.unitId
+            previousCategoryId = uiState.categoryId
+        }
     }
     LaunchedEffect(
         listState,
@@ -546,10 +484,14 @@ private fun AnnouncementList(
                 .semantics {
                     if (uiState.isInitialLoading) contentDescription = "正在載入學校消息"
                 },
-            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp)),
+            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, top = topPadding + 8.dp, end = 16.dp, bottom = 88.dp)),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item(key = "announcement-search") { searchField(Modifier) }
+            if (uiState.hasFilters) {
+                item(key = "announcement-filter-status") {
+                    TextButton(onClick = onClearFilters) { Text("已套用公告篩選 · 清除") }
+                }
+            }
             when {
                 uiState.isInitialLoading -> item(key = "announcement-loading") {
                     AnnouncementsLoadingList()
@@ -709,12 +651,6 @@ internal fun AnnouncementCard(
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
-        trailingContent = onBookmarkClick?.let { bookmarkClick -> {
-            IconButton(onClick = hapticClick(bookmarkClick), shapes = IconButtonDefaults.shapes()) {
-                OutlinedRoundedSymbol(if (isBookmarked) "bookmark_added" else "bookmark_add",
-                    contentDescription = if (isBookmarked) "取消收藏公告" else "收藏公告")
-            }
-        } },
         supportingContent = announcement.unit.takeIf { it.isNotBlank() && searchQuery.isEmpty() }?.let { unit -> {
             Text(unit, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         } },
@@ -759,7 +695,7 @@ private fun AnnouncementBookmarksSheet(
                 TextButton(onClick = onRetry, shapes = ButtonDefaults.shapes()) { Text("重試") }
             }
             uiState.bookmarks.isEmpty() -> Text(
-                text = "目前沒有收藏。可在公告卡片按書籤，稍後再回來查看。",
+                text = "目前沒有收藏。可在公告詳情按書籤，稍後再回來查看。",
                 modifier = Modifier.padding(bottom = 24.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -867,15 +803,25 @@ fun SchoolAnnouncementDetailScreen(
     onRetry: () -> Unit,
     onOpenUrl: (String) -> Unit,
     officialUrl: String,
+    isBookmarked: Boolean = false,
+    onToggleBookmark: () -> Unit = {},
 ) {
-    SubpageLayout(
+    FloatingSubpageLayout(
         onBack = onBack,
-        title = "公告內容",
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) {
+        actions = {
+            IconButton(onClick = onToggleBookmark, enabled = uiState.detail != null) {
+                OutlinedRoundedSymbol(if (isBookmarked) "bookmark_added" else "bookmark_add",
+                    contentDescription = if (isBookmarked) "取消收藏公告" else "收藏公告")
+            }
+            IconButton(onClick = { onOpenUrl(uiState.detail?.officialUrl ?: officialUrl) }) {
+                Icon(androidx.compose.ui.res.painterResource(com.clhs.score.R.drawable.ic_open_original),
+                    contentDescription = "查看原文")
+            }
+        },
+    ) { pagePadding ->
         when {
-            uiState.isLoading -> AnnouncementDetailLoading()
-            uiState.detail != null -> AnnouncementDetailContent(uiState.detail, onOpenUrl)
+            uiState.isLoading -> Box(Modifier.padding(top = pagePadding.calculateTopPadding())) { AnnouncementDetailLoading() }
+            uiState.detail != null -> AnnouncementDetailContent(uiState.detail, onOpenUrl, pagePadding)
             else -> AnnouncementMessageState(
                 message = uiState.errorMessage ?: "請稍後再試一次。",
                 onAction = onRetry,
@@ -889,12 +835,13 @@ fun SchoolAnnouncementDetailScreen(
 private fun AnnouncementDetailContent(
     detail: SchoolAnnouncementDetail,
     onOpenUrl: (String) -> Unit,
+    pagePadding: PaddingValues,
 ) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .navigationBarsPadding(),
-        contentPadding = navigationContentPadding(PaddingValues(16.dp)),
+        contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = 16.dp)),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "detail-header") { AnnouncementDetailHeader(detail) }
@@ -917,15 +864,7 @@ private fun AnnouncementDetailContent(
                 AnnouncementAttachmentButton(attachment, onOpenUrl)
             }
         }
-        item(key = "official-original") {
-            FilledTonalButton(
-                onClick = { onOpenUrl(detail.officialUrl) },
-                modifier = Modifier.fillMaxWidth(),
-                shapes = ButtonDefaults.shapes(),
-            ) {
-                Text("查看原文")
-            }
-        }
+
     }
 }
 
@@ -1168,7 +1107,7 @@ private fun AnnouncementDetailLoading() {
         modifier = Modifier
             .fillMaxSize()
             .navigationBarsPadding()
-            .padding(16.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .semantics { contentDescription = "正在載入公告內容" },
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {

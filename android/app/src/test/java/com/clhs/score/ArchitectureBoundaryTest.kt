@@ -185,8 +185,9 @@ class ArchitectureBoundaryTest {
         assertTrue(source.contains("目前沒有接下來的活動"))
         assertTrue(source.contains("PullToRefreshBox"))
         assertTrue(source.contains("PullToRefreshDefaults.LoadingIndicator"))
-        assertTrue(source.contains("OutlinedTextField("))
-        assertTrue(source.contains("item(key = \"calendar-search\")"))
+        assertTrue(source.contains("PocketSearchToolbar("))
+        assertTrue(readSource("app/src/main/java/com/clhs/score/ui/PocketSearchToolbar.kt").contains("BasicTextField("))
+        assertTrue(source.contains("query = searchText"))
         assertFalse(source.contains("CalendarSummaryCard"))
         assertFalse(source.contains("更新於"))
         assertTrue(source.contains("animateScrollToItem(0)"))
@@ -592,7 +593,7 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    fun announcementSearchFieldStaysBelowTitleWithoutSearchToggle() {
+    fun announcementSearchLivesOnlyInFloatingToolbar() {
         val source = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
         val listSource = source
             .substringAfter("private fun AnnouncementList(")
@@ -600,12 +601,11 @@ class ArchitectureBoundaryTest {
 
         assertTrue(source.contains("more_vert"))
         assertFalse(source.contains("isSearchExpanded"))
-        assertTrue(source.contains("title = \"學校公告\""))
-        assertTrue(source.contains("OutlinedTextField("))
-        val searchFieldIndex = listSource.indexOf("item(key = \"announcement-search\") { searchField(Modifier) }")
-        val stateSwitchIndex = listSource.indexOf("when {", searchFieldIndex)
-        assertTrue(searchFieldIndex >= 0)
-        assertTrue(searchFieldIndex < stateSwitchIndex)
+        assertTrue(source.contains("FloatingSubpageLayout("))
+        assertTrue(listSource.contains("top = topPadding + 8.dp"))
+        assertTrue(source.contains("PocketSearchToolbar("))
+        assertTrue(source.contains("query = searchText"))
+        assertFalse(listSource.contains("announcement-search"))
     }
 
     @Test
@@ -632,10 +632,11 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    fun campusAndPersonalDestinationsOwnFormerDrawerEntrances() {
+    fun campusPersonalAndSettingsDestinationsOwnFormerDrawerEntrances() {
         val gradesSource = readSource("app/src/main/java/com/clhs/score/ui/GradesScreen.kt")
         val hubSource = readSource("app/src/main/java/com/clhs/score/ui/HubScreens.kt")
         val personalSource = readSource("app/src/main/java/com/clhs/score/ui/PersonalScreen.kt")
+        val generalSettingsSource = readSource("app/src/main/java/com/clhs/score/ui/GeneralSettingsScreen.kt")
         val navigationSource = readSource("app/src/main/java/com/clhs/score/ui/navigation/AppNavigation.kt")
         val settingsSource = readSource("app/src/main/java/com/clhs/score/ui/SettingsScreen.kt")
         val advancedSource = readSource("app/src/main/java/com/clhs/score/ui/AdvancedComponents.kt")
@@ -647,9 +648,9 @@ class ArchitectureBoundaryTest {
         assertTrue(hubSource.contains("OverviewItemKind.CalendarEvent"))
         assertFalse(hubSource.contains("CampusDestination("))
         assertTrue(personalSource.contains("LazyColumn("))
-        assertTrue(personalSource.contains("SettingsSection(\"外觀\""))
-        assertTrue(personalSource.contains("SettingsSection(\"關於\""))
-        assertTrue(personalSource.contains("Text(\"登出帳號\")"))
+        assertTrue(generalSettingsSource.contains("SettingsSection(\"外觀\""))
+        assertTrue(generalSettingsSource.contains("SettingsSection(\"關於\""))
+        assertTrue(personalSource.contains("Text(\"登出帳號\","))
         assertFalse(navigationSource.contains("data object SettingsRoute"))
         assertFalse(navigationSource.contains("data object AboutRoute"))
         assertTrue(navigationSource.contains("Overview(OverviewRoute, \"首頁\""))
@@ -660,18 +661,20 @@ class ArchitectureBoundaryTest {
         assertFalse(gradesSource.contains("WideNavigationRail"))
         assertFalse(gradesSource.contains("ShortNavigationBar"))
         assertFalse(gradesSource.contains("BuildConfig.VERSION_NAME"))
-        assertTrue(personalSource.contains("title = \"App 更新\""))
-        assertTrue(personalSource.contains("title = \"開源授權\""))
-        val dataPrivacySection = personalSource
+        assertTrue(generalSettingsSource.contains("title = \"App 更新\""))
+        assertTrue(generalSettingsSource.contains("title = \"開源授權\""))
+        val dataPrivacySection = generalSettingsSource
             .substringAfter("SettingsSection(\"資料與隱私\")")
             .substringBefore("SettingsSection(\"關於\")")
         assertTrue(dataPrivacySection.contains("title = \"使用統計\""))
-        assertTrue(
-            dataPrivacySection.indexOf("title = \"使用統計\"") >
-                dataPrivacySection.lastIndexOf("title = \"生物識別解鎖\""),
-        )
+        assertFalse(dataPrivacySection.contains("title = \"生物識別解鎖\""))
+        assertTrue(personalSource.contains("SettingsSection(\"帳號安全\")"))
+        assertTrue(personalSource.contains("title = \"生物識別解鎖\""))
+        assertTrue(personalSource.contains("onOpenSettings"))
+        assertTrue(personalSource.contains("onOpenAttendance"))
+        assertTrue(personalSource.contains("onOpenMerits"))
         assertFalse(
-            personalSource.substringAfter("SettingsSection(\"關於\")")
+            generalSettingsSource.substringAfter("SettingsSection(\"關於\")")
                 .substringBefore("SettingsSection(\"開發者選項\")")
                 .contains("title = \"使用統計\""),
         )
@@ -686,9 +689,9 @@ class ArchitectureBoundaryTest {
     fun announcementReminderEntryLivesInAnnouncementsOverflowMenu() {
         val announcementsSource = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
         val personalSource = readSource("app/src/main/java/com/clhs/score/ui/PersonalScreen.kt")
-        val reminderMenu = announcementsSource
-            .substringAfter("DropdownMenuItem(")
-            .substringBefore("onClick = {")
+        val reminderLabel = "text = { Text(\"公告更新提醒\") }"
+        val reminderMenu = announcementsSource.substringBefore(reminderLabel).substringAfterLast("DropdownMenuItem(") +
+            announcementsSource.substringAfter(reminderLabel).substringBefore("onClick = {")
 
         assertTrue(announcementsSource.contains("more_vert"))
         assertTrue(announcementsSource.contains("DropdownMenuItem("))
@@ -899,7 +902,7 @@ class ArchitectureBoundaryTest {
     @Test
     fun automaticUpdateCheckIsRootOwnedAndNonIntrusive() {
         val activity = readSource("app/src/main/java/com/clhs/score/MainActivity.kt")
-        val personal = readSource("app/src/main/java/com/clhs/score/ui/PersonalScreen.kt")
+        val generalSettings = readSource("app/src/main/java/com/clhs/score/ui/GeneralSettingsScreen.kt")
         val settingsRepository = readSource("app/src/main/java/com/clhs/score/data/SettingsRepository.kt")
         val settingsViewModel = readSource("app/src/main/java/com/clhs/score/viewmodel/SettingsViewModel.kt")
         val uiUtils = readSource("app/src/main/java/com/clhs/score/ui/UiUtils.kt")
@@ -912,10 +915,10 @@ class ArchitectureBoundaryTest {
         assertTrue(settingsViewModel.contains("showResult = false"))
         assertTrue(settingsViewModel.contains("restoreLastKnownUpdate"))
         assertTrue(uiUtils.contains("tint = MaterialTheme.colorScheme.onSurfaceVariant"))
-        assertTrue(personal.contains("iconBadge = updateState is UpdateState.UpdateAvailable"))
-        assertTrue(personal.contains("value = updateValue"))
-        assertFalse(personal.contains("trailingBadge ="))
-        assertTrue(personal.contains("MaterialTheme.colorScheme.error"))
+        assertTrue(generalSettings.contains("iconBadge = updateState is UpdateState.UpdateAvailable"))
+        assertTrue(generalSettings.contains("value = updateValue"))
+        assertFalse(generalSettings.contains("trailingBadge ="))
+        assertTrue(generalSettings.contains("MaterialTheme.colorScheme.error"))
     }
 
     @Test

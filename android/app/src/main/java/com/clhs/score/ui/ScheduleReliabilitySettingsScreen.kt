@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.clhs.score.ui
 
 import com.clhs.score.ui.navigation.navigationContentPadding
@@ -6,13 +8,13 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -182,20 +184,22 @@ internal fun ScheduleReliabilitySettingsContent(
     val needsPermission = exactOptIn && needsExactSpecialAccess && !exactAccess
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
 
-    SubpageLayout(title = "排程可靠性", onBack = onBack) {
+    FloatingSubpageLayout(
+        onBack = onBack,
+        actions = { PocketCircleIconButton("info", "了解更多", onOpenFurtherInfo) },
+    ) { pagePadding ->
         LazyColumn(
-            modifier = Modifier.align(Alignment.TopCenter).widthIn(max = 720.dp).fillMaxWidth(),
-            contentPadding = navigationContentPadding(PaddingValues(16.dp)),
+            modifier = Modifier.fillMaxSize().wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 720.dp).fillMaxWidth(),
+            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = pagePadding.calculateBottomPadding() + 16.dp)),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 Row(
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    SettingIcon(if (exactOptIn && !needsPermission) "check_circle" else "alarm")
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             when {
                                 needsPermission -> "還差一步"
@@ -220,16 +224,18 @@ internal fun ScheduleReliabilitySettingsContent(
                         Row(
                             modifier = Modifier.fillMaxWidth()
                                 .toggleable(value = exactOptIn, role = Role.Switch, onValueChange = onToggleExact)
-                                .heightIn(min = 56.dp)
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                .heightIn(min = 80.dp)
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("精確鬧鐘", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                            PocketOptionIcon("alarm")
+                            Text("精確鬧鐘", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMediumEmphasized)
                             Switch(checked = exactOptIn, onCheckedChange = null)
                         }
                         if (exactOptIn && needsExactSpecialAccess) {
                             ReliabilitySettingsRow(
+                                icon = "alarm",
                                 title = if (needsPermission) "允許鬧鐘與提醒" else "系統授權",
                                 status = when {
                                     exactSettingsUnavailable -> "無法開啟"
@@ -249,20 +255,18 @@ internal fun ScheduleReliabilitySettingsContent(
                 }
             }
             item {
+                Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Column {
                 ReliabilitySettingsRow(
+                    icon = "settings",
                     title = "進階選項",
                     status = "選用",
                     onClick = { showAdvanced = !showAdvanced },
                     expanded = showAdvanced,
                 )
                 if (showAdvanced) {
-                    Text(
-                        "通知仍延遲時再調整，可能增加耗電。",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                     ReliabilitySettingsRow(
+                        icon = "battery_saver",
                         title = "電池最佳化",
                         status = when {
                             batterySettingsUnavailable -> "無法開啟"
@@ -273,12 +277,7 @@ internal fun ScheduleReliabilitySettingsContent(
                         supportingText = if (batterySettingsUnavailable) "請至 Android 設定搜尋「電池最佳化」。" else null,
                     )
                 }
-            }
-            item {
-                TextButton(onClick = onOpenFurtherInfo) {
-                    OutlinedRoundedSymbol("info", contentDescription = null)
-                    Spacer(Modifier.size(8.dp))
-                    Text("了解更多")
+                }
                 }
             }
         }
@@ -287,6 +286,7 @@ internal fun ScheduleReliabilitySettingsContent(
 
 @Composable
 private fun ReliabilitySettingsRow(
+    icon: String,
     title: String,
     status: String,
     onClick: () -> Unit,
@@ -298,15 +298,16 @@ private fun ReliabilitySettingsRow(
         modifier = Modifier.fillMaxWidth()
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { if (expanded != null) stateDescription = if (expanded) "已展開" else "已收合" }
-            .heightIn(min = 56.dp)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .heightIn(min = 80.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        PocketOptionIcon(icon)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 title,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.titleMediumEmphasized,
                 color = if (emphasized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             )
             if (supportingText != null) {
@@ -322,23 +323,21 @@ private fun ReliabilitySettingsRow(
 }
 
 @Composable
-private fun SettingIcon(icon: String) {
-    Surface(
-        modifier = Modifier.size(40.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-    ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            OutlinedRoundedSymbol(icon, contentDescription = null)
-        }
-    }
-}
-
-@Composable
 private fun InfoSection(title: String, body: String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium)
         Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "排程設定選項", widthDp = 390, heightDp = 720)
+@androidx.compose.ui.tooling.preview.Preview(name = "排程設定選項 · 1.5x", widthDp = 390, heightDp = 900, fontScale = 1.5f)
+@Composable
+private fun ReliabilityOptionsPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        ScheduleReliabilitySettingsContent(
+            exactOptIn = true, exactAccess = false, needsExactSpecialAccess = true,
+            batteryExempt = false, onBack = {}, onToggleExact = {}, onManageBattery = {},
+        )
     }
 }

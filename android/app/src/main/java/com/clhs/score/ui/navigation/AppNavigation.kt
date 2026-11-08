@@ -69,6 +69,9 @@ sealed interface AppRoute : NavKey
 @Serializable data object CourseNotificationSettingsRoute : AppRoute
 @Serializable data object SchoolWebsiteRoute : AppRoute
 @Serializable data object PersonalRoute : AppRoute
+@Serializable data object GeneralSettingsRoute : AppRoute
+@Serializable data object AttendanceRoute : AppRoute
+@Serializable data object MeritRoute : AppRoute
 @Serializable data object SettingsTransferRoute : AppRoute
 @Serializable data object UsageStatisticsRoute : AppRoute
 @Serializable data object OpenSourceLicensesRoute : AppRoute
@@ -107,6 +110,8 @@ fun AppRoute.authRequirement(): AuthRequirement = when (this) {
     ScoreSimulatorRoute,
     SubjectTrendRoute,
     SchoolWebsiteRoute,
+    AttendanceRoute,
+    MeritRoute,
     -> AuthRequirement.Session
     OverviewRoute,
     CampusRoute,
@@ -115,6 +120,7 @@ fun AppRoute.authRequirement(): AuthRequirement = when (this) {
     SchoolAnnouncementsRoute,
     is SchoolAnnouncementDetailRoute,
     PersonalRoute,
+    GeneralSettingsRoute,
     AnnouncementReminderSettingsRoute,
     AnnouncementReminderUnitsRoute,
     BackgroundPauseSettingsRoute,
@@ -152,6 +158,9 @@ internal fun AppRoute.analyticsScreenName(): String = when (this) {
     CourseNotificationSettingsRoute -> AnalyticsScreenNames.COURSE_NOTIFICATION_SETTINGS
     SchoolWebsiteRoute -> AnalyticsScreenNames.SCHOOL_WEBSITE
     PersonalRoute -> AnalyticsScreenNames.PERSONAL
+    GeneralSettingsRoute -> "general_settings"
+    AttendanceRoute -> "attendance_records"
+    MeritRoute -> "merit_records"
     SettingsTransferRoute -> AnalyticsScreenNames.SETTINGS_TRANSFER
     UsageStatisticsRoute -> AnalyticsScreenNames.USAGE_STATISTICS
     OpenSourceLicensesRoute -> AnalyticsScreenNames.OPEN_SOURCE_LICENSES
@@ -276,6 +285,9 @@ private fun AppRoute.topLevelDestination(): TopLevelDestination? = when (this) {
     SchoolWebsiteRoute,
     -> TopLevelDestination.Campus
     PersonalRoute,
+    GeneralSettingsRoute,
+    AttendanceRoute,
+    MeritRoute,
     AnnouncementReminderSettingsRoute,
     AnnouncementReminderUnitsRoute,
     BackgroundPauseSettingsRoute,

@@ -325,25 +325,7 @@ fun SubjectTrendScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("成績折線圖") },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onBack,
-                        shapes = IconButtonDefaults.shapes(),
-                    ) {
-                        OutlinedRoundedSymbol(icon = "arrow_back", contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) { padding ->
+    FloatingSubpageLayout(onBack = onBack) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -358,7 +340,7 @@ fun SubjectTrendScreen(
                             .align(Alignment.TopCenter)
                             .widthIn(max = 1200.dp)
                             .fillMaxSize()
-                            .padding(16.dp),
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         LazyColumn(
@@ -402,7 +384,7 @@ fun SubjectTrendScreen(
                     }
                 } else {
                     LazyColumn(
-                        contentPadding = navigationContentPadding(PaddingValues(0.dp)),
+                        contentPadding = navigationContentPadding(PaddingValues(top = 8.dp)),
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp),

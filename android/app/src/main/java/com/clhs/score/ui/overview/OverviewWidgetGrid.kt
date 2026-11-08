@@ -454,7 +454,7 @@ private fun OverviewWidgetHost(
                     modifier = Modifier.padding(4.dp)) {
                     OutlinedRoundedSymbol("more_vert", contentDescription = "$title 元件選單")
                 }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenu(offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp), expanded = menu, onDismissRequest = { menu = false }) {
                     if (widget.config() != null) DropdownMenuItem(text = { Text("設定") }, onClick = { menu = false; onConfigure(widget) })
                     definition?.takeIf { it.multiple }?.sizes?.forEach { size -> DropdownMenuItem(text = { Text("${size.columns} × ${size.rows}" + if (size == widget.size) " ✓" else "") },
                         onClick = { menu = false; onChange(widget.copy(size = size)) }) }

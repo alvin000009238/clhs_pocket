@@ -78,10 +78,10 @@ fun WorkManagerInfoScreen(onBack: () -> Unit) {
     val infos by workManager.getWorkInfosFlow(query).collectAsStateWithLifecycle(initialValue = emptyList())
     val groups = remember(infos) { groupWorkInfos(infos.map(WorkInfo::toWorkManagerItem)) }
 
-    SubpageLayout(title = "執行資訊", onBack = onBack) {
+    FloatingSubpageLayout(onBack = onBack) { pagePadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = navigationContentPadding(PaddingValues(horizontal = 16.dp, vertical = 16.dp)),
+            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = pagePadding.calculateBottomPadding() + 16.dp)),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             WorkManagerSection.entries.forEach { section ->

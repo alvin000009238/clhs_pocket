@@ -252,15 +252,7 @@ private fun WebViewNavigationBar(
             .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(
-            onClick = onBack,
-            shapes = IconButtonDefaults.shapes(),
-        ) {
-            OutlinedRoundedSymbol(
-                icon = "arrow_back",
-                contentDescription = "返回",
-            )
-        }
+        PocketBackButton(onBack)
 
         Column(
             modifier = Modifier
@@ -283,7 +275,7 @@ private fun WebViewNavigationBar(
 
         IconButton(
             onClick = { webView?.reload() },
-            shapes = IconButtonDefaults.shapes(),
+            shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
         ) {
             OutlinedRoundedSymbol(
                 icon = "refresh",

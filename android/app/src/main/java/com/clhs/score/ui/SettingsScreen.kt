@@ -197,16 +197,13 @@ fun UsageStatisticsScreen(
         "自 $date 起"
     } ?: "尚未開始記錄"
 
-    SubpageLayout(
-        onBack = onBack,
-        title = "使用統計",
-    ) {
+    FloatingSubpageLayout(onBack = onBack) { pagePadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .navigationContentPadding()
-                .padding(start = 16.dp, top = 8.dp, end = 16.dp)
+                .padding(start = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, end = 16.dp)
                 .navigationBarsPadding(),
         ) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -231,6 +228,15 @@ fun UsageStatisticsScreen(
                 }
             }
         }
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "使用統計", widthDp = 390, heightDp = 844)
+@androidx.compose.ui.tooling.preview.Preview(name = "使用統計大字體", widthDp = 320, heightDp = 844, fontScale = 1.5f)
+@Composable
+private fun UsageStatisticsPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        UsageStatisticsScreen(UsageStatistics(0L, emptyMap()), onBack = {})
     }
 }
 private val usageStatisticRows = listOf(
@@ -315,16 +321,13 @@ fun OpenSourceLicensesScreen(
         buildThirdPartyLicenses(outfitLicenseText, huninnLicenseText)
     }
 
-    SubpageLayout(
-        onBack = onBack,
-        title = "開放原始碼授權",
-    ) {
+    FloatingSubpageLayout(onBack = onBack) { pagePadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .navigationContentPadding()
-                .padding(start = 16.dp, top = 8.dp, end = 16.dp)
+                .padding(start = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, end = 16.dp)
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {

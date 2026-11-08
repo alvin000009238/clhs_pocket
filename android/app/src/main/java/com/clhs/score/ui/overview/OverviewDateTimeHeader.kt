@@ -1,5 +1,7 @@
 package com.clhs.score.ui.overview
 
+import com.clhs.score.ui.pocketFloatingShadow
+
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -26,6 +28,25 @@ import java.util.Locale
 
 private val headerTimeFormat = DateTimeFormatter.ofPattern("HH:mm", Locale.TAIWAN)
 private val headerDateFormat = DateTimeFormatter.ofPattern("M/d", Locale.TAIWAN)
+
+@androidx.compose.ui.tooling.preview.Preview(name = "首頁浮動時間", widthDp = 390, heightDp = 100)
+@androidx.compose.ui.tooling.preview.Preview(name = "首頁浮動時間深色", widthDp = 390, heightDp = 100,
+    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun FloatingClockPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        Surface(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize()) {
+                OverviewDateTimeHeader(
+                now = LocalDateTime.of(2026, 10, 31, 15, 30), scrollOffset = 1000f,
+                expandedWidth = 358.dp, expandedLeft = 16.dp, expandedTop = 64.dp,
+                expandedHeight = 96.dp, dockTop = 8.dp, dockWidth = 128.dp,
+                forceCompact = true,
+                )
+            }
+        }
+    }
+}
 
 /** One surface morphs from the first content card into a floating clock; it never owns the viewport. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -81,13 +102,14 @@ internal fun OverviewDateTimeHeader(
     val compactLeft = with(density) { (dockWidth.toPx() - compactLayout.size.width).toDp() / 2 }
     val prefixWidth = with(density) { compactLayout.getHorizontalPosition(compactPrefix.length, true).toDp() }
     val timeWidth = with(density) { expandedTime.size.width.toDp() }
+    val headerShape = RoundedCornerShape(lerp(28.dp, height / 2, fraction))
     Surface(
         modifier = Modifier.offset(lerp(expandedLeft, 16.dp, fraction),
             lerp(expandedTop - headerScroll, dockTop, fraction))
-            .size(width, height).then(modifier).clearAndSetSemantics { contentDescription = "$date，$weekday，$time" },
-        shape = RoundedCornerShape(lerp(28.dp, height / 2, fraction)),
+            .size(width, height).then(modifier).pocketFloatingShadow(headerShape, fraction)
+            .clearAndSetSemantics { contentDescription = "$date，$weekday，$time" },
+        shape = headerShape,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shadowElevation = 3.dp * fraction,
     ) {
         Box {
             // Keep one clock throughout the morph; swapping faded text changes its position mid-flight.
