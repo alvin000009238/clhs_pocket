@@ -47,14 +47,22 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 @androidx.compose.ui.tooling.preview.Preview(name = "首頁浮動工具", widthDp = 390, heightDp = 844)
+@androidx.compose.ui.tooling.preview.Preview(name = "首頁深色", widthDp = 390, heightDp = 844, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
+@androidx.compose.ui.tooling.preview.Preview(name = "首頁大字", widthDp = 320, heightDp = 1000, fontScale = 2f)
 @Composable
 private fun DashboardFloatingToolsPreview(
     @androidx.compose.ui.tooling.preview.PreviewParameter(DashboardEditingPreviewProvider::class) editing: Boolean,
 ) {
+    val now = java.time.LocalDateTime.of(2026, 11, 9, 10, 15)
+    val report = com.clhs.score.data.FakeScheduleData.report("114_2", "230", today = now.toLocalDate())
+    val widgets = defaultOverviewWidgets() + OverviewWidgetInstance.create("countdown",
+        OverviewWidgetConfig.CustomCountdown("期末考", "2026-12-30"))
+    val state = OverviewState(now = now, isInitialLoading = false, hasSchedule = true,
+        hero = scheduleOverviewHero(report, now), items = scheduleOverviewItems(report, now))
     com.clhs.score.ui.theme.ScoreTheme {
         OverviewDashboard(
-            state = OverviewState(isInitialLoading = false),
-            editor = OverviewEditorState(committed = emptyList(), draft = if (editing) emptyList() else null, loading = false),
+            state = state,
+            editor = OverviewEditorState(committed = widgets, draft = if (editing) widgets else null, loading = false),
             actions = OverviewEditorActions(
                 beginEdit = {}, cancelEdit = {}, saveLayout = { true }, putWidget = {},
                 removeWidget = {}, moveWidget = { _, _ -> }, resetLayout = {}, undoReset = {},
@@ -141,7 +149,7 @@ internal fun OverviewDashboard(
     }
     val visible = remember(widgets, editor.editing, state.items) {
         widgets.filter { it.type != "date_time" && it.enabled && (editor.editing || it.type != "alerts" || state.items.any { item ->
-            item.kind == OverviewItemKind.ScheduleChange || item.kind == OverviewItemKind.GradeUpdate
+            item.kind == OverviewItemKind.GradeUpdate
         }) }
     }
     val density = LocalDensity.current
@@ -151,7 +159,7 @@ internal fun OverviewDashboard(
     var scrollOffset by rememberSaveable { mutableFloatStateOf(0f) }
     var gridScroll by remember { mutableStateOf<ScrollableState?>(null) }
     val dateHeight = 96.dp * density.fontScale
-    val expandedDateTop = actionsHeight + 8.dp
+    val expandedDateTop = actionsHeight + OverviewSpacing.headerGap
     val navigationClearance = LocalNavigationClearance.current
     val header: @Composable () -> Unit = {
         Column {
@@ -202,7 +210,7 @@ internal fun OverviewDashboard(
             CompositionLocalProvider(LocalNavigationClearance provides if (editor.editing) 0.dp else navigationClearance) {
                 Column(Modifier.fillMaxSize().padding(padding)
                     .padding(bottom = if (editor.editing) navigationClearance else 0.dp)
-                    .padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    .padding(horizontal = OverviewSpacing.page), horizontalAlignment = Alignment.CenterHorizontally) {
                     when {
                         editor.loading -> Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { LoadingIndicator() }
                         editor.layoutError != null -> Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {

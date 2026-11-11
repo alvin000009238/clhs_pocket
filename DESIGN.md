@@ -98,13 +98,13 @@ App 頂層依序為「首頁、課表、成績、校園」。手機直向使用 
 
 ### 首頁
 
-首頁由 `ui/overview/OverviewDashboard.kt`、`OverviewWidgetGrid.kt`、`OverviewWidgetContent.kt` 與 `OverviewScreen.kt` 組成，使用既有多實例 grid 與 editor state，資料取自 `OverviewState`。寬版沿用既有 grid packing 與 Widget 尺寸；課表摘要整區點擊導向課表，不加重複 CTA 箭頭。
+首頁由 `ui/overview/OverviewDashboard.kt`、`OverviewWidgetGrid.kt`、`OverviewWidgetContent.kt`、`OverviewCourseCard.kt` 與 `OverviewScreen.kt` 組成，使用既有多實例 grid 與 editor state，資料取自 `OverviewState`。寬版沿用既有 grid packing 與 Widget 尺寸；課表摘要整區點擊導向課表，不加重複 CTA 箭頭。
 
 首頁視覺焦點為課程 Hero。天氣、YouBike 與倒數依數值層級區分用途；短版顯示主要資訊，較高版本才增加細節。`PocketVisual` 只共用 Hero 與數值容器兩種形狀。主數字使用 emphasized typography；Outfit subset 不含數字，不用於數值內容。
 
 近期行程與重要公告的標題放在容器外。內容使用官方 `SegmentedListItem` 和 `ListItemDefaults.segmentedShapes()`，列間距 4dp。日期膠囊固定在左欄並依 intrinsic width 保留空間，最小尺寸 52×48dp，水平內距 6dp、垂直 4dp。日期、內容與箭頭相對卡片垂直置中。字體放大時保留分欄，文字自然換行，不放大所有 spacing。公告日期放在左欄，小字只顯示單位，不重複日期或時間；未讀標記與點擊路徑沿用既有 state。
 
-倒數以剩餘時間與事件名稱為主，不加外部區塊標題；較高版本補充日期。近期行程日期欄顯示起訖日期；全天事件的結束日期扣除 ICS DTEND 排他邊界。課表摘要以同一段文字呈現節次、教室與教師，不顯示鐘點區間；上課中另呈現可取得的下一節課。
+倒數以剩餘時間與事件名稱為主，不加外部區塊標題；較高版本補充日期。近期行程日期欄顯示起訖日期；全天事件的結束日期扣除 ICS DTEND 排他邊界。課表摘要採目前課程主區與下一節兩行，狀態與鐘點共用首列；不顯示重複的進度線、分隔線與內嵌大卡片。課名旁顯示節次，教師與教室使用次要文字。異動以日期及節次對應，新增／調課直接標在該課旁；調課保留原值與新值，停課及無法對應的異動另列摘要。一般內距為水平 20dp／垂直 16dp，組內 4–6dp、組間 12dp；大字體自然換行，不鎖高。課程異動由課表卡統一呈現，最多摘要兩項當日異動（含行內標籤），其餘顯示數量；獨立成績異動卡只呈現成績更新。完整資料仍由課表入口查看。課表摘要使用實色 primaryContainer，天氣維持低彩度 mesh，以區分兩者。
 
 YouBike 由使用者新增並選站。2×1 顯示總量與一般／電輔數量；2×2 以兩列呈現總量與車種。零值保留數字，未知數量不補零；停用顯示暫停營運，失敗保留上次數量，來源超過五分鐘標示可能過期。天氣與 YouBike 只在使用者點擊手動更新時，於右上角顯示官方 `LoadingIndicator`；進入頁面、背景及週期更新保持靜默。成功、失敗或離開頁面都結束手動指示器。較高元件使用可用高度分布資訊，避免底部集中留白；觸控範圍至少 48dp。
 
@@ -192,3 +192,9 @@ Guest 可使用公開內容與設定。私人內容由 `AuthGate` 顯示登入�
 ## 開發與驗證
 
 新增畫面前先找本文件中的同類頁面，再沿用現有 theme、state、元件與 [FakeData.kt](android/app/src/main/java/com/clhs/score/data/FakeData.kt)。不要新增平行 theme、導覽或硬編展示資料。Compose 預覽入口見 [ScorePreviews.kt](android/app/src/main/java/com/clhs/score/ui/ScorePreviews.kt)。依 [測試策略](docs/development/testing.md) 選擇本機檢查；預覽無法驗證互動、生命週期或平台行為時，再做裝置驗證。本文只描述實作規範，不代表已完成裝置視覺驗收。
+
+### 首頁資訊節奏
+
+首頁以 `OverviewSpacing` 集中頁面 16dp、卡片間 12dp、內容 16dp 與區塊 24dp 的基礎間距；密集列內使用 4–8dp。主要數值使用 display／headline，資料標題使用 title，來源與更新狀態使用 bodySmall／label。保留語意色與靜態 mesh；倒數保留 tertiary，交通使用 primary tonal，列表使用低階 surface。
+
+時間卡在窄寬或大字體時改為上下排列。首頁時計按分鐘與事件／倒數顯示邊界更新，資料源更新仍獨立驅動。新建／重設布局包含精簡天氣，讀取既有布局不補插卡片。

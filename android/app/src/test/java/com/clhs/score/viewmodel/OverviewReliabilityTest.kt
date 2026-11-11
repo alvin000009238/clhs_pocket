@@ -289,11 +289,21 @@ class OverviewReliabilityTest {
             awaitState(vm) { it.now != initial.now }
         }
         assertEquals(initial.now.plusSeconds(1), resumed.now)
+
+        currentMillis.addAndGet(58_000)
+        scheduler.advanceTimeBy(58_000)
+        scheduler.runCurrent()
+        assertEquals(resumed.now, vm.uiState.value.now)
+        currentMillis.addAndGet(1_000)
+        scheduler.advanceTimeBy(1_000)
+        scheduler.runCurrent()
+        assertEquals(initial.now.plusMinutes(1), vm.uiState.value.now)
+
         vm.setClockEnabled(false)
         currentMillis.addAndGet(1_000)
         scheduler.advanceTimeBy(1_100)
         scheduler.runCurrent()
-        assertEquals(initial.now.plusSeconds(1), vm.uiState.value.now)
+        assertEquals(initial.now.plusMinutes(1), vm.uiState.value.now)
         viewModels.clear()
     }
 

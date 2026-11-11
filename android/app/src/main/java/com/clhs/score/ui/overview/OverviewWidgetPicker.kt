@@ -68,7 +68,7 @@ internal fun OverviewWidgetPicker(
                                 "weather" -> "溫度、降雨與天氣預報"
                                 "youbike" -> "常用站點的可借車與空位"
                                 "countdown" -> "讓重要日子一目了然"
-                                "alerts" -> "掌握調課與成績更新"
+                                "alerts" -> "掌握最新成績更新"
                                 "calendar" -> "近期校園行程"
                                 else -> "關注學校的重要消息"
                             }, style = MaterialTheme.typography.bodyMedium, overflow = TextOverflow.Ellipsis)

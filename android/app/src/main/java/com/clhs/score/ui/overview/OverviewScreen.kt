@@ -2,7 +2,6 @@ package com.clhs.score.ui.overview
 
 import com.clhs.score.ui.navigation.navigationContentPadding
 
-import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -31,7 +30,6 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import com.clhs.score.ui.navigation.PocketScaffold as Scaffold
 import androidx.compose.material3.Surface
@@ -76,10 +74,10 @@ import com.clhs.score.ui.AuthRestoringPlaceholder
 import com.clhs.score.ui.AuthGate
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.LoadingIndicator
 import com.clhs.score.ui.navigation.AuthRequirement
 import com.clhs.score.ui.theme.PocketMotion
 import com.clhs.score.ui.theme.PocketVisual
+import com.clhs.score.ui.theme.pocketMeshBackground
 import com.clhs.score.viewmodel.AuthState
 import java.time.Duration
 import java.time.LocalDate
@@ -178,15 +176,14 @@ private fun OverviewContent(
     val preferences = state.preferences
     val calendar = remember(visibleItems) { visibleItems.filter { it.kind == OverviewItemKind.CalendarEvent } }
     val announcements = remember(visibleItems) { visibleItems.filter { it.kind == OverviewItemKind.Announcement } }
-    val scheduleChanges = remember(visibleItems) { visibleItems.filter { it.kind == OverviewItemKind.ScheduleChange } }
     val alerts = remember(visibleItems) {
         visibleItems.filter { it.kind == OverviewItemKind.GradeUpdate }
     }
 
-    val sections = remember(preferences, scheduleChanges.isNotEmpty(), alerts.isNotEmpty()) {
+    val sections = remember(preferences, alerts.isNotEmpty()) {
         preferences.orderedSections().filter { section ->
             preferences.shows(section) && when (section) {
-                "alerts" -> scheduleChanges.isNotEmpty() || alerts.isNotEmpty()
+                "alerts" -> alerts.isNotEmpty()
                 "countdown" -> preferences.countdownEventIds.isNotEmpty()
                 else -> true
             }
@@ -234,9 +231,6 @@ private fun OverviewContent(
                 onRefreshYouBike,
             )
             "alerts" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (scheduleChanges.isNotEmpty()) {
-                    AlertGroup(scheduleChanges, onOpenDestination)
-                }
                 if (alerts.isNotEmpty()) AlertGroup(alerts, onOpenDestination)
             }
             "countdown" -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -319,72 +313,11 @@ internal fun OverviewSection(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-internal fun HeroCard(
-    hero: OverviewHero?, now: LocalDateTime, hasSchedule: Boolean,
-    needsSetup: Boolean, nextClass: OverviewItem?, onClick: () -> Unit,
-) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = PocketVisual.heroShape,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ),
-    ) {
-        Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                hero?.statusText(now) ?: when {
-                    needsSetup -> "課表尚未設定"
-                    hasSchedule -> "目前沒有待上課程"
-                    else -> "暫無可用課表"
-                },
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            if (hero == null) {
-                Text(
-                    when {
-                        needsSetup -> "選擇學期與班級後，就能查看現在與下一節課。"
-                        hasSchedule -> "目前課表範圍內沒有下一節課。"
-                        else -> "前往課表重新查詢，取得最新課程資訊。"
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-            } else {
-                Crossfade(targetState = hero.courseName, animationSpec = PocketMotion.stateChange(), label = "課程名稱") { name ->
-                    Text(name, style = MaterialTheme.typography.headlineLargeEmphasized,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
-                Text(listOf(hero.courseLabel, hero.supportingText).filter(String::isNotBlank).joinToString(" · "),
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-            }
-            hero?.courseProgress?.let { progress ->
-                LinearWavyProgressIndicator(progress = { progress },
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f),
-                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "課程進度" })
-            }
-            nextClass?.let {
-                HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f))
-                Text("下一節課 · ${it.title.removePrefix("下一節 ")}", style = MaterialTheme.typography.titleSmall)
-                Text(listOf(it.label, it.supportingText.replace(Regex("^\\d{2}:\\d{2}[-–]\\d{2}:\\d{2}( · )?"), ""))
-                    .filter(String::isNotBlank).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer)
-            }
-            if (needsSetup && hero == null) Text("設定課表", Modifier.align(Alignment.End),
-                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-        }
-    }
-}
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
 internal fun WeatherStrip(state: OverviewWeatherState, now: LocalDateTime, modifier: Modifier = Modifier,
     compact: Boolean = false, expanded: Boolean = false, editing: Boolean = false,
     refreshing: Boolean = false, wide: Boolean = true) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(
-        if (expanded) 12.dp else if (compact) 8.dp else 4.dp,
+        if (expanded) 8.dp else 4.dp,
         alignment = if (compact) Alignment.CenterVertically else Alignment.Top,
     )) {
         when (state) {
@@ -400,10 +333,10 @@ internal fun WeatherStrip(state: OverviewWeatherState, now: LocalDateTime, modif
                 Row(Modifier.fillMaxWidth().padding(end = if (editing) 40.dp else if (refreshing) 28.dp else 0.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(weather.locationLabel, Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (state.failed) Text(if (compact) "更新失敗" else "更新失敗，顯示上次資料", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error)
+                    if (state.failed && !expanded) Text("更新失敗", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error, maxLines = 1)
                 }
                 if (compact) {
                     WeatherCurrent(weather, compact = true)
@@ -412,7 +345,7 @@ internal fun WeatherStrip(state: OverviewWeatherState, now: LocalDateTime, modif
                     Row(if (expanded) Modifier.weight(1f).fillMaxWidth() else Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Column(Modifier.weight(1f)) { WeatherCurrent(weather, compact = false) }
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (showRange) WeatherRange(weather)
                             WeatherRain(weather)
                             weather.apparentTemperatureCelsius?.let { Text("體感 $it°", style = MaterialTheme.typography.bodySmall,
@@ -420,17 +353,18 @@ internal fun WeatherStrip(state: OverviewWeatherState, now: LocalDateTime, modif
                         }
                     }
                 } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedRoundedSymbol(weatherSymbol(weather.condition), contentDescription = null,
-                                tint = MaterialTheme.colorScheme.tertiary, size = 40.dp)
-                            Text("${weather.temperatureCelsius}°", style = MaterialTheme.typography.displayMediumEmphasized,
-                                modifier = Modifier.clearAndSetSemantics { contentDescription = "攝氏 ${weather.temperatureCelsius} 度" })
+                            if (LocalDensity.current.fontScale < 1.5f) OutlinedRoundedSymbol(weatherSymbol(weather.condition), contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary, size = 28.dp)
+                            Text("${weather.temperatureCelsius}°", style = MaterialTheme.typography.displaySmallEmphasized,
+                                modifier = Modifier.weight(1f).clearAndSetSemantics { contentDescription = "攝氏 ${weather.temperatureCelsius} 度" },
+                                maxLines = 1, softWrap = false)
                         }
-                        Text(weather.condition, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(weather.condition, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     Spacer(Modifier.weight(1f))
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (showRange) WeatherRange(weather)
                         WeatherRain(weather)
                         weather.apparentTemperatureCelsius?.let { Text("體感 $it°", style = MaterialTheme.typography.bodySmall,
@@ -442,6 +376,8 @@ internal fun WeatherStrip(state: OverviewWeatherState, now: LocalDateTime, modif
                 ) "上次更新 ${weather.fetchedAt.atZone(SCHOOL_ZONE).format(DateTimeFormatter.ofPattern("HH:mm"))}" else null
                 updateLabel?.takeIf { !compact }?.let { Text(it, style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (state.failed && expanded) Text("更新失敗，顯示上次資料", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -450,17 +386,19 @@ internal fun WeatherStrip(state: OverviewWeatherState, now: LocalDateTime, modif
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun WeatherCurrent(weather: com.clhs.score.domain.overview.WeatherSnapshot, compact: Boolean) {
+    val largeText = LocalDensity.current.fontScale >= 1.5f
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)) {
-            OutlinedRoundedSymbol(weatherSymbol(weather.condition), contentDescription = null,
+            if (!compact || !largeText) OutlinedRoundedSymbol(weatherSymbol(weather.condition), contentDescription = null,
                 tint = MaterialTheme.colorScheme.tertiary, size = if (compact) 20.dp else 32.dp)
-            Text("${weather.temperatureCelsius}°", style = if (compact) MaterialTheme.typography.headlineSmallEmphasized
+            Text("${weather.temperatureCelsius}°", style = if (compact && largeText) MaterialTheme.typography.headlineSmallEmphasized
+                else if (compact) MaterialTheme.typography.headlineMediumEmphasized
                 else MaterialTheme.typography.displaySmallEmphasized, softWrap = false,
                 modifier = Modifier.clearAndSetSemantics { contentDescription = "攝氏 ${weather.temperatureCelsius} 度" })
             if (compact) Text(weather.condition, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        if (!compact) Text(weather.condition, style = MaterialTheme.typography.bodySmall,
+        if (!compact) Text(weather.condition, style = MaterialTheme.typography.bodyMedium,
             maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -473,7 +411,7 @@ private fun WeatherRain(weather: com.clhs.score.domain.overview.WeatherSnapshot)
             OutlinedRoundedSymbol("water_drop", size = 16.dp, contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("$it%",
-                style = MaterialTheme.typography.labelSmall, softWrap = false,
+                style = MaterialTheme.typography.labelMedium, softWrap = false,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -494,7 +432,7 @@ private fun WeatherRangeValue(symbol: String, label: String, temperature: Int) {
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         OutlinedRoundedSymbol(symbol, size = 16.dp, contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("$temperature°", style = MaterialTheme.typography.labelSmall, softWrap = false,
+        Text("$temperature°", style = MaterialTheme.typography.labelMedium, softWrap = false,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -602,13 +540,13 @@ private fun OverviewListRow(item: OverviewItem, today: LocalDate, supporting: St
         } } else null,
         supportingContent = if (supporting.isNotBlank() || unread) { {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (supporting.isNotBlank()) Text(supporting, style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (supporting.isNotBlank()) Text(supporting, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (unread) com.clhs.score.ui.announcements.AnnouncementBadge("未讀", unread = true)
             }
         } } else null,
         trailingContent = { OutlinedRoundedSymbol("keyboard_arrow_right", size = 20.dp, contentDescription = null) },
-    ) { Text(item.title, style = MaterialTheme.typography.titleMediumEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+    ) { Text(item.title, style = MaterialTheme.typography.titleMediumEmphasized) }
 }
 @Composable
 internal fun AlertGroup(items: List<OverviewItem>, onOpenDestination: (OverviewDestination) -> Unit) {
@@ -858,16 +796,14 @@ internal fun CountdownCards(
                             contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                         ) {
                             Column(
-                                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(if (showDate) 8.dp else 4.dp),
                             ) {
-                                Text(countdown, style = if (showDate) MaterialTheme.typography.displaySmallEmphasized
-                                    else MaterialTheme.typography.headlineSmallEmphasized,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                CountdownValue(countdown, showDate)
+                                if (showDate) Spacer(Modifier.weight(1f))
                                 Text(item.title, style = MaterialTheme.typography.titleSmall,
                                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 if (showDate) item.displayDate?.let {
-                                    Spacer(Modifier.weight(1f))
                                     Text(it.format(DateTimeFormatter.ofPattern("M 月 d 日")), style = MaterialTheme.typography.labelMedium)
                                 }
                             }
@@ -876,6 +812,22 @@ internal fun CountdownCards(
                     if (rowItems.size < columns) Spacer(Modifier.weight(1f))
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun CountdownValue(text: String, expanded: Boolean) {
+    val number = text.takeWhile(Char::isDigit)
+    if (number.isEmpty()) {
+        Text(text, style = if (expanded) MaterialTheme.typography.headlineLargeEmphasized
+            else MaterialTheme.typography.headlineSmallEmphasized)
+    } else {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            Text(number, Modifier.alignByBaseline(), style = if (expanded) MaterialTheme.typography.displayMediumEmphasized
+                else MaterialTheme.typography.headlineMediumEmphasized, softWrap = false)
+            Text(text.removePrefix(number).trim(), Modifier.alignByBaseline(), style = MaterialTheme.typography.labelLarge)
         }
     }
 }

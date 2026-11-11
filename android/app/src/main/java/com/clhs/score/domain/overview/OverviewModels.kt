@@ -61,7 +61,12 @@ data class OverviewItem(
     val eventTime: LocalDateTime? = null,
     internal val order: Int = 0,
     val displayDate: LocalDate? = null,
+    val courseChange: OverviewCourseChange? = null,
 )
+
+data class OverviewCourseKey(val date: LocalDate, val period: Int)
+
+data class OverviewCourseChange(val key: OverviewCourseKey, val type: com.clhs.score.data.ScheduleChangeType)
 
 data class OverviewState(
     val widgets: List<OverviewWidgetInstance>? = null,
@@ -112,7 +117,28 @@ data class OverviewHero(
     val courseProgress: Float? = null,
     val startsAt: LocalDateTime? = null,
     val endsAt: LocalDateTime? = null,
+    val teacherName: String = "",
+    val classroom: String = "",
+    val nextCourse: OverviewCourse? = null,
+    val scheduleChanges: List<OverviewItem> = emptyList(),
+    val courseKey: OverviewCourseKey? = null,
 )
+
+data class OverviewCourse(
+    val courseLabel: String,
+    val courseName: String,
+    val teacherName: String,
+    val classroom: String,
+    val startsAt: LocalDateTime?,
+    val endsAt: LocalDateTime?,
+    val key: OverviewCourseKey? = null,
+)
+
+/** Removed lessons remain standalone; absent keys must never consume an unrelated change. */
+internal fun OverviewHero.changesFor(key: OverviewCourseKey?): List<OverviewItem> =
+    if (key == null) emptyList() else scheduleChanges.filter {
+        it.courseChange?.key == key && it.courseChange.type != com.clhs.score.data.ScheduleChangeType.REMOVED
+    }
 
 sealed interface OverviewWeatherState {
     data object Loading : OverviewWeatherState

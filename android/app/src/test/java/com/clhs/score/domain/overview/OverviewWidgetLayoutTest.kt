@@ -139,13 +139,14 @@ class OverviewWidgetLayoutTest {
         assertEquals(unknown, restored)
     }
 
-    @Test fun defaultsKeepOptionalWidgetsOptInAndIndividualListLimits() {
+    @Test fun defaultsIncludeCompactWeatherAndKeepPersonalWidgetChoicesOptIn() {
         val widgets = defaultOverviewWidgets()
-        assertEquals(listOf("schedule", "alerts", "calendar", "announcements"), widgets.map { it.type })
-        assertEquals(4, widgets.map { it.id }.toSet().size)
+        assertEquals(listOf("schedule", "alerts", "weather", "calendar", "announcements"), widgets.map { it.type })
+        assertEquals(5, widgets.map { it.id }.toSet().size)
         assertTrue(widgets.all { it.enabled && it.config() != null })
         assertEquals(3, (widgets.first { it.type == "calendar" }.config() as OverviewWidgetConfig.ListItems).limit)
         assertEquals(2, (widgets.first { it.type == "announcements" }.config() as OverviewWidgetConfig.ListItems).limit)
+        assertEquals(OverviewWidgetSize(4, 1), widgets.single { it.type == "weather" }.size)
         val positions = OverviewLayoutEngine.pack(widgets, 4).associateBy { it.id }
         assertTrue(positions.values.all { it.column == 0 })
     }

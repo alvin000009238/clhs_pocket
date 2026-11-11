@@ -5,11 +5,9 @@ import com.clhs.score.ui.theme.pocketMeshBackground
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,6 +19,7 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -144,7 +143,7 @@ internal fun OverviewWidgetContent(
             Surface(onClick = hapticClick(onClick), enabled = !editing, modifier = modifier.fillMaxSize(), shape = PocketVisual.metricShape,
                 color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Box(Modifier.fillMaxSize().pocketMeshBackground()) {
-                    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = if (widget.size.rows == 1) 10.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.fillMaxSize().padding(horizontal = OverviewSpacing.content, vertical = if (widget.size.rows == 1) 10.dp else OverviewSpacing.content), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (weatherConfig.location.countryCode != "TW") {
                             Text("請重新選擇台灣地點", style = MaterialTheme.typography.bodyMedium)
                         } else {
@@ -161,7 +160,8 @@ internal fun OverviewWidgetContent(
                             if (widget.size.columns == 4 && widget.size.rows == 2 && available != null) {
                                 val periods = available.snapshot.forecast.filter { it.endsAtExclusive.isAfter(state.now.atZone(SCHOOL_ZONE).toInstant()) }
                                 if (periods.isNotEmpty()) {
-                                    Spacer(Modifier.height(8.dp))
+                                    HorizontalDivider(Modifier.padding(vertical = 8.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                                     ForecastRow(periods, available.snapshot.timezoneId, editing)
                                 }
                             }
@@ -218,11 +218,9 @@ internal fun OverviewWidgetContent(
             }
         }
         "alerts" -> Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            val scheduleChanges = remember(visibleItems) { visibleItems.filter { it.kind == OverviewItemKind.ScheduleChange } }
             val grades = remember(visibleItems) { visibleItems.filter { it.kind == OverviewItemKind.GradeUpdate } }
-            if (scheduleChanges.isNotEmpty()) AlertGroup(scheduleChanges, open)
             if (grades.isNotEmpty()) AlertGroup(grades, open)
-            if (editing && scheduleChanges.isEmpty() && grades.isEmpty()) Text("目前沒有課程或成績異動",
+            if (editing && grades.isEmpty()) Text("目前沒有成績異動",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -232,7 +230,7 @@ internal fun OverviewWidgetContent(
 private fun ForecastRow(periods: List<WeatherForecastPeriod>, timezoneId: String, editing: Boolean) {
     val zone = remember(timezoneId) { runCatching { ZoneId.of(timezoneId) }.getOrDefault(SCHOOL_ZONE) }
     val formatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
-    val periodWidth = 64.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
+    val periodWidth = 72.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
     LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), userScrollEnabled = !editing) {
         items(periods) { period ->
             val nativeHours = Duration.between(period.startsAt, period.endsAtExclusive).toHours()
@@ -242,10 +240,11 @@ private fun ForecastRow(periods: List<WeatherForecastPeriod>, timezoneId: String
                 contentDescription = listOf(label, period.temperatureCelsius?.let { "攝氏 $it 度" }, period.condition,
                     period.precipitationProbability?.let { "降雨機率 $it%" }).filterNotNull().joinToString("，")
             }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     period.condition?.let { OutlinedRoundedSymbol(widgetWeatherSymbol(it), contentDescription = null, size = 14.dp) }
-                    Text(period.temperatureCelsius?.let { "$it°" } ?: "—", style = MaterialTheme.typography.labelLarge)
+                    Text(period.temperatureCelsius?.let { "$it°" } ?: "—", style = MaterialTheme.typography.titleMedium)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     if (period.precipitationProbability != null) OutlinedRoundedSymbol("water_drop", size = 14.dp,

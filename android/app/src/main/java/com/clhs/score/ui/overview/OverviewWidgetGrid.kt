@@ -106,7 +106,7 @@ internal fun OverviewWidgetGrid(
         }
         var naturalHeights by remember(columns, maxWidth, density.fontScale) { mutableStateOf<Map<String, Int>>(emptyMap()) }
         val visible = remember(widgets) { widgets.filter { it.enabled } }
-        val gap = with(density) { 12.dp.toPx() }
+        val gap = with(density) { OverviewSpacing.cardGap.toPx() }
         // Keep the fixed padding/gaps fixed; reserve extra height for larger text.
         val rowHeight = with(density) { (40.dp + 72.dp * density.fontScale.coerceAtLeast(1f)).toPx() }
         val availableWidth = with(density) { maxWidth.toPx() }

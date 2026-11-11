@@ -126,6 +126,59 @@ class OverviewCoordinatorTest {
         assertEquals("第 1 節", hero.courseLabel)
         assertEquals("國文", hero.courseName)
         assertEquals("201 · 王老師", hero.supportingText)
+        assertEquals("201", hero.classroom)
+        assertEquals("王老師", hero.teacherName)
+        assertEquals("數學", hero.nextCourse?.courseName)
+        assertEquals("第 2 節", hero.nextCourse?.courseLabel)
+        assertEquals("202", hero.nextCourse?.classroom)
+        assertEquals("李老師", hero.nextCourse?.teacherName)
+        assertEquals(LocalDateTime.parse("2026-08-24T09:10"), hero.nextCourse?.startsAt)
+        assertEquals(LocalDateTime.parse("2026-08-24T10:00"), hero.nextCourse?.endsAt)
+    }
+
+    @Test
+    fun heroTransitionsFromBeforeClassThroughBreakAndDayEndWithoutDuplicatingUpcomingCourse() {
+        val report = weekReport()
+        val before = scheduleOverviewHero(report, monday.withHour(7))!!
+        assertEquals("國文", before.courseName)
+        assertEquals(LocalDateTime.parse("2026-08-24T08:10"), before.startsAt)
+        assertNull(before.nextCourse)
+        assertNull(before.courseProgress)
+
+        val breakTime = scheduleOverviewHero(report, monday.withHour(9).withMinute(0))!!
+        assertEquals("數學", breakTime.courseName)
+        assertEquals(LocalDateTime.parse("2026-08-24T09:10"), breakTime.startsAt)
+        assertNull(breakTime.nextCourse)
+        assertNull(breakTime.courseProgress)
+
+        val lastClass = scheduleOverviewHero(report, monday.withHour(9).withMinute(10))!!
+        assertEquals("數學", lastClass.courseName)
+        assertEquals(0f, lastClass.courseProgress!!, 0f)
+        assertNull(lastClass.nextCourse)
+
+        val dayEnd = scheduleOverviewHero(report, monday.withHour(10).withMinute(0))!!
+        assertEquals("明天", dayEnd.headline)
+        assertEquals("英文", dayEnd.courseName)
+        assertNull(dayEnd.nextCourse)
+    }
+
+    @Test
+    fun heroIncludesOnlyChangesForItsDisplayedDateAndDescribesActualChangedFields() {
+        val report = weekReport(withChange = true)
+        val hero = scheduleOverviewHero(report, monday)!!
+        assertEquals(listOf("教室 202 → 305"), hero.scheduleChanges.map { it.supportingText })
+        assertEquals(OverviewDestination.Schedule, hero.scheduleChanges.single().destination)
+        assertTrue(scheduleOverviewHero(report, monday.withHour(17))!!.scheduleChanges.isEmpty())
+        assertTrue(scheduleOverviewHero(report.copy(changes = emptyList()), monday)!!.scheduleChanges.isEmpty())
+
+        val changedTeacher = ScheduleChange(
+            ScheduleChangeType.MODIFIED, 1, 2,
+            semesterItem = ScheduleItem(1, 2, "數學", "李老師", "202"),
+            weekItem = ScheduleItem(1, 2, "英文", "陳老師", "202"),
+        )
+        assertEquals("數學 → 英文 · 教師 李老師 → 陳老師",
+            scheduleOverviewHero(report.copy(changes = listOf(changedTeacher)), monday)!!
+                .scheduleChanges.single().supportingText)
     }
 
     @Test
@@ -145,6 +198,8 @@ class OverviewCoordinatorTest {
 
         assertEquals("國語文", hero.courseName)
         assertEquals("自訂教室 · 自訂教師", hero.supportingText)
+        assertEquals("自訂教室", hero.classroom)
+        assertEquals("自訂教師", hero.teacherName)
     }
 
     @Test
@@ -185,9 +240,21 @@ class OverviewCoordinatorTest {
     }
 
     @Test
-    fun overviewClockTicksOnSecondBoundaries() {
-        assertEquals(1_000L, overviewClockDelayMillis(monday))
-        assertEquals(500L, overviewClockDelayMillis(monday.withNano(500_000_000)))
+    fun overviewClockTicksOnMinuteBoundariesIncludingClassTransitions() {
+        assertEquals(60_000L, overviewClockDelayMillis(monday))
+        assertEquals(29_500L, overviewClockDelayMillis(monday.withSecond(30).withNano(500_000_000)))
+        assertEquals(1L, overviewClockDelayMillis(monday.withHour(8).withMinute(9).withSecond(59).withNano(999_999_999)))
+    }
+
+    @Test
+    fun overviewClockPreservesSecondBearingCountdownAndEventBoundaries() {
+        val deadline = monday.plusMinutes(2).plusSeconds(20)
+        assertEquals(60_000L, overviewClockDelayMillis(monday, listOf(deadline)))
+        assertEquals(20_001L, overviewClockDelayMillis(monday, listOf(deadline), listOf(deadline)))
+        assertEquals(1L, overviewClockDelayMillis(monday.plusSeconds(20), listOf(deadline), listOf(deadline)))
+        assertEquals(1_000L, overviewClockDelayMillis(deadline.minusSeconds(1), listOf(deadline)))
+        assertEquals(40_000L, overviewClockDelayMillis(deadline, listOf(deadline)))
+        assertEquals(5_000L, overviewClockDelayMillis(monday, listOf(deadline, monday.plusSeconds(5))))
     }
 
     @Test
