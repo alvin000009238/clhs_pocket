@@ -46,7 +46,7 @@ internal object StudentRecordsParser {
             }) to order(obj)
         }.sortedBy { it.second }.map { it.first }
 
-    fun attendanceSummary(json: String): List<RecordCategoryCount> = array(result(json)).map { row ->
+    fun attendanceSummary(json: String): List<RecordCategoryCount> = array(obj(result(json))["TermStatisticsList"]).map { row ->
         val obj = obj(row)
         RecordCategoryCount(text(obj, "AbsentType"), integer(obj["AbsentNumber"])) to order(obj)
     }.sortedBy { it.second }.map { it.first }
