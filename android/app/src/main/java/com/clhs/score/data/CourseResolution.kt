@@ -36,6 +36,7 @@ internal data class CourseResolution(
     val nextBoundary: Instant? = null,
     val valid: Boolean = false,
     val upcoming: CourseOccurrence? = null,
+    val scheduleAvailable: Boolean = valid,
 )
 
 /** Dated weekly reports use their listed dates; semester reports repeat by weekday. */
@@ -73,5 +74,6 @@ internal fun resolveCourses(report: ScheduleReport?, clock: Clock, remindBeforeC
     val upcoming = next?.takeIf { current == null && advance != null && now >= advance }
     val weekExpiry = weekRange?.second?.plusDays(1)?.atStartOfDay(SCHOOL_COURSE_ZONE)?.toInstant()
     val boundary = listOfNotNull(current?.end, next?.start, advance?.takeIf { it > now }, weekExpiry).minOrNull()
-    return CourseResolution(current, boundary, courses.any { it.end > now }, upcoming)
+    return CourseResolution(current, boundary, courses.any { it.end > now }, upcoming,
+        scheduleAvailable = courses.isNotEmpty() || (weekRange != null && report.items.isEmpty()))
 }
