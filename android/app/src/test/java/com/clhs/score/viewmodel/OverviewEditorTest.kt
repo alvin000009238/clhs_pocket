@@ -330,7 +330,7 @@ class OverviewEditorTest {
             override suspend fun getScheduleClasses(year: String, term: String): List<ScheduleClassOption> = error("Guest must not query school")
             override suspend fun getLatestSchedule(): ScheduleReport? = error("Guest must not query school")
             override suspend fun fetchSchedule(yearValue: String, year: String, term: String, classNo: String,
-                scope: ScheduleScope, targetDate: LocalDate, expectedSession: AuthenticatedSession?): ScheduleReport = error("Guest must not query school")
+                scope: ScheduleScope, targetDate: LocalDate, expectedSession: AuthenticatedSession?, updateOverviewSnapshot: Boolean, forceRefresh: Boolean, updateBrowseSelection: Boolean): ScheduleReport = error("Guest must not query school")
         }
         val settings = SettingsRepository(OverviewTestSettingsStore())
         return OverviewViewModel(

@@ -176,38 +176,70 @@ class OverviewCoordinator(
         emit(OverviewUpdate.SourceStarted(OverviewSource.Schedule))
         var cachedReport: ScheduleReport? = null
         try {
-            val snapshot = scheduleRepository.getLatestScheduleSnapshot()
-            cachedReport = snapshot?.report
-            emit(OverviewUpdate.Schedule(snapshot?.report, refreshing = false, failed = false))
+            val overviewSnapshot = scheduleRepository.getOverviewScheduleSnapshot()
+            val snapshot = overviewSnapshot ?: scheduleRepository.getLatestScheduleSnapshot()
+            val unconfirmedFuture = overviewSnapshot == null && snapshot?.report?.let { report ->
+                report.scope == ScheduleScope.CURRENT_WEEK && report.weekStartDate
+                    ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                    ?.isAfter(schoolNow().toLocalDate()) == true
+            } == true
+            val needsWeeklyBootstrap = unconfirmedFuture ||
+                (overviewSnapshot == null && snapshot?.report?.scope == ScheduleScope.SEMESTER)
+            cachedReport = snapshot?.report?.takeUnless { unconfirmedFuture }
+            emit(OverviewUpdate.Schedule(cachedReport, refreshing = needsWeeklyBootstrap, failed = false))
             if (snapshot != null) {
                 val initialInstant = clock.instant()
                 val initialNow = LocalDateTime.ofInstant(initialInstant, SCHOOL_ZONE)
-                if (!scheduleNeedsRefresh(snapshot.report, snapshot.fetchedAtMillis, initialInstant)) {
+                if (!needsWeeklyBootstrap && !scheduleNeedsRefresh(snapshot.report, snapshot.fetchedAtMillis, initialInstant)) {
                     val waitMillis = scheduleRefreshDelayMillis(snapshot.report, initialNow)
                     if (waitMillis > 0) delay(waitMillis.milliseconds)
                 }
-                if (scheduleNeedsRefresh(snapshot.report, snapshot.fetchedAtMillis, clock.instant())) {
-                    emit(OverviewUpdate.Schedule(snapshot.report, refreshing = true, failed = false))
+                if (needsWeeklyBootstrap || scheduleNeedsRefresh(snapshot.report, snapshot.fetchedAtMillis, clock.instant())) {
+                    emit(OverviewUpdate.Schedule(cachedReport, refreshing = true, failed = false))
                     val yearTerm = parseYearTermOrNull(snapshot.report.yearTermValue)
                     if (yearTerm == null) {
-                        emit(OverviewUpdate.Schedule(snapshot.report, refreshing = false, failed = true))
+                        emit(OverviewUpdate.Schedule(cachedReport, refreshing = false, failed = true))
                         return@flow
                     }
+                    val targetDate = if (needsWeeklyBootstrap) schoolNow().toLocalDate()
+                        else snapshot.report.refreshTargetDateAt(schoolNow())
                     val refreshed = scheduleRepository.fetchSchedule(
                         yearValue = snapshot.report.yearTermValue,
                         year = yearTerm.first,
                         term = yearTerm.second,
                         classNo = snapshot.report.classNo,
                         scope = ScheduleScope.CURRENT_WEEK,
-                        targetDate = snapshot.report.refreshTargetDateAt(schoolNow()),
+                        targetDate = targetDate,
                         expectedSession = session,
+                        updateOverviewSnapshot = true,
+                        updateBrowseSelection = false,
                     )
-                    emit(OverviewUpdate.Schedule(refreshed, refreshing = false, failed = false))
+                    cachedReport = refreshed
+                    val nextTarget = refreshed.refreshTargetDateAt(schoolNow())
+                    if (refreshed.shouldRefreshAt(schoolNow()) && nextTarget > targetDate) {
+                        emit(OverviewUpdate.Schedule(refreshed, refreshing = true, failed = false))
+                        val next = scheduleRepository.fetchSchedule(
+                            yearValue = refreshed.yearTermValue,
+                            year = yearTerm.first,
+                            term = yearTerm.second,
+                            classNo = refreshed.classNo,
+                            scope = ScheduleScope.CURRENT_WEEK,
+                            targetDate = nextTarget,
+                            expectedSession = session,
+                            updateOverviewSnapshot = true,
+                            updateBrowseSelection = false,
+                        )
+                        emit(OverviewUpdate.Schedule(next, refreshing = false, failed = false))
+                    } else {
+                        emit(OverviewUpdate.Schedule(refreshed, refreshing = false, failed = false))
+                    }
                 }
             }
         } catch (error: Exception) {
             error.rethrowCancellation()
-            emit(OverviewUpdate.Schedule(cachedReport, refreshing = false, failed = true))
+            val unpublished = (error as? com.clhs.score.data.ScheduleFetchException)?.result is com.clhs.score.data.ScheduleFetchResult.Unpublished
+            emit(OverviewUpdate.Schedule(cachedReport ?: (error as? com.clhs.score.data.ScheduleFetchException)?.fallback,
+                refreshing = false, failed = !unpublished, unpublished = unpublished))
         }
     }
 
@@ -311,6 +343,8 @@ class OverviewCoordinator(
             isRefreshing = accumulator.refreshingSources.isNotEmpty(),
             isScheduleRefreshing = OverviewSource.Schedule in accumulator.refreshingSources,
             scheduleFailed = OverviewSource.Schedule in accumulator.failedSources,
+            scheduleUnpublished = accumulator.scheduleUnpublished,
+            scheduleScope = accumulator.schedule?.scope,
             hasPartialFailure = accumulator.failedSources.isNotEmpty() || accumulator.weatherConfigurationFailed || accumulator.youBike.failed,
             weather = accumulator.weather.toOverviewWeatherState(),
             youBike = accumulator.youBike,
@@ -592,7 +626,7 @@ private enum class OverviewSource { Schedule, Calendar, Announcements, Grades }
 
 private sealed interface OverviewUpdate {
     data class SourceStarted(val source: OverviewSource) : OverviewUpdate
-    data class Schedule(val report: ScheduleReport?, val refreshing: Boolean, val failed: Boolean) : OverviewUpdate
+    data class Schedule(val report: ScheduleReport?, val refreshing: Boolean, val failed: Boolean, val unpublished: Boolean = false) : OverviewUpdate
     data class Calendar(val snapshot: SchoolCalendarSnapshot?, val refreshing: Boolean, val failed: Boolean) : OverviewUpdate
     data class Announcements(val page: SchoolAnnouncementPage?, val refreshing: Boolean, val failed: Boolean) : OverviewUpdate
     data class Grades(val state: GradeReminderState) : OverviewUpdate
@@ -605,6 +639,7 @@ private sealed interface OverviewUpdate {
 private data class OverviewAccumulator(
     val now: LocalDateTime? = null,
     val schedule: ScheduleReport? = null,
+    val scheduleUnpublished: Boolean = false,
     val calendarEvents: List<SchoolCalendarEvent> = emptyList(),
     val announcementItems: List<OverviewItem> = emptyList(),
     val announcements: List<SchoolAnnouncement> = emptyList(),
@@ -624,7 +659,7 @@ private data class OverviewAccumulator(
             source = OverviewSource.Schedule,
             refreshing = update.refreshing,
             failed = update.failed,
-        ).copy(schedule = update.report ?: schedule.takeIf {
+        ).copy(scheduleUnpublished = update.unpublished, schedule = update.report ?: schedule.takeIf {
             update.failed || OverviewSource.Schedule in completedSources
         })
         is OverviewUpdate.Calendar -> sourceResult(

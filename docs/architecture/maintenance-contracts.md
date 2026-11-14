@@ -88,16 +88,21 @@
 
 入口：`viewmodel/ScheduleViewModel.kt`、`data/` 的 Schedule models／repository、`widget/`。
 
-- Grid 保留 1–8 節，API 額外正節次用稀疏清單追加，不建立巨大連續範圍。
-- 更新失敗仍保留既有課表；首頁由 `OverviewState.scheduleFailed` 顯示失敗說明與重試入口，登入世代變更清除此狀態。課表頁以獨立 `refreshFailed` 保留警告，不隨 Snackbar 消失；強制重新載入按鈕沿用過期狀態的 errorContainer 底色與實心 refresh 圖示，重試中停用並顯示 LoadingIndicator。
-- 週次依本地日期落入 StartDateDisplay／EndDateDisplay 唯一範圍決定，不依 Selected。過期判定以整週實際最後一節下課為準，無法辨識節次以 16:55 備援；後續目標為 weekStartDate 加一週，不用 weekEndDate 判斷。讀取過期快取時自動重載；首次查詢若收到已結束的週課表，立即追加一次下一週查詢，追加失敗保留該目標供重試。頁面停留跨過期時間只更新顯示狀態，不直接呼叫重載；過期時更新入口使用醒目底色、較大實心圖示及過期說明，沿用原有手動 refresh；重載中顯示 LoadingIndicator 並停用重複點擊。
-- 週次不唯一或查詢失敗回學期課表並提示。週課表成功後取得學期課表比對科目／教師／教室；兩份結果分別存 current-week／semester cache，不能互覆，也不保存未使用 rawData。
+- Grid 保留 1–7 節；第八節僅在有課程或異動時出現，API 額外正節次用稀疏清單追加，不建立巨大連續範圍。
+- 更新失敗保留既有課表；手動瀏覽失敗須還原 `weekTargetDate` 以維持後續換週基準。首頁 scheduleFailed 與課表 refreshFailed 僅代表實際失敗，不因歷史週已下課而變紅；未公布使用獨立中性狀態；清除選取或切換學期、班級時重設 `availability`。更新中沿用工具膠囊 LoadingIndicator。登入世代變更清除私人來源及提示。
+- 週次依本地日期落入 StartDateDisplay／EndDateDisplay 唯一範圍決定，不依 Selected。過期判定以整週實際最後一節下課為準，無法辨識節次以 16:55 備援；後續目標為 weekStartDate 加一週，不用 weekEndDate 判斷。讀取過期快取時自動重載；首次查詢若收到已結束的週課表，立即追加一次下一週查詢，追加失敗保留該目標供重試。課表頁僅在前景以分鐘邊界更新時間，恢復前景立即更新。自動週次模式跨過期時間會先顯示可用快取，再強制向學校查詢下一週，即使先前已預載；回目前週或由學期切回週課表也遵循相同重新確認規則，確認成功後同一目標沿用快取；啟動時當週快照取得時間早於該週起始日（或時間未知）也重新確認。未來週快取在該週開始前重新開啟 App 或由 Widget 進入時不重載；開始該週後才檢查擷取時間是否早於週起始。已處於自動週次時，點擊日期只檢查過期換週，不重查今天或取消進行中的請求。沒有日常定時更新；同一失敗目標依正規週鍵去重，不持續輪詢，明確刷新才清除重試；手動瀏覽週次不自動跳轉。自動快照獨立保留，不因 16 筆快取淘汰而遺失或退回舊手動週。日視圖在自動模式切至未來週時選取週一；手動換週保留星期選取，同一週資料更新與畫面重建不重設已還原的星期選取。僅實際更新失敗時更新入口使用醒目底色與重試說明；手動查看已結束週次維持普通更新樣式，課程結束本身不代表錯誤；重載中顯示 LoadingIndicator 並停用重複點擊。
+- 課表完整快照統一存 Room；browser、overview、widget 為獨立指標。首頁自動查詢不覆寫手動瀏覽選擇，手動瀏覽已過期或較舊週次不得覆寫自動預載的 overview 指標，快取命中不重設擷取時間。首頁來源須符合帳號、學期及班級；缺少來源時，遠未來瀏覽週須先確認今天再發布摘要。週快照綁定當時學期版本，changes 讀取時重算。
+- 正式 ScheduleSnapshotStore 由 Room Database 建立，整段指標讀取、發布決策、寫入及清理共用交易，跨 Store 實例也維持一致。背景學期備援只存快取，不發布 Widget；明確 Widget 同步入口才可單獨發布。
+- 課表圖片匯出由 ScheduleImageExport 擁有擷取與 Bitmap 釋放。取消必須傳遞，不顯示失敗 Toast；寫入後須成功解除 MediaStore IS_PENDING 才回報成功，取消或發布失敗須清理 pending 項目，清理錯誤不能掩蓋原錯誤。
+- API 結果區分 Available、Empty、Unpublished、Failed。週次不存在為未公布，未知或重疊週次為失敗；不再把學期 fallback 偽裝成成功週表。未公布顯示中性提示並停止同目標自動輪詢，失敗保留舊資料及重試入口。
 - 可辨識且合法的空週課表仍保存 CURRENT_WEEK 權威性；未知 envelope、無效 slot 或非 JSON 不當成無課週。課表請求、行事曆篩選與畫面日期使用 Asia/Taipei，測試保留可注入日期來源。
 - 科目自訂依學生及原始科目名稱保存，僅在顯示前共用套用；cache 的 items／changes 維持原始資料。登入／登出／失效清理用 `preserveSubjectOverrides = true`；明確清學生或全部資料才完整刪除，儲存失敗必須傳遞。
-- Widget 只讀專用快照及 authority metadata；課表成功與舊 cache 載入都同步快照。目標日期落在有效本週範圍內時，快照即使沒有課也不得被學期覆蓋；範圍結束後可由 App 提供學期 fallback。顯示日期不得早於快照 weekStartDate，不自行查 API 或比對調課。
+- Widget 及通知只讀 Room 專用指標的無憑證投影及 authority metadata，不保存重複 JSON 或自行查 API。投影移除 changes 並套用科目偏好；有效空週不得被學期覆蓋，範圍結束保留既有學期備援及日期限制。
 - 更新預設沿用 `setAndAllowWhileIdle(RTC_WAKEUP)`，選用精確鬧鐘時才對 `Asia/Taipei` 課程開始／結束與午夜日期 boundary 使用 `setExactAndAllowWhileIdle()`；Widget 同步或 Alarm 註冊失敗須傳遞至呼叫端；Receiver 初次失敗或逾時時，以同一 PendingIntent 排一次五分鐘後的非精確 recovery Alarm；recovery 再失敗不連鎖重試。同步 finally 在取消後仍以最多一秒嘗試補排正常邊界；正常邊界重設 recovery 標記，持續儲存／AlarmManager 故障時由下一次前景或系統事件恢復。上課時間含開始、不含結束；邊界更新延遲五秒。全體同步入口負責每次同步至多排一次下一個 Alarm；`provideGlance()` 只讀已準備狀態並 render。Widget receiver 在有實例時處理開機、套件更新、系統時間及時區變更後重新同步及排程；沒有實例就取消。午夜 Alarm 已處理日期 rollover，不另註冊 `DATE_CHANGED`，避免午夜重複同步。移除最後一個 Widget 必須取消 Alarm。系統 exact access 與電池豁免狀態不可只信任本機偏好；App resume／system event 重新讀取並 re-arm。
 - 精確鬧鐘的 App 偏好與 Android 特殊存取分開保存；偏好開啟但尚未授權時仍使用一般鬧鐘，授權或撤銷後依實際狀態重新排程，保留使用者的偏好選擇。
 - 個別 GlanceId 保存教師／地點／時間／下課切日偏好；配置先寫入該 Glance state，再由全體 sync 讀取並刷新。全體 sync 只同步快照與 theme，不能覆蓋個別偏好。舊全域偏好只補缺值。
+
+日／週顯示模式沿用 `app_settings` 保存，獨立於學期／週資料模式；資料模式切換重用 ViewModel 已載入的同學期／班級／週日期結果，手動重新整理仍查 API。日視圖連堂逐節呈現，週網格合併相同課程；異動仍拆分，兩者共用詳情編輯流程。週網格為單一連續面板，分隔線不得穿越合併格（含跨午休），只有實際 CURRENT_WEEK 日期為今天時標記今日；學期不標記今日。只有具有效日期的週課表顯示上課時間狀態，學期固定安排不視為日期確認。手動瀏覽其他週不能覆寫仍有效的當週 Widget／通知快照。
 
 檢查：`ScheduleViewModelTest`、`ScheduleGridTest`、`ScheduleSubjectOverrideTest`、`ScheduleWidgetDaySwitchTest`、`ArchitectureBoundaryTest`。尺寸、預覽與 RemoteViews 規則見 DESIGN.md。
 
@@ -146,3 +151,5 @@
 - Analytics 只經 `AnalyticsLogger`、常數與 sanitizer 白名單；不設 user ID，不送學生資料、成績內容、URL、憑證或錯誤原文。參數僅 enum、boolean、count、bucket；更新 `AnalyticsParameterSanitizerTest`。
 - Remote Config 的 `feedback_form_url` 只接受 `https://forms.gle` 或 `https://docs.google.com/forms/`，不得放秘密。
 - 成績 CSV 由 `ScoreViewModel.exportGrades()`／`GradeExporter` 產生 BOM + UTF-8 並經 MediaStore 存 Downloads；保留跨學期選擇、未快取考試查詢與既有併發限制。
+
+- v2.1.1 課表遷移保留 browser、Widget 與科目偏好。舊版缺少 overview 時，只由同學期班級且涵蓋今天的週快取建立自動來源；未知擷取時間保留為 0，不視為新抓資料。若只有未來瀏覽週且無自動來源，首次查詢今天確認，不以七天距離猜測自動週。遷移成功才移除舊鍵，重複讀取不重做匯入。

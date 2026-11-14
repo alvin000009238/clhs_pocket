@@ -24,15 +24,53 @@ import java.io.IOException
 import java.time.LocalDate
 
 class GradeCacheStoreTest {
+    @Test fun backgroundSemesterFallbackDoesNotPublishWidgetWhenMissingOrExpired() = runTest {
+        for (hasExpiredWeek in listOf(false, true)) {
+            val preferences = PreferenceDataStoreFactory.create(scope = backgroundScope) {
+                temporaryFolder.root.resolve("background-fallback-$hasExpiredWeek.preferences_pb")
+            }
+            val store = testGradeCacheStore(preferences) {}
+            val expired = scheduleReport("230", ScheduleScope.CURRENT_WEEK,
+                weekStartDate = "2025-01-06", weekEndDate = "2025-01-12")
+            if (hasExpiredWeek) store.saveWidgetScheduleReport("student", expired)
+            val fallback = scheduleReport("231", ScheduleScope.SEMESTER)
+            store.saveScheduleReport("student", "114_2_231", fallback, updateBrowseSelection = false)
+            assertEquals(if (hasExpiredWeek) expired else null, store.loadWidgetScheduleReport())
+            assertEquals(fallback, store.loadScheduleReport("student", "114_2_231"))
+        }
+    }
+
+    @Test
+    fun v211MigrationSeparatesFutureBrowserFromCurrentAutomaticWeekAndIsRepeatable() = runTest {
+        val disk = PreferenceDataStoreFactory.create(scope = backgroundScope) {
+            temporaryFolder.root.resolve("v211-upgrade.preferences_pb")
+        }
+        val today = LocalDate.now(SCHOOL_COURSE_ZONE)
+        val current = scheduleReport("230", ScheduleScope.CURRENT_WEEK,
+            weekStartDate = today.toString(), weekEndDate = today.plusDays(6).toString())
+        val future = current.copy(weekStartDate = today.plusWeeks(1).toString(), weekEndDate = today.plusDays(13).toString())
+        disk.edit {
+            it[stringPreferencesKey("schedule_latest_student")] = Json.encodeToString(future)
+            it[stringPreferencesKey("schedule_student_114_2_230_current_week")] = Json.encodeToString(current)
+        }
+        val store = testGradeCacheStore(disk) {}
+        repeat(2) {
+            assertEquals(future, store.loadLatestScheduleSnapshot("student")?.report)
+            assertEquals(current, store.loadOverviewScheduleSnapshot("student")?.report)
+            assertEquals(0L, store.loadOverviewScheduleSnapshot("student")?.fetchedAtMillis)
+        }
+    }
+
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
     @Test
     fun loadIoFailureIsCacheMissAndSaveIoFailureIsIgnored() = runBlocking {
         val diagnostics = mutableListOf<String>()
-        val store = GradeCacheStore(FailingDataStore(IOException("disk unavailable")), diagnostics::add)
+        val store = testGradeCacheStore(FailingDataStore(IOException("disk unavailable")), diagnostics::add)
 
         assertNull(store.loadStructure("student"))
+        assertNull(store.loadOverviewScheduleSnapshot("student"))
         store.saveStructure("student", emptyList())
 
         assertTrue(diagnostics.any { it.contains("cache read failed") })
@@ -41,7 +79,7 @@ class GradeCacheStoreTest {
 
     @Test
     fun courseNotificationSnapshotFlowPreservesIoFailureForRecovery() = runTest {
-        val store = GradeCacheStore(
+        val store = testGradeCacheStore(
             FailingDataStore(IOException("disk unavailable")),
             {},
             kotlinx.coroutines.flow.flowOf(true),
@@ -59,7 +97,7 @@ class GradeCacheStoreTest {
             scope = backgroundScope,
             produceFile = { file },
         )
-        val store = GradeCacheStore(dataStore) {}
+        val store = testGradeCacheStore(dataStore) {}
         val semester = scheduleReport("230", ScheduleScope.SEMESTER).copy(
             items = listOf(ScheduleItem(1, 1, "學期國文")),
         )
@@ -87,7 +125,7 @@ class GradeCacheStoreTest {
             scope = backgroundScope,
             produceFile = { file },
         )
-        val store = GradeCacheStore(dataStore) {}
+        val store = testGradeCacheStore(dataStore) {}
         val semester = scheduleReport("230", ScheduleScope.SEMESTER)
         val weekStart = LocalDate.now(SCHOOL_COURSE_ZONE).with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.MONDAY))
         val week = scheduleReport(
@@ -113,14 +151,14 @@ class GradeCacheStoreTest {
     }
 
     @Test
-    fun currentWeekRemainsAuthoritativeAfterItsLastClassAndWhenEmpty() = runTest {
+    fun widgetFallsBackAfterLastClassWhileNotificationsAndEmptyWeekRemainAuthoritative() = runTest {
         val file = temporaryFolder.root.resolve("authoritative-current-week.preferences_pb")
         val dataStore = PreferenceDataStoreFactory.create(
             corruptionHandler = gradeCacheCorruptionHandler,
             scope = backgroundScope,
             produceFile = { file },
         )
-        val store = GradeCacheStore(dataStore) {}
+        val store = testGradeCacheStore(dataStore) {}
         val today = LocalDate.now(SCHOOL_COURSE_ZONE)
         val yesterday = today.minusDays(1)
         val week = scheduleReport("230", ScheduleScope.CURRENT_WEEK,
@@ -131,7 +169,8 @@ class GradeCacheStoreTest {
         store.saveScheduleReport("student", "114_2_230_current_week", week)
         store.saveScheduleReport("student", "114_2_230", semester)
         assertEquals(week.copy(changes = null), store.courseNotificationScheduleReportFlow().first())
-        assertEquals(week.copy(changes = null), store.loadWidgetScheduleReport())
+        assertEquals(semester.copy(changes = null), store.loadWidgetScheduleReport())
+        assertEquals(store.loadWidgetScheduleReport(), store.widgetScheduleReportFlow().first())
 
         store.saveScheduleReport("student", "114_2_230_current_week", week.copy(items = emptyList()))
         assertEquals(emptyList<ScheduleItem>(), store.courseNotificationScheduleReportFlow().first()?.items)
@@ -139,8 +178,82 @@ class GradeCacheStoreTest {
     }
 
     @Test
+    fun emptyOverviewWeekSurvivesManualFutureHistoricalAndSemesterBrowsing() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(scope = backgroundScope) {
+            temporaryFolder.root.resolve("overview-empty-week.preferences_pb")
+        }
+        val store = testGradeCacheStore(dataStore) {}
+        val start = LocalDate.now(SCHOOL_COURSE_ZONE)
+            .with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+        val current = scheduleReport("230", ScheduleScope.CURRENT_WEEK,
+            weekStartDate = start.toString(), weekEndDate = start.plusDays(6).toString())
+        store.saveScheduleReport("student", "114_2_230_current_week", current)
+        val original = store.loadOverviewScheduleSnapshot("student")
+        assertEquals(current, original?.report)
+        for (offset in listOf(1L, -1L)) {
+            store.saveScheduleReport("student", "114_2_230_current_week", current.copy(
+                weekStartDate = start.plusWeeks(offset).toString(),
+                weekEndDate = start.plusWeeks(offset).plusDays(6).toString()))
+            assertEquals(original, store.loadOverviewScheduleSnapshot("student"))
+        }
+        val semester = scheduleReport("230", ScheduleScope.SEMESTER)
+        store.saveScheduleReport("student", "114_2_230", semester)
+        assertEquals(original, store.loadOverviewScheduleSnapshot("student"))
+        assertEquals(semester, store.loadLatestScheduleReport("student"))
+    }
+
+    @Test
+    fun automaticNextWeekAndItsSemesterFallbackBecomeOverviewAuthority() = runTest {
+        val store = testGradeCacheStore(PreferenceDataStoreFactory.create(scope = backgroundScope) {
+            temporaryFolder.root.resolve("overview-automatic-week.preferences_pb")
+        }) {}
+        val start = LocalDate.now(SCHOOL_COURSE_ZONE)
+            .with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+        val current = scheduleReport("230", ScheduleScope.CURRENT_WEEK,
+            weekStartDate = start.toString(), weekEndDate = start.plusDays(6).toString())
+        val next = current.copy(weekStartDate = start.plusWeeks(1).toString(),
+            weekEndDate = start.plusWeeks(1).plusDays(6).toString())
+        store.saveScheduleReport("student", "114_2_230_current_week", current)
+        store.saveScheduleReport("student", "114_2_230_current_week", next)
+        assertEquals(current, store.loadOverviewScheduleSnapshot("student")?.report)
+        store.saveScheduleReport("student", "114_2_230_current_week", next, updateOverviewSnapshot = true)
+        val prepared = store.loadOverviewScheduleSnapshot("student")
+        assertEquals(next, prepared?.report)
+        assertTrue(prepared?.fetchedAtMillis != null)
+        store.saveScheduleReport("student", "114_2_230_current_week", next.copy(
+            weekStartDate = start.plusWeeks(2).toString(), weekEndDate = start.plusWeeks(2).plusDays(6).toString()))
+        assertEquals(prepared, store.loadOverviewScheduleSnapshot("student"))
+        val fallback = scheduleReport("230", ScheduleScope.SEMESTER)
+        store.saveScheduleReport("student", "114_2_230", fallback, updateOverviewSnapshot = true)
+        assertEquals(fallback, store.loadOverviewScheduleSnapshot("student")?.report)
+    }
+
+    @Test
+    fun overviewAuthorityIsBoundToStudentClassAndYearAndRemovedByPrivacyCleanup() = runTest {
+        val dataStore = PreferenceDataStoreFactory.create(scope = backgroundScope) {
+            temporaryFolder.root.resolve("overview-isolation.preferences_pb")
+        }
+        val store = testGradeCacheStore(dataStore) {}
+        val today = LocalDate.now(SCHOOL_COURSE_ZONE)
+        val current = scheduleReport("230", ScheduleScope.CURRENT_WEEK,
+            weekStartDate = today.toString(), weekEndDate = today.plusDays(6).toString())
+        store.saveScheduleReport("student", "114_2_230_current_week", current)
+        store.saveScheduleReport("other", "114_2_230_current_week", current)
+        assertNull(store.loadOverviewScheduleSnapshot("unknown"))
+        store.saveScheduleReport("student", "114_2_231", current.copy(scope = ScheduleScope.SEMESTER, classNo = "231"))
+        assertNull(store.loadOverviewScheduleSnapshot("student"))
+        store.saveScheduleReport("student", "115_1_230", current.copy(scope = ScheduleScope.SEMESTER, yearTermValue = "115_1"))
+        assertNull(store.loadOverviewScheduleSnapshot("student"))
+        store.clearStudent("student", preserveSubjectOverrides = true)
+        assertTrue(dataStore.data.first().asMap().keys.none { it.name.startsWith("schedule_student_") })
+        assertEquals(current, store.loadOverviewScheduleSnapshot("other")?.report)
+        store.clearAll(preserveSubjectOverrides = true)
+        assertNull(store.loadOverviewScheduleSnapshot("other"))
+    }
+
+    @Test
     fun revokedSnapshotAuthoritySkipsPrivateSnapshotReads() = runTest {
-        val store = GradeCacheStore(
+        val store = testGradeCacheStore(
             FailingDataStore(IOException("private snapshot must not be read")),
             {},
             kotlinx.coroutines.flow.flowOf(false),
@@ -151,7 +264,7 @@ class GradeCacheStoreTest {
 
     @Test
     fun cancellationIsNotConvertedToCacheMiss() {
-        val store = GradeCacheStore(FailingDataStore(CancellationException("cancelled"))) {}
+        val store = testGradeCacheStore(FailingDataStore(CancellationException("cancelled"))) {}
 
         assertThrows(CancellationException::class.java) {
             runBlocking { store.loadStructure("student") }
@@ -163,7 +276,7 @@ class GradeCacheStoreTest {
 
     @Test
     fun privacyCleanupRemainsStrictOnIoFailure() {
-        val store = GradeCacheStore(FailingDataStore(IOException("disk unavailable"))) {}
+        val store = testGradeCacheStore(FailingDataStore(IOException("disk unavailable"))) {}
 
         assertThrows(IOException::class.java) {
             runBlocking { store.clearAll() }
@@ -203,7 +316,7 @@ class GradeCacheStoreTest {
             scope = backgroundScope,
             produceFile = { file },
         )
-        val store = GradeCacheStore(dataStore) {}
+        val store = testGradeCacheStore(dataStore) {}
         val today = LocalDate.now()
         val week = scheduleReport(
             "week",
@@ -229,7 +342,7 @@ class GradeCacheStoreTest {
             scope = backgroundScope,
             produceFile = { file },
         )
-        val store = GradeCacheStore(dataStore) {}
+        val store = testGradeCacheStore(dataStore) {}
         val semester = scheduleReport("semester", ScheduleScope.SEMESTER)
 
         store.saveScheduleReport("student", "semester", semester)
@@ -245,7 +358,7 @@ class GradeCacheStoreTest {
             scope = backgroundScope,
             produceFile = { file },
         )
-        val store = GradeCacheStore(dataStore) {}
+        val store = testGradeCacheStore(dataStore) {}
         val today = LocalDate.now()
         val expiredWeek = scheduleReport(
             "week",
@@ -261,6 +374,20 @@ class GradeCacheStoreTest {
         assertEquals(semester.copy(changes = null), store.loadWidgetScheduleReport())
     }
 
+    @Test
+    fun browsingOtherWeeksPreservesCurrentWeekWidgetAuthority() {
+        val today = LocalDate.of(2026, 11, 4)
+        val current = scheduleReport("230", ScheduleScope.CURRENT_WEEK,
+            weekStartDate = "2026-11-02", weekEndDate = "2026-11-08")
+        for (offset in listOf(-7L, 7L)) {
+            val other = current.copy(
+                weekStartDate = LocalDate.parse(current.weekStartDate).plusDays(offset).toString(),
+                weekEndDate = LocalDate.parse(current.weekEndDate).plusDays(offset).toString(),
+            )
+            assertNull(other.toWidgetReportOrNull(current, today))
+            assertEquals(current.copy(changes = null), current.toWidgetReportOrNull(other, today))
+        }
+    }
     @Test
     fun semesterDoesNotReplaceCurrentWeekWidgetAfterItsLastClass() {
         val today = LocalDate.now(SCHOOL_COURSE_ZONE)
@@ -285,7 +412,7 @@ class GradeCacheStoreTest {
             scope = backgroundScope,
             produceFile = { file },
         )
-        val store = GradeCacheStore(dataStore) {}
+        val store = testGradeCacheStore(dataStore) {}
         val today = LocalDate.now()
         val currentWeek = scheduleReport(
             "230",
@@ -314,7 +441,7 @@ class GradeCacheStoreTest {
             scope = backgroundScope,
             produceFile = { file },
         )
-        val store = GradeCacheStore(dataStore) {}
+        val store = testGradeCacheStore(dataStore) {}
         val report = scheduleReport("230", ScheduleScope.SEMESTER)
 
         store.saveScheduleReport("student", "114_2_230", report)
@@ -342,8 +469,8 @@ class GradeCacheStoreTest {
         )
         val studentInfo = FakeData.latestReport().studentInfo
 
-        GradeCacheStore(dataStore) {}.saveStudentInfo("student", studentInfo)
-        val restoredStore = GradeCacheStore(dataStore) {}
+        testGradeCacheStore(dataStore) {}.saveStudentInfo("student", studentInfo)
+        val restoredStore = testGradeCacheStore(dataStore) {}
 
         assertEquals(studentInfo, restoredStore.loadStudentInfo("student"))
         restoredStore.clearStudent("student")
@@ -358,7 +485,7 @@ class GradeCacheStoreTest {
             scope = backgroundScope,
             produceFile = { file },
         )
-        val store = GradeCacheStore(dataStore) {}
+        val store = testGradeCacheStore(dataStore) {}
         val override = ScheduleSubjectOverride("彈性學習時間", customSubjectName = "彈性課")
         store.saveScheduleReport("student", "114_2", scheduleReport("230", ScheduleScope.SEMESTER))
 
@@ -376,7 +503,7 @@ class GradeCacheStoreTest {
 
         store.saveScheduleReport("other", "114_2", scheduleReport("230", ScheduleScope.SEMESTER))
         store.clearAll(preserveSubjectOverrides = true)
-        val restoredStore = GradeCacheStore(dataStore) {}
+        val restoredStore = testGradeCacheStore(dataStore) {}
         assertNull(restoredStore.loadLatestScheduleSnapshot("other"))
         assertNull(restoredStore.loadWidgetScheduleReport())
         assertEquals(listOf(override), restoredStore.loadScheduleSubjectOverrides("student"))
@@ -391,7 +518,7 @@ class GradeCacheStoreTest {
 
     @Test
     fun subjectOverrideSaveFailureIsPropagated() {
-        val store = GradeCacheStore(FailingDataStore(IOException("disk unavailable"))) {}
+        val store = testGradeCacheStore(FailingDataStore(IOException("disk unavailable"))) {}
 
         assertThrows(IOException::class.java) {
             runBlocking { store.saveScheduleSubjectOverrides("student", emptyList()) }
@@ -411,18 +538,44 @@ class GradeCacheStoreTest {
             }
         }
         val allowed = kotlinx.coroutines.flow.MutableStateFlow(true)
-        val store = GradeCacheStore(faultyDisk, {}, allowed)
+        val store = testGradeCacheStore(faultyDisk, {}, allowed)
         store.saveWidgetScheduleReport("student", scheduleReport("230", ScheduleScope.SEMESTER))
         val snapshots = store.widgetScheduleReportFlow().stateIn(
             backgroundScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null,
         )
         assertTrue(snapshots.first { it != null } != null)
+        disk.edit { it[stringPreferencesKey("widget_schedule_report")] = Json.encodeToString(scheduleReport("230", ScheduleScope.SEMESTER)) }
         failWrites = true
         assertTrue(runCatching { store.clearWidgetScheduleReport() }.exceptionOrNull() is IOException)
         allowed.value = false
         assertNull(snapshots.first { it == null })
         assertNull(store.loadWidgetScheduleReport())
         assertTrue(disk.data.first().asMap().isNotEmpty())
+    }
+
+    @Test
+    fun manualBrowseOfExpiredCurrentWeekDoesNotOverwriteUpcomingOverviewPointer() = runTest {
+        val now = java.time.LocalDateTime.parse("2026-07-24T17:00:00")
+        val store = testScheduleSnapshotStore { now }
+        val currentExpired = ScheduleReport(
+            yearTermValue = "114_2",
+            classNo = "230",
+            scope = ScheduleScope.CURRENT_WEEK,
+            weekStartDate = "2026-07-19",
+            weekEndDate = "2026-07-25",
+            items = listOf(ScheduleItem(dayOfWeek = 5, period = 4, subjectName = "國文")),
+        )
+        val upcoming = currentExpired.copy(
+            weekStartDate = "2026-07-26",
+            weekEndDate = "2026-08-01",
+            items = listOf(ScheduleItem(dayOfWeek = 1, period = 1, subjectName = "數學")),
+        )
+
+        store.save("student", upcoming, automatic = true, shouldCommit = { true }, capturedAt = 100L, browse = true)
+        store.save("student", currentExpired, automatic = false, shouldCommit = { true }, capturedAt = 200L, browse = true)
+
+        assertEquals("2026-07-26", store.selected("student", "overview")?.report?.weekStartDate)
+        assertEquals("2026-07-19", store.selected("student", "browser")?.report?.weekStartDate)
     }
 
     private fun scheduleReport(

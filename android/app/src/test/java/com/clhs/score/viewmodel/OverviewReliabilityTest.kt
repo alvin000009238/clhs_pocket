@@ -46,7 +46,9 @@ class OverviewReliabilityTest {
     private val reminders = MutableStateFlow(GradeReminderState())
     private var report = report("A")
     private var readSchedule: suspend () -> CachedScheduleReport? = { CachedScheduleReport(report, instant.toEpochMilli()) }
+    private var readOverviewSchedule: suspend () -> CachedScheduleReport? = { null }
     private var fetchScheduleReport: suspend () -> ScheduleReport = { error("fresh schedule must not fetch") }
+    private val fetchTargets = mutableListOf<LocalDate>()
     private val scheduleReads = AtomicInteger()
     private val publicRequests = AtomicInteger()
     private var dispatcher: CoroutineDispatcher = Dispatchers.Unconfined
@@ -141,6 +143,100 @@ class OverviewReliabilityTest {
         scheduler.runCurrent()
         assertEquals(1, attempts.get())
         viewModels.clear()
+    }
+
+    @Test fun futureBrowsingBootstrapFetchesTodayBeforePublishingAnyFutureHero() = runBlocking<Unit> {
+        val future = report("future").copy(weekStartDate = "2026-08-31", weekEndDate = "2026-09-06")
+        readSchedule = { CachedScheduleReport(future, instant.toEpochMilli()) }
+        val started = CompletableDeferred<Unit>()
+        val result = CompletableDeferred<ScheduleReport>()
+        fetchScheduleReport = { started.complete(Unit); result.await() }
+        val vm = viewModel()
+        try {
+            assertNotNull("A future browsing cache must request today's week",
+                withTimeoutOrNull(2_000) { started.await() })
+            assertNull("The future browsing hero must never be published", vm.uiState.value.hero)
+            assertEquals(listOf(LocalDate.parse("2026-08-24")), fetchTargets)
+            result.complete(report("current"))
+            awaitState(vm) { it.hero?.courseName == "current" }
+        } finally { result.complete(report("current")) }
+    }
+
+    @Test fun overviewAdvancesAtActualFinalClassEndAndKeepsPreparedNextWeekOnReturn() = runBlocking<Unit> {
+        val scheduler = TestCoroutineScheduler()
+        dispatcher = UnconfinedTestDispatcher(scheduler)
+        Dispatchers.setMain(dispatcher)
+        val beforeEnd = Instant.parse("2026-08-24T00:59:59Z")
+        val millis = AtomicLong(beforeEnd.toEpochMilli())
+        clock = object : Clock() {
+            override fun getZone(): ZoneId = SCHOOL_ZONE
+            override fun withZone(zone: ZoneId): Clock = this
+            override fun instant(): Instant = Instant.ofEpochMilli(millis.get())
+        }
+        val current = report("current")
+        val next = report("next").copy(weekStartDate = "2026-08-31", weekEndDate = "2026-09-06")
+        readOverviewSchedule = { CachedScheduleReport(current, beforeEnd.toEpochMilli()) }
+        fetchScheduleReport = { readOverviewSchedule = { CachedScheduleReport(next, clock.millis()) }; next }
+        val vm = viewModel()
+        withContext(Dispatchers.Default) { awaitState(vm) { it.hero?.courseName == "current" } }
+        assertTrue(fetchTargets.isEmpty())
+        millis.addAndGet(1_000)
+        scheduler.advanceTimeBy(1_000)
+        scheduler.runCurrent()
+        withContext(Dispatchers.Default) { awaitState(vm) { it.hero?.courseName == "next" } }
+        assertEquals(listOf(LocalDate.parse("2026-08-31")), fetchTargets)
+        vm.refresh()
+        scheduler.runCurrent()
+        assertEquals("next", vm.uiState.value.hero?.courseName)
+        assertEquals("Prepared next week must not refetch today's finished week", 1, fetchTargets.size)
+    }
+
+    @Test fun futureBootstrapValidatesTodayThenAdvancesOnceAndPreservesFirstResultIfAdvanceFails() = runBlocking<Unit> {
+        clock = Clock.fixed(Instant.parse("2026-08-24T01:00:00Z"), SCHOOL_ZONE)
+        val next = report("next").copy(weekStartDate = "2026-08-31", weekEndDate = "2026-09-06")
+        readSchedule = { CachedScheduleReport(next, clock.millis()) }
+        val current = report("finished current")
+        val attempts = AtomicInteger()
+        fetchScheduleReport = { if (attempts.incrementAndGet() == 1) current else throw IOException("next week unavailable") }
+        val vm = viewModel()
+        val failed = awaitState(vm) { it.scheduleFailed }
+        assertEquals(listOf(LocalDate.parse("2026-08-24"), LocalDate.parse("2026-08-31")), fetchTargets)
+        assertTrue(failed.hasSchedule)
+        assertNull(failed.hero)
+        assertEquals(2, attempts.get())
+    }
+
+    @Test fun scheduleRefreshFailureKeepsPreviouslyLoadedUsableContent() = runBlocking<Unit> {
+        val cached = report("cached").copy(scope = ScheduleScope.SEMESTER)
+        readOverviewSchedule = { CachedScheduleReport(cached, instant.minusSeconds(7 * 3600).toEpochMilli()) }
+        readSchedule = { error("An established Overview snapshot must not read browsing state") }
+        fetchScheduleReport = { throw IOException("offline") }
+        val state = awaitState(viewModel()) { it.scheduleFailed }
+        assertEquals("cached", state.hero?.courseName)
+        assertTrue(state.hasSchedule)
+        assertFalse(state.isScheduleRefreshing)
+    }
+
+    @Test fun freshSemesterBrowsingBootstrapStillRequestsTodaysActualWeek() = runBlocking<Unit> {
+        readOverviewSchedule = { null }
+        readSchedule = { CachedScheduleReport(report("固定安排").copy(scope = ScheduleScope.SEMESTER), instant.toEpochMilli()) }
+        fetchScheduleReport = { report("實際週課程") }
+        val state = awaitState(viewModel()) { it.hero?.courseName == "實際週課程" }
+        assertEquals(ScheduleScope.CURRENT_WEEK, state.scheduleScope)
+        assertEquals(listOf(LocalDate.parse("2026-08-24")), fetchTargets)
+    }
+
+    @Test fun unpublishedWeekKeepsReferenceWithoutReportingNetworkFailure() = runBlocking<Unit> {
+        val cached = report("cached").copy(scope = ScheduleScope.SEMESTER)
+        readOverviewSchedule = { CachedScheduleReport(cached, instant.minusSeconds(7 * 3600).toEpochMilli()) }
+        fetchScheduleReport = { throw com.clhs.score.data.ScheduleFetchException(
+            com.clhs.score.data.ScheduleFetchResult.Unpublished(LocalDate.parse("2026-08-24"))) }
+        val state = awaitState(viewModel()) { it.scheduleUnpublished }
+        assertEquals(ScheduleScope.SEMESTER, state.scheduleScope)
+        assertEquals("cached", state.hero?.courseName)
+        assertFalse(state.scheduleFailed)
+        assertFalse(state.isScheduleRefreshing)
+        assertTrue(state.hasSchedule)
     }
 
     @Test fun returningToOverviewKeepsContentWithoutRefreshIndicatorWhileCacheReadIsPending() = runBlocking<Unit> {
@@ -441,9 +537,10 @@ class OverviewReliabilityTest {
         val schedule = object : ScheduleRepository {
             override suspend fun getScheduleYears(): List<ScheduleYearTermOption> = error("unused")
             override suspend fun getScheduleClasses(year: String, term: String): List<ScheduleClassOption> = error("unused")
+            override suspend fun getOverviewScheduleSnapshot(): CachedScheduleReport? = readOverviewSchedule()
             override suspend fun getLatestSchedule(): ScheduleReport? = getLatestScheduleSnapshot()?.report
             override suspend fun getLatestScheduleSnapshot(): CachedScheduleReport? { scheduleReads.incrementAndGet(); return readSchedule() }
-            override suspend fun fetchSchedule(yearValue: String, year: String, term: String, classNo: String, scope: ScheduleScope, targetDate: LocalDate, expectedSession: AuthenticatedSession?): ScheduleReport = fetchScheduleReport()
+            override suspend fun fetchSchedule(yearValue: String, year: String, term: String, classNo: String, scope: ScheduleScope, targetDate: LocalDate, expectedSession: AuthenticatedSession?, updateOverviewSnapshot: Boolean, forceRefresh: Boolean, updateBrowseSelection: Boolean): ScheduleReport { fetchTargets += targetDate; return fetchScheduleReport() }
         }
         val settings = SettingsRepository(object : DataStore<Preferences> {
             override val data = preferences

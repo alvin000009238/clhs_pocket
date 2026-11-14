@@ -100,6 +100,9 @@ class ScheduleCustomizationsViewModelTest {
             scope: ScheduleScope,
             targetDate: LocalDate,
             expectedSession: com.clhs.score.data.AuthenticatedSession?,
+            updateOverviewSnapshot: Boolean,
+            forceRefresh: Boolean,
+        updateBrowseSelection: Boolean,
         ) = error("Not used")
     }
 }
