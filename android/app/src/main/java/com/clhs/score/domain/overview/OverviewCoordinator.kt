@@ -385,7 +385,9 @@ internal fun scheduleNeedsRefresh(
         if (end < start) return true
         val today = schoolNow.toLocalDate()
         if (today < start) return false
-        return today > end || report.shouldRefreshAt(schoolNow)
+        val startMillis = start.atStartOfDay(SCHOOL_ZONE).toInstant().toEpochMilli()
+        return today > end || report.shouldRefreshAt(schoolNow) ||
+            fetchedAtMillis == null || fetchedAtMillis < startMillis
     }
     val fetchedAt = fetchedAtMillis?.let(Instant::ofEpochMilli) ?: return true
     val age = Duration.between(fetchedAt, now)
@@ -405,10 +407,13 @@ internal fun scheduleNeedsRefresh(
 internal fun scheduleRefreshDelayMillis(
     report: ScheduleReport,
     now: LocalDateTime,
-): Long = report.refreshAt()
-    ?.let { Duration.between(now, it).toMillis() }
-    ?.takeIf { it > 0 }
-    ?: 0L
+): Long {
+    val weekStart = report.takeIf { it.scope == ScheduleScope.CURRENT_WEEK }?.weekStartDate
+        ?.let { runCatching { LocalDate.parse(it).atStartOfDay() }.getOrNull() }
+    val boundary = weekStart?.takeIf { now.isBefore(it) } ?: report.refreshAt()
+    return boundary?.let { Duration.between(now, it).toMillis() }?.takeIf { it > 0 } ?: 0L
+}
+
 
 internal fun overviewClockDelayMillis(now: LocalDateTime): Long {
     val nextSecond = now.truncatedTo(ChronoUnit.SECONDS).plusSeconds(1)
