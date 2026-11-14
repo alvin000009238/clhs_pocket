@@ -574,12 +574,11 @@ internal fun ScoreSimulatorScreen(
         ) { pagePadding ->
             Box(Modifier.fillMaxSize().consumeWindowInsets(pagePadding)) {
                 LazyColumn(
-                    modifier = Modifier.align(Alignment.TopCenter)
-                    .then(if (wideLayout) Modifier.widthIn(max = 720.dp) else Modifier).fillMaxSize(),
-                    contentPadding = com.clhs.score.ui.navigation.navigationContentPadding(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = readingContentPadding(com.clhs.score.ui.navigation.navigationContentPadding(
                         androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp,
                             top = pagePadding.calculateTopPadding() + 8.dp,
-                            bottom = pagePadding.calculateBottomPadding() + summaryHeight + 32.dp)),
+                            bottom = pagePadding.calculateBottomPadding() + summaryHeight + 32.dp))),
                     verticalArrangement = Arrangement.spacedBy(16.dp), state = listState,
                 ) {
                     item {

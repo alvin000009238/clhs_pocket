@@ -325,7 +325,7 @@ fun SubjectTrendScreen(
         }
     }
 
-    FloatingSubpageLayout(onBack = onBack) { padding ->
+    FloatingSubpageLayout(onBack = onBack, contentMaxWidth = 1200.dp) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()

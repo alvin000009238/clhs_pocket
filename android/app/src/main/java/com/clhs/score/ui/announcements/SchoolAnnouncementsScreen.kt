@@ -112,6 +112,8 @@ import com.clhs.score.data.SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH
 import com.clhs.score.data.safeAnnouncementWebUrl
 import com.clhs.score.ui.hapticClick
 import com.clhs.score.ui.OutlinedRoundedSymbol
+import com.clhs.score.ui.LocalReadingGutter
+import com.clhs.score.ui.readingContentPadding
 import com.clhs.score.ui.FloatingSubpageLayout
 import com.clhs.score.ui.highlightedSearchText
 import com.clhs.score.ui.rememberLoadingShimmerProgress
@@ -198,7 +200,7 @@ fun SchoolAnnouncementsScreen(
         var categoryId by rememberSaveable { mutableStateOf(uiState.categoryId) }
         ModalBottomSheet(onDismissRequest = { showFilters = false }) {
             Column(
-                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = LocalReadingGutter.current)
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
@@ -484,7 +486,7 @@ private fun AnnouncementList(
                 .semantics {
                     if (uiState.isInitialLoading) contentDescription = "正在載入學校消息"
                 },
-            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, top = topPadding + 8.dp, end = 16.dp, bottom = 88.dp)),
+            contentPadding = readingContentPadding(navigationContentPadding(PaddingValues(start = 16.dp, top = topPadding + 8.dp, end = 16.dp, bottom = 88.dp))),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (uiState.hasFilters) {
@@ -841,7 +843,7 @@ private fun AnnouncementDetailContent(
         modifier = Modifier
             .fillMaxSize()
             .navigationBarsPadding(),
-        contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = 16.dp)),
+        contentPadding = readingContentPadding(navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = 16.dp))),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "detail-header") { AnnouncementDetailHeader(detail) }
@@ -1020,7 +1022,7 @@ private fun AnnouncementMessageState(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(rememberScrollState()).padding(horizontal = LocalReadingGutter.current)
                 .navigationContentPadding()
         .navigationBarsPadding(),
         verticalArrangement = Arrangement.Center,
