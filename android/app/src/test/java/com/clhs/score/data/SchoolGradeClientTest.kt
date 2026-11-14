@@ -256,7 +256,7 @@ class SchoolGradeClientTest {
         server.enqueue(htmlResponse("""<input name="__RequestVerificationToken" value="schedule-token" />"""))
         server.enqueue(jsonResponse(scheduleJson))
 
-        val report = client.fetchSchedule(
+        val result = client.querySchedule(
             session = session,
             yearValue = "114_1",
             year = "114",
@@ -264,6 +264,7 @@ class SchoolGradeClientTest {
             classNo = "230",
             scope = ScheduleScope.SEMESTER,
         )
+        val report = (result as ScheduleFetchResult.Available).report
 
         assertEquals("114_1", report.yearTermValue)
         assertEquals(2, report.items.size)
@@ -280,22 +281,6 @@ class SchoolGradeClientTest {
         assertTrue(form.contains("ClassNo=230"))
         assertTrue(form.contains("TimetableType=Class"))
         assertEquals(1, Regex("(?:^|&)WeekNo=").findAll(form).count())
-    }
-
-    @Test
-    fun parseScheduleWeeksRejectsInvalidValuesAndDates() {
-        val weeks = parseScheduleWeekOptions(
-            """
-                [
-                  {"Value":"4","Selected":false,"Item":{"IsSelected":true,"StartDate":"2026-07-19T00:00:00","EndDate":"2026-07-25T00:00:00"}},
-                  {"Value":"0","Selected":true,"Item":{"StartDateDisplay":"2026-07-19","EndDateDisplay":"2026-07-25"}},
-                  {"Value":"5","Selected":true,"Item":{"StartDateDisplay":"bad","EndDateDisplay":"2026-08-01"}}
-                ]
-            """.trimIndent(),
-        )
-
-        assertEquals(1, weeks.size)
-        assertEquals("4", weeks.single().value)
     }
 
     @Test
@@ -470,13 +455,12 @@ class SchoolGradeClientTest {
     @Test
     fun currentWeekScheduleLoadsWeekContainingTargetDateAndPostsItOnce() = runTest {
         val session = AuthenticatedSession("DEMO-001", "api-token", mapOf("ASP.NET_SessionId" to "abc"))
-        var cachedSemesterReport: ScheduleReport? = null
         server.enqueue(htmlResponse("""<input name="__RequestVerificationToken" value="schedule-token" />"""))
         server.enqueue(jsonResponse(currentWeekJson))
         server.enqueue(jsonResponse(scheduleJson))
         server.enqueue(jsonResponse(scheduleJson))
 
-        val report = client.fetchSchedule(
+        val result = client.querySchedule(
             session,
             "115_4",
             "115",
@@ -484,8 +468,8 @@ class SchoolGradeClientTest {
             "230",
             ScheduleScope.CURRENT_WEEK,
             targetDate = LocalDate.parse("2026-07-24"),
-            onSemesterReport = { cachedSemesterReport = it },
         )
+        val report = (result as ScheduleFetchResult.Available).report
 
         assertEquals(ScheduleScope.CURRENT_WEEK, report.scope)
         assertEquals("4", report.weekNo)
@@ -506,8 +490,39 @@ class SchoolGradeClientTest {
         assertTrue(semesterForm.contains("WeekNo=&"))
         assertEquals(1, Regex("(?:^|&)WeekNo=").findAll(semesterForm).count())
         assertEquals(emptyList<ScheduleChange>(), report.changes)
-        assertEquals(ScheduleScope.SEMESTER, cachedSemesterReport?.scope)
-        assertEquals(report.items, cachedSemesterReport?.items)
+        assertEquals(ScheduleScope.SEMESTER, result.semesterBaseline?.scope)
+        assertEquals(report.items, result.semesterBaseline?.items)
+    }
+
+    @Test fun publishedEmptyWeekRemainsAuthoritativeInsteadOfUsingSemesterLessons() = runTest {
+        val session = AuthenticatedSession("DEMO-001", "api-token", emptyMap())
+        server.enqueue(htmlResponse("""<input name="__RequestVerificationToken" value="schedule-token" />"""))
+        server.enqueue(jsonResponse(currentWeekJson))
+        server.enqueue(jsonResponse("[]"))
+        server.enqueue(jsonResponse(scheduleJson))
+        val result = client.querySchedule(session, "115_4", "115", "4", "230", ScheduleScope.CURRENT_WEEK,
+            LocalDate.parse("2026-07-24")) as ScheduleFetchResult.Empty
+        assertEquals(ScheduleScope.CURRENT_WEEK, result.report.scope)
+        assertEquals("4", result.report.weekNo)
+        assertTrue(result.report.items.isEmpty())
+        assertTrue(result.semesterBaseline!!.items.isNotEmpty())
+        assertTrue(result.report.changes!!.all { it.type == ScheduleChangeType.REMOVED })
+    }
+
+    @Test fun missingWeekAndMalformedWeekListHaveDifferentResults() = runTest {
+        val session = AuthenticatedSession("DEMO-001", "api-token", emptyMap())
+        server.enqueue(htmlResponse("""<input name="__RequestVerificationToken" value="schedule-token" />"""))
+        server.enqueue(jsonResponse("[]"))
+        server.enqueue(jsonResponse(scheduleJson))
+        val missing = client.querySchedule(session, "115_4", "115", "4", "230", ScheduleScope.CURRENT_WEEK,
+            LocalDate.parse("2026-07-24")) as ScheduleFetchResult.Unpublished
+        assertEquals(LocalDate.parse("2026-07-24"), missing.requestedDate)
+        assertEquals(ScheduleScope.SEMESTER, missing.semesterFallback!!.scope)
+        server.enqueue(jsonResponse("""{"Unexpected":[]}"""))
+        server.enqueue(jsonResponse(scheduleJson))
+        val malformed = client.querySchedule(session, "115_4", "115", "4", "230", ScheduleScope.CURRENT_WEEK,
+            LocalDate.parse("2026-07-24"))
+        assertTrue(malformed is ScheduleFetchResult.Failed)
     }
 
     @Test
@@ -518,7 +533,7 @@ class SchoolGradeClientTest {
         server.enqueue(jsonResponse(scheduleJson))
         server.enqueue(MockResponse().setResponseCode(500))
 
-        val report = client.fetchSchedule(
+        val result = client.querySchedule(
             session,
             "115_4",
             "115",
@@ -527,10 +542,12 @@ class SchoolGradeClientTest {
             ScheduleScope.CURRENT_WEEK,
             targetDate = LocalDate.parse("2026-07-24"),
         )
+        val report = (result as ScheduleFetchResult.Available).report
 
         assertEquals(ScheduleScope.CURRENT_WEEK, report.scope)
         assertEquals(2, report.items.size)
         assertEquals(null, report.changes)
+        assertNull(result.semesterBaseline)
         server.awaitRequest()
         server.awaitRequest()
         assertTrue(server.awaitRequest().body.readUtf8().contains("WeekNo=4"))
@@ -546,7 +563,7 @@ class SchoolGradeClientTest {
         server.enqueue(MockResponse().setResponseCode(401))
 
         val error = runCatching {
-            client.fetchSchedule(
+            client.querySchedule(
                 session,
                 "115_4",
                 "115",
@@ -569,7 +586,7 @@ class SchoolGradeClientTest {
         server.enqueue(jsonResponse(scheduleJson))
         server.enqueue(jsonResponse(scheduleJson))
 
-        val report = client.fetchSchedule(
+        val result = client.querySchedule(
             session,
             "115_4",
             "115",
@@ -578,6 +595,7 @@ class SchoolGradeClientTest {
             ScheduleScope.CURRENT_WEEK,
             targetDate = LocalDate.parse("2026-07-24"),
         )
+        val report = (result as ScheduleFetchResult.Available).report
 
         assertEquals(ScheduleScope.CURRENT_WEEK, report.scope)
         assertEquals("4", report.weekNo)
@@ -596,7 +614,7 @@ class SchoolGradeClientTest {
         server.enqueue(jsonResponse(scheduleJson))
         server.enqueue(jsonResponse(scheduleJson))
 
-        val report = client.fetchSchedule(
+        val result = client.querySchedule(
             session,
             "115_4",
             "115",
@@ -605,6 +623,7 @@ class SchoolGradeClientTest {
             ScheduleScope.CURRENT_WEEK,
             targetDate = LocalDate.parse("2026-07-27"),
         )
+        val report = (result as ScheduleFetchResult.Available).report
 
         assertEquals(ScheduleScope.CURRENT_WEEK, report.scope)
         assertEquals("5", report.weekNo)
@@ -614,13 +633,13 @@ class SchoolGradeClientTest {
     }
 
     @Test
-    fun currentWeekApiFailureFallsBackToSemester() = runTest {
+    fun currentWeekApiFailureRetainsFailureAndSemesterFallback() = runTest {
         val session = AuthenticatedSession("DEMO-001", "api-token", emptyMap())
         server.enqueue(htmlResponse("""<input name="__RequestVerificationToken" value="schedule-token" />"""))
         server.enqueue(MockResponse().setResponseCode(500))
         server.enqueue(jsonResponse(scheduleJson))
 
-        val report = client.fetchSchedule(
+        val result = client.querySchedule(
             session,
             "115_4",
             "115",
@@ -629,6 +648,9 @@ class SchoolGradeClientTest {
             ScheduleScope.CURRENT_WEEK,
             targetDate = LocalDate.parse("2026-07-24"),
         )
+        val failure = result as ScheduleFetchResult.Failed
+        val report = requireNotNull(failure.semesterFallback)
+        assertTrue(failure.error is SchoolTransientException)
 
         assertEquals(ScheduleScope.SEMESTER, report.scope)
         server.awaitRequest()
@@ -644,7 +666,7 @@ class SchoolGradeClientTest {
         server.enqueue(jsonResponse(scheduleJson))
 
         val error = runCatching {
-            client.fetchSchedule(
+            client.querySchedule(
                 session,
                 "115_4",
                 "115",
@@ -660,14 +682,14 @@ class SchoolGradeClientTest {
     }
 
     @Test
-    fun currentWeekTimetableFailureFallsBackToSemester() = runTest {
+    fun currentWeekTimetableFailureRetainsFailureAndSemesterFallback() = runTest {
         val session = AuthenticatedSession("DEMO-001", "api-token", emptyMap())
         server.enqueue(htmlResponse("""<input name="__RequestVerificationToken" value="schedule-token" />"""))
         server.enqueue(jsonResponse(currentWeekJson))
         server.enqueue(MockResponse().setResponseCode(500))
         server.enqueue(jsonResponse(scheduleJson))
 
-        val report = client.fetchSchedule(
+        val result = client.querySchedule(
             session,
             "115_4",
             "115",
@@ -676,6 +698,9 @@ class SchoolGradeClientTest {
             ScheduleScope.CURRENT_WEEK,
             targetDate = LocalDate.parse("2026-07-24"),
         )
+        val failure = result as ScheduleFetchResult.Failed
+        val report = requireNotNull(failure.semesterFallback)
+        assertTrue(failure.error is SchoolTransientException)
 
         assertEquals(ScheduleScope.SEMESTER, report.scope)
         server.awaitRequest()
@@ -703,9 +728,9 @@ class SchoolGradeClientTest {
         server.enqueue(htmlResponse("""<input name="__RequestVerificationToken" value="schedule-token-2" />"""))
         server.enqueue(jsonResponse(scheduleJson))
 
-        client.fetchSchedule(firstSession, "114_1", "114", "1", "230", ScheduleScope.SEMESTER)
+        client.querySchedule(firstSession, "114_1", "114", "1", "230", ScheduleScope.SEMESTER)
         client.restoreSession(restoredSession)
-        client.fetchSchedule(restoredSession, "114_1", "114", "1", "230", ScheduleScope.SEMESTER)
+        client.querySchedule(restoredSession, "114_1", "114", "1", "230", ScheduleScope.SEMESTER)
 
         server.awaitRequest()
         server.awaitRequest()

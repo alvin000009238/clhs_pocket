@@ -24,6 +24,7 @@ sequenceDiagram
 - `ScoreViewModel` 管理登入後成績與 session lifecycle；課表 route 由 `ScheduleViewModel` 擁有自己的 UI state。兩者都必須取消過期工作。
 - repository 解析網路資料並處理 cache；`SchoolGradeClient` 集中校務系統 HTTP、cookie 及併發限制。
 - `OverviewCoordinator` 聚合各來源並處理快取優先、部分失敗與公開天氣 fallback；Overview UI 不直接依賴 repository。
+- 課表完整快照統一保存於 Room，browser、overview、widget 使用獨立參照。週快照綁定當時學期版本；差異讀取時重算。首次只有學期瀏覽資料時，首頁仍須查今天的實際週表，不能把新學期快取的六小時有效期當成已確認週資料。
 - 公開公告、行事曆、公告更新提醒與天氣各自使用無 cookie client，不能回退到登入 session；公告更新提醒的基準／未讀狀態與天氣授權碼各自留在對應的本機儲存邊界。
 - Widget 只讀專用課表快照；它不能自行登入或向校務 API 查詢。
 - session cache 是加密資料，不等於一般 UI cache；清除登入或隱私資料時失敗必須向上傳遞。

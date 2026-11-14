@@ -11,6 +11,41 @@ import org.junit.Test
 
 class AppNavigationTest {
     @Test
+    fun pushingAndPoppingPersonalKeepsRootGeometryAndChildHasNoOverlaySpace() {
+        val state = navigationStateForTest()
+        val navigator = AppNavigator(state)
+        navigator.selectTopLevel(TopLevelDestination.Schedule)
+        val clearance = PocketNavigationLayout.clearance
+        assertEquals(clearance, entryNavigationClearance(state.currentRoute, clearance))
+
+        navigator.navigate(PersonalRoute)
+        assertEquals(listOf(clearance, 0.dp), state.currentBackStack.map { entryNavigationClearance(it, clearance) })
+        navigator.navigate(GeneralSettingsRoute)
+        assertEquals(listOf(clearance, 0.dp, 0.dp), state.currentBackStack.map { entryNavigationClearance(it, clearance) })
+        assertTrue(navigator.goBack())
+        assertTrue(navigator.goBack())
+        assertEquals(clearance, entryNavigationClearance(state.currentRoute, clearance))
+    }
+
+    @Test
+    fun retainedRootsUseCurrentGeometryAfterResizeAndNavigationSizeChanges() {
+        for (destination in TopLevelDestination.entries) {
+            for ((width, height, expected) in listOf(
+                Triple(390.dp, 844.dp, PocketNavigationLayout.clearance),
+                Triple(844.dp, 390.dp, 0.dp),
+                Triple(600.dp, 900.dp, 0.dp),
+                Triple(390.dp, 844.dp, PocketNavigationLayout.clearance),
+            )) {
+                val rootClearance = if (topLevelNavigationType(width, height) == NavigationSuiteType.NavigationRail) 0.dp
+                    else PocketNavigationLayout.clearance
+                assertEquals(expected, entryNavigationClearance(destination.route, rootClearance))
+                assertEquals(0.dp, entryNavigationClearance(PersonalRoute, rootClearance))
+            }
+            assertEquals(104.dp, entryNavigationClearance(destination.route, 104.dp))
+        }
+    }
+
+    @Test
     fun topLevelNavigationUsesCompactBarBelow600AndRailFrom600() {
         assertEquals(NavigationSuiteType.ShortNavigationBarCompact, topLevelNavigationType(599.dp))
         assertEquals(NavigationSuiteType.NavigationRail, topLevelNavigationType(600.dp))

@@ -8,6 +8,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CourseResolutionTest {
+    @Test fun mixedValidAndUnparseableLessonsCannotEnableNotifications() {
+        for (scope in listOf(ScheduleScope.CURRENT_WEEK, ScheduleScope.SEMESTER)) {
+            for (bad in listOf(ScheduleItem(5, 9, "Unknown period"), ScheduleItem(8, 1, "Invalid day"), ScheduleItem(5, 1, ""))) {
+                val source = report.copy(scope = scope, items = listOf(ScheduleItem(1, 1, "Finished"), bad))
+                val result = resolveCourses(source, clock("2026-09-22T00:00:00Z"))
+                assertFalse(result.scheduleAvailable)
+                assertFalse(result.valid)
+                assertNull(result.current)
+                assertNull(result.nextBoundary)
+            }
+        }
+    }
+
     @Test fun advanceReminderUsesFiveMinuteWindowAndSwitchesAtEveryClassStart() {
         PERIOD_TIMES.forEachIndexed { index, time ->
             val source = report.copy(items = listOf(ScheduleItem(1, index + 1, "課程")))

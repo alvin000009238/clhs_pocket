@@ -159,7 +159,7 @@ class SettingsTransferTest {
     }
 
     @Test fun revokedAuthorizationCannotCommitSubjects() = runTest {
-        val store = GradeCacheStore(OverviewTestSettingsStore()) {}
+        val store = testGradeCacheStore(OverviewTestSettingsStore()) {}
         val original = listOf(ScheduleSubjectOverride("數學", "原設定"))
         store.saveScheduleSubjectOverrides("student", original)
         val failure = runCatching {

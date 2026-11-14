@@ -14,6 +14,8 @@ import androidx.compose.ui.unit.dp
 
 /** Space belongs to the shell; scroll owners apply it inside their scrollable content. */
 internal val LocalNavigationClearance = staticCompositionLocalOf { 0.dp }
+/** Root geometry survives overlay visibility changes while entries animate beneath a child. */
+internal val LocalRootNavigationClearance = staticCompositionLocalOf { 0.dp }
 internal val LocalNavigationCompact = compositionLocalOf { false }
 internal val LocalExpandNavigation = compositionLocalOf<() -> Unit> { {} }
 internal val LocalRootReselect = staticCompositionLocalOf<RootReselect?> { null }
