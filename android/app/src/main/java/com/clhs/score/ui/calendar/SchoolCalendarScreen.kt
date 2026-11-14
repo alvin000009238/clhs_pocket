@@ -71,6 +71,8 @@ import com.clhs.score.data.SCHOOL_CALENDAR_SEARCH_MAX_LENGTH
 import com.clhs.score.data.SCHOOL_COURSE_ZONE
 import com.clhs.score.ui.hapticClick
 import com.clhs.score.ui.OutlinedRoundedSymbol
+import com.clhs.score.ui.LocalReadingGutter
+import com.clhs.score.ui.readingContentPadding
 import com.clhs.score.ui.FloatingSubpageLayout
 import com.clhs.score.ui.rememberLoadingShimmerProgress
 import com.clhs.score.ui.theme.PocketMotion
@@ -243,7 +245,7 @@ private fun CalendarAgenda(
                 .semantics {
                     if (uiState.isInitialLoading) contentDescription = "正在載入行事曆"
                 },
-            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, top = topPadding + 8.dp, end = 16.dp, bottom = 88.dp)),
+            contentPadding = readingContentPadding(navigationContentPadding(PaddingValues(start = 16.dp, top = topPadding + 8.dp, end = 16.dp, bottom = 88.dp))),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
 

@@ -201,7 +201,7 @@ fun UsageStatisticsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).padding(horizontal = LocalReadingGutter.current)
                 .navigationContentPadding()
                 .padding(start = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, end = 16.dp)
                 .navigationBarsPadding(),
@@ -325,7 +325,7 @@ fun OpenSourceLicensesScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).padding(horizontal = LocalReadingGutter.current)
                 .navigationContentPadding()
                 .padding(start = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, end = 16.dp)
                 .navigationBarsPadding(),

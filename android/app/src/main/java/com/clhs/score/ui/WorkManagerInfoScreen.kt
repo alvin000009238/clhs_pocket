@@ -81,7 +81,7 @@ fun WorkManagerInfoScreen(onBack: () -> Unit) {
     FloatingSubpageLayout(onBack = onBack) { pagePadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = pagePadding.calculateBottomPadding() + 16.dp)),
+            contentPadding = readingContentPadding(navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = pagePadding.calculateBottomPadding() + 16.dp))),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             WorkManagerSection.entries.forEach { section ->
