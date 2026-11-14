@@ -102,7 +102,7 @@ class SessionStoreTest {
         val future = current.copy(weekStartDate = start.plusWeeks(1).toString(),
             weekEndDate = start.plusWeeks(1).plusDays(6).toString(),
             items = listOf(ScheduleItem(1, 1, "下週課程")), changes = emptyList())
-        cache.saveScheduleReport(active.studentNo, "114_2_230_current_week", current)
+        cache.saveScheduleReport(active.studentNo, "114_2_230_current_week", current, updateOverviewSnapshot = true)
         cache.saveScheduleReport(active.studentNo, "114_2_230_current_week", future)
         val repository = NetworkScheduleRepository(SchoolGradeClient(), authority, cache,
             activeSessionProvider = { active })

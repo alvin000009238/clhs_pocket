@@ -441,7 +441,7 @@ class GradeCacheStore internal constructor(
                 if (!includeSemesterFallback || report.scope != ScheduleScope.CURRENT_WEEK || report.isAuthoritativeWeekOn(today) || future) report
                 else {
                     val key = report.yearTermValue + report.classNo.takeIf(String::isNotBlank)?.let { "_$it" }.orEmpty()
-                    snapshots.load(student, key)?.report?.copy(changes = null, subjectOverrides = report.subjectOverrides) ?: report
+                    (snapshots.load(student, key + "_current_week", today) ?: snapshots.load(student, key))?.report?.copy(changes = null, subjectOverrides = report.subjectOverrides) ?: report
                 }
             })
         }

@@ -1115,6 +1115,8 @@ class ScheduleViewModelTest {
         runCurrent()
         assertEquals(preloaded, vm.uiState.value.report)
         assertNull(vm.uiState.value.weekTargetDate)
+        assertEquals(true, vm.uiState.value.refreshFailed)
+        assertEquals(com.clhs.score.data.ScheduleAvailability.FAILED, vm.uiState.value.availability)
         assertEquals(listOf(LocalDate.parse("2026-11-16"), LocalDate.parse("2026-11-23")), repository.scheduleTargetDates)
 
         repository.enqueueSchedule(Result.success(confirmed))
@@ -1123,6 +1125,39 @@ class ScheduleViewModelTest {
         assertEquals(confirmed, vm.uiState.value.report)
         assertFalse(vm.uiState.value.refreshFailed)
         assertEquals(3, repository.scheduleTargetDates.size)
+    }
+
+    @Test
+    fun failedScopeSelectionCanBeSelectedAgainAndManualRetryRemainsManual() = runTest(dispatcher) {
+        val week = ScheduleReport("114_1", "230", ScheduleScope.CURRENT_WEEK,
+            weekStartDate = "2026-07-19", weekEndDate = "2026-07-25",
+            items = listOf(ScheduleItem(5, 8, "Math")))
+        val repo = ControllableScheduleRepository(week)
+        val vm = ScheduleViewModel(repo, nowProvider = { LocalDateTime.parse("2026-07-23T12:00:00") })
+        runCurrent()
+        repo.enqueueSchedule(Result.failure(IOException("offline")))
+        vm.selectScope(ScheduleScope.SEMESTER)
+        runCurrent()
+        assertEquals(ScheduleScope.CURRENT_WEEK, vm.uiState.value.selectedScope)
+        val semester = week.copy(scope = ScheduleScope.SEMESTER)
+        repo.enqueueSchedule(Result.success(semester))
+        vm.selectScope(ScheduleScope.SEMESTER)
+        runCurrent()
+        assertEquals(semester, vm.uiState.value.report)
+        vm.selectScope(ScheduleScope.CURRENT_WEEK)
+        runCurrent()
+        repo.enqueueSchedule(Result.failure(IOException("offline")))
+        vm.nextWeek()
+        runCurrent()
+        val next = week.copy(weekStartDate = "2026-07-26", weekEndDate = "2026-08-01")
+        repo.enqueueSchedule(Result.success(next))
+        vm.refresh()
+        runCurrent()
+        assertEquals(LocalDate.parse("2026-07-26"), vm.uiState.value.weekTargetDate)
+        vm.currentWeek()
+        runCurrent()
+        assertEquals(week, vm.uiState.value.report)
+        assertNull(vm.uiState.value.weekTargetDate)
     }
 
     @Test

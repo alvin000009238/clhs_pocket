@@ -177,17 +177,20 @@ class OverviewCoordinator(
         var cachedReport: ScheduleReport? = null
         try {
             val overviewSnapshot = scheduleRepository.getOverviewScheduleSnapshot()
-            val snapshot = overviewSnapshot ?: scheduleRepository.getLatestScheduleSnapshot()
-            val unconfirmedFuture = overviewSnapshot == null && snapshot?.report?.let { report ->
+            val initialSnapshot = overviewSnapshot ?: scheduleRepository.getLatestScheduleSnapshot()
+            val unconfirmedFuture = overviewSnapshot == null && initialSnapshot?.report?.let { report ->
                 report.scope == ScheduleScope.CURRENT_WEEK && report.weekStartDate
                     ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
                     ?.isAfter(schoolNow().toLocalDate()) == true
             } == true
-            val needsWeeklyBootstrap = unconfirmedFuture ||
-                (overviewSnapshot == null && snapshot?.report?.scope == ScheduleScope.SEMESTER)
-            cachedReport = snapshot?.report?.takeUnless { unconfirmedFuture }
+            var needsWeeklyBootstrap = unconfirmedFuture ||
+                (overviewSnapshot == null && initialSnapshot?.report?.scope == ScheduleScope.SEMESTER)
+            cachedReport = initialSnapshot?.report?.takeUnless { unconfirmedFuture }
             emit(OverviewUpdate.Schedule(cachedReport, refreshing = needsWeeklyBootstrap, failed = false))
-            if (snapshot != null) {
+            var pendingSnapshot = initialSnapshot
+            while (pendingSnapshot != null) {
+                val snapshot = pendingSnapshot
+                pendingSnapshot = null
                 val initialInstant = clock.instant()
                 val initialNow = LocalDateTime.ofInstant(initialInstant, SCHOOL_ZONE)
                 if (!needsWeeklyBootstrap && !scheduleNeedsRefresh(snapshot.report, snapshot.fetchedAtMillis, initialInstant)) {
@@ -229,10 +232,14 @@ class OverviewCoordinator(
                             updateOverviewSnapshot = true,
                             updateBrowseSelection = false,
                         )
+                        cachedReport = next
                         emit(OverviewUpdate.Schedule(next, refreshing = false, failed = false))
                     } else {
                         emit(OverviewUpdate.Schedule(refreshed, refreshing = false, failed = false))
                     }
+                    needsWeeklyBootstrap = false
+                    pendingSnapshot = cachedReport?.takeIf { scheduleRefreshDelayMillis(it, schoolNow()) > 0 }
+                        ?.let { com.clhs.score.data.CachedScheduleReport(it, clock.instant().toEpochMilli()) }
                 }
             }
         } catch (error: Exception) {

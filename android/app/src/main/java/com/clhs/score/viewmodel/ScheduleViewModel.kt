@@ -91,7 +91,7 @@ class ScheduleViewModel(
     private var lastScheduleRequest: ScheduleQuery? = null
     private var automaticSnapshot: CachedScheduleReport? = null
     private val loadedSnapshots = mutableListOf<CachedScheduleReport>()
-    private val failedAutomaticTargets = mutableSetOf<ScheduleTargetKey>()
+    private val failedAutomaticTargets = mutableMapOf<ScheduleTargetKey, com.clhs.score.data.ScheduleAvailability>()
     private var subjectOverrides: List<ScheduleSubjectOverride>? = null
 
     private val _uiState = MutableStateFlow(ScheduleUiState())
@@ -591,6 +591,11 @@ class ScheduleViewModel(
             val retained = reusable ?: matchingAutomatic
             if (retained != null) {
                 showReport(effectiveQuery, retained)
+                val failure = failedAutomaticTargets.getValue(currentTargetKey)
+                _uiState.update { it.copy(availability = failure,
+                    refreshFailed = failure == com.clhs.score.data.ScheduleAvailability.FAILED,
+                    noticeMessage = if (failure == com.clhs.score.data.ScheduleAvailability.UNPUBLISHED)
+                        "學校尚未提供這一週的課表，保留目前資料" else "無法更新，暫時顯示已儲存的課表") }
             } else {
                 _uiState.update { it.copy(isLoading = false) }
             }
@@ -681,8 +686,8 @@ class ScheduleViewModel(
             } catch (e: Exception) {
                 e.throwIfCancellation()
                 if (requestId != scheduleRequestId) return@launch
-                if (effectiveQuery.automaticWeek) {
-                    failedAutomaticTargets += currentTargetKey
+                if (effectiveQuery.automaticWeek && effectiveQuery.scope == ScheduleScope.CURRENT_WEEK) {
+                    failedAutomaticTargets[currentTargetKey] = if (e is com.clhs.score.data.ScheduleFetchException && e.result is com.clhs.score.data.ScheduleFetchResult.Unpublished) com.clhs.score.data.ScheduleAvailability.UNPUBLISHED else com.clhs.score.data.ScheduleAvailability.FAILED
                 }
                 analyticsLogger.logEvent(
                     AnalyticsEvents.SCHEDULE_QUERY,
@@ -718,6 +723,7 @@ class ScheduleViewModel(
                             refreshFailed = !unavailable,
                             availability = if (unavailable) com.clhs.score.data.ScheduleAvailability.UNPUBLISHED else com.clhs.score.data.ScheduleAvailability.FAILED,
                             weekTargetDate = restoredWeekTarget,
+                            selectedScope = retainedReport.scope,
                             report = retainedReport.copy(subjectOverrides = subjectOverrides ?: retainedReport.subjectOverrides),
                             noticeMessage = if (unavailable) "學校尚未提供這一週的課表，保留目前資料" else "無法更新，暫時顯示已儲存的課表",
                         )
@@ -817,6 +823,8 @@ class ScheduleViewModel(
                 isError = false,
                 refreshFailed = false,
                 selectedScope = report.scope,
+                weekTargetDate = if (query.automaticWeek || report.scope != ScheduleScope.CURRENT_WEEK) null
+                    else report.weekStartDate?.let { start -> runCatching { LocalDate.parse(start) }.getOrNull() } ?: query.targetDate,
                 report = report.copy(subjectOverrides = subjectOverrides ?: report.subjectOverrides),
                 availability = if (report.scope == ScheduleScope.CURRENT_WEEK && report.items.isEmpty()) com.clhs.score.data.ScheduleAvailability.EMPTY else com.clhs.score.data.ScheduleAvailability.AVAILABLE,
                 noticeMessage = if (query.scope == ScheduleScope.CURRENT_WEEK && report.scope == ScheduleScope.SEMESTER) {

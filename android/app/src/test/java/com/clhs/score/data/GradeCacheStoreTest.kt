@@ -61,6 +61,32 @@ class GradeCacheStoreTest {
         }
     }
 
+    @Test
+    fun notificationUsesSavedTargetWeekBeforeSemesterFallback() = runTest {
+        val disk = PreferenceDataStoreFactory.create(scope = backgroundScope) {
+            temporaryFolder.root.resolve("notification-target-week.preferences_pb")
+        }
+        val today = LocalDate.now(SCHOOL_COURSE_ZONE)
+        val current = scheduleReport("230", ScheduleScope.CURRENT_WEEK,
+            weekStartDate = today.toString(), weekEndDate = today.plusDays(6).toString())
+        val old = current.copy(weekStartDate = today.minusWeeks(1).toString(), weekEndDate = today.minusDays(1).toString())
+        val semester = current.copy(scope = ScheduleScope.SEMESTER, items = listOf(ScheduleItem(1, 1, "Baseline")))
+        disk.edit {
+            it[stringPreferencesKey("widget_schedule_student_no")] = "student"
+            it[stringPreferencesKey("widget_schedule_report")] = Json.encodeToString(old)
+            it[stringPreferencesKey("schedule_student_114_2_230_current_week")] = Json.encodeToString(current)
+            it[stringPreferencesKey("schedule_student_114_2_230")] = Json.encodeToString(semester)
+        }
+        val store = testGradeCacheStore(disk) {}
+        assertEquals(current, store.courseNotificationScheduleReportFlow().first())
+    }
+
+    @Test
+    fun fakeSecondTermWeeksStartInFollowingCalendarYear() = runTest {
+        val weeks = FakeScheduleRepository().getScheduleWeeks("115", "2")
+        assertEquals(LocalDate.of(2027, 2, 1), LocalDate.parse(weeks.first().startDate))
+    }
+
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 

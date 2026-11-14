@@ -113,11 +113,15 @@ class NetworkScheduleRepository(
                     is ScheduleFetchResult.Empty -> { report = result.report; baseline = result.semesterBaseline }
                     is ScheduleFetchResult.Unpublished -> {
                         result.semesterFallback?.let { cacheStore.saveScheduleReport(session.studentNo, semesterCacheKey, it, updateBrowseSelection = false) { sessionStore.isAuthorized(session) } }
-                        throw ScheduleFetchException(result)
+                        throw ScheduleFetchException(result.copy(semesterFallback = result.semesterFallback?.copy(
+                            subjectOverrides = cacheStore.loadScheduleSubjectOverrides(session.studentNo),
+                        )))
                     }
                     is ScheduleFetchResult.Failed -> {
                         result.semesterFallback?.let { cacheStore.saveScheduleReport(session.studentNo, semesterCacheKey, it, updateBrowseSelection = false) { sessionStore.isAuthorized(session) } }
-                        throw ScheduleFetchException(result)
+                        throw ScheduleFetchException(result.copy(semesterFallback = result.semesterFallback?.copy(
+                            subjectOverrides = cacheStore.loadScheduleSubjectOverrides(session.studentNo),
+                        )))
                     }
                 }
                 cacheStore.saveScheduleReport(session.studentNo, cacheKeyFor(report, semesterCacheKey), report,
@@ -292,7 +296,7 @@ class FakeScheduleRepository(
     }
 
     override suspend fun getScheduleWeeks(year: String, term: String): List<ScheduleWeekOption> {
-        val first = LocalDate.of(year.toInt() + 1911, if (term == "1") 8 else 2, 1)
+        val first = LocalDate.of(year.toInt() + 1911 + if (term == "2") 1 else 0, if (term == "1") 8 else 2, 1)
             .with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
         return (0L..26L).map { index ->
             val start = first.plusWeeks(index)
