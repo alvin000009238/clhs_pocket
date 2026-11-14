@@ -129,11 +129,11 @@ fun ScheduleCustomizationsScreen(
             state.overrides.isEmpty() -> EmptyCustomizationList()
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = navigationContentPadding(androidx.compose.foundation.layout.PaddingValues(
+                contentPadding = com.clhs.score.ui.readingContentPadding(navigationContentPadding(androidx.compose.foundation.layout.PaddingValues(
                     start = 16.dp, end = 16.dp,
                     top = pagePadding.calculateTopPadding() + 8.dp,
                     bottom = pagePadding.calculateBottomPadding() + 16.dp,
-                )),
+                ))),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(state.overrides, key = ScheduleSubjectOverride::originalSubjectName) { override ->

@@ -33,7 +33,7 @@ internal fun PocketSearchToolbar(
     BackHandler(expanded, onBack = collapse)
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopEnd) {
         val width by animateDpAsState(
-            if (expanded) maxWidth else collapsedWidth,
+            if (expanded) maxWidth.coerceAtMost(560.dp) else collapsedWidth,
             PocketMotion.contentReflow(), label = "搜尋框寬度",
         )
         Surface(
@@ -84,6 +84,7 @@ internal fun PocketSearchToolbar(
     }
 }
 
+@androidx.compose.ui.tooling.preview.Preview(name = "搜尋工具列平板", widthDp = 1280, heightDp = 180)
 @androidx.compose.ui.tooling.preview.Preview(name = "搜尋工具列", widthDp = 390, heightDp = 180)
 @androidx.compose.ui.tooling.preview.Preview(name = "搜尋工具列窄螢幕", widthDp = 320, heightDp = 180, fontScale = 1.5f)
 @Composable

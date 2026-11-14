@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 internal fun FloatingSubpageLayout(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    contentMaxWidth: androidx.compose.ui.unit.Dp = 720.dp,
     snackbarHost: @Composable () -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
     actionsPadding: PaddingValues = PaddingValues(0.dp),
@@ -25,7 +26,12 @@ internal fun FloatingSubpageLayout(
     val bottom = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
     Surface(color = MaterialTheme.colorScheme.surface) {
         Box(modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
-            content(PaddingValues(top = top + 64.dp, bottom = bottom))
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val gutter = ((maxWidth - contentMaxWidth) / 2).coerceAtLeast(0.dp)
+                androidx.compose.runtime.CompositionLocalProvider(LocalReadingGutter provides gutter) {
+                    content(PaddingValues(top = top + 64.dp, bottom = bottom))
+                }
+            }
             Box(Modifier.fillMaxWidth().height(top + 12.dp).background(
                 Brush.verticalGradient(listOf(
                     MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
@@ -52,4 +58,18 @@ internal fun FloatingSubpageLayout(
             Box(Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding()) { snackbarHost() }
         }
     }
+}
+
+internal val LocalReadingGutter = androidx.compose.runtime.staticCompositionLocalOf { 0.dp }
+
+@Composable
+internal fun readingContentPadding(padding: PaddingValues): PaddingValues {
+    val gutter = LocalReadingGutter.current
+    val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
+    return PaddingValues(
+        start = padding.calculateStartPadding(direction) + gutter,
+        top = padding.calculateTopPadding(),
+        end = padding.calculateEndPadding(direction) + gutter,
+        bottom = padding.calculateBottomPadding(),
+    )
 }

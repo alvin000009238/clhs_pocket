@@ -176,7 +176,7 @@ fun AnnouncementReminderSettingsScreen(
     ) { pagePadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = 16.dp)),
+            contentPadding = readingContentPadding(navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = 16.dp))),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
@@ -506,7 +506,7 @@ fun AnnouncementReminderUnitsScreen(
     ) { pagePadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = 16.dp)),
+            contentPadding = readingContentPadding(navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = 16.dp))),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
