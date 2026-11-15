@@ -125,11 +125,13 @@ class ScheduleViewModel(
         }
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, isInitialLoading = true, isError = false) }
+            val requestId = scheduleRequestId
             try {
                 val snapshot = repository.getLatestScheduleSnapshot()
                 val overviewSnapshot = runCatching { repository.getOverviewScheduleSnapshot() }
                     .onFailure { it.throwIfCancellation() }
                     .getOrNull()
+                if (requestId != scheduleRequestId) return@launch
                 val latest = snapshot?.report
                 if (latest != null) {
                     rememberSnapshot(snapshot)
@@ -178,7 +180,9 @@ class ScheduleViewModel(
                             selectedClassValue = latest.classNo,
                             selectedScope = latest.scope,
                             weekTargetDate = manualWeekTarget,
-                            report = latest,
+                            report = if (manualWeekTarget == null && latest.scope == ScheduleScope.CURRENT_WEEK) {
+                                matchingOverview?.report ?: latest
+                            } else latest,
                         )
                     }
                     val automaticCandidate = matchingOverview ?: snapshot
@@ -205,6 +209,7 @@ class ScheduleViewModel(
                 }
             } catch (e: Exception) {
                 e.throwIfCancellation()
+                if (requestId != scheduleRequestId) return@launch
                 _uiState.update { it.copy(isInitialLoading = false) }
                 loadYears()
             }
@@ -221,6 +226,7 @@ class ScheduleViewModel(
         _uiState.update {
             it.copy(
                 report = null,
+                isInitialLoading = false,
                 selectedScope = ScheduleScope.SEMESTER,
                 weekTargetDate = null,
                 availability = com.clhs.score.data.ScheduleAvailability.AVAILABLE,

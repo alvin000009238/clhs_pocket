@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
@@ -127,11 +129,22 @@ class StudentRecordsTest {
             server.start()
             val client = SchoolGradeClient(server.url("/CLHSTYC/").toString())
             val session = AuthenticatedSession("DEMO-001", "old-token", emptyMap())
-            server.enqueue(MockResponse().setResponseCode(401).setHeadersDelay(1, TimeUnit.SECONDS))
-            val old = async(Dispatchers.IO) { runCatching { client.fetchMeritHistory(session) }.exceptionOrNull() }
-            requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
-            client.restoreSession(session.copy(apiToken = "new-token"))
-            assertTrue(old.await() is kotlinx.coroutines.CancellationException)
+            val release = java.util.concurrent.CountDownLatch(1)
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    check(release.await(5, TimeUnit.SECONDS))
+                    return MockResponse().setResponseCode(401)
+                }
+            }
+            try {
+                val old = async(Dispatchers.IO) { runCatching { client.fetchMeritHistory(session) }.exceptionOrNull() }
+                requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+                client.restoreSession(session.copy(apiToken = "new-token"))
+                release.countDown()
+                assertTrue(old.await() is kotlinx.coroutines.CancellationException)
+            } finally {
+                release.countDown()
+            }
         }
     }
 

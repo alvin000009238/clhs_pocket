@@ -167,24 +167,36 @@ class SchoolGradeClient(
         )
     }
 
-    suspend fun fetchRecordSemesters(session: AuthenticatedSession): List<RecordSemester> =
-        StudentRecordsParser.semesters(recordRequest(
-            session, prepareSession(session), "CommonData/GetStudentYearTermDropdownList",
-        ))
+    suspend fun fetchRecordSemesters(session: AuthenticatedSession): List<RecordSemester> {
+        val generation = prepareSession(session)
+        return withContext(Dispatchers.Default) {
+            StudentRecordsParser.semesters(recordRequest(
+                session, generation, "CommonData/GetStudentYearTermDropdownList",
+            ))
+        }
+    }
 
-    suspend fun fetchAttendanceHistory(session: AuthenticatedSession): List<RecordHistoryStatistic> =
-        StudentRecordsParser.history(recordRequest(
-            session, prepareSession(session), "TutorShSheAbsentStatistics/GetTutorShSheAbsentStatistics",
-        ), "AbsentType")
+    suspend fun fetchAttendanceHistory(session: AuthenticatedSession): List<RecordHistoryStatistic> {
+        val generation = prepareSession(session)
+        return withContext(Dispatchers.Default) {
+            StudentRecordsParser.history(recordRequest(
+                session, generation, "TutorShSheAbsentStatistics/GetTutorShSheAbsentStatistics",
+            ), "AbsentType")
+        }
+    }
 
-    suspend fun fetchMeritHistory(session: AuthenticatedSession): List<RecordHistoryStatistic> =
-        StudentRecordsParser.history(recordRequest(
-            session, prepareSession(session), "TutorShSheMoralMeritPenalty/GetMeritPenaltyStatisticsList",
-        ), "MeritPenaltyType")
+    suspend fun fetchMeritHistory(session: AuthenticatedSession): List<RecordHistoryStatistic> {
+        val generation = prepareSession(session)
+        return withContext(Dispatchers.Default) {
+            StudentRecordsParser.history(recordRequest(
+                session, generation, "TutorShSheMoralMeritPenalty/GetMeritPenaltyStatisticsList",
+            ), "MeritPenaltyType")
+        }
+    }
 
     suspend fun fetchAttendance(session: AuthenticatedSession, semester: RecordSemester): AttendanceRecord {
         val generation = prepareSession(session)
-        return coroutineScope {
+        return withContext(Dispatchers.Default) {
             val summary = async {
                 StudentRecordsParser.attendanceSummary(recordRequest(
                     session, generation, "TutorShSheAbsentStatistics/GetTutorShSheAbsentTermStatistics", semester,
@@ -199,10 +211,14 @@ class SchoolGradeClient(
         }
     }
 
-    suspend fun fetchMerits(session: AuthenticatedSession, semester: RecordSemester): List<MeritRecord> =
-        StudentRecordsParser.merits(recordRequest(
-            session, prepareSession(session), "TutorShSheMoralMeritPenalty/GetMeritPenaltyDetailsList", semester,
-        ))
+    suspend fun fetchMerits(session: AuthenticatedSession, semester: RecordSemester): List<MeritRecord> {
+        val generation = prepareSession(session)
+        return withContext(Dispatchers.Default) {
+            StudentRecordsParser.merits(recordRequest(
+                session, generation, "TutorShSheMoralMeritPenalty/GetMeritPenaltyDetailsList", semester,
+            ))
+        }
+    }
 
     private suspend fun recordRequest(
         session: AuthenticatedSession,

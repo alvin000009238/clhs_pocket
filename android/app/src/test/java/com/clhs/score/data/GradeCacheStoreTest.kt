@@ -604,6 +604,18 @@ class GradeCacheStoreTest {
         assertEquals("2026-07-19", store.selected("student", "browser")?.report?.weekStartDate)
     }
 
+    @Test
+    fun selectingCachedEmptyWeekPublishesItToWidgetWithoutChangingCaptureTime() = runTest {
+        val store = testScheduleSnapshotStore { java.time.LocalDateTime.parse("2026-11-15T09:00:00") }
+        val emptyWeek = scheduleReport("230", ScheduleScope.CURRENT_WEEK,
+            weekStartDate = "2026-11-09", weekEndDate = "2026-11-15")
+        store.save("student", emptyWeek, false, { true }, capturedAt = 100L, publishToWidget = false)
+        store.save("student", scheduleReport("230", ScheduleScope.SEMESTER), false, { true }, capturedAt = 200L)
+        store.select("student", emptyWeek, false, { true })
+        assertEquals(emptyWeek, store.selected("student", "widget")?.report)
+        assertEquals(100L, store.selected("student", "widget")?.fetchedAtMillis)
+    }
+
     private fun scheduleReport(
         classNo: String,
         scope: ScheduleScope,
