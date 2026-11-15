@@ -284,7 +284,8 @@ class OverviewCoordinatorTest {
             weekEndDate = null,
         )
 
-        assertFalse(scheduleNeedsRefresh(currentWeek, null, monday.atZone(SCHOOL_ZONE).toInstant()))
+        assertTrue(scheduleNeedsRefresh(currentWeek, null, monday.atZone(SCHOOL_ZONE).toInstant()))
+        assertFalse(scheduleNeedsRefresh(currentWeek, nowMillis, monday.atZone(SCHOOL_ZONE).toInstant()))
         assertFalse(scheduleNeedsRefresh(semester, nowMillis, monday.atZone(SCHOOL_ZONE).toInstant()))
         assertTrue(scheduleNeedsRefresh(semester, nowMillis - 7 * 60 * 60 * 1_000L, monday.atZone(SCHOOL_ZONE).toInstant()))
         assertTrue(scheduleNeedsRefresh(currentWeek, nowMillis, monday.plusDays(7).atZone(SCHOOL_ZONE).toInstant()))
@@ -309,6 +310,25 @@ class OverviewCoordinatorTest {
             0L,
             scheduleRefreshDelayMillis(report, LocalDateTime.parse("2026-09-04T17:00")),
         )
+    }
+
+    @Test
+    fun preloadedWeekConfirmsAtWeekStartThenWaitsUntilLastClassEnd() {
+        val report = ScheduleReport("115_1", "230", ScheduleScope.CURRENT_WEEK,
+            weekStartDate = "2026-11-16", weekEndDate = "2026-11-22",
+            items = listOf(ScheduleItem(5, 8, "Math")))
+        val before = LocalDateTime.parse("2026-11-15T23:59:59")
+        val start = before.plusSeconds(1)
+        val old = before.atZone(SCHOOL_ZONE).toInstant().toEpochMilli()
+        val confirmed = start.atZone(SCHOOL_ZONE).toInstant().toEpochMilli()
+        assertEquals(1000L, scheduleRefreshDelayMillis(report, before))
+        assertFalse(scheduleNeedsRefresh(report, old, before))
+        assertTrue(scheduleNeedsRefresh(report, old, start))
+        assertTrue(scheduleNeedsRefresh(report, null, start))
+        assertFalse(scheduleNeedsRefresh(report, confirmed, start))
+        val lastEnd = LocalDateTime.parse("2026-11-20T16:55:00")
+        assertEquals(java.time.Duration.between(start, lastEnd).toMillis(), scheduleRefreshDelayMillis(report, start))
+        assertTrue(scheduleNeedsRefresh(report, confirmed, lastEnd))
     }
 
     @Test

@@ -1,5 +1,10 @@
 package com.clhs.score.data
 
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.Flow
 import android.content.Context
@@ -35,7 +40,10 @@ internal fun ScheduleReport.toWidgetReportOrNull(
     currentWidgetReport: ScheduleReport?,
     today: LocalDate = LocalDate.now(SCHOOL_COURSE_ZONE),
 ): ScheduleReport? =
-    toWidgetReportOrNull() ?: when {
+    when {
+        scope == ScheduleScope.CURRENT_WEEK && !isAuthoritativeWeekOn(today) &&
+            currentWidgetReport?.isAuthoritativeWeekOn(today) == true -> null
+        scope == ScheduleScope.CURRENT_WEEK -> copy(changes = null)
         currentWidgetReport == null -> copy(changes = null)
         currentWidgetReport.isAuthoritativeWeekOn(today) -> null
         else -> copy(changes = null)
@@ -65,11 +73,10 @@ class GradeCacheStore internal constructor(
     private val dataStore: DataStore<Preferences>,
     private val recordDiagnostic: (String) -> Unit,
     private val privateSnapshotAllowed: Flow<Boolean>,
+    private val snapshots: ScheduleSnapshotStore,
     private val commitSchedule: suspend (suspend () -> Unit) -> Unit = { it() },
+    private val migrationAuthority: () -> (() -> Boolean) = { { true } },
 ) {
-    internal constructor(dataStore: DataStore<Preferences>, recordDiagnostic: (String) -> Unit) :
-        this(dataStore, recordDiagnostic, flowOf(true))
-
     constructor(context: Context) : this(
         dataStore = context.applicationContext.gradeDataStore,
         recordDiagnostic = { message ->
@@ -80,7 +87,14 @@ class GradeCacheStore internal constructor(
             )
         },
         privateSnapshotAllowed = SessionStore(context.applicationContext).privateSnapshotAccess,
+        snapshots = ScheduleSnapshotStore(ScheduleSnapshotDatabase.get(context)),
         commitSchedule = { block -> com.clhs.score.notifications.CurrentCourseNotifications.get(context).commitSnapshot(block) },
+        migrationAuthority = {
+            val authority = SessionStore(context.applicationContext)
+            val generation = authority.requestGeneration()
+            val guard: () -> Boolean = { authority.withSnapshotGeneration(generation) {} }
+            guard
+        },
     )
 
     private val json = Json {
@@ -223,107 +237,110 @@ class GradeCacheStore internal constructor(
         }.getOrNull()
     }
 
-    suspend fun saveScheduleReport(studentNo: String, yearValue: String, report: ScheduleReport, shouldCommit: () -> Boolean = { true }) = commitSchedule {
-        val key = stringPreferencesKey("schedule_${studentNo}_${yearValue}")
-        val fetchedAtKey = longPreferencesKey("schedule_${studentNo}_${yearValue}_fetched_at")
-        val latestKey = stringPreferencesKey("schedule_latest_$studentNo")
-        val latestFetchedAtKey = longPreferencesKey("schedule_${studentNo}_latest_fetched_at")
-        val serialized = withContext(Dispatchers.Default) { json.encodeToString(report) }
-        val fetchedAt = System.currentTimeMillis()
-        saveCacheValue("schedule") {
-            dataStore.edit { prefs ->
-                if (!shouldCommit()) return@edit
-                prefs[key] = serialized
-                prefs[fetchedAtKey] = fetchedAt
-                prefs[latestKey] = serialized
-                prefs[latestFetchedAtKey] = fetchedAt
-                val currentWidgetReport = prefs[PREF_WIDGET_SCHEDULE_REPORT]
-                    ?.let { runCatching { json.decodeFromString<ScheduleReport>(it) }.getOrNull() }
-                val widgetReport = report.toWidgetReportOrNull(currentWidgetReport)
-                if (widgetReport != null) {
-                    prefs[PREF_WIDGET_SCHEDULE_REPORT] = json.encodeToString(widgetReport)
-                    prefs[PREF_WIDGET_SCHEDULE_STUDENT_NO] = studentNo
+    private val migrationMutex = Mutex()
+
+    private suspend fun migrateSchedules() = migrationMutex.withLock {
+        val shouldCommit = migrationAuthority()
+        val prefs = dataStore.data.first()
+        val entries = mutableMapOf<String, MutableList<LegacyScheduleSnapshot>>()
+        val keys = mutableMapOf<String, MutableSet<Preferences.Key<*>>>()
+        val widgetStudent = prefs[PREF_WIDGET_SCHEDULE_STUDENT_NO]
+        prefs.asMap().forEach { (prefKey, value) ->
+            if (value !is String || prefKey.name.endsWith("_subject_overrides")) return@forEach
+            val name = prefKey.name
+            if (!name.startsWith("schedule_") && name != PREF_WIDGET_SCHEDULE_REPORT.name) return@forEach
+            val report = runCatching { json.decodeFromString<ScheduleReport>(value) }.getOrNull() ?: return@forEach
+            val cacheKey = report.yearTermValue + report.classNo.takeIf(String::isNotBlank)?.let { "_$it" }.orEmpty() +
+                if (report.scope == ScheduleScope.CURRENT_WEEK) "_current_week" else ""
+            val purpose = when {
+                name.startsWith("schedule_latest_") -> "browser"
+                name.endsWith("_overview") -> "overview"
+                name == PREF_WIDGET_SCHEDULE_REPORT.name -> "widget"
+                else -> null
+            }
+            val student = when (purpose) {
+                "browser" -> name.removePrefix("schedule_latest_")
+                "overview" -> name.removePrefix("schedule_").removeSuffix("_overview")
+                "widget" -> widgetStudent ?: return@forEach
+                else -> name.removePrefix("schedule_").takeIf { it.endsWith("_$cacheKey") }
+                    ?.removeSuffix("_$cacheKey") ?: return@forEach
+            }
+            val timeKey = when (purpose) {
+                "browser" -> longPreferencesKey("schedule_${student}_latest_fetched_at")
+                "overview" -> longPreferencesKey("schedule_${student}_overview_fetched_at")
+                else -> longPreferencesKey("${name}_fetched_at")
+            }
+            entries.getOrPut(student) { mutableListOf() } += LegacyScheduleSnapshot(cacheKey, report, prefs[timeKey] ?: 0L, purpose)
+            keys.getOrPut(student) { mutableSetOf() }.apply { add(prefKey); add(timeKey) }
+        }
+        entries.forEach { (student, reports) ->
+            snapshots.importLegacy(student, reports, shouldCommit)
+            dataStore.edit { current ->
+                keys[student].orEmpty().forEach { key ->
+                    if (current.asMap()[key] == prefs.asMap()[key]) current.remove(key)
                 }
+                if (widgetStudent == student && current[PREF_WIDGET_SCHEDULE_REPORT] == null) current.remove(PREF_WIDGET_SCHEDULE_STUDENT_NO)
             }
         }
     }
 
+    suspend fun saveScheduleReport(
+        studentNo: String,
+        yearValue: String,
+        report: ScheduleReport,
+        updateOverviewSnapshot: Boolean = false,
+        semesterBaseline: ScheduleReport? = null,
+        updateBrowseSelection: Boolean = true,
+        shouldCommit: () -> Boolean = { true },
+    ) = commitSchedule {
+        require(yearValue.isNotBlank())
+        migrateSchedules()
+        snapshots.save(studentNo, report, updateOverviewSnapshot, shouldCommit, semesterBaseline, browse = updateBrowseSelection)
+    }
+
     suspend fun saveWidgetScheduleReport(studentNo: String, report: ScheduleReport, shouldCommit: () -> Boolean = { true }) = commitSchedule {
-        saveCacheValue("widget schedule") {
-            dataStore.edit { prefs ->
-                if (!shouldCommit()) return@edit
-                val currentWidgetReport = prefs[PREF_WIDGET_SCHEDULE_REPORT]
-                    ?.let { runCatching { json.decodeFromString<ScheduleReport>(it) }.getOrNull() }
-                val widgetReport = report.toWidgetReportOrNull(currentWidgetReport) ?: return@edit
-                prefs[PREF_WIDGET_SCHEDULE_REPORT] = json.encodeToString(widgetReport)
-                prefs[PREF_WIDGET_SCHEDULE_STUDENT_NO] = studentNo
-            }
+        migrateSchedules()
+        snapshots.save(studentNo, report, false, shouldCommit, browse = false, publishToWidget = true)
+    }
+
+    suspend fun loadOverviewScheduleSnapshot(studentNo: String): CachedScheduleReport? {
+        return loadCacheValue("schedule overview") {
+            migrateSchedules()
+            snapshots.selected(studentNo, "overview")
         }
     }
 
     suspend fun loadLatestScheduleSnapshot(studentNo: String): CachedScheduleReport? {
-        val key = stringPreferencesKey("schedule_latest_$studentNo")
-        val fetchedAtKey = longPreferencesKey("schedule_${studentNo}_latest_fetched_at")
-        val cached = loadCacheValue("latest schedule") {
-            dataStore.data.map { prefs -> prefs[key] to prefs[fetchedAtKey] }.firstOrNull()
-        } ?: return null
-        val report = decodeCacheValue<ScheduleReport>(key, cached.first ?: return null, "latest schedule")
-            ?: return null
-        return CachedScheduleReport(report, cached.second)
+        migrateSchedules()
+        return snapshots.selected(studentNo, "browser")
     }
 
-    suspend fun loadLatestScheduleReport(studentNo: String): ScheduleReport? =
-        loadLatestScheduleSnapshot(studentNo)?.report
+    suspend fun loadLatestScheduleReport(studentNo: String): ScheduleReport? = loadLatestScheduleSnapshot(studentNo)?.report
+
+    internal suspend fun selectSchedule(studentNo: String, report: ScheduleReport, automatic: Boolean, browse: Boolean = true, shouldCommit: () -> Boolean) = commitSchedule {
+        migrateSchedules()
+        snapshots.select(studentNo, report, automatic, shouldCommit, browse)
+    }
 
     suspend fun loadWidgetScheduleReport(): ScheduleReport? {
         if (!canReadPrivateSnapshot()) return null
-        val cached = loadCacheValue("widget schedule") {
-            dataStore.data
-                .map { prefs -> prefs[PREF_WIDGET_SCHEDULE_REPORT] to prefs[PREF_WIDGET_SCHEDULE_STUDENT_NO] }
-                .firstOrNull()
-        } ?: return null
-        val report = decodeCacheValue<ScheduleReport>(
-            PREF_WIDGET_SCHEDULE_REPORT,
-            cached.first ?: return null,
-            "widget schedule",
-        ) ?: return null
-        if (report.scope != ScheduleScope.CURRENT_WEEK ||
-            report.validWeekRange()?.endInclusive?.let { LocalDate.now(SCHOOL_COURSE_ZONE) <= it } == true) {
-            return report
-        }
-
-        val studentNo = cached.second ?: return report
-        val semesterKey = if (report.classNo.isNotBlank()) {
-            "${report.yearTermValue}_${report.classNo}"
-        } else {
-            report.yearTermValue
-        }
-        return loadScheduleReport(studentNo, semesterKey)
-            ?.takeIf { it.scope == ScheduleScope.SEMESTER }
-            ?.copy(
-                changes = null,
-                subjectOverrides = loadScheduleSubjectOverrides(studentNo),
-            )
-            ?: report
+        migrateSchedules()
+        val (student, report) = snapshots.widget() ?: return null
+        val now = LocalDateTime.now(SCHOOL_COURSE_ZONE)
+        val selected = if (report.scope == ScheduleScope.CURRENT_WEEK &&
+            ((report.validWeekRange()?.endInclusive?.let { now.toLocalDate() > it } == true) || (report.items.isNotEmpty() && report.shouldRefreshAt(now)))) {
+            val key = report.yearTermValue + report.classNo.takeIf(String::isNotBlank)?.let { "_$it" }.orEmpty()
+            snapshots.load(student, key + "_current_week", report.refreshTargetDateAt(now))?.report
+                ?: snapshots.load(student, key)?.report ?: report
+        } else report
+        return selected.copy(changes = null, subjectOverrides = loadScheduleSubjectOverrides(student))
     }
 
-    suspend fun loadScheduleReport(studentNo: String, yearValue: String): ScheduleReport? {
-        val key = stringPreferencesKey("schedule_${studentNo}_${yearValue}")
-        val serialized = loadCacheValue("schedule") {
-            dataStore.data.map { prefs -> prefs[key] }.firstOrNull()
-        } ?: return null
-        return decodeCacheValue(key, serialized, "schedule")
-    }
+    suspend fun loadScheduleReport(studentNo: String, yearValue: String): ScheduleReport? = loadScheduleSnapshot(studentNo, yearValue)?.report
 
-    suspend fun loadScheduleSnapshot(studentNo: String, yearValue: String): CachedScheduleReport? {
-        val key = stringPreferencesKey("schedule_${studentNo}_${yearValue}")
-        val fetchedAtKey = longPreferencesKey("schedule_${studentNo}_${yearValue}_fetched_at")
-        val cached = loadCacheValue("schedule") {
-            dataStore.data.map { prefs -> prefs[key] to prefs[fetchedAtKey] }.firstOrNull()
-        } ?: return null
-        val report = decodeCacheValue<ScheduleReport>(key, cached.first ?: return null, "schedule")
-            ?: return null
-        return CachedScheduleReport(report, cached.second)
+    suspend fun loadScheduleSnapshot(studentNo: String, yearValue: String, targetDate: LocalDate? = null): CachedScheduleReport? {
+        migrateSchedules()
+        return snapshots.load(studentNo, yearValue, targetDate)
     }
 
     fun scheduleSubjectOverridesFlow(studentNo: String) = dataStore.data.map { prefs ->
@@ -356,23 +373,18 @@ class GradeCacheStore internal constructor(
             } else {
                 prefs[key] = json.encodeToString(normalized)
             }
-            if (prefs[PREF_WIDGET_SCHEDULE_STUDENT_NO] == studentNo) {
-                prefs[PREF_WIDGET_SCHEDULE_REPORT]
-                    ?.let { serialized -> runCatching { json.decodeFromString<ScheduleReport>(serialized) }.getOrNull() }
-                    ?.copy(subjectOverrides = normalized)
-                    ?.let { report -> prefs[PREF_WIDGET_SCHEDULE_REPORT] = json.encodeToString(report) }
-            }
+
         }
     }
 
     suspend fun clearWidgetScheduleReport(studentNo: String? = null) = commitSchedule {
-        dataStore.edit { prefs ->
+        try { dataStore.edit { prefs ->
             val owner = prefs[PREF_WIDGET_SCHEDULE_STUDENT_NO]
             if (studentNo == null || owner == studentNo) {
                 prefs.remove(PREF_WIDGET_SCHEDULE_REPORT)
                 prefs.remove(PREF_WIDGET_SCHEDULE_STUDENT_NO)
             }
-        }
+        } } finally { snapshots.clearWidget(studentNo) }
     }
 
     suspend fun clearStudent(studentNo: String, preserveSubjectOverrides: Boolean = false) = commitSchedule {
@@ -382,7 +394,7 @@ class GradeCacheStore internal constructor(
         val simulatorCreditsPrefix = simulatorCreditsPrefix(studentNo)
         val schedulePrefix = "schedule_${studentNo}_"
         val latestScheduleKey = "schedule_latest_$studentNo"
-        dataStore.edit { prefs ->
+        try { dataStore.edit { prefs ->
             prefs.asMap().keys
                 .filter { key ->
                     key.name == structureKey ||
@@ -398,11 +410,11 @@ class GradeCacheStore internal constructor(
                 prefs.remove(PREF_WIDGET_SCHEDULE_REPORT)
                 prefs.remove(PREF_WIDGET_SCHEDULE_STUDENT_NO)
             }
-        }
+        } } finally { snapshots.clearStudent(studentNo) }
     }
 
     suspend fun clearAll(preserveSubjectOverrides: Boolean = false) = commitSchedule {
-        dataStore.edit { prefs ->
+        try { dataStore.edit { prefs ->
             if (preserveSubjectOverrides) {
                 prefs.asMap().keys
                     .filterNot { it.name.startsWith("schedule_") && it.name.endsWith("_subject_overrides") }
@@ -410,41 +422,28 @@ class GradeCacheStore internal constructor(
             } else {
                 prefs.clear()
             }
-        }
+        } } finally { snapshots.clearAll() }
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private fun scheduleReportFlow(includeSemesterFallback: Boolean = false) = privateSnapshotAllowed.flatMapLatest { allowed ->
-        if (!allowed) flowOf(null)
-        else dataStore.data.map { prefs ->
-            val serialized = prefs[PREF_WIDGET_SCHEDULE_REPORT] ?: return@map null
-            val report = runCatching { json.decodeFromString<ScheduleReport>(serialized) }.getOrNull()
-                ?: return@map null
-            val today = LocalDate.now(SCHOOL_COURSE_ZONE)
-            val weekRange = report.validWeekRange()
-            val futureWeekWithCourses = weekRange != null && today < weekRange.start &&
-                report.displayItems().any {
+    private fun scheduleReportFlow(includeSemesterFallback: Boolean = false): Flow<ScheduleReport?> = privateSnapshotAllowed.flatMapLatest { allowed ->
+        if (!allowed) flowOf<ScheduleReport?>(null)
+        else flow<ScheduleReport?> {
+            migrateSchedules()
+            emitAll(combine<Unit, Preferences, ScheduleReport?>(snapshots.changes, dataStore.data) { _, _ ->
+                val (student, raw) = snapshots.widget() ?: return@combine null
+                val report = raw.copy(subjectOverrides = loadScheduleSubjectOverrides(student))
+                val today = LocalDate.now(SCHOOL_COURSE_ZONE)
+                val range = report.validWeekRange()
+                val future = range != null && today < range.start && report.displayItems().any {
                     it.dayOfWeek in 1..7 && it.subjectName.isNotBlank() && it.periodInterval() != null
                 }
-            if (!includeSemesterFallback || report.scope != ScheduleScope.CURRENT_WEEK ||
-                report.isAuthoritativeWeekOn(today) || futureWeekWithCourses
-            ) return@map report
-
-            val studentNo = prefs[PREF_WIDGET_SCHEDULE_STUDENT_NO] ?: return@map report
-            val semesterKey = if (report.classNo.isNotBlank()) {
-                "${report.yearTermValue}_${report.classNo}"
-            } else {
-                report.yearTermValue
-            }
-            val semester = prefs[stringPreferencesKey("schedule_${studentNo}_$semesterKey")]
-                ?.let { runCatching { json.decodeFromString<ScheduleReport>(it) }.getOrNull() }
-                ?.takeIf { it.scope == ScheduleScope.SEMESTER }
-                ?: return@map report
-            val subjectOverrides = prefs[scheduleSubjectOverridesKey(studentNo)]
-                ?.let { runCatching { json.decodeFromString<List<ScheduleSubjectOverride>>(it) }.getOrNull() }
-                .orEmpty()
-            // ponytail: semester data has no term or holiday dates; use dated exceptions when the school API exposes them.
-            semester.copy(changes = null, subjectOverrides = subjectOverrides)
+                if (!includeSemesterFallback || report.scope != ScheduleScope.CURRENT_WEEK || report.isAuthoritativeWeekOn(today) || future) report
+                else {
+                    val key = report.yearTermValue + report.classNo.takeIf(String::isNotBlank)?.let { "_$it" }.orEmpty()
+                    (snapshots.load(student, key + "_current_week", today) ?: snapshots.load(student, key))?.report?.copy(changes = null, subjectOverrides = report.subjectOverrides) ?: report
+                }
+            })
         }
     }
 
@@ -452,6 +451,7 @@ class GradeCacheStore internal constructor(
     fun courseNotificationScheduleReportFlow() = scheduleReportFlow(includeSemesterFallback = true)
 
     fun widgetScheduleReportFlow() = scheduleReportFlow()
+        .map { loadWidgetScheduleReport() }
         .catch { error ->
             if (error is CancellationException) throw error
             if (error !is IOException && error !is SessionStorageException) throw error

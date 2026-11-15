@@ -31,7 +31,8 @@ flowchart TD
 ## 維護規則
 
 - 手機直向使用 `PocketFloatingNavigation`，外層為官方 `HorizontalFloatingToolbar`；四個入口永遠 icon-only，未讀只顯示 dot。寬度達 600dp，或可用高度不足 480dp 時使用 Navigation Rail；兩種版面共用同一選取狀態與四組 stack。
-- 頂層導航只在首頁、課表、成績、校園 root 顯示；公告詳情、成績詳情、設定、登入與其他子頁均隱藏，overlay clearance 同步歸零。IME 顯示時 floating toolbar 淡出，不移到鍵盤上方。Toolbar 不接受 contextual action。
+- 頂層導航只在首頁、課表、成績、校園 root 顯示；公告詳情、成績詳情、設定、登入與其他子頁均隱藏，子頁 entry 的 overlay clearance 歸零。IME 顯示時 floating toolbar 淡出，不移到鍵盤上方。Toolbar 不接受 contextual action。
+- 導航可見性與 root 幾何空間分開：shell 以目前視窗的 Bar／Rail 版面提供 `LocalRootNavigationClearance`，`toEntries` 依 entry 自身 route 提供 `LocalNavigationClearance`。root 即使正在 push／pop 子頁或隱藏導航，仍使用當下 root clearance；子頁始終為零，不能隨全域 currentRoute 改變背景 root 的高度。旋轉、resize 及共享導航尺寸變更仍即時重算，不快取首次量測值。Compact 沿用共享 clearance，不因 toolbar 動畫改變捲動範圍；RootScroll 註冊仍由原本的 active stack／scene 控制。
 - `NavEntry.contentKey` 包含所屬頂層目的地，避免不同 stack 中的「個人」等共用 route 共用 saveable state／ViewModel。切換不 pop；重選先 pop 到 root，在 root 則交給既有 scroll owner 回頂端。重選不重建 route、不觸發 reload 或 haptic。
 - Overlay 間距由 shell 的 `LocalNavigationClearance` 統一提供；頁面使用 `PocketScaffold` 安排 Snackbar／FAB，`navigationContentPadding` 加在 scroll content 內。`PocketScaffold` 扣除 overlay 間距時仍保留 `contentWindowInsets` 的系統底部安全間距，即使頁面沒有 bottomBar。自訂 viewport 必須把相同 clearance 加入捲動 extent；原生 WebView 保留安全 viewport。不要在各頁複製 toolbar 尺寸。
 - Compact 只觀察已消耗的垂直 user scroll，不消耗手勢或隱藏入口；滑動 indicator、shape morph、icon 與 IME 動效沿用 `PocketMotion`。Haptic 僅在切換不同頂層目的地時發出一次 `SegmentTick`。

@@ -43,14 +43,14 @@ class SimulatorCreditStorageTest {
         val firstJob = SupervisorJob()
         try {
             val disk = PreferenceDataStoreFactory.create(scope = CoroutineScope(Dispatchers.IO + firstJob)) { file }
-            GradeCacheStore(disk) {}.saveSimulatorCredits("student", "114_1", "E1", settings)
+            testGradeCacheStore(disk) {}.saveSimulatorCredits("student", "114_1", "E1", settings)
         } finally {
             firstJob.cancelAndJoin()
         }
         val secondJob = SupervisorJob()
         try {
             val disk = PreferenceDataStoreFactory.create(scope = CoroutineScope(Dispatchers.IO + secondJob)) { file }
-            assertEquals(settings, GradeCacheStore(disk) {}.loadSimulatorCredits("student", "114_1", "E1"))
+            assertEquals(settings, testGradeCacheStore(disk) {}.loadSimulatorCredits("student", "114_1", "E1"))
             assertEquals(1, disk.data.first().asMap().size)
         } finally {
             secondJob.cancelAndJoin()
@@ -60,7 +60,7 @@ class SimulatorCreditStorageTest {
     @Test
     fun scopesAreIsolatedAndNewSignatureReplacesLatestExamSettings() = runTest {
         val disk = dataStore(backgroundScope)
-        val store = GradeCacheStore(disk) {}
+        val store = testGradeCacheStore(disk) {}
         store.saveSimulatorCredits("student", "114_1", "E1", settings)
         store.saveSimulatorCredits("student", "114_1", "E2", settings)
         store.saveSimulatorCredits("student", "114_2", "E1", settings)
@@ -82,7 +82,7 @@ class SimulatorCreditStorageTest {
 
     @Test
     fun scopeComponentsContainingSeparatorsCannotAliasAnotherScope() = runTest {
-        val store = GradeCacheStore(dataStore(backgroundScope)) {}
+        val store = testGradeCacheStore(dataStore(backgroundScope)) {}
         store.saveSimulatorCredits("student", "year_exam", "one", settings)
         assertNull(store.loadSimulatorCredits("student", "year", "exam_one"))
         assertNull(store.loadSimulatorCredits("student_year", "exam", "one"))
@@ -92,19 +92,19 @@ class SimulatorCreditStorageTest {
     fun sixtyFourSubjectsCanBeStoredAndLoaded() = runTest {
         val names = (1..64).map { "subject$it" }.sorted()
         val settings = SavedSimulatorCredits(names, names.associateWith { 1 }, "manual")
-        val store = GradeCacheStore(dataStore(backgroundScope)) {}
+        val store = testGradeCacheStore(dataStore(backgroundScope)) {}
         store.saveSimulatorCredits("student", "114_1", "E1", settings)
         assertEquals(settings, store.loadSimulatorCredits("student", "114_1", "E1"))
     }
 
     @Test
     fun missingSettingReturnsNullButRealDataStoreReadFailurePropagates() = runTest {
-        val store = GradeCacheStore(dataStore(backgroundScope)) {}
+        val store = testGradeCacheStore(dataStore(backgroundScope)) {}
         assertNull(store.loadSimulatorCredits("student", "114_1", "E1"))
 
         val unreadableFile = temporaryFolder.newFolder("unreadable.preferences_pb")
         val failedDisk = PreferenceDataStoreFactory.create(scope = backgroundScope) { unreadableFile }
-        val failedStore = GradeCacheStore(failedDisk) {}
+        val failedStore = testGradeCacheStore(failedDisk) {}
         assertTrue(runCatching { failedDisk.data.first() }.exceptionOrNull() is IOException)
         assertTrue(runCatching {
             failedStore.loadSimulatorCredits("student", "114_1", "E1")
@@ -119,7 +119,7 @@ class SimulatorCreditStorageTest {
 
     @Test
     fun privacyClearsRemoveCreditsEvenWhenPreservingScheduleOverrides() = runTest {
-        val store = GradeCacheStore(dataStore(backgroundScope)) {}
+        val store = testGradeCacheStore(dataStore(backgroundScope)) {}
         store.saveSimulatorCredits("student", "114_1", "E1", settings)
         store.saveSimulatorCredits("student", "114_1", "E2", settings)
         store.saveSimulatorCredits("student_other", "114_1", "E1", settings)
@@ -138,7 +138,7 @@ class SimulatorCreditStorageTest {
 
     @Test
     fun staleTransactionThrowsForReplacementAndRemovalWithoutChangingSavedValue() = runTest {
-        val store = GradeCacheStore(dataStore(backgroundScope)) {}
+        val store = testGradeCacheStore(dataStore(backgroundScope)) {}
         store.saveSimulatorCredits("student", "114_1", "E1", settings)
         for (attempt in listOf(settings.copy(source = "inferred"), null)) {
             val error = runCatching {
@@ -176,7 +176,7 @@ class SimulatorCreditStorageTest {
     @Test
     fun malformedOrInvalidStoredSettingsPropagateWithoutDeletingTheSavedValue() = runTest {
         val disk = dataStore(backgroundScope)
-        val store = GradeCacheStore(disk) {}
+        val store = testGradeCacheStore(disk) {}
         store.saveSimulatorCredits("student", "114_1", "E1", settings)
         val key = disk.data.first().asMap().keys.single()
         for (serialized in listOf("not json", """{"subjectNames":["數學"],"credits":{"數學":5},"source":"manual"}""", """{"subjectNames":["數學"],"credits":{"數學":0},"source":"manual"}""")) {
@@ -190,7 +190,7 @@ class SimulatorCreditStorageTest {
     @Test
     fun writeDeleteAndPrivacyCleanupFailuresPropagate() = runTest {
         val failure = IOException("storage unavailable")
-        val store = GradeCacheStore(object : DataStore<Preferences> {
+        val store = testGradeCacheStore(object : DataStore<Preferences> {
             override val data: Flow<Preferences> = flow { throw failure }
             override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences = throw failure
         }) {}
@@ -242,7 +242,7 @@ class SimulatorCreditStorageTest {
                 return disk.updateData(transform)
             }
         }
-        val repository = FakeGradeRepository(cacheStore = GradeCacheStore(delayedDisk) {})
+        val repository = FakeGradeRepository(cacheStore = testGradeCacheStore(delayedDisk) {})
         val session = FakeData.session
         repository.activateSession(session)
         val queuedWrite = async {
@@ -252,11 +252,11 @@ class SimulatorCreditStorageTest {
         repository.activateSession(session.copy(authorizationId = "new-authorization"))
         releaseWrite.complete(Unit)
         assertTrue(queuedWrite.await().exceptionOrNull() is CancellationException)
-        assertNull(GradeCacheStore(disk) {}.loadSimulatorCredits(session.studentNo, "114_1", "E1"))
+        assertNull(testGradeCacheStore(disk) {}.loadSimulatorCredits(session.studentNo, "114_1", "E1"))
 
         repository.activateSession(session)
         repository.saveSimulatorCredits(session, "114_1", "E1", settings)
-        val recreated = FakeGradeRepository(cacheStore = GradeCacheStore(disk) {})
+        val recreated = FakeGradeRepository(cacheStore = testGradeCacheStore(disk) {})
         recreated.activateSession(session)
         assertEquals(settings, recreated.loadSimulatorCredits(session, "114_1", "E1"))
     }
@@ -265,7 +265,7 @@ class SimulatorCreditStorageTest {
     fun fakeRepositoryRejectsReadCompletingAfterSessionChanges() = runTest {
         val disk = dataStore(backgroundScope)
         val session = FakeData.session
-        GradeCacheStore(disk) {}.saveSimulatorCredits(session.studentNo, "114_1", "E1", settings)
+        testGradeCacheStore(disk) {}.saveSimulatorCredits(session.studentNo, "114_1", "E1", settings)
         val readStarted = CompletableDeferred<Unit>()
         val releaseRead = CompletableDeferred<Unit>()
         val delayedDisk = object : DataStore<Preferences> by disk {
@@ -275,7 +275,7 @@ class SimulatorCreditStorageTest {
                 emitAll(disk.data)
             }
         }
-        val repository = FakeGradeRepository(cacheStore = GradeCacheStore(delayedDisk) {})
+        val repository = FakeGradeRepository(cacheStore = testGradeCacheStore(delayedDisk) {})
         repository.activateSession(session)
         val read = async { runCatching { repository.loadSimulatorCredits(session, "114_1", "E1") } }
         readStarted.await()

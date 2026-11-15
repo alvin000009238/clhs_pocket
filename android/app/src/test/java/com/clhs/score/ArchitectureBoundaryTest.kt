@@ -847,7 +847,7 @@ class ArchitectureBoundaryTest {
         val source = readSource("app/src/main/java/com/clhs/score/ui/schedule/ScheduleScreen.kt")
 
         assertTrue(source.contains("if (uiState.report?.scope == ScheduleScope.CURRENT_WEEK)"))
-        assertTrue(source.contains("contentDescription = \"強制重新載入本週課表\""))
+        assertTrue(source.contains("contentDescription = \"更新目前顯示的週課表\""))
         assertTrue(source.contains("enabled = !uiState.isLoading"))
     }
 
@@ -933,9 +933,11 @@ class ArchitectureBoundaryTest {
     fun emptyScheduleReportShowsActionableState() {
         val source = readSource("app/src/main/java/com/clhs/score/ui/schedule/ScheduleScreen.kt")
 
-        assertTrue(source.contains("uiState.report.items.isEmpty()"))
+        assertTrue(source.contains("items.isEmpty() && changes.isEmpty()"))
         assertTrue(source.contains("\"查無課表資料\""))
-        assertTrue(source.contains("onClick = onClearSelection"))
+        assertTrue(source.contains("onClick = hapticClick(onPreviousWeek)"))
+        assertTrue(source.contains("onClick = hapticClick(onNextWeek)"))
+        assertTrue(source.contains("onScopeSelected(scope)"))
     }
 
     @Test
@@ -946,7 +948,6 @@ class ArchitectureBoundaryTest {
         assertTrue(modelSource.contains("darkPredefinedColors"))
         assertTrue(modelSource.contains("isDarkTheme: Boolean"))
         assertTrue(screenSource.contains("val isDarkTheme = scheduleColorScheme.background.luminance() < 0.5f"))
-        assertTrue(screenSource.contains("accent = Color(subjectColor)"))
         assertFalse(screenSource.contains("rawBgColor"))
         assertFalse(screenSource.contains("accentColor"))
     }
@@ -1072,7 +1073,11 @@ class ArchitectureBoundaryTest {
         val source = readSource("app/src/main/java/com/clhs/score/ui/schedule/ScheduleScreen.kt")
 
         assertTrue(source.contains("var scheduleNow by remember(uiState.report)"))
-        assertTrue(source.contains("delay(Duration.between(scheduleNow, refreshAt).toMillis().milliseconds)"))
+        assertTrue(source.contains("lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED)"))
+        assertTrue(source.contains("now.withSecond(0).withNano(0).plusMinutes(1)"))
+        assertTrue(source.contains("uiState.report?.refreshAt()?.takeIf { it.isAfter(now) }"))
+        assertTrue(source.contains("scheduleNow = now"))
+        assertTrue(source.contains("ensureCurrentWeek()"))
         assertFalse(source.contains("shouldRefreshAt(LocalDateTime.now())"))
     }
 

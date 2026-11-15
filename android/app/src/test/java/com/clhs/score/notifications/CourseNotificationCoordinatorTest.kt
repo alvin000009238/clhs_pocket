@@ -55,6 +55,26 @@ class CourseNotificationCoordinatorTest {
         assertFalse(preferences.state.first().enabled)
     }
 
+    @Test fun enableAfterLastClassAndDuringEmptyWeekKeepsPreferenceWithoutInventingNotification() = runTest {
+        for (empty in listOf(false, true)) {
+            val preferences = CourseNotificationPreferences(PreferenceDataStoreFactory.create(
+                scope = backgroundScope, produceFile = { folder.root.resolve("after-last-$empty.preferences_pb") }))
+            val clock = MutableClock(Instant.parse("2026-09-25T10:00:00Z"))
+            var rendered: CourseResolution? = null
+            val source = if (empty) report.copy(items = emptyList()) else report
+            val coordinator = CourseNotificationCoordinator(preferences, clock, { source }, { true },
+                { value, _ -> rendered = value }, { rendered = null })
+            assertTrue(coordinator.available())
+            assertNull(coordinator.setEnabled(true))
+            assertTrue(preferences.state.first().enabled)
+            assertNull(rendered?.current)
+            assertNull(rendered?.upcoming)
+            assertEquals(Instant.parse("2026-09-27T16:00:00Z"), rendered?.nextBoundary)
+            clock.now = Instant.parse("2026-09-28T00:00:00Z")
+            assertFalse(coordinator.available())
+        }
+    }
+
     @get:Rule val folder = TemporaryFolder()
     private val report = ScheduleReport("1151", "", ScheduleScope.CURRENT_WEEK,
         weekStartDate = "2026-09-21", weekEndDate = "2026-09-27",

@@ -31,7 +31,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LoadingIndicator
@@ -69,7 +68,7 @@ import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleSubjectOverride
 import com.clhs.score.data.normalizedOrNull
 import com.clhs.score.ui.OutlinedRoundedSymbol
-import com.clhs.score.ui.SubpageLayout
+import com.clhs.score.ui.FloatingSubpageLayout
 import com.clhs.score.viewmodel.ScheduleCustomizationsUiState
 import kotlinx.coroutines.launch
 
@@ -97,8 +96,7 @@ fun ScheduleCustomizationsScreen(
         }
     }
 
-    SubpageLayout(
-        title = "自訂科目",
+    FloatingSubpageLayout(
         onBack = onBack,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         actions = {
@@ -124,14 +122,18 @@ fun ScheduleCustomizationsScreen(
                 }
             }
         },
-    ) {
+    ) { pagePadding ->
         when {
             state.isLoading -> LoadingCustomizationList()
             state.loadFailed -> CustomizationLoadError(onRetry)
             state.overrides.isEmpty() -> EmptyCustomizationList()
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = navigationContentPadding(androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)),
+                contentPadding = com.clhs.score.ui.readingContentPadding(navigationContentPadding(androidx.compose.foundation.layout.PaddingValues(
+                    start = 16.dp, end = 16.dp,
+                    top = pagePadding.calculateTopPadding() + 8.dp,
+                    bottom = pagePadding.calculateBottomPadding() + 16.dp,
+                ))),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(state.overrides, key = ScheduleSubjectOverride::originalSubjectName) { override ->
@@ -241,6 +243,19 @@ private fun EmptyCustomizationList() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        androidx.compose.material3.Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(bottom = 16.dp),
+        ) {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier.padding(20.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                OutlinedRoundedSymbol("palette", size = 36.dp, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+        }
         Text(
             text = "尚未自訂科目",
             style = MaterialTheme.typography.titleLarge,
@@ -250,6 +265,7 @@ private fun EmptyCustomizationList() {
             text = "請從課表點開科目詳情後設定。",
             modifier = Modifier.padding(top = 8.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
     }
 }
@@ -282,6 +298,7 @@ private fun CustomizationRow(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onEdit),
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
@@ -291,7 +308,10 @@ private fun CustomizationRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 Text(
                     text = override.customSubjectName ?: override.originalSubjectName,
                     style = MaterialTheme.typography.titleMedium,
@@ -320,7 +340,11 @@ private fun CustomizationRow(
                     )
                 }
             }
-            TextButton(onClick = onRestore, enabled = enabled) {
+            FilledTonalButton(
+                onClick = onRestore,
+                enabled = enabled,
+                shapes = ButtonDefaults.shapes(),
+            ) {
                 Text("還原")
             }
         }
@@ -367,7 +391,7 @@ internal fun ScheduleSubjectOverrideEditor(
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .imePadding()
-            .padding(start = 24.dp, end = 24.dp, bottom = 36.dp),
+            .padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -382,7 +406,7 @@ internal fun ScheduleSubjectOverrideEditor(
                 .align(Alignment.CenterHorizontally)
                 .widthIn(min = 160.dp, max = 320.dp)
                 .fillMaxWidth(),
-            textStyle = MaterialTheme.typography.titleLarge.copy(
+            textStyle = MaterialTheme.typography.headlineSmall.copy(
                 color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
@@ -390,41 +414,44 @@ internal fun ScheduleSubjectOverrideEditor(
             imeAction = ImeAction.Next,
         )
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (shouldShowScheduleDetailField(teacherName, isEditing)) {
-                EditableScheduleDetailRow(
-                    icon = "person",
-                    label = "教師",
-                    value = teacherName,
-                    onValueChange = { teacherName = it },
-                    originalValue = originalTeacherName,
-                    accessibilityLabel = "教師",
-                    isEditing = isEditing,
-                    imeAction = ImeAction.Next,
-                )
-            }
-            if (shouldShowScheduleDetailField(classroom, isEditing)) {
-                EditableScheduleDetailRow(
-                    icon = "meeting_room",
-                    label = "教室",
-                    value = classroom,
-                    onValueChange = { classroom = it },
-                    originalValue = originalClassroom,
-                    accessibilityLabel = "教室",
-                    isEditing = isEditing,
-                    imeAction = ImeAction.Done,
-                )
+        val showTeacher = shouldShowScheduleDetailField(teacherName, isEditing)
+        val showClassroom = shouldShowScheduleDetailField(classroom, isEditing)
+        if (showTeacher || showClassroom) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (showTeacher) {
+                    EditableScheduleDetailRow(
+                        icon = "person",
+                        label = "授課教師",
+                        value = teacherName,
+                        onValueChange = { teacherName = it },
+                        originalValue = originalTeacherName,
+                        accessibilityLabel = "教師",
+                        isEditing = isEditing,
+                        imeAction = ImeAction.Next,
+                    )
+                }
+                if (showClassroom) {
+                    EditableScheduleDetailRow(
+                        icon = "meeting_room",
+                        label = "上課教室",
+                        value = classroom,
+                        onValueChange = { classroom = it },
+                        originalValue = originalClassroom,
+                        accessibilityLabel = "教室",
+                        isEditing = isEditing,
+                        imeAction = ImeAction.Done,
+                    )
+                }
             }
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             if (isEditing) {
                 TextButton(onClick = onCancel, enabled = !isSaving) {
@@ -442,7 +469,7 @@ internal fun ScheduleSubjectOverrideEditor(
                     onClick = onEdit,
                     shapes = ButtonDefaults.shapes(),
                 ) {
-                    Text("自訂")
+                    Text("自訂", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -460,38 +487,55 @@ private fun EditableScheduleDetailRow(
     isEditing: Boolean,
     imeAction: ImeAction,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    androidx.compose.material3.Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        OutlinedRoundedSymbol(
-            icon = icon,
-            tint = MaterialTheme.colorScheme.primary,
-            size = 24.dp,
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            EditableScheduleText(
-                value = value,
-                onValueChange = onValueChange,
-                originalValue = originalValue,
-                accessibilityLabel = accessibilityLabel,
-                isEditing = isEditing,
-                modifier = Modifier.fillMaxWidth(),
-                editableModifier = Modifier
-                    .widthIn(min = 120.dp, max = 280.dp)
-                    .fillMaxWidth(),
-                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.SemiBold,
-                ),
-                imeAction = imeAction,
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            androidx.compose.material3.Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = Modifier.padding(10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    OutlinedRoundedSymbol(
+                        icon = icon,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        size = 20.dp,
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                EditableScheduleText(
+                    value = value,
+                    onValueChange = onValueChange,
+                    originalValue = originalValue,
+                    accessibilityLabel = accessibilityLabel,
+                    isEditing = isEditing,
+                    modifier = Modifier.fillMaxWidth(),
+                    editableModifier = Modifier
+                        .widthIn(min = 120.dp, max = 280.dp)
+                        .fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    imeAction = imeAction,
+                )
+            }
         }
     }
 }
@@ -547,11 +591,19 @@ private fun EditableScheduleText(
                     onNext = { focusManager.moveFocus(FocusDirection.Down) },
                     onDone = { focusManager.clearFocus() },
                 ),
+                decorationBox = { innerTextField ->
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                        contentAlignment = if (textStyle.textAlign == TextAlign.Center) Alignment.Center else Alignment.CenterStart,
+                    ) {
+                        innerTextField()
+                    }
+                },
             )
         } else {
             Text(
                 text = value,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
                 style = textStyle,
             )
         }

@@ -83,6 +83,8 @@ data class OverviewState(
     val hero: OverviewHero? = null,
     val isScheduleRefreshing: Boolean = false,
     val scheduleFailed: Boolean = false,
+    val scheduleUnpublished: Boolean = false,
+    val scheduleScope: com.clhs.score.data.ScheduleScope? = null,
     val authGeneration: Long? = null,
     val hasSchedule: Boolean = false,
     val calendarLoading: Boolean = false,
@@ -99,6 +101,8 @@ internal fun OverviewState.forGeneration(generation: Long?): OverviewState =
         context = OverviewContext.NonSchoolDay,
         isScheduleRefreshing = false,
         scheduleFailed = false,
+        scheduleUnpublished = false,
+        scheduleScope = null,
         authGeneration = null,
         hasSchedule = false,
     )
