@@ -51,6 +51,24 @@ class ScheduleViewModelTest {
     }
 
     @Test
+    fun confirmedOverviewReplacesOlderBrowserSnapshotForSameWeek() = runTest(dispatcher) {
+        val now = LocalDateTime.parse("2026-11-09T09:00:00")
+        val old = ScheduleReport("115_1", "230", scope = ScheduleScope.CURRENT_WEEK,
+            weekStartDate = "2026-11-09", weekEndDate = "2026-11-15",
+            items = listOf(ScheduleItem(1, 1, "舊課程")))
+        val confirmed = old.copy(items = listOf(ScheduleItem(1, 1, "調課後")))
+        val timestamp = now.atZone(com.clhs.score.data.SCHOOL_COURSE_ZONE).toInstant().toEpochMilli()
+        val repository = ControllableScheduleRepository(old, timestamp - 86_400_000,
+            com.clhs.score.data.CachedScheduleReport(confirmed, timestamp))
+        val vm = ScheduleViewModel(repository, nowProvider = { now })
+        runCurrent()
+        assertEquals(confirmed, vm.uiState.value.report)
+        vm.ensureCurrentWeek()
+        runCurrent()
+        assertEquals(confirmed, vm.uiState.value.report)
+    }
+
+    @Test
     fun staleClassListDoesNotOverrideNewerYearSelection() = runTest(dispatcher) {
         val repository = ControllableScheduleRepository()
         val viewModel = ScheduleViewModel(repository, nowProvider = { today.atTime(12, 0) })

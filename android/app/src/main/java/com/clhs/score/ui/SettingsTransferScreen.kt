@@ -44,10 +44,10 @@ internal fun SettingsTransferScreen(state: SettingsTransferUiState, owner: Setti
     }
     val enabled = !state.loading && !state.busy
     BackHandler(state.busy) {}
-    SubpageLayout(title = "備份與還原", onBack = { if (!state.busy) onBack() }, snackbarHost = { SnackbarHost(snackbar) }) {
+    SubpageLayout(title = "備份與還原", onBack = { if (!state.busy) onBack() }, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         Column(Modifier.wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 720.dp)
             .fillMaxSize().align(Alignment.TopCenter).imePadding().verticalScroll(rememberScrollState())
-            .padding(navigationContentPadding(PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp))),
+            .padding(navigationContentPadding(PaddingValues(start = 20.dp, end = 20.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 12.dp))),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {

@@ -281,14 +281,14 @@ fun ScheduleScreen(
                         offset = DpOffset(x = 0.dp, y = 10.dp),
                     ) {
                         notificationMenu { showMoreMenu = false }
+                        DropdownMenuItem(
+                            text = { Text("重新選擇") },
+                            onClick = {
+                                onClearSelection()
+                                showMoreMenu = false
+                            }
+                        )
                         if (!uiState.report?.items.isNullOrEmpty()) {
-                            DropdownMenuItem(
-                                text = { Text("重新選擇") },
-                                onClick = {
-                                    onClearSelection()
-                                    showMoreMenu = false
-                                }
-                            )
                             DropdownMenuItem(
                                 text = { Text("自訂科目") },
                                 onClick = {

@@ -243,7 +243,14 @@ internal class ScheduleSnapshotStore private constructor(
         val pointers = mutableListOf<ScheduleSnapshotPointer>()
         if (browse) pointers += ScheduleSnapshotPointer(student, "browser", selected.id)
         if (automatic) pointers += ScheduleSnapshotPointer(student, "overview", selected.id)
-        dao.commit(emptyList(), pointers, null, false, shouldCommit)
+        val widgetPointer = dao.pointers().firstOrNull { it.purpose == "widget" }
+        val oldWidget = widgetPointer?.let { pointer ->
+            val widgetRows = dao.rows(pointer.studentNo)
+            widgetRows.firstOrNull { it.id == pointer.snapshotId }?.let { decode(it, widgetRows).report }
+        }
+        val publishWidget = (browse || automatic) && decode(selected, rows).report.toWidgetReportOrNull(oldWidget) != null
+        if (publishWidget) pointers += ScheduleSnapshotPointer(student, "widget", selected.id)
+        dao.commit(emptyList(), pointers, null, publishWidget, shouldCommit)
     }
 
     suspend fun selected(student: String, purpose: String): CachedScheduleReport? = transaction {

@@ -329,7 +329,6 @@ fun SubjectTrendScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 if (subjectTrendUsesSplitLayout(maxWidth)) {
@@ -344,7 +343,7 @@ fun SubjectTrendScreen(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         LazyColumn(
-                            contentPadding = navigationContentPadding(PaddingValues(0.dp)),
+                            contentPadding = navigationContentPadding(padding),
                             modifier = Modifier
                                 .weight(mainPaneWeight)
                                 .fillMaxHeight(),
@@ -360,7 +359,7 @@ fun SubjectTrendScreen(
                             item { Spacer(modifier = Modifier.height(8.dp)) }
                         }
                         LazyColumn(
-                            contentPadding = navigationContentPadding(PaddingValues(0.dp)),
+                            contentPadding = navigationContentPadding(padding),
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
@@ -384,7 +383,7 @@ fun SubjectTrendScreen(
                     }
                 } else {
                     LazyColumn(
-                        contentPadding = navigationContentPadding(PaddingValues(top = 8.dp)),
+                        contentPadding = navigationContentPadding(PaddingValues(top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding())),
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp),

@@ -178,7 +178,9 @@ class ScheduleViewModel(
                             selectedClassValue = latest.classNo,
                             selectedScope = latest.scope,
                             weekTargetDate = manualWeekTarget,
-                            report = latest,
+                            report = if (manualWeekTarget == null && latest.scope == ScheduleScope.CURRENT_WEEK) {
+                                matchingOverview?.report ?: latest
+                            } else latest,
                         )
                     }
                     val automaticCandidate = matchingOverview ?: snapshot

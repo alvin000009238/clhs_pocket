@@ -226,7 +226,7 @@ private fun CalendarAgenda(
     LaunchedEffect(targetEventId, groupedEvents, uiState.isInitialLoading, uiState.isRefreshing, uiState.errorMessage, uiState.searchQuery) {
         if (targetEventId == null || targetHandled || uiState.isInitialLoading ||
             uiState.errorMessage != null || uiState.searchQuery.isNotEmpty()) return@LaunchedEffect
-        val index = calendarEventListIndex(groupedEvents, targetEventId, uiState.skippedRecurringEvents > 0, includeDateHeading = true)
+        val index = calendarEventListIndex(groupedEvents, targetEventId, uiState.skippedRecurringEvents > 0, includeDateHeading = false)
         if (index != null) {
             listState.scrollToItem(index)
             targetHandled = true

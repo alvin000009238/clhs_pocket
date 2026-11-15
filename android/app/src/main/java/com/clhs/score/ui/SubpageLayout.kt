@@ -18,12 +18,12 @@ fun SubpageLayout(
     snackbarHost: @Composable () -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
     summaryContent: @Composable () -> Unit = {},
-    content: @Composable BoxScope.() -> Unit,
+    content: @Composable BoxScope.(PaddingValues) -> Unit,
 ) {
     FloatingSubpageLayout(onBack = onBack, modifier = modifier, snackbarHost = snackbarHost, actions = actions) { padding ->
-        Box(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding())
+        Box(Modifier.fillMaxSize()
             .wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 1200.dp).fillMaxWidth()) {
-            content()
+            content(padding)
             summaryContent()
         }
     }

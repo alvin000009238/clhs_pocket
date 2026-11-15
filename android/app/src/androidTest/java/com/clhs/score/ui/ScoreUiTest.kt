@@ -62,7 +62,7 @@ class ScoreUiTest {
         }
 
         composeRule.onNodeWithText("壢中 Pocket").assertIsDisplayed()
-        composeRule.onNodeWithText("開始使用").performClick()
+        composeRule.onNodeWithText("開始設定").assertIsDisplayed().performClick()
         composeRule.runOnIdle {
             assert(clicked)
         }

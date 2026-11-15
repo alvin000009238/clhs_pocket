@@ -653,6 +653,14 @@ internal fun AnnouncementCard(
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
+        trailingContent = onBookmarkClick?.let { toggle -> {
+            IconButton(onClick = hapticClick(toggle)) {
+                OutlinedRoundedSymbol(
+                    if (isBookmarked) "bookmark_added" else "bookmark_add",
+                    contentDescription = if (isBookmarked) "取消收藏" else "收藏公告",
+                )
+            }
+        } },
         supportingContent = announcement.unit.takeIf { it.isNotBlank() && searchQuery.isEmpty() }?.let { unit -> {
             Text(unit, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         } },

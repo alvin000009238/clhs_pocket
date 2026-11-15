@@ -75,22 +75,26 @@ class StudentRecordsStateOwnerTest {
         val release = CompletableDeferred<Unit>()
         val repository = object : GradeRepository by RecordsRepository() {
             override suspend fun fetchAttendance(session: AuthenticatedSession, semester: RecordSemester): AttendanceRecord {
-                if (semester == NEWEST) withContext(NonCancellable) { release.await() }
+                if (semester == NEWEST) withContext(NonCancellable) { kotlinx.coroutines.withTimeout(5_000) { release.await() } }
                 return AttendanceRecord(listOf(RecordCategoryCount("事假", semester.term)), emptyList())
             }
         }
         val owner = StudentRecordsStateOwner(repository, this, { SESSION }, {})
-        owner.loadAttendance()
-        runCurrent()
-        assertTrue(owner.state.value.attendance.loading)
-        owner.selectSemester(OLDER)
-        assertNull(owner.state.value.attendance.data)
-        runCurrent()
-        assertEquals(2, owner.state.value.attendance.data?.summary?.single()?.count)
-        release.complete(Unit)
-        runCurrent()
-        assertEquals(OLDER, owner.state.value.selectedSemester)
-        assertEquals(2, owner.state.value.attendance.data?.summary?.single()?.count)
+        try {
+            owner.loadAttendance()
+            runCurrent()
+            assertTrue(owner.state.value.attendance.loading)
+            owner.selectSemester(OLDER)
+            assertNull(owner.state.value.attendance.data)
+            runCurrent()
+            assertEquals(2, owner.state.value.attendance.data?.summary?.single()?.count)
+            release.complete(Unit)
+            runCurrent()
+            assertEquals(OLDER, owner.state.value.selectedSemester)
+            assertEquals(2, owner.state.value.attendance.data?.summary?.single()?.count)
+        } finally {
+            release.complete(Unit)
+        }
     }
 
     @Test
@@ -101,29 +105,33 @@ class StudentRecordsStateOwnerTest {
         val repository = object : GradeRepository by RecordsRepository() {
             override suspend fun fetchMerits(session: AuthenticatedSession, semester: RecordSemester): List<MeritRecord> {
                 if (session == SESSION) {
-                    withContext(NonCancellable) { release.await() }
+                    withContext(NonCancellable) { kotlinx.coroutines.withTimeout(5_000) { release.await() } }
                     throw SchoolAuthenticationException()
                 }
                 return emptyList()
             }
         }
         val owner = StudentRecordsStateOwner(repository, this, { session }, { expirations++ })
-        owner.loadMerits()
-        runCurrent()
-        assertNotNull(owner.state.value.meritHistory.data)
-        owner.reset()
-        assertEquals(StudentRecordsState(), owner.state.value)
-        session = SESSION.copy(apiToken = "replacement-token")
-        owner.loadMerits()
-        runCurrent()
-        release.complete(Unit)
-        runCurrent()
-        assertEquals(0, expirations)
-        assertEquals(emptyList<MeritRecord>(), owner.state.value.merits.data)
-        owner.reset()
-        session = null
-        owner.loadAttendance()
-        assertEquals(StudentRecordsState(), owner.state.value)
+        try {
+            owner.loadMerits()
+            runCurrent()
+            assertNotNull(owner.state.value.meritHistory.data)
+            owner.reset()
+            assertEquals(StudentRecordsState(), owner.state.value)
+            session = SESSION.copy(apiToken = "replacement-token")
+            owner.loadMerits()
+            runCurrent()
+            release.complete(Unit)
+            runCurrent()
+            assertEquals(0, expirations)
+            assertEquals(emptyList<MeritRecord>(), owner.state.value.merits.data)
+            owner.reset()
+            session = null
+            owner.loadAttendance()
+            assertEquals(StudentRecordsState(), owner.state.value)
+        } finally {
+            release.complete(Unit)
+        }
     }
 
     @Test

@@ -283,8 +283,8 @@ internal fun ScoreSimulatorScreen(
             onBack = onBack,
             snackbarHost = { SwipeDismissibleSnackbarHost(snackbarHostState) },
             containerColor = MaterialTheme.colorScheme.surface,
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        ) { padding ->
+            Column(modifier = Modifier.padding(padding).padding(horizontal = 16.dp, vertical = 8.dp)) {
                 EmptyAnalysisState("尚未載入成績資料。")
             }
         }
@@ -392,7 +392,7 @@ internal fun ScoreSimulatorScreen(
     if (showAdvancedModes) {
         androidx.compose.material3.ModalBottomSheet(
             onDismissRequest = { showAdvancedModes = false },
-            sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            sheetState = androidx.compose.material3.rememberBottomSheetState(initialValue = androidx.compose.material3.SheetValue.Hidden, enabledValues = setOf(androidx.compose.material3.SheetValue.Hidden, androidx.compose.material3.SheetValue.Expanded)),
         ) {
             LazyColumn(Modifier.fillMaxWidth().imePadding(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
