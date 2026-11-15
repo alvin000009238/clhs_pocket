@@ -873,6 +873,8 @@ fun AppShell(
                         scoreViewModel.refreshStudentInfo()
                     }
                     PersonalScreen(
+                        showUpdateAvailable = showUpdateBadge,
+                        onCheckUpdate = onCheckUpdate,
                         state = gradesState,
                         authState = authState,
                         onRequestLogin = ::requestLogin,

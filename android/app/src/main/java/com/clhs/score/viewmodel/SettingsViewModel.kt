@@ -223,6 +223,8 @@ class SettingsViewModel internal constructor(
         }
     }
 
+    private var showPendingUpdateResult = false
+
     fun checkUpdate(trigger: String = AnalyticsValues.TRIGGER_MANUAL) {
         viewModelScope.launch {
             updateStateRestoreJob.join()
@@ -231,7 +233,11 @@ class SettingsViewModel internal constructor(
                 _uiState.update { it.copy(updateResult = available.release) }
                 return@launch
             }
-            if (_uiState.value.isCheckingUpdate || updateDownloadJob?.isActive == true) return@launch
+            if (_uiState.value.isCheckingUpdate) {
+                showPendingUpdateResult = true
+                return@launch
+            }
+            if (updateDownloadJob?.isActive == true) return@launch
             _uiState.update {
                 it.copy(
                     updateState = UpdateState.Checking,
@@ -299,10 +305,12 @@ class SettingsViewModel internal constructor(
         } catch (_: Exception) {
             // Keep the in-memory result when the cached release cannot be persisted.
         }
+        val shouldShowResult = showResult || showPendingUpdateResult
+        showPendingUpdateResult = false
         _uiState.update {
             it.copy(
                 updateState = result.toUpdateState(),
-                updateResult = result.takeIf { showResult },
+                updateResult = result.takeIf { shouldShowResult },
             )
         }
     }

@@ -78,6 +78,8 @@ fun PersonalScreen(
     onOpenAttendance: () -> Unit,
     onOpenMerits: () -> Unit,
     onLogout: () -> Unit,
+    showUpdateAvailable: Boolean = false,
+    onCheckUpdate: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var showLogoutDialog by remember { mutableStateOf(false) }
@@ -115,6 +117,15 @@ fun PersonalScreen(
         ) {
             item {
                 ProfileHero(state, authState, onRequestLogin, settings.profileAvatarShapeIndex, onCycleProfileAvatarShape)
+            }
+            if (showUpdateAvailable) {
+                item {
+                    Box(Modifier.widthIn(max = ProfileMaxWidth).fillMaxWidth()) {
+                        SettingsGroup {
+                            SettingsRow(icon = "system_update", title = "有新版本", supportingText = "查看更新內容", iconBadge = true, compact = true, onClick = onCheckUpdate)
+                        }
+                    }
+                }
             }
             item {
                 SettingsSection("在校紀錄") {
@@ -191,6 +202,7 @@ fun PersonalScreen(
 private fun PersonalScreenPreview() {
     com.clhs.score.ui.theme.ScoreTheme {
         PersonalScreen(
+            showUpdateAvailable = true,
             state = GradesUiState(studentNo = com.clhs.score.data.FakeData.session.studentNo),
             settings = AppSettings(),
             onBack = {},
