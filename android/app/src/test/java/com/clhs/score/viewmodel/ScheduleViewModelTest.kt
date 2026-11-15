@@ -51,6 +51,28 @@ class ScheduleViewModelTest {
     }
 
     @Test
+    fun clearingSelectionRejectsLateInitialCacheSuccessAndFailure() = runTest(dispatcher) {
+        for (fail in listOf(false, true)) {
+            val pending = CompletableDeferred<com.clhs.score.data.CachedScheduleReport?>()
+            val repository = object : ScheduleRepository by ControllableScheduleRepository() {
+                override suspend fun getLatestScheduleSnapshot() = pending.await()
+                override suspend fun getScheduleYears() = emptyList<ScheduleYearTermOption>()
+            }
+            val vm = ScheduleViewModel(repository)
+            runCurrent()
+            vm.clearSelection()
+            runCurrent()
+            if (fail) pending.completeExceptionally(IOException("cache unavailable"))
+            else pending.complete(com.clhs.score.data.CachedScheduleReport(ScheduleReport(yearTermValue = "115_1", classNo = "230", scope = ScheduleScope.SEMESTER, items = emptyList()), 1L))
+            runCurrent()
+            assertNull(vm.uiState.value.report)
+            assertFalse(vm.uiState.value.isInitialLoading)
+            assertFalse(vm.uiState.value.isLoading)
+            assertFalse(vm.uiState.value.isError)
+        }
+    }
+
+    @Test
     fun confirmedOverviewReplacesOlderBrowserSnapshotForSameWeek() = runTest(dispatcher) {
         val now = LocalDateTime.parse("2026-11-09T09:00:00")
         val old = ScheduleReport("115_1", "230", scope = ScheduleScope.CURRENT_WEEK,

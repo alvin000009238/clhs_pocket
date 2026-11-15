@@ -87,7 +87,19 @@ fun SubjectTrendScreen(
 ) {
     val state by viewModel.subjectTrendState.collectAsStateWithLifecycle()
     val gradesState by viewModel.gradesState.collectAsStateWithLifecycle()
-    val structure = gradesState.structure
+    SubjectTrendContent(state, gradesState.structure, onBack,
+        viewModel::toggleSubjectTrendSubject, viewModel::setSubjectTrendYears)
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
+@Composable
+private fun SubjectTrendContent(
+    state: com.clhs.score.viewmodel.SubjectTrendUiState,
+    structure: List<YearTermOption>,
+    onBack: () -> Unit,
+    onToggleSubject: (String) -> Unit,
+    onSetYears: (Set<String>) -> Unit,
+) {
     var showSubjectBottomSheet by remember { mutableStateOf(false) }
     var showYearTermBottomSheet by remember { mutableStateOf(false) }
     var selectedBaseName by remember { mutableStateOf<String?>(null) }
@@ -408,7 +420,7 @@ fun SubjectTrendScreen(
         SubjectSelectionSheet(
             subjects = availableSubjects,
             selectedSubjectKeys = state.selectedSubjectKeys,
-            onToggleSubject = viewModel::toggleSubjectTrendSubject,
+            onToggleSubject = onToggleSubject,
             onDismiss = { showSubjectBottomSheet = false },
         )
     }
@@ -417,7 +429,7 @@ fun SubjectTrendScreen(
         YearTermSelectionSheet(
             yearTerms = structure,
             selectedYearValues = state.selectedYearValues,
-            onApply = viewModel::setSubjectTrendYears,
+            onApply = onSetYears,
             onDismiss = { showYearTermBottomSheet = false },
         )
     }
@@ -621,5 +633,22 @@ private fun SubjectSelectionRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(text = subjectKey)
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Subject trend phone", widthDp = 390, heightDp = 844)
+@androidx.compose.ui.tooling.preview.Preview(name = "Subject trend split", widthDp = 1100, heightDp = 900)
+@Composable
+private fun SubjectTrendContentPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        val report = com.clhs.score.data.FakeData.latestReport()
+        SubjectTrendContent(
+            com.clhs.score.viewmodel.SubjectTrendUiState(
+                selectedYearValues = setOf("114_2"),
+                selectedSubjectKeys = report.subjects.take(2).map { it.subjectName }.toSet(),
+                reports = listOf(com.clhs.score.data.FakeData.previousReport(), report),
+            ),
+            emptyList(), {}, {}, {},
+        )
     }
 }

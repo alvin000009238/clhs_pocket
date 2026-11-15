@@ -3,7 +3,6 @@ package com.clhs.score.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -21,8 +20,7 @@ fun SubpageLayout(
     content: @Composable BoxScope.(PaddingValues) -> Unit,
 ) {
     FloatingSubpageLayout(onBack = onBack, modifier = modifier, snackbarHost = snackbarHost, actions = actions) { padding ->
-        Box(Modifier.fillMaxSize()
-            .wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 1200.dp).fillMaxWidth()) {
+        Box(Modifier.fillMaxSize()) {
             content(padding)
             summaryContent()
         }
