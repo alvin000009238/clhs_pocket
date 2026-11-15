@@ -53,6 +53,7 @@ import com.clhs.score.notifications.NotificationChannels
 import com.clhs.score.notifications.NotificationAction
 import com.clhs.score.notifications.CurrentCourseNotifications
 import com.clhs.score.reminders.AlarmReliabilityCoordinator
+import com.clhs.score.notifications.NotificationActionCapabilities
 import com.clhs.score.notifications.consumeNotificationAction
 import com.clhs.score.ui.BiometricLockScreen
 import com.clhs.score.ui.ScoreApp
@@ -496,7 +497,20 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         if (intent == null) return
         var routeSource: String? = null
 
-        when (val action = consumeNotificationAction(applicationContext, intent)) {
+        val hasCapability = intent.hasExtra(NotificationActionCapabilities.EXTRA_CAPABILITY)
+        val requestsPublicUpdate = intent.getStringExtra("check_update") == "true" ||
+            intent.getStringExtra("action") == "check_update"
+        intent.removeExtra("check_update")
+        if (intent.getStringExtra("action") == "check_update") intent.removeExtra("action")
+        val notificationAction = consumeNotificationAction(applicationContext, intent)
+        // Background FCM taps bypass the messaging service. Only token-free requests
+        // may use this public check; a rejected capability must remain rejected.
+        if (!hasCapability && requestsPublicUpdate) {
+            routeSource = AnalyticsValues.SOURCE_NOTIFICATION_UPDATE
+            checkUpdateChannel.trySend(AnalyticsValues.TRIGGER_NOTIFICATION)
+        }
+
+        when (val action = notificationAction) {
             NotificationAction.OpenSchedule -> {
                 routeSource = AnalyticsValues.SOURCE_NOTIFICATION_GENERAL
                 pendingLaunchTarget.value = AppLaunchTarget.Schedule
