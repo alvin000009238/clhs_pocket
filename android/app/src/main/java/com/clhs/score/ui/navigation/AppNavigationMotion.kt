@@ -45,4 +45,4 @@ internal fun PocketMotion.Navigation.drillUpNavigationTransition(): ContentTrans
             animationSpec = position,
             targetOffsetX = { width -> width / DrillDownIncomingDisplacementDivisor },
         ) + fadeOut(exitEffects),
-    )
+    ).apply { targetContentZIndex = 1f }

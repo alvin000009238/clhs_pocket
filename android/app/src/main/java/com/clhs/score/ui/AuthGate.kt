@@ -44,11 +44,16 @@ fun AuthGate(
     requirement: AuthRequirement,
     onRequestLogin: () -> Unit,
     modifier: Modifier = Modifier,
+    feature: String = "\u500b\u4eba\u8cc7\u8a0a",
+    description: String = "\u767b\u5165\u5f8c\u67e5\u770b\u500b\u4eba\u6821\u52d9\u8cc7\u6599\u3002",
+    icon: String = "account_circle",
+    onBack: (() -> Unit)? = null,
     fallback: @Composable () -> Unit = {
         AuthRequiredState(
             authState = authState,
             onRequestLogin = onRequestLogin,
             modifier = modifier,
+            feature = feature, description = description, icon = icon, onBack = onBack,
         )
     },
     restoring: @Composable () -> Unit = { AuthRestoringPlaceholder(modifier) },
@@ -69,6 +74,29 @@ private fun AuthRequiredState(
     authState: AuthState,
     onRequestLogin: () -> Unit,
     modifier: Modifier,
+    feature: String,
+    description: String,
+    icon: String,
+    onBack: (() -> Unit)?,
+) {
+    if (onBack != null) {
+        FloatingSubpageLayout(onBack = onBack) { padding ->
+            AuthRequiredContent(authState, onRequestLogin, modifier.padding(padding), feature, description, icon)
+        }
+    } else {
+        AuthRequiredContent(authState, onRequestLogin, modifier, feature, description, icon)
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun AuthRequiredContent(
+    authState: AuthState,
+    onRequestLogin: () -> Unit,
+    modifier: Modifier,
+    feature: String,
+    description: String,
+    icon: String,
 ) {
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState())
@@ -82,18 +110,18 @@ private fun AuthRequiredState(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             Surface(
-                modifier = Modifier.size(72.dp),
+                modifier = Modifier.size(56.dp),
                 shape = MaterialTheme.shapes.extraLarge,
                 color = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    OutlinedRoundedSymbol("school", size = 32.dp, contentDescription = null)
+                    OutlinedRoundedSymbol(icon, size = 28.dp, contentDescription = null)
                 }
             }
             Text(
-                "登入查看個人資訊",
-                style = MaterialTheme.typography.headlineSmall,
+                "\u767b\u5165\u67e5\u770b$feature",
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
             )
@@ -101,9 +129,9 @@ private fun AuthRequiredState(
                 if (authState is AuthState.Authenticating) {
                     "正在確認登入狀態…"
                 } else {
-                    "使用學校帳號，即可查看個人課表、成績與校務資訊。"
+                    description
                 },
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
@@ -112,7 +140,7 @@ private fun AuthRequiredState(
             } else {
                 Button(
                     onClick = onRequestLogin,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     shapes = ButtonDefaults.shapes(),
                 ) {
                     Text("使用學校帳號登入", style = MaterialTheme.typography.titleMedium)

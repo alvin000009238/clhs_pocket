@@ -8,7 +8,7 @@ import java.time.LocalDate
 
 class CalendarAgendaTest {
     @Test
-    fun eventPositionIncludesSearchWarningAndEveryDateHeading() {
+    fun eventPositionIncludesWarningAndEveryDateHeading() {
         val date = LocalDate.of(2026, 9, 12)
         fun event(id: String, day: LocalDate) = SchoolCalendarEvent(
             id, id, day.atStartOfDay(), day.plusDays(1).atStartOfDay(), true,
@@ -17,10 +17,14 @@ class CalendarAgendaTest {
             date to listOf(event("first", date), event("second", date)),
             date.plusDays(1) to listOf(event("target", date.plusDays(1))),
         )
-        assertEquals(2, calendarEventListIndex(groups, "first", false))
-        assertEquals(3, calendarEventListIndex(groups, "second", false))
-        assertEquals(5, calendarEventListIndex(groups, "target", false))
-        assertEquals(6, calendarEventListIndex(groups, "target", true))
+        assertEquals(1, calendarEventListIndex(groups, "first", false))
+        assertEquals(2, calendarEventListIndex(groups, "second", false))
+        assertEquals(4, calendarEventListIndex(groups, "target", false))
+        assertEquals(5, calendarEventListIndex(groups, "target", true))
+        assertEquals(0, calendarEventListIndex(groups, "first", false, includeDateHeading = true))
+        assertEquals(0, calendarEventListIndex(groups, "second", false, includeDateHeading = true))
+        assertEquals(3, calendarEventListIndex(groups, "target", false, includeDateHeading = true))
+        assertEquals(4, calendarEventListIndex(groups, "target", true, includeDateHeading = true))
         assertNull(calendarEventListIndex(groups, "removed", true))
         assertNull(calendarEventListIndex(emptyMap(), "target", false))
     }

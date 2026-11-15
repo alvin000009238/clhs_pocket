@@ -60,9 +60,9 @@ class UpdateChecker(
                 .header("Accept", "application/vnd.github+json")
                 .get()
                 .build()
-            client.newCall(request).execute().use { response ->
+            client.newCall(request).executeCancellable { response ->
                 if (!response.isSuccessful) {
-                    return@withContext UpdateResult.Error("HTTP ${response.code}")
+                    return@executeCancellable UpdateResult.Error("HTTP ${response.code}")
                 }
                 val body = response.body.string()
                 val json = SchoolJson.parseToJsonElement(body).jsonArray
@@ -72,7 +72,7 @@ class UpdateChecker(
                             item["prerelease"]?.jsonPrimitive?.booleanOrNull != true
                     }
                     ?.jsonObject
-                    ?: return@withContext UpdateResult.Error("找不到穩定版本")
+                    ?: return@executeCancellable UpdateResult.Error("找不到穩定版本")
                 val tagName = json["tag_name"]?.jsonPrimitive?.content.orEmpty()
                 val remoteVersion = tagName.removePrefix("v")
                 val htmlUrl = json["html_url"]?.jsonPrimitive?.content.orEmpty().takeIfValidHttpsUrl()
@@ -98,12 +98,12 @@ class UpdateChecker(
                     }
 
                 val isNewer = isNewerVersion(remoteVersion, currentVersionName)
-                    ?: return@withContext UpdateResult.Error("版本格式不正確")
+                    ?: return@executeCancellable UpdateResult.Error("版本格式不正確")
                 if (!isNewer) {
-                    return@withContext UpdateResult.UpToDate
+                    return@executeCancellable UpdateResult.UpToDate
                 }
                 if (htmlUrl == null && apkAsset == null) {
-                    return@withContext UpdateResult.Error("更新連結格式不正確")
+                    return@executeCancellable UpdateResult.Error("更新連結格式不正確")
                 }
                 UpdateResult.NewVersion(
                     versionName = remoteVersion,

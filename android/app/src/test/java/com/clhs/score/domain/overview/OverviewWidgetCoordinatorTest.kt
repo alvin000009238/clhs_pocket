@@ -327,7 +327,7 @@ class OverviewWidgetCoordinatorTest {
                 error("Guest must not subscribe to school data")
             }
             override suspend fun fetchSchedule(yearValue: String, year: String, term: String, classNo: String,
-                scope: ScheduleScope, targetDate: LocalDate, expectedSession: AuthenticatedSession?): ScheduleReport = error("Guest must not fetch school data")
+                scope: ScheduleScope, targetDate: LocalDate, expectedSession: AuthenticatedSession?, updateOverviewSnapshot: Boolean, forceRefresh: Boolean, updateBrowseSelection: Boolean): ScheduleReport = error("Guest must not fetch school data")
         }
         return OverviewCoordinator(
             schedule, NetworkSchoolCalendarRepository(directory, publicClient, nowProvider = { instant }),

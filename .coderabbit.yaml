@@ -1,0 +1,133 @@
+# yaml-language-server: $schema=https://www.coderabbit.ai/integrations/schema.v2.json
+language: zh-TW
+tone_instructions: "Use concise Traditional Chinese. Explain the concrete failure, user impact, and evidence. Prioritize actionable correctness and privacy findings; avoid stylistic nitpicks and speculative rewrites."
+
+reviews:
+  profile: chill
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  review_status: true
+  review_details: false
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "^dev$"
+      - "^main$"
+  auto_approvals:
+    enabled: false
+
+  # Exclude build products, not committed Room schemas or release profiles.
+  path_filters:
+    - "!**/build/**"
+    - "!**/.gradle/**"
+    - "!**/.kotlin/**"
+    - "!android/.artifacts/**"
+    - "!.qa/**"
+    - "!.tmp/**"
+
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        Read AGENTS.md and the affected callers before judging a change. Source
+        and tests establish current behavior; do not restore stale documentation.
+        CLHS Pocket is a zh-TW Android school app with one Kotlin/Compose app
+        module and a benchmark module. Preserve existing state ownership.
+        Report concrete regressions with a reachable failure scenario. Check
+        existing protection before requesting tests or abstractions. Do not
+        require version bumps or changelog entries for ordinary feature/fix PRs.
+        Do not claim builds, previews, or device checks ran without evidence.
+
+    - path: "android/app/src/main/java/com/clhs/score/data/**"
+      instructions: |
+        Consult the affected maintenance-contracts.md section and school-system.md.
+        Preserve prepareSession(session), synchronized generation-scoped cookies,
+        and the shared dispatcher limit of four. Public clients must not use
+        school credentials. Reject stale-account responses before publishing or
+        persisting data. Preserve authorization IDs, revocation, cleanup-pending
+        retries, atomic persistence and cancellation propagation. Cache reads may
+        degrade to misses; privacy deletion failures must propagate. Keep secrets
+        and student data out of logs and analytics. The production google-services.json
+        is public Firebase configuration, not a service-account secret.
+
+    - path: "android/app/src/main/java/com/clhs/score/viewmodel/**"
+      instructions: |
+        ScoreViewModel.authState is the authentication authority. Preserve existing
+        feature state owners, account/generation guards, cancellation and retry
+        behavior. Old asynchronous work must not overwrite a new account or
+        selection. Logout publishes Guest and revokes authority before cleanup;
+        a new login waits for pending cleanup. Subject trends remain owned by
+        SubjectTrendStateOwner. Simulator credits are integers 1..4; inferred and
+        confirmed credits stay exam/account scoped and separate from official reports.
+
+    - path: "android/app/src/main/java/com/clhs/score/ui/**"
+      instructions: |
+        Follow DESIGN.md and navigation.md using existing Material 3 Expressive
+        components, theme/motion tokens and fake data. Keep a single Guest-first
+        shell with Navigation 3; protected content uses AuthGate. Composables render
+        state rather than owning repository/persistence work. Overview consumes
+        OverviewState and is named 首頁 in user-facing copy. Keep each top-level
+        stack's child state and scroll position. Floating overlay clearance belongs
+        inside scroll content. Check accessibility semantics, system animation scale,
+        safeDrawing/IME insets and loading/empty/error behavior when affected.
+        UI verification needs affected Compose previews rendered and visually inspected;
+        a successful build alone is not visual evidence. Do not demand new unit tests
+        for simple copy/style changes.
+
+    - path: "android/app/src/main/java/com/clhs/score/MainActivity.kt"
+      instructions: |
+        Preserve biometric single-flight and privacy-lock FLAG_SECURE behavior.
+        External intents and notification entry points must retain one-use
+        capabilities and the biometric gate. WebView receives only the unlocked
+        in-memory session. Check lifecycle and stale-intent handling against callers.
+
+    - path: "android/app/src/main/java/com/clhs/score/{reminders,widget}/**"
+      instructions: |
+        Read the relevant maintenance contracts. Background work must respect
+        account authority, revocation, cancellation and cleanup-pending state.
+        Glance Widget reads its dedicated snapshot and authority metadata, never
+        credentials or school APIs; failed file deletion must not expose old data.
+        Preserve notification capability consumption, biometric gating and scheduling
+        permission/time-boundary behavior. Android home-screen Glance Widget and
+        in-app Overview widgets have different rendering and integration contracts.
+
+    - path: "android/app/src/{test,androidTest}/**"
+      instructions: |
+        Test observable behavior and meaningful failure scenarios, not private
+        structure, exact source spelling or incidental call counts. Preserve distinct
+        migration, revocation, failed cleanup, stale-account, retry and lifecycle
+        cases. Existing source guards may protect Android wiring that JVM behavior
+        tests cannot cover. Use real temporary storage and MockWebServer where
+        appropriate; in-memory DAO tests do not prove Room transactions. Use shared
+        coroutine schedulers, explicit synchronization and bounded waits. Close
+        resources and restore globals. New/changed device tests need prior device
+        exploration, semantic locators and explicit waits; JVM tests do not.
+
+    - path: "android/**/*.{kts,toml,pro,xml}"
+      instructions: |
+        Check flavor isolation, manifest exports/permissions, backup exclusions,
+        R8 and packaging impacts. JDK 25 is required. Demo uses fake data except
+        the public live YouBike API; previews and isolated YouBike tests stay fake.
+        Demo must not use production Firebase or release signing. Only
+        productionRelease is published. Use the AGENTS.md combined warning gate
+        for Android code; packaging/R8 changes also need productionRelease assembly.
+
+    - path: ".github/workflows/**"
+      instructions: |
+        Read docs/development/release.md for release changes. Preserve the exact
+        shared GITHUB_RUN_NUMBER, one non-cancelling release queue, both complete
+        history checks and CI-before-signing order. Validate committed Baseline
+        and Startup Profiles before decoding signing material. Keep automatic
+        profile generation disabled; the manual profile workflow does not publish
+        or merge. Internal distribution is manually triggered from dev; merging
+        dev alone does not publish. Never expose signing material or credentials.
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "AGENTS.md"
+      - "DESIGN.md"
+      - "docs/architecture/**/*.md"
+      - "docs/development/**/*.md"

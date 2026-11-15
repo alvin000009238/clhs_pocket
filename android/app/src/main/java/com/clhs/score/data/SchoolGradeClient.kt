@@ -167,6 +167,78 @@ class SchoolGradeClient(
         )
     }
 
+    suspend fun fetchRecordSemesters(session: AuthenticatedSession): List<RecordSemester> {
+        val generation = prepareSession(session)
+        return withContext(Dispatchers.Default) {
+            StudentRecordsParser.semesters(recordRequest(
+                session, generation, "CommonData/GetStudentYearTermDropdownList",
+            ))
+        }
+    }
+
+    suspend fun fetchAttendanceHistory(session: AuthenticatedSession): List<RecordHistoryStatistic> {
+        val generation = prepareSession(session)
+        return withContext(Dispatchers.Default) {
+            StudentRecordsParser.history(recordRequest(
+                session, generation, "TutorShSheAbsentStatistics/GetTutorShSheAbsentStatistics",
+            ), "AbsentType")
+        }
+    }
+
+    suspend fun fetchMeritHistory(session: AuthenticatedSession): List<RecordHistoryStatistic> {
+        val generation = prepareSession(session)
+        return withContext(Dispatchers.Default) {
+            StudentRecordsParser.history(recordRequest(
+                session, generation, "TutorShSheMoralMeritPenalty/GetMeritPenaltyStatisticsList",
+            ), "MeritPenaltyType")
+        }
+    }
+
+    suspend fun fetchAttendance(session: AuthenticatedSession, semester: RecordSemester): AttendanceRecord {
+        val generation = prepareSession(session)
+        return withContext(Dispatchers.Default) {
+            val summary = async {
+                StudentRecordsParser.attendanceSummary(recordRequest(
+                    session, generation, "TutorShSheAbsentStatistics/GetTutorShSheAbsentTermStatistics", semester,
+                ))
+            }
+            val details = async {
+                StudentRecordsParser.attendanceDetails(recordRequest(
+                    session, generation, "TutorShSheAbsentStatistics/GetTutorShSheAbsentDetails", semester,
+                ))
+            }
+            AttendanceRecord(summary.await(), details.await())
+        }
+    }
+
+    suspend fun fetchMerits(session: AuthenticatedSession, semester: RecordSemester): List<MeritRecord> {
+        val generation = prepareSession(session)
+        return withContext(Dispatchers.Default) {
+            StudentRecordsParser.merits(recordRequest(
+                session, generation, "TutorShSheMoralMeritPenalty/GetMeritPenaltyDetailsList", semester,
+            ))
+        }
+    }
+
+    private suspend fun recordRequest(
+        session: AuthenticatedSession,
+        generation: Long,
+        path: String,
+        semester: RecordSemester? = null,
+    ): String = postForm(
+        generation = generation,
+        path = "ICampus/$path",
+        referer = resolve("ICampus/StudentInfo/Index").toString(),
+        form = buildMap {
+            put("studentNo", session.studentNo)
+            put("__RequestVerificationToken", session.apiToken)
+            if (semester != null) {
+                put("searchItem[Year]", semester.year.toString())
+                put("searchItem[Term]", semester.term.toString())
+            }
+        },
+    )
+
     private suspend fun getSchedulePageToken(generation: Long): String {
         synchronized(sessionLock) {
             if (sessionGeneration != generation) throw CancellationException("Session changed")
@@ -304,10 +376,11 @@ class SchoolGradeClient(
             expectJson = true,
             generation = generation,
         )
-        return parseScheduleWeekOptions(json)
+        return parseScheduleWeekOptionsOrNull(json)
+            ?: throw SchoolException("無法解析課表週次資料結構")
     }
 
-    suspend fun fetchSchedule(
+    suspend fun querySchedule(
         session: AuthenticatedSession,
         yearValue: String,
         year: String,
@@ -315,33 +388,47 @@ class SchoolGradeClient(
         classNo: String,
         scope: ScheduleScope,
         targetDate: LocalDate = LocalDate.now(SCHOOL_COURSE_ZONE),
-        onSemesterReport: suspend (ScheduleReport) -> Unit = {},
-    ): ScheduleReport = withContext(Dispatchers.IO) {
+    ): ScheduleFetchResult = withContext(Dispatchers.IO) {
         val generation = prepareSession(session)
-        if (scope == ScheduleScope.CURRENT_WEEK) {
-            val weekReport = try {
-                val week = selectScheduleWeek(
-                    options = loadScheduleWeeks(year, term, generation),
-                    targetDate = targetDate,
-                )
-                    ?: throw SchoolException("目前沒有可用的當週課表")
-                fetchScheduleRequest(session, yearValue, year, term, classNo, week, generation)
-            } catch (error: Exception) {
-                if (error is CancellationException || error is SchoolAuthenticationException) throw error
-                return@withContext fetchScheduleRequest(session, yearValue, year, term, classNo, null, generation)
-            }
 
-            val changes = try {
-                val semesterReport = fetchScheduleRequest(session, yearValue, year, term, classNo, null, generation)
-                onSemesterReport(semesterReport)
-                compareScheduleItems(semesterReport.items, weekReport.items)
+        suspend fun semesterReportOrNull(): ScheduleReport? = try {
+            fetchScheduleRequest(session, yearValue, year, term, classNo, null, generation)
+        } catch (error: Exception) {
+            if (error is CancellationException || error is SchoolAuthenticationException) throw error
+            null
+        }
+
+        if (scope == ScheduleScope.SEMESTER) {
+            return@withContext try {
+                ScheduleFetchResult.Available(
+                    fetchScheduleRequest(session, yearValue, year, term, classNo, null, generation),
+                )
             } catch (error: Exception) {
                 if (error is CancellationException || error is SchoolAuthenticationException) throw error
-                null
+                ScheduleFetchResult.Failed(error)
             }
-            return@withContext weekReport.copy(changes = changes)
         }
-        fetchScheduleRequest(session, yearValue, year, term, classNo, null, generation)
+
+        val week = try {
+            selectScheduleWeek(loadScheduleWeeks(year, term, generation), targetDate)
+        } catch (error: Exception) {
+            if (error is CancellationException || error is SchoolAuthenticationException) throw error
+            return@withContext ScheduleFetchResult.Failed(error, semesterReportOrNull())
+        } ?: return@withContext ScheduleFetchResult.Unpublished(targetDate, semesterReportOrNull())
+
+        val weekReport = try {
+            fetchScheduleRequest(session, yearValue, year, term, classNo, week, generation)
+        } catch (error: Exception) {
+            if (error is CancellationException || error is SchoolAuthenticationException) throw error
+            return@withContext ScheduleFetchResult.Failed(error, semesterReportOrNull())
+        }
+        val baseline = semesterReportOrNull()
+        val report = weekReport.copy(changes = baseline?.let { compareScheduleItems(it.items, weekReport.items) })
+        if (report.items.isEmpty()) {
+            ScheduleFetchResult.Empty(report, baseline)
+        } else {
+            ScheduleFetchResult.Available(report, baseline)
+        }
     }
 
     private suspend fun fetchScheduleRequest(

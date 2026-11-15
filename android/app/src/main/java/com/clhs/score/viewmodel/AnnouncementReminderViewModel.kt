@@ -141,7 +141,7 @@ class AnnouncementReminderViewModel internal constructor(
                 val state = repository.loadState()
                 val announcements = loadSnapshot(state.selectedUnitIds, emptySet())
                 readRepository?.discover(announcements)
-                repository.enableWithBaseline(announcements, System.currentTimeMillis())
+                repository.enableWithBaseline(state.selectedUnitIds, announcements, System.currentTimeMillis())
                 analyticsLogger.logEvent(
                     AnalyticsEvents.ANNOUNCEMENT_REMINDER_START,
                     mapOf(AnalyticsParams.RESULT to AnalyticsValues.RESULT_SUCCESS),

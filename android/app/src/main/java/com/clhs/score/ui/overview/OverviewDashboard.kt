@@ -3,6 +3,7 @@
 package com.clhs.score.ui.overview
 
 import com.clhs.score.ui.rootBodyMotion
+import com.clhs.score.ui.pocketFloatingShadow
 
 import com.clhs.score.ui.navigation.PocketScaffold as Scaffold
 
@@ -44,6 +45,34 @@ import com.clhs.score.viewmodel.AnnouncementBookmarksUiState
 import com.clhs.score.viewmodel.OverviewEditorState
 import kotlinx.coroutines.launch
 import java.util.UUID
+
+@androidx.compose.ui.tooling.preview.Preview(name = "首頁浮動工具", widthDp = 390, heightDp = 844)
+@Composable
+private fun DashboardFloatingToolsPreview(
+    @androidx.compose.ui.tooling.preview.PreviewParameter(DashboardEditingPreviewProvider::class) editing: Boolean,
+) {
+    com.clhs.score.ui.theme.ScoreTheme {
+        OverviewDashboard(
+            state = OverviewState(isInitialLoading = false),
+            editor = OverviewEditorState(committed = emptyList(), draft = if (editing) emptyList() else null, loading = false),
+            actions = OverviewEditorActions(
+                beginEdit = {}, cancelEdit = {}, saveLayout = { true }, putWidget = {},
+                removeWidget = {}, moveWidget = { _, _ -> }, resetLayout = {}, undoReset = {},
+                searchLocations = { emptyList() }, searchStations = { emptyList() },
+                retryLayout = {}, markYouBikeWidgetSeen = { true },
+            ),
+            showNewWidgetBadge = false, authState = AuthState.Authenticated(1L),
+            onRequestLogin = {}, onOpenPersonal = {}, onOpenDestination = {}, showUpdateBadge = false,
+            onRefresh = {}, unreadAnnouncementIds = emptySet(), isReadingAvailable = true,
+            onRefreshYouBike = {}, cwaKeyConfigured = false, cwaKeySaving = false, cwaKeyMessage = null,
+            onSaveCwaApiKey = {}, onClearCwaApiKey = {}, onDismissCwaKeyMessage = {}, onRefreshWeather = {},
+        )
+    }
+}
+
+class DashboardEditingPreviewProvider : androidx.compose.ui.tooling.preview.PreviewParameterProvider<Boolean> {
+    override val values = sequenceOf(false, true)
+}
 
 class OverviewEditorActions(
     val beginEdit: () -> Unit,
@@ -149,7 +178,10 @@ internal fun OverviewDashboard(
                 exit = shrinkVertically(animationSpec = PocketMotion.contentReflow()) + fadeOut(PocketMotion.stateChange())) {
                 Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp), contentAlignment = Alignment.Center) {
                     HorizontalFloatingToolbar(expanded = true,
-                        modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth()) {
+                        modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth()
+                            .pocketFloatingShadow(FloatingToolbarDefaults.ContainerShape),
+                        expandedShadowElevation = 0.dp,
+                        collapsedShadowElevation = 0.dp) {
                         FilledTonalButton(onClick = hapticClick { adding = true }, shape = CircleShape,
                             enabled = !editor.saving, modifier = Modifier.weight(1f).semantics {
                                 if (showNewWidgetBadge) stateDescription = "有新元件"
@@ -219,9 +251,10 @@ internal fun OverviewDashboard(
             modifier = Modifier.align(Alignment.TopEnd)
                 .onSizeChanged { size -> with(density) { actionsHeight = size.height.toDp(); actionsWidth = size.width.toDp() } }
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .pocketFloatingShadow(MaterialTheme.shapes.extraLarge),
             shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer,
-            tonalElevation = 3.dp, shadowElevation = 3.dp,
+            tonalElevation = 3.dp,
         ) {
             Row(if (editor.editing) Modifier.padding(start = 4.dp) else Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (editor.editing) {

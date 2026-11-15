@@ -69,6 +69,9 @@ sealed interface AppRoute : NavKey
 @Serializable data object CourseNotificationSettingsRoute : AppRoute
 @Serializable data object SchoolWebsiteRoute : AppRoute
 @Serializable data object PersonalRoute : AppRoute
+@Serializable data object GeneralSettingsRoute : AppRoute
+@Serializable data object AttendanceRoute : AppRoute
+@Serializable data object MeritRoute : AppRoute
 @Serializable data object SettingsTransferRoute : AppRoute
 @Serializable data object UsageStatisticsRoute : AppRoute
 @Serializable data object OpenSourceLicensesRoute : AppRoute
@@ -107,6 +110,8 @@ fun AppRoute.authRequirement(): AuthRequirement = when (this) {
     ScoreSimulatorRoute,
     SubjectTrendRoute,
     SchoolWebsiteRoute,
+    AttendanceRoute,
+    MeritRoute,
     -> AuthRequirement.Session
     OverviewRoute,
     CampusRoute,
@@ -115,6 +120,7 @@ fun AppRoute.authRequirement(): AuthRequirement = when (this) {
     SchoolAnnouncementsRoute,
     is SchoolAnnouncementDetailRoute,
     PersonalRoute,
+    GeneralSettingsRoute,
     AnnouncementReminderSettingsRoute,
     AnnouncementReminderUnitsRoute,
     BackgroundPauseSettingsRoute,
@@ -152,6 +158,9 @@ internal fun AppRoute.analyticsScreenName(): String = when (this) {
     CourseNotificationSettingsRoute -> AnalyticsScreenNames.COURSE_NOTIFICATION_SETTINGS
     SchoolWebsiteRoute -> AnalyticsScreenNames.SCHOOL_WEBSITE
     PersonalRoute -> AnalyticsScreenNames.PERSONAL
+    GeneralSettingsRoute -> "general_settings"
+    AttendanceRoute -> "attendance_records"
+    MeritRoute -> "merit_records"
     SettingsTransferRoute -> AnalyticsScreenNames.SETTINGS_TRANSFER
     UsageStatisticsRoute -> AnalyticsScreenNames.USAGE_STATISTICS
     OpenSourceLicensesRoute -> AnalyticsScreenNames.OPEN_SOURCE_LICENSES
@@ -165,6 +174,9 @@ internal fun AppRoute.analyticsScreenName(): String = when (this) {
 
 internal fun topLevelNavigationType(width: Dp, height: Dp = Dp.Infinity): NavigationSuiteType =
     if (width < 600.dp && height >= 480.dp) NavigationSuiteType.ShortNavigationBarCompact else NavigationSuiteType.NavigationRail
+
+internal fun entryNavigationClearance(route: NavKey, rootClearance: Dp): Dp =
+    if (TopLevelDestination.entries.any { it.route == route }) rootClearance else 0.dp
 
 @Composable
 fun rememberAppNavigationState(onboardingRequired: Boolean = false): AppNavigationState {
@@ -276,6 +288,9 @@ private fun AppRoute.topLevelDestination(): TopLevelDestination? = when (this) {
     SchoolWebsiteRoute,
     -> TopLevelDestination.Campus
     PersonalRoute,
+    GeneralSettingsRoute,
+    AttendanceRoute,
+    MeritRoute,
     AnnouncementReminderSettingsRoute,
     AnnouncementReminderUnitsRoute,
     BackgroundPauseSettingsRoute,
@@ -317,7 +332,11 @@ fun AppNavigationState.toEntries(
             NavEntry(route, contentKey = "$parent:${entry.contentKey}", metadata = entry.metadata +
                 if (TopLevelDestination.entries.any { it.route == route }) mapOf(RootSceneDestinationKey to route)
                 else emptyMap()) {
-                entry.Content()
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalNavigationClearance provides entryNavigationClearance(route, LocalRootNavigationClearance.current),
+                ) {
+                    entry.Content()
+                }
             }
         }
     }
@@ -361,6 +380,7 @@ fun AuthenticatedAppShell(
         val showNavigation = TopLevelDestination.entries.any { it.route == route }
         val rail = topLevelNavigationType(maxWidth, maxHeight) == NavigationSuiteType.NavigationRail
         val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+        val rootClearance = if (rail) 0.dp else PocketNavigationLayout.clearance
         val clearance = if (showNavigation && !rail && !imeVisible) PocketNavigationLayout.clearance else 0.dp
         fun select(destination: TopLevelDestination, withHaptic: Boolean = true) {
             if (navigationState.topLevelRoute != destination.route) {
@@ -401,6 +421,7 @@ fun AuthenticatedAppShell(
             ) {
                 androidx.compose.runtime.CompositionLocalProvider(
                     LocalNavigationClearance provides clearance,
+                    LocalRootNavigationClearance provides rootClearance,
                     LocalNavigationCompact provides compact,
                     LocalExpandNavigation provides { compact = false },
                     LocalNavigationScrollConnection provides scrollConnection,

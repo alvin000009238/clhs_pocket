@@ -35,7 +35,7 @@ internal class CourseNotificationCoordinator(
     private val mutex = Mutex()
     private var lastKnownEnabled = false
 
-    suspend fun available(): Boolean = mutex.withLock { resolveCourses(loadReport(), clock).valid }
+    suspend fun available(): Boolean = mutex.withLock { resolveCourses(loadReport(), clock).scheduleAvailable }
 
     suspend fun setEnabled(enabled: Boolean): String? = mutex.withLock {
         if (!enabled) {
@@ -52,7 +52,7 @@ internal class CourseNotificationCoordinator(
             cancel()
             return@withLock null
         }
-        if (!resolveCourses(loadReport(), clock).valid) return@withLock "請先取得有效週課表或學期課表"
+        if (!resolveCourses(loadReport(), clock).scheduleAvailable) return@withLock "請先取得有效週課表或學期課表"
         if (!canPost()) return@withLock "需要開啟通知權限"
         preferences.setEnabled(true)
         lastKnownEnabled = true

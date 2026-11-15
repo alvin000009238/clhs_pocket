@@ -113,7 +113,7 @@ fun OverviewScreen(
                 title = "首頁",
                 actions = {
                     IconButton(onClick = { customize = true }, enabled = !state.isInitialLoading) {
-                        OutlinedRoundedSymbol("dashboard_customize", contentDescription = "自訂首頁")
+                        OutlinedRoundedSymbol("dashboard_customize", tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "自訂首頁")
                     }
                     AccountIconButton(onClick = onOpenPersonal, showUpdateBadge = showUpdateBadge)
                 },
@@ -297,52 +297,10 @@ private fun OverviewContent(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun OverviewLoginPrompt(authState: AuthState, onRequestLogin: () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-    ) {
-        Column(
-            modifier = Modifier.padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedRoundedSymbol(
-                    "calendar_view_week",
-                    size = 32.dp,
-                    tint = MaterialTheme.colorScheme.primary,
-                    contentDescription = null,
-                )
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("今日課表", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        "登入後，在這裡查看現在與下一節課。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            if (authState is AuthState.Authenticating) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    LoadingIndicator(Modifier.size(32.dp))
-                    Text("正在確認登入狀態…", style = MaterialTheme.typography.bodyMedium)
-                }
-            } else {
-                Button(
-                    onClick = onRequestLogin,
-                    modifier = Modifier.align(Alignment.End).heightIn(min = 48.dp),
-                    shapes = ButtonDefaults.shapes(),
-                ) {
-                    Text("使用學校帳號登入")
-                }
-            }
-        }
+    Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        com.clhs.score.ui.GuestLoginContent(authState, "\u4eca\u65e5\u8ab2\u8868",
+            "\u767b\u5165\u5f8c\u67e5\u770b\u73fe\u5728\u8207\u4e0b\u4e00\u7bc0\u8ab2\uff0c\u638c\u63e1\u4eca\u5929\u7684\u8ab2\u7a0b\u3002", "calendar_view_week", onRequestLogin)
     }
 }
 @Composable
@@ -444,7 +402,7 @@ internal fun WeatherStrip(state: OverviewWeatherState, now: LocalDateTime, modif
                     Text(weather.locationLabel, Modifier.weight(1f),
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (compact && state.failed) Text("更新失敗", style = MaterialTheme.typography.labelSmall,
+                    if (state.failed) Text(if (compact) "更新失敗" else "更新失敗，顯示上次資料", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error)
                 }
                 if (compact) {
@@ -479,7 +437,7 @@ internal fun WeatherStrip(state: OverviewWeatherState, now: LocalDateTime, modif
                             color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
-                val updateLabel = if (state.failed) "更新失敗，顯示上次資料" else if (!state.isRefreshing &&
+                val updateLabel = if (!state.failed && !state.isRefreshing &&
                     Duration.between(weather.fetchedAt, now.atZone(SCHOOL_ZONE).toInstant()).toMinutes() > 30
                 ) "上次更新 ${weather.fetchedAt.atZone(SCHOOL_ZONE).format(DateTimeFormatter.ofPattern("HH:mm"))}" else null
                 updateLabel?.takeIf { !compact }?.let { Text(it, style = MaterialTheme.typography.labelSmall,

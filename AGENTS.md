@@ -15,7 +15,10 @@ Paths below are relative to the repository root.
 | Feature screens and state | `android/app/src/main/java/com/clhs/score/ui/`, `android/app/src/main/java/com/clhs/score/viewmodel/` |
 | Settings JSON transfer | `android/app/src/main/java/com/clhs/score/data/SettingsTransfer.kt`, `android/app/src/main/java/com/clhs/score/viewmodel/SettingsTransferViewModel.kt` |
 | HTTP, cache, session, models | `android/app/src/main/java/com/clhs/score/data/` |
+| Versioned schedule storage, legacy import and retention | `android/app/src/main/java/com/clhs/score/data/ScheduleSnapshotStore.kt`, `GradeCacheStore.kt`; [storage contract](docs/architecture/schedule-storage-proposal.md) |
+| Schedule capture, MediaStore publication and bitmap ownership | `android/app/src/main/java/com/clhs/score/ui/schedule/ScheduleImageExport.kt` |
 | Overview aggregation | `android/app/src/main/java/com/clhs/score/domain/overview/` |
+| Attendance and merit records | `android/app/src/main/java/com/clhs/score/data/StudentRecords.kt`, `android/app/src/main/java/com/clhs/score/viewmodel/StudentRecordsStateOwner.kt`, `android/app/src/main/java/com/clhs/score/ui/StudentRecordsScreen.kt` |
 | Background work and Widget | `android/app/src/main/java/com/clhs/score/reminders/`, `android/app/src/main/java/com/clhs/score/widget/` |
 | Unit / framework tests | `android/app/src/test/`, `android/app/src/androidTest/` |
 | Preview data | `android/app/src/main/java/com/clhs/score/data/FakeData.kt`, `android/app/src/main/java/com/clhs/score/ui/ScorePreviews.kt` |
@@ -29,6 +32,12 @@ Paths below are relative to the repository root.
 - Feature-specific invariants and regression-test entry points: [maintenance contracts](docs/architecture/maintenance-contracts.md). Read the affected section before changing persistence, reminders, schedule, Widget or integrations.
 - Grade simulator credits: read the simulator section in [maintenance contracts](docs/architecture/maintenance-contracts.md); credits must be integers from 1 to 4, exclusions use subject selection, and inferred or user-confirmed credits stay exam/account scoped and separate from official reports. Verify defaults against the official summary before inferring replacements.
 - UI work: [DESIGN.md](DESIGN.md), then the referenced theme and component source.
+- Guest UI: `ui/AuthGate.kt` receives feature-specific copy and optional subpage back navigation; compact Overview and personal prompts reuse `ui/GuestLoginContent.kt`. Keep authentication decisions in `AuthGate`.
+- Settings and destination rows: reuse `ui/PocketOptionIcon.kt` and the shared rows in `ui/GeneralSettingsScreen.kt`; preserve controls and selection semantics when applying the option style.
+- Title-free personal, general settings, records, announcement and calendar pages use `ui/FloatingSubpageLayout.kt`; keep top clearance inside scroll content so it can draw behind the status bar. Floating controls reuse `ui/PocketFloatingShadow.kt`.
+- Page back buttons use `PocketBackButton` from `ui/PocketCircleIconButton.kt`; the personal settings action uses the same circular button style.
+- Use the `android-cli` skill for Android development and verification. After every UI change, run `android preview render` for the affected Compose previews and visually inspect the generated PNGs. Add or update relevant fake-data previews when needed. Report render failures explicitly; a build alone does not satisfy this visual check.
+- Prefer Android CLI for work previously done with ADB whenever it provides the required operation. See [Android CLI workflow](docs/development/android-cli.md) for verified references, capabilities and fallbacks. Host-required Device tools take precedence for device interaction; use explicit serials for CLI installs and unsupported-operation ADB fallbacks.
 - Adding Overview dashboard widgets: use [clhs-overview-widget](.agents/skills/clhs-overview-widget/SKILL.md) for integration points and reusable UI/test templates. This is separate from the Android home-screen Glance Widget.
 - Floating navigation, root reselect and overlay clearance: [navigation](docs/architecture/navigation.md), `ui/navigation/PocketFloatingNavigation.kt`, `NavigationOverlay.kt` and `PocketScaffold.kt`. Add clearance inside scroll content, not around its viewport; keep common child route state scoped to its top-level stack.
 - Local tools: [setup](docs/development/setup.md), [building](docs/development/building.md), [testing](docs/development/testing.md), [fake data](docs/development/fake-data.md).
@@ -79,7 +88,7 @@ Run commands from `android/` in PowerShell (`./gradlew` on Unix).
 - Run relevant owner tests while iterating; before delivery inspect Kotlin/compiler and Lint reports together, fix warnings in changed code, then rerun affected checks.
 - For subject trends include `SubjectTrendStateOwnerTest` and `ScoreViewModelTest`.
 - Documentation-only changes: check referenced paths, Markdown links and `git diff --check`; no Android build is needed.
-- Do not run device/emulator tests, install APKs, capture Widget previews or generate Baseline Profiles unless the user explicitly requests device work. A build is not visual verification.
+- UI changes have standing authorization for necessary device verification when previews cannot establish interaction, lifecycle or platform behavior. Follow the host's device-tool rules, confirm the target when ambiguous, and use fake data. Outside that scope, do not run device/emulator tests, install APKs, capture Widget previews or generate Baseline Profiles unless the user explicitly requests device work. A build is not visual verification.
 - Before `connected*AndroidTest`, pin the emulator with `ANDROID_SERIAL` and verify the reported target. Runner arguments such as `android.testInstrumentationRunnerArguments.serial` do not select a device. Gradle device tests can uninstall the app and reset its data; do not run them on a user's phone for visual review. Use an in-place APK update for visual review.
 - When device work is explicitly requested, use available device/emulator tooling for interaction and evidence collection. Follow `docs/development/testing.md`; keep ADB/device selection explicit and use fake data unless the user authorizes real account data.
 - The Android/Kotlin toolchain requires JDK 25. If Java is missing, locate a real JDK 25 installation and verify `lib/jvm.cfg`; do not hardcode a machine-specific installation suffix. Use workspace-local `GRADLE_USER_HOME` / `ANDROID_USER_HOME` when required by the environment.

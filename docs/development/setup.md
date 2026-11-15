@@ -5,6 +5,7 @@
 - Android Studio（建議使用其內建 JDK 25）。
 - Android SDK Platform 37 與 Build Tools 37.0.0。
 - Git；Windows 使用 PowerShell 與 `gradlew.bat`。
+- Android CLI；開發、Preview、APK 安裝與 SDK／文件查詢優先使用 CLI，命令與能力限制見 [Android CLI 工作流](android-cli.md)。
 
 第一次以 Android Studio 開啟 `android/`，讓它建立本機 `local.properties` 並下載 Gradle 依賴。`local.properties` 是本機 SDK 路徑設定，不能提交。
 

@@ -62,6 +62,7 @@ import com.clhs.score.domain.overview.OverviewWidgetConfig
 import com.clhs.score.domain.overview.OverviewWidgetDefinitions
 import com.clhs.score.domain.overview.OverviewWidgetInstance
 import com.clhs.score.ui.OutlinedRoundedSymbol
+import com.clhs.score.ui.PocketOptionIcon
 import com.clhs.score.ui.ProfileCwaApiKeyDialog
 import com.clhs.score.ui.hapticClick
 import kotlinx.coroutines.CancellationException
@@ -225,8 +226,8 @@ fun OverviewWidgetConfigSheet(
                                     selected = location?.id == result.id, onSelect = { locationJson = OverviewLayoutJson.encodeToString(result) })
                             }
                             Text("資料來源", style = MaterialTheme.typography.titleSmall)
-                            ChoiceRow("Open-Meteo", selected = source == WeatherSource.OPEN_METEO, onSelect = { sourceName = WeatherSource.OPEN_METEO.name })
-                            ChoiceRow("中央氣象署", selected = source == WeatherSource.CWA, enabled = location?.supportsCwa == true,
+                            ChoiceRow("Open-Meteo", icon = "partly_cloudy_day", selected = source == WeatherSource.OPEN_METEO, onSelect = { sourceName = WeatherSource.OPEN_METEO.name })
+                            ChoiceRow("中央氣象署", icon = "sunny", selected = source == WeatherSource.CWA, enabled = location?.supportsCwa == true,
                                 onSelect = { sourceName = WeatherSource.CWA.name }, trailingContent = {
                                     IconButton(onClick = hapticClick {
                                         onDismissCwaKeyMessage()
@@ -250,8 +251,8 @@ fun OverviewWidgetConfigSheet(
                             Text("顯示前 50 筆，請輸入更完整的地點或站名", style = MaterialTheme.typography.bodySmall)
                     }
                     "countdown" -> {
-                        ChoiceRow("學校行程", selected = !customCountdown, onSelect = { customCountdown = false })
-                        ChoiceRow("自訂日期", selected = customCountdown, onSelect = { customCountdown = true })
+                        ChoiceRow("學校行程", icon = "calendar_today", selected = !customCountdown, onSelect = { customCountdown = false })
+                        ChoiceRow("自訂日期", icon = "event", selected = customCountdown, onSelect = { customCountdown = true })
                         if (customCountdown) {
                             OutlinedTextField(title, { title = it }, modifier = Modifier.fillMaxWidth(), label = { Text("名稱") }, singleLine = true)
                             TextButton(onClick = hapticClick { showDate = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
@@ -259,8 +260,8 @@ fun OverviewWidgetConfigSheet(
                                 OutlinedRoundedSymbol("event")
                                 Text(date?.toString() ?: "選擇日期", Modifier.padding(start = 8.dp))
                             }
-                            ChoiceRow("全天", selected = !useTime, onSelect = { useTime = false })
-                            ChoiceRow("指定時間", selected = useTime, onSelect = { useTime = true })
+                            ChoiceRow("全天", icon = "event", selected = !useTime, onSelect = { useTime = false })
+                            ChoiceRow("指定時間", icon = "schedule", selected = useTime, onSelect = { useTime = true })
                             if (useTime) TextButton(onClick = hapticClick { showTime = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                 shapes = ButtonDefaults.shapes()) {
                                 OutlinedRoundedSymbol("schedule")
@@ -294,8 +295,10 @@ fun OverviewWidgetConfigSheet(
                                 priorityJson = OverviewLayoutJson.encodeToString(it)
                             }
                         } else {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Text("隱藏長行程", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                            Row(Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(horizontal = 16.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                PocketOptionIcon("calendar_today")
+                                Text("隱藏長行程", Modifier.weight(1f), style = MaterialTheme.typography.titleMediumEmphasized)
                                 Switch(checked = hideLongEvents, onCheckedChange = { hideLongEvents = it },
                                     modifier = Modifier.semantics { contentDescription = "隱藏長行程" })
                             }
@@ -343,21 +346,36 @@ fun OverviewWidgetConfigSheet(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ChoiceRow(title: String, supporting: String = "", selected: Boolean, enabled: Boolean = true,
-    onSelect: () -> Unit, trailingContent: @Composable () -> Unit = {}) {
+    icon: String? = null, onSelect: () -> Unit, trailingContent: @Composable () -> Unit = {}) {
     Surface(color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         shape = MaterialTheme.shapes.medium) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(selected = selected, enabled = enabled,
-            role = Role.RadioButton, onClick = hapticClick(onSelect)).padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            RadioButton(selected = selected, onClick = null, enabled = enabled)
+        Row(Modifier.fillMaxWidth().heightIn(min = if (icon != null) 80.dp else 56.dp).selectable(selected = selected, enabled = enabled,
+            role = Role.RadioButton, onClick = hapticClick(onSelect)).padding(horizontal = if (icon != null) 16.dp else 12.dp, vertical = if (icon != null) 14.dp else 8.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (icon != null) 16.dp else 12.dp)) {
+            if (icon != null) PocketOptionIcon(icon, enabled = enabled)
+            else RadioButton(selected = selected, onClick = null, enabled = enabled)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge,
+                Text(title, style = if (icon != null) MaterialTheme.typography.titleMediumEmphasized else MaterialTheme.typography.bodyLarge,
                     color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                 if (supporting.isNotBlank()) Text(supporting, style = MaterialTheme.typography.bodySmall)
             }
+            if (icon != null) RadioButton(selected = selected, onClick = null, enabled = enabled)
             trailingContent()
+        }
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "首頁元件選項", widthDp = 390, showBackground = true)
+@Composable
+private fun WidgetConfigurationOptionsPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChoiceRow("學校行程", icon = "calendar_today", selected = true, onSelect = {})
+            ChoiceRow("自訂日期", icon = "event", selected = false, onSelect = {})
+            ChoiceRow("中央氣象署", icon = "sunny", selected = false, enabled = false, onSelect = {})
         }
     }
 }

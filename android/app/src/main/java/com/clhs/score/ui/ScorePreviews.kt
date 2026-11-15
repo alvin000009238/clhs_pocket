@@ -84,6 +84,25 @@ private fun YouBikePreview() {
     }
 }
 
+@Preview(name = "天氣 · 更新失敗", widthDp = 390, heightDp = 136)
+@Composable
+private fun WeatherFailedPreview() {
+    val now = java.time.LocalDateTime.of(2026, 11, 2, 12, 0)
+    ScoreTheme {
+        androidx.compose.material3.Surface(shape = com.clhs.score.ui.theme.PocketVisual.metricShape) {
+            com.clhs.score.ui.overview.WeatherStrip(
+                com.clhs.score.domain.overview.OverviewWeatherState.Available(
+                    com.clhs.score.domain.overview.WeatherSnapshot(
+                        com.clhs.score.data.WeatherSource.OPEN_METEO, "中壢區", 23, 24, "陰天", 22,
+                        now, now.plusHours(1), now.atZone(com.clhs.score.domain.overview.SCHOOL_ZONE).toInstant(),
+                        maximumTemperatureCelsius = 27, minimumTemperatureCelsius = 21,
+                    ), failed = true,
+                ), now, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+        }
+    }
+}
+
 class ScenarioProvider : PreviewParameterProvider<StudentScenario> {
     override val values = sequenceOf(
         StudentScenario.NORMAL,
@@ -105,12 +124,17 @@ class AnnouncementStateProvider : PreviewParameterProvider<SchoolAnnouncementsUi
         ),
         SchoolAnnouncementsUiState(isInitialLoading = false),
         SchoolAnnouncementsUiState(
+            isInitialLoading = false, searchQuery = "圖書館",
+            announcements = FakeData.announcementPage.announcements,
+        ),
+        SchoolAnnouncementsUiState(
             isInitialLoading = false,
             errorMessage = "暫時無法取得學校消息，請檢查網路後再試一次。",
         ),
     )
 }
 
+@Preview(name = "School Announcements Tablet", widthDp = 1280, heightDp = 800)
 @Preview(name = "School Announcements", showBackground = true, widthDp = 390, heightDp = 844)
 @Composable
 private fun SchoolAnnouncementsPreview(
@@ -326,4 +350,15 @@ private fun fakeGradesState(
         analysis = analysis,
         expandedSubjectKeys = expandedSubjectKeys,
     )
+}
+
+@Preview(name = "Announcement loading clearance", widthDp = 390, heightDp = 844)
+@Composable
+private fun AnnouncementLoadingClearancePreview() {
+    ScoreTheme {
+        com.clhs.score.ui.announcements.SchoolAnnouncementDetailScreen(
+            uiState = SchoolAnnouncementDetailUiState(isLoading = true),
+            onBack = {}, onRetry = {}, onOpenUrl = {}, officialUrl = "https://example.invalid/",
+        )
+    }
 }

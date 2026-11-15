@@ -87,7 +87,19 @@ fun SubjectTrendScreen(
 ) {
     val state by viewModel.subjectTrendState.collectAsStateWithLifecycle()
     val gradesState by viewModel.gradesState.collectAsStateWithLifecycle()
-    val structure = gradesState.structure
+    SubjectTrendContent(state, gradesState.structure, onBack,
+        viewModel::toggleSubjectTrendSubject, viewModel::setSubjectTrendYears)
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
+@Composable
+private fun SubjectTrendContent(
+    state: com.clhs.score.viewmodel.SubjectTrendUiState,
+    structure: List<YearTermOption>,
+    onBack: () -> Unit,
+    onToggleSubject: (String) -> Unit,
+    onSetYears: (Set<String>) -> Unit,
+) {
     var showSubjectBottomSheet by remember { mutableStateOf(false) }
     var showYearTermBottomSheet by remember { mutableStateOf(false) }
     var selectedBaseName by remember { mutableStateOf<String?>(null) }
@@ -325,29 +337,10 @@ fun SubjectTrendScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("成績折線圖") },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onBack,
-                        shapes = IconButtonDefaults.shapes(),
-                    ) {
-                        OutlinedRoundedSymbol(icon = "arrow_back", contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) { padding ->
+    FloatingSubpageLayout(onBack = onBack, contentMaxWidth = 1200.dp) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 if (subjectTrendUsesSplitLayout(maxWidth)) {
@@ -358,11 +351,11 @@ fun SubjectTrendScreen(
                             .align(Alignment.TopCenter)
                             .widthIn(max = 1200.dp)
                             .fillMaxSize()
-                            .padding(16.dp),
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         LazyColumn(
-                            contentPadding = navigationContentPadding(PaddingValues(0.dp)),
+                            contentPadding = navigationContentPadding(padding),
                             modifier = Modifier
                                 .weight(mainPaneWeight)
                                 .fillMaxHeight(),
@@ -378,7 +371,7 @@ fun SubjectTrendScreen(
                             item { Spacer(modifier = Modifier.height(8.dp)) }
                         }
                         LazyColumn(
-                            contentPadding = navigationContentPadding(PaddingValues(0.dp)),
+                            contentPadding = navigationContentPadding(padding),
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
@@ -402,7 +395,7 @@ fun SubjectTrendScreen(
                     }
                 } else {
                     LazyColumn(
-                        contentPadding = navigationContentPadding(PaddingValues(0.dp)),
+                        contentPadding = navigationContentPadding(PaddingValues(top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding())),
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp),
@@ -427,7 +420,7 @@ fun SubjectTrendScreen(
         SubjectSelectionSheet(
             subjects = availableSubjects,
             selectedSubjectKeys = state.selectedSubjectKeys,
-            onToggleSubject = viewModel::toggleSubjectTrendSubject,
+            onToggleSubject = onToggleSubject,
             onDismiss = { showSubjectBottomSheet = false },
         )
     }
@@ -436,7 +429,7 @@ fun SubjectTrendScreen(
         YearTermSelectionSheet(
             yearTerms = structure,
             selectedYearValues = state.selectedYearValues,
-            onApply = viewModel::setSubjectTrendYears,
+            onApply = onSetYears,
             onDismiss = { showYearTermBottomSheet = false },
         )
     }
@@ -640,5 +633,22 @@ private fun SubjectSelectionRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(text = subjectKey)
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Subject trend phone", widthDp = 390, heightDp = 844)
+@androidx.compose.ui.tooling.preview.Preview(name = "Subject trend split", widthDp = 1100, heightDp = 900)
+@Composable
+private fun SubjectTrendContentPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        val report = com.clhs.score.data.FakeData.latestReport()
+        SubjectTrendContent(
+            com.clhs.score.viewmodel.SubjectTrendUiState(
+                selectedYearValues = setOf("114_2"),
+                selectedSubjectKeys = report.subjects.take(2).map { it.subjectName }.toSet(),
+                reports = listOf(com.clhs.score.data.FakeData.previousReport(), report),
+            ),
+            emptyList(), {}, {}, {},
+        )
     }
 }

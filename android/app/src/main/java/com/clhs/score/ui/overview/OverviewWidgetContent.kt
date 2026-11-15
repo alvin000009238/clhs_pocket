@@ -1,5 +1,7 @@
 package com.clhs.score.ui.overview
 
+import com.clhs.score.ui.theme.pocketMeshBackground
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,6 +61,41 @@ import java.time.Duration
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+@androidx.compose.ui.tooling.preview.Preview(name = "課表尚未公布", widthDp = 360, heightDp = 240, showBackground = true)
+@androidx.compose.ui.tooling.preview.Preview(name = "課表尚未公布大字體", widthDp = 320, heightDp = 300, fontScale = 1.5f, showBackground = true)
+@Composable
+private fun ScheduleUnpublishedPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        Surface {
+            OverviewWidgetContent(
+                widget = com.clhs.score.domain.overview.defaultOverviewWidgets().first { it.type == "schedule" },
+                state = OverviewState(isInitialLoading = false, scheduleUnpublished = true),
+                isLoggedIn = true, editing = false, onLogin = {}, onOpenDestination = {},
+                onWeatherSettings = {}, onRetry = {}, modifier = Modifier.padding(16.dp),
+            )
+        }
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "學期備援摘要", widthDp = 360, heightDp = 380, showBackground = true)
+@Composable
+private fun ScheduleSemesterFallbackPreview() {
+    val now = java.time.LocalDateTime.of(2026, 11, 12, 9, 30)
+    val report = com.clhs.score.data.FakeScheduleData.report("115_1", "230")
+    com.clhs.score.ui.theme.ScoreTheme {
+        Surface {
+            OverviewWidgetContent(
+                widget = com.clhs.score.domain.overview.defaultOverviewWidgets().first { it.type == "schedule" },
+                state = OverviewState(now = now, isInitialLoading = false, hasSchedule = true,
+                    scheduleScope = com.clhs.score.data.ScheduleScope.SEMESTER, scheduleUnpublished = true,
+                    hero = com.clhs.score.domain.overview.scheduleOverviewHero(report, now)),
+                isLoggedIn = true, editing = false, onLogin = {}, onOpenDestination = {},
+                onWeatherSettings = {}, onRetry = {}, modifier = Modifier.padding(16.dp),
+            )
+        }
+    }
+}
+
 /** Instances reuse the original Overview components; only repeatable types resize. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -108,6 +145,8 @@ internal fun OverviewWidgetContent(
                         LoadingIndicator(Modifier.size(24.dp))
                         Text("課表更新中…", style = MaterialTheme.typography.bodySmall)
                     }
+                    else if (state.scheduleUnpublished) Text(if (state.hasSchedule) "學校尚未提供目標週課表，保留目前資料" else "學校尚未提供目標週課表",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     else if (state.scheduleFailed) Row(verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(if (state.hasSchedule) "更新失敗，顯示上次課表" else "課表載入失敗",
@@ -121,6 +160,8 @@ internal fun OverviewWidgetContent(
                             FilledRoundedSymbol("refresh", size = 28.dp, contentDescription = "課表更新失敗，點擊重試")
                         }
                     }
+                    if (state.scheduleScope == com.clhs.score.data.ScheduleScope.SEMESTER) Text("依學期固定安排，實際課程以週課表為準",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     HeroCard(state.hero, state.now, state.hasSchedule,
                         needsSetup = visibleItems.any { it.kind == OverviewItemKind.ScheduleSetup },
                         nextClass = visibleItems.firstOrNull {
@@ -141,7 +182,7 @@ internal fun OverviewWidgetContent(
             }
             Surface(onClick = hapticClick(onClick), enabled = !editing, modifier = modifier.fillMaxSize(), shape = PocketVisual.metricShape,
                 color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Box(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().pocketMeshBackground()) {
                     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = if (widget.size.rows == 1) 10.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (weatherConfig.location.countryCode != "TW") {
                             Text("請重新選擇台灣地點", style = MaterialTheme.typography.bodyMedium)

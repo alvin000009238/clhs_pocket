@@ -31,6 +31,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
+import com.clhs.score.ui.navigation.OnboardingSceneStrategy
+import com.clhs.score.ui.navigation.OnboardingStepKey
 import com.clhs.score.BuildConfig
 import com.clhs.score.analytics.AnalyticsEvents
 import com.clhs.score.analytics.AnalyticsLogger
@@ -51,7 +53,6 @@ import com.clhs.score.data.ThemeMode
 import com.clhs.score.data.safeAnnouncementWebUrl
 import com.clhs.score.data.schoolAnnouncementOfficialUrl
 import com.clhs.score.domain.overview.OverviewDestination
-import com.clhs.score.ui.calendar.toCalendarInsertIntent
 import com.clhs.score.ui.navigation.AppNavigator
 import com.clhs.score.ui.navigation.AppLaunchTarget
 import com.clhs.score.ui.navigation.AppRoute
@@ -69,6 +70,9 @@ import com.clhs.score.ui.navigation.GradesRoute
 import com.clhs.score.ui.navigation.OpenSourceLicensesRoute
 import com.clhs.score.ui.navigation.OverviewRoute
 import com.clhs.score.ui.navigation.PersonalRoute
+import com.clhs.score.ui.navigation.GeneralSettingsRoute
+import com.clhs.score.ui.navigation.AttendanceRoute
+import com.clhs.score.ui.navigation.MeritRoute
 import com.clhs.score.ui.navigation.ScheduleRoute
 import com.clhs.score.ui.navigation.SettingsTransferRoute
 import com.clhs.score.ui.navigation.ScheduleCustomizationsRoute
@@ -247,7 +251,9 @@ fun AppShell(
     ReportDrawnWhen { !overviewState.isInitialLoading }
 
     LaunchedEffect(navigationState.currentRoute, gradesState.studentNo, gradesState.selectedYearValue, gradesState.selectedExamValue, gradesState.report) {
-        if (navigationState.currentRoute != GradesRoute) scoreViewModel.simulatorCreditOwner.discardDraft(leavingRoute = true)
+        if (navigationState.currentRoute != GradesRoute && navigationState.currentRoute != ScoreSimulatorRoute) {
+            scoreViewModel.simulatorCreditOwner.discardDraft(leavingRoute = true)
+        }
         if (gradesState.report == null || gradesState.selectedYearValue == null || gradesState.selectedExamValue == null) {
             scoreViewModel.simulatorCreditOwner.reset()
         } else if (navigationState.currentRoute == GradesRoute || navigationState.currentRoute == ScoreSimulatorRoute) {
@@ -352,14 +358,14 @@ fun AppShell(
         if (isOnboardingLogin) onboardingLoginPending = true
     }
 
-    val rootAuthFallback: @Composable () -> Unit = {
+    val rootAuthFallback: @Composable (String, String, String) -> Unit = { feature, description, icon ->
         RootFloatingScaffold(dynamicColor = settings.dynamicColor,
             actions = { AccountIconButton(onClick = { navigator.navigate(PersonalRoute) },
                 showUpdateBadge = showUpdateBadge, animateShape = false) }) { padding, header ->
             androidx.compose.foundation.layout.Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
                 header()
                 AuthGate(authState, com.clhs.score.ui.navigation.AuthRequirement.Session,
-                    ::requestLogin) {}
+                    ::requestLogin, feature = feature, description = description, icon = icon) {}
             }
         }
     }
@@ -369,36 +375,41 @@ fun AppShell(
         navigator = navigator,
         unreadAnnouncementCount = announcementReminderUiState.unreadIds.size,
     ) {
+        val onboardingContent = androidx.compose.runtime.rememberUpdatedState<@Composable (Int) -> Unit>({ step ->
+            OnboardingScreen(
+                step = step, settings = settings,
+                onSetThemeMode = onSetThemeMode,
+                onSetDynamicColor = onSetDynamicColor,
+                onSetAmoledBlack = onSetAmoledBlack,
+                onSetNotificationsEnabled = onSetNotificationsEnabled,
+                onBack = { navigator.goBack() },
+                onContinue = {
+                    navigator.navigate(when (step) {
+                        0 -> AppearanceRoute
+                        1 -> PermissionsRoute
+                        else -> AccountRoute
+                    })
+                },
+                onLogin = ::requestLogin, onSkip = ::finishOnboarding,
+            )
+        })
+        val sceneStrategies = remember {
+            listOf(OnboardingSceneStrategy { step -> onboardingContent.value(step) },
+                com.clhs.score.ui.navigation.RootSceneStrategy())
+        }
         val topLevelTransitions = topLevelNavigationMetadata()
         val appEntryProvider = entryProvider<NavKey> {
-                entry<WelcomeRoute> {
-                    OnboardingWelcomeScreen(
-                        onContinue = { navigator.navigate(AppearanceRoute) },
-                    )
+                entry<WelcomeRoute>(metadata = mapOf(OnboardingStepKey to 0)) {
+                    onboardingContent.value(0)
                 }
-                entry<AppearanceRoute> {
-                    OnboardingAppearanceScreen(
-                        settings = settings,
-                        onSetThemeMode = onSetThemeMode,
-                        onSetDynamicColor = onSetDynamicColor,
-                        onSetAmoledBlack = onSetAmoledBlack,
-                        onBack = { navigator.goBack() },
-                        onContinue = { navigator.navigate(PermissionsRoute) },
-                    )
+                entry<AppearanceRoute>(metadata = mapOf(OnboardingStepKey to 1)) {
+                    onboardingContent.value(1)
                 }
-                entry<PermissionsRoute> {
-                    OnboardingPermissionsScreen(
-                        onBack = { navigator.goBack() },
-                        onContinue = { navigator.navigate(AccountRoute) },
-                        onSetNotificationsEnabled = onSetNotificationsEnabled,
-                    )
+                entry<PermissionsRoute>(metadata = mapOf(OnboardingStepKey to 2)) {
+                    onboardingContent.value(2)
                 }
-                entry<AccountRoute> {
-                    OnboardingAccountScreen(
-                        onBack = { navigator.goBack() },
-                        onLogin = ::requestLogin,
-                        onSkip = ::finishOnboarding,
-                    )
+                entry<AccountRoute>(metadata = mapOf(OnboardingStepKey to 3)) {
+                    onboardingContent.value(3)
                 }
                 entry<OverviewRoute>(metadata = topLevelTransitions) {
                     val context = LocalContext.current
@@ -476,8 +487,8 @@ fun AppShell(
                         authState = authState,
                         requirement = ScheduleRoute.authRequirement(),
                         onRequestLogin = ::requestLogin,
-                        fallback = rootAuthFallback,
-                        restoring = rootAuthFallback,
+                        fallback = { rootAuthFallback("\u8ab2\u8868", "\u67e5\u770b\u500b\u4eba\u8ab2\u8868\u3001\u4e0a\u8ab2\u6642\u9593\u8207\u6559\u5ba4\u3002", "calendar_view_week") },
+                        restoring = { rootAuthFallback("\u8ab2\u8868", "\u67e5\u770b\u500b\u4eba\u8ab2\u8868\u3001\u4e0a\u8ab2\u6642\u9593\u8207\u6559\u5ba4\u3002", "calendar_view_week") },
                     ) {
                         val context = LocalContext.current
                         val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<ScheduleViewModel>(
@@ -507,6 +518,14 @@ fun AppShell(
                             onYearSelected = viewModel::selectYear,
                             onClassSelected = viewModel::selectClass,
                             onScopeSelected = viewModel::selectScope,
+                            onDisplayModeSelected = viewModel::setDisplayMode,
+                            onPreviousWeek = viewModel::previousWeek,
+                            onNextWeek = viewModel::nextWeek,
+                            onCurrentWeek = viewModel::currentWeek,
+                            onChooseWeek = viewModel::openWeekPicker,
+                            onDismissWeekPicker = viewModel::dismissWeekPicker,
+                            onWeekSelected = viewModel::selectWeek,
+                            onEnsureCurrentWeek = viewModel::ensureCurrentWeek,
                             onConfirmSelection = viewModel::confirmSelection,
                             onClearSelection = viewModel::clearSelection,
                             onNoticeShown = viewModel::consumeNotice,
@@ -519,6 +538,8 @@ fun AppShell(
                         authState = authState,
                         requirement = CourseNotificationSettingsRoute.authRequirement(),
                         onRequestLogin = ::requestLogin,
+                        feature = "\u7576\u524d\u8ab2\u7a0b\u901a\u77e5", description = "\u4f9d\u500b\u4eba\u8ab2\u8868\u986f\u793a\u8ab2\u7a0b\u8207\u8ab2\u524d\u63d0\u9192\u3002", icon = "notifications",
+                        onBack = { navigator.goBack() },
                     ) {
                         com.clhs.score.ui.schedule.CourseNotificationSettingsScreen(
                             allowed = authState is AuthState.Authenticated,
@@ -534,6 +555,8 @@ fun AppShell(
                         authState = authState,
                         requirement = ScheduleCustomizationsRoute.authRequirement(),
                         onRequestLogin = ::requestLogin,
+                        feature = "\u8ab2\u8868\u81ea\u8a02", description = "\u8abf\u6574\u8ab2\u8868\u79d1\u76ee\u7684\u540d\u7a31\u8207\u986f\u793a\u3002", icon = "calendar_view_week",
+                        onBack = { navigator.goBack() },
                     ) {
                         val context = LocalContext.current
                         val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<ScheduleCustomizationsViewModel>(
@@ -565,8 +588,8 @@ fun AppShell(
                         authState = authState,
                         requirement = GradesRoute.authRequirement(),
                         onRequestLogin = ::requestLogin,
-                        fallback = rootAuthFallback,
-                        restoring = rootAuthFallback,
+                        fallback = { rootAuthFallback("\u6210\u7e3e", "\u67e5\u770b\u5404\u79d1\u6210\u7e3e\u3001\u6392\u540d\u8207\u6b77\u6b21\u8d70\u52e2\u3002", "bar_chart") },
+                        restoring = { rootAuthFallback("\u6210\u7e3e", "\u67e5\u770b\u5404\u79d1\u6210\u7e3e\u3001\u6392\u540d\u8207\u6b77\u6b21\u8d70\u52e2\u3002", "bar_chart") },
                     ) {
                         val creditState by scoreViewModel.simulatorCreditState.collectAsStateWithLifecycle()
                         GradesScreen(
@@ -606,7 +629,7 @@ fun AppShell(
                             onExportGrades = onExportGrades,
                         )
                         val report = gradesState.report
-                        if (creditState.isEditing && report != null && creditState.identity == com.clhs.score.viewmodel.simulatorCreditIdentity(
+                        if (navigationState.currentRoute == GradesRoute && creditState.isEditing && report != null && creditState.identity == com.clhs.score.viewmodel.simulatorCreditIdentity(
                                 gradesState.studentNo, gradesState.selectedYearValue, gradesState.selectedExamValue, report,
                             )
                         ) {
@@ -630,6 +653,8 @@ fun AppShell(
                         authState = authState,
                         requirement = ScoreSimulatorRoute.authRequirement(),
                         onRequestLogin = ::requestLogin,
+                        feature = "\u6210\u7e3e\u6a21\u64ec\u5668", description = "\u8abf\u6574\u5404\u79d1\u5206\u6578\u4e26\u8a66\u7b97\u5e73\u5747\u6210\u7e3e\u3002", icon = "bar_chart",
+                        onBack = { navigator.goBack() },
                     ) {
                         val creditState by scoreViewModel.simulatorCreditState.collectAsStateWithLifecycle()
                         ScoreSimulatorScreen(
@@ -637,7 +662,29 @@ fun AppShell(
                             snackbarHostState = snackbarHostState,
                             onBack = { navigator.goBack() },
                             creditState = creditState,
+                            onEditCredits = {
+                                scoreViewModel.prepareSimulatorCredits()
+                                scoreViewModel.simulatorCreditOwner.beginEditing()
+                            },
                         )
+                        val report = gradesState.report
+                        if (navigationState.currentRoute == ScoreSimulatorRoute && creditState.isEditing && report != null && creditState.identity == com.clhs.score.viewmodel.simulatorCreditIdentity(
+                                gradesState.studentNo, gradesState.selectedYearValue, gradesState.selectedExamValue, report,
+                            )
+                        ) {
+                            SimulatorCreditSheet(
+                                report = report,
+                                state = creditState,
+                                onEdit = scoreViewModel.simulatorCreditOwner::edit,
+                                onToggleFixed = scoreViewModel.simulatorCreditOwner::toggleFixed,
+                                onInfer = scoreViewModel.simulatorCreditOwner::infer,
+                                onCandidate = scoreViewModel.simulatorCreditOwner::applyCandidate,
+                                onSave = scoreViewModel.simulatorCreditOwner::save,
+                                onReset = scoreViewModel.simulatorCreditOwner::restoreDefaults,
+                                onRetry = scoreViewModel.simulatorCreditOwner::retryLoad,
+                                onDismiss = { scoreViewModel.simulatorCreditOwner.discardDraft() },
+                            )
+                        }
                     }
                 }
                 entry<SubjectTrendRoute> {
@@ -645,6 +692,8 @@ fun AppShell(
                         authState = authState,
                         requirement = SubjectTrendRoute.authRequirement(),
                         onRequestLogin = ::requestLogin,
+                        feature = "\u6210\u7e3e\u6298\u7dda\u5716", description = "\u6bd4\u8f03\u5404\u79d1\u6b77\u6b21\u6210\u7e3e\u8d70\u52e2\u3002", icon = "bar_chart",
+                        onBack = { navigator.goBack() },
                     ) {
                         LaunchedEffect(gradesState.structure) {
                             scoreViewModel.initSubjectTrend()
@@ -708,17 +757,15 @@ fun AppShell(
                         onRefresh = viewModel::refresh,
                         onSearch = viewModel::search,
                         onClearSearch = viewModel::clearSearch,
-                        onAddToSystemCalendar = { event ->
-                            event.toCalendarInsertIntent()?.let { intent ->
-                                try {
-                                    context.startActivity(intent)
-                                } catch (_: android.content.ActivityNotFoundException) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "找不到可新增活動的行事曆 App",
-                                        android.widget.Toast.LENGTH_SHORT,
-                                    ).show()
-                                }
+                        onAddToHome = { event ->
+                            if (overviewViewModel.addCalendarCountdown(event.id, event.title)) {
+                                navigator.navigate(OverviewRoute)
+                            } else {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "首頁暫時無法編輯，請稍後重試",
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
                             }
                         },
                         onOpenGoogleCalendar = {
@@ -787,12 +834,26 @@ fun AppShell(
                     LaunchedEffect(uiState.detail?.id) {
                         uiState.detail?.id?.let(announcementReminderViewModel::markRead)
                     }
+                    val bookmarksViewModel = androidx.lifecycle.viewmodel.compose.viewModel<AnnouncementBookmarksViewModel>(
+                        factory = AnnouncementBookmarksViewModel.factory(context),
+                    )
+                    val bookmarksState by bookmarksViewModel.uiState.collectAsStateWithLifecycle()
                     com.clhs.score.ui.announcements.SchoolAnnouncementDetailScreen(
                         uiState = uiState,
                         onBack = { navigator.goBack() },
                         onRetry = viewModel::retry,
                         onOpenUrl = { context.openAnnouncementUrl(it) },
                         officialUrl = schoolAnnouncementOfficialUrl(route.id),
+                        isBookmarked = bookmarksState.bookmarks.any { it.id == route.id },
+                        onToggleBookmark = {
+                            uiState.detail?.let { detail ->
+                                bookmarksViewModel.toggle(com.clhs.score.data.SchoolAnnouncement(
+                                    id = detail.id, title = detail.title, date = detail.date,
+                                    category = detail.category, unit = detail.unit, issuer = detail.issuer,
+                                    isPinned = false, contentType = "html",
+                                ))
+                            }
+                        },
                     )
                 }
                 entry<SchoolWebsiteRoute> {
@@ -800,6 +861,8 @@ fun AppShell(
                         authState = authState,
                         requirement = SchoolWebsiteRoute.authRequirement(),
                         onRequestLogin = ::requestLogin,
+                        feature = "\u6821\u52d9\u7cfb\u7d71", description = "\u958b\u555f\u5b78\u6821\u7684\u500b\u4eba\u6821\u52d9\u7cfb\u7d71\u3002", icon = "school",
+                        onBack = { navigator.goBack() },
                     ) {
                         Box(modifier = Modifier.fillMaxSize())
                     }
@@ -810,19 +873,31 @@ fun AppShell(
                         scoreViewModel.refreshStudentInfo()
                     }
                     PersonalScreen(
+                        showUpdateAvailable = showUpdateBadge,
+                        onCheckUpdate = onCheckUpdate,
                         state = gradesState,
                         authState = authState,
                         onRequestLogin = ::requestLogin,
+                        settings = settings,
+                        onBack = { navigator.goBack() },
+                        onCycleProfileAvatarShape = onCycleProfileAvatarShape,
+                        onSetBiometricEnabled = onSetBiometricEnabled,
+                        onOpenSettings = { navigator.navigate(GeneralSettingsRoute) },
+                        onOpenAttendance = { navigator.navigate(AttendanceRoute) },
+                        onOpenMerits = { navigator.navigate(MeritRoute) },
+                        onLogout = onLogout,
+                    )
+                }
+                entry<GeneralSettingsRoute> {
+                    GeneralSettingsScreen(
                         settings = settings,
                         uiState = settingsUiState,
                         onBack = { navigator.goBack() },
                         onSetThemeMode = onSetThemeMode,
                         onSetStartOnSchedule = onSetStartOnSchedule,
-                        onCycleProfileAvatarShape = onCycleProfileAvatarShape,
                         onSetDynamicColor = onSetDynamicColor,
                         onSetAmoledBlack = onSetAmoledBlack,
                         onSetNotificationsEnabled = onSetNotificationsEnabled,
-                        onSetBiometricEnabled = onSetBiometricEnabled,
                         onCheckUpdate = onCheckUpdate,
                         onVersionTap = onVersionTap,
                         onDismissDeveloperToast = onDismissDeveloperToast,
@@ -832,8 +907,47 @@ fun AppShell(
                         onOpenWorkManagerInfo = { navigator.navigate(WorkManagerInfoRoute) },
                         onOpenBackgroundPauseSettings = { navigator.navigate(BackgroundPauseSettingsRoute) },
                         onOpenScheduleReliabilitySettings = { navigator.navigate(ScheduleReliabilitySettingsRoute) },
-                        onLogout = onLogout,
                     )
+                }
+                entry<AttendanceRoute> {
+                    AuthGate(
+                        authState = authState,
+                        requirement = AttendanceRoute.authRequirement(),
+                        onRequestLogin = ::requestLogin,
+                        feature = "\u7f3a\u66e0\u7d71\u8a08", description = "\u67e5\u770b\u5b78\u671f\u7f3a\u66e0\u7d71\u8a08\u3001\u8acb\u5047\u8207\u7f3a\u5e2d\u660e\u7d30\u3002", icon = "calendar_today",
+                        onBack = { navigator.goBack() },
+                    ) {
+                        val records by scoreViewModel.studentRecords.collectAsStateWithLifecycle()
+                        LaunchedEffect(authState, gradesState.studentNo) {
+                            scoreViewModel.loadAttendanceRecords()
+                        }
+                        AttendanceRecordsScreen(
+                            state = records,
+                            onSelectSemester = scoreViewModel::selectRecordSemester,
+                            onRefresh = { scoreViewModel.loadAttendanceRecords(force = true) },
+                            onBack = { navigator.goBack() },
+                        )
+                    }
+                }
+                entry<MeritRoute> {
+                    AuthGate(
+                        authState = authState,
+                        requirement = MeritRoute.authRequirement(),
+                        onRequestLogin = ::requestLogin,
+                        feature = "\u734e\u61f2\u7d00\u9304", description = "\u67e5\u770b\u734e\u52f5\u3001\u61f2\u8655\u660e\u7d30\u8207\u6b77\u5e74\u7d71\u8a08\u3002", icon = "school",
+                        onBack = { navigator.goBack() },
+                    ) {
+                        val records by scoreViewModel.studentRecords.collectAsStateWithLifecycle()
+                        LaunchedEffect(authState, gradesState.studentNo) {
+                            scoreViewModel.loadMeritRecords()
+                        }
+                        MeritRecordsScreen(
+                            state = records,
+                            onSelectSemester = scoreViewModel::selectRecordSemester,
+                            onRefresh = { scoreViewModel.loadMeritRecords(force = true) },
+                            onBack = { navigator.goBack() },
+                        )
+                    }
                 }
                 entry<AnnouncementReminderSettingsRoute> {
                     LaunchedEffect(Unit) {
@@ -939,7 +1053,7 @@ fun AppShell(
             androidx.compose.runtime.CompositionLocalProvider(LocalRootBodyMotionEnabled provides true) {
                 NavDisplay(
                     entries = navigationState.toEntries(appEntryProvider),
-                    sceneStrategies = remember { listOf(com.clhs.score.ui.navigation.RootSceneStrategy()) },
+                    sceneStrategies = sceneStrategies,
                     onBack = { navigator.goBack() },
                     transitionSpec = { navigationMotion.drillDownNavigationTransition() },
                     popTransitionSpec = { navigationMotion.drillUpNavigationTransition() },

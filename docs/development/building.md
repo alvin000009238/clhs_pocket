@@ -2,6 +2,8 @@
 
 所有 Gradle 指令都在 `android/` 執行。
 
+日常 APK 建置優先使用 `android build ':app@demoDebug'`。UI 修改後另須執行 `android preview render` 並檢視產出的圖片；完整命令、variant／FQN 格式與 CLI 能力邊界見 [Android CLI 工作流](android-cli.md)。下列 Gradle 命令保留為既有測試、Lint、交付 gate 與發行流程的明確入口。
+
 | 目的 | 指令 |
 | --- | --- |
 | 日常假資料 Debug APK | `.\gradlew.bat :app:assembleDemoDebug` |

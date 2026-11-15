@@ -13,13 +13,15 @@ flowchart TD
 
 ## Route 與登入狀態
 
-- `AppRoute.authRequirement()` 將 route 分為公開與需要校務 Session 兩類。首頁、校園、公告、行事曆、個人與設定相關頁面維持 Guest 可用；課表、當前課程通知設定、成績、成績模擬器、科目趨勢與校務系統入口需要登入。
-- 受保護 route 由 `AuthGate` 顯示行內登入入口；登入完成後只移除登入 route，保留使用者原本想開啟的目的地。課表與成績的未登入畫面共用預設登入提示，不顯示功能頁的上方標題或選項列。
+- `AppRoute.authRequirement()` 將 route 分為公開與需要校務 Session 兩類。首頁、校園、公告、行事曆、個人與設定相關頁面維持 Guest 可用；課表、當前課程通知設定、成績、成績模擬器、科目趨勢、缺曠統計、獎懲紀錄與校務系統入口需要登入。
+- 受保護 route 由 `AuthGate` 顯示對應功能名稱、說明與圖示的登入入口；登入完成後只移除登入 route，保留使用者原本想開啟的目的地。課表與成績保留品牌與個人入口；缺曠、獎懲等子頁的登入提示使用相同浮動返回鍵。首頁與個人頁共用 `GuestLoginContent` 的緊湊登入卡片。
 - App 圖示長按的「課表」捷徑使用 `scoreapp://schedule?entry=launcher_shortcut`，建置時依 variant applicationId 產生明確的自身套件與 `MainActivity` 目標，避免 Demo／Debug 入口交給其他安裝版本；沿用 `AppLaunchTarget.Schedule`、首次設定與登入 gate。`entry` 只標記入口來源，不能放入學生資料；處理後清除 Intent data，且不把捷徑誤記為 Widget 開啟。
-- 個人頁的「啟動時開啟課表」偏好預設關閉並存在 `app_settings`。只有新建立的 Activity 收到一般桌面 `ACTION_MAIN`、沒有資料 URI 或明確 `AppLaunchTarget` 時，才把偏好轉為既有 `AppLaunchTarget.Schedule`；捷徑、通知及其他指定入口優先；設定載入期間收到的新指定入口同樣優先，套用啟動偏好前須再次確認沒有待處理目標。Android 還原的 Activity back stack 保留原目的地。切換偏好不會改變目前頁面。
-- Welcome、外觀、權限、帳號是同一個 `NavDisplay` 的首次設定 route；首次設定期間不顯示 App-level Navigation Bar／Rail。
+- 設定頁的「啟動時開啟課表」偏好預設關閉並存在 `app_settings`。只有新建立的 Activity 收到一般桌面 `ACTION_MAIN`、沒有資料 URI 或明確 `AppLaunchTarget` 時，才把偏好轉為既有 `AppLaunchTarget.Schedule`；捷徑、通知及其他指定入口優先；設定載入期間收到的新指定入口同樣優先，套用啟動偏好前須再次確認沒有待處理目標。Android 還原的 Activity back stack 保留原目的地。切換偏好不會改變目前頁面。
+- Welcome、外觀、權限、帳號保留同一個 `NavDisplay` 的四個首次設定 route，由 `OnboardingSceneStrategy` 共用固定頁框。只有內容以短距離水平位移與淡入淡出切換，返回鍵、進度列與底部操作位置固定；各步驟保留捲動位置。首次設定期間不顯示 App-level Navigation Bar／Rail。
 - 首次設定以 `app_settings` 的 `has_completed_onboarding_v2` 判定。缺少旗標時原子清空 App 設定並寫入 `false`，所以舊版升級會重跑 Welcome；完成或選「稍後登入」後寫入 `true`，後續啟動不再重設。這與 session authority 分開：舊 session 不遷移，私人功能需要重新登入，新格式 VALID session 則保留正常 restore。
-- 「個人」同時是 Profile 與設定 Hub，不再建立獨立的 Settings／About route；使用統計、開源授權、開發者選項與背景工作狀態仍是 secondary route。
+- `PersonalRoute` 保留學生資料、缺曠統計、獎懲紀錄、帳號安全與確認登出。右上角齒輪開啟公開的 `GeneralSettingsRoute`，集中外觀、啟動、通知、背景工作、使用統計與關於；Guest 可直接操作。使用統計、開源授權、開發者選項與背景工作狀態保留各自 secondary route。
+- `AttendanceRoute` 與 `MeritRoute` 由 `AuthGate` 保護，登入後沿用原目的地載入紀錄。兩頁消費 `ScoreViewModel.studentRecords`，只在進入時按需載入；學期選擇、更新與重試交回同一個 state owner。缺曠的學期摘要／明細與歷年統計、獎懲的明細與歷年統計保留各自載入和錯誤狀態。歷年表格預設收合，沿用校方頁面的年級相對欄名「一上」至「三下」，未提供的值顯示「—」，不推算功過。缺曠摘要預設只顯示非零類別，可展開全部；各類皆為 0 時明確顯示零值狀態。獎懲以校方分類提供篩選，不依文字推算獎或懲。
+- 個人、設定與在校紀錄都是目前頂層 stack 的共用子頁，不另外切換頂層目的地；返回鍵逐層回到原入口。紀錄只保存在記憶體，身分變更時同步清除。
 
 - `SchoolCalendarRoute(eventId)` 可攜帶公開事件 ID；近期行程與倒數卡片使用此入口，定位並標示對應事件。清單載入後只自動定位一次，計入搜尋列、重複活動提示與日期標題，返回或重組不重設捲動。指定的已結束事件仍保留，來源缺少事件時提示使用者。
 - 校園右上角膠囊的搜尋入口開啟公開的 `CampusSearchRoute`，單一關鍵字同時搜尋學校公告與尚未結束的行事曆事件（標題／地點）。兩個既有 ViewModel 由搜尋 route 各自持有，不改原公告頁篩選或行事曆搜尋；公告沿用伺服器搜尋、自動分頁與成功開啟後的已讀處理，事件沿用 `SchoolCalendarRoute(eventId)` 定位。輸入停頓 250ms 後送出，不記錄關鍵字到 Analytics。分類 Chips 只改顯示，不重新查詢；只看行事曆時不預取公告。關鍵字、分類與捲動位置在返回時還原，公告維持既有未讀／置頂優先，不宣稱全庫相關性排序。
@@ -29,7 +31,8 @@ flowchart TD
 ## 維護規則
 
 - 手機直向使用 `PocketFloatingNavigation`，外層為官方 `HorizontalFloatingToolbar`；四個入口永遠 icon-only，未讀只顯示 dot。寬度達 600dp，或可用高度不足 480dp 時使用 Navigation Rail；兩種版面共用同一選取狀態與四組 stack。
-- 頂層導航只在首頁、課表、成績、校園 root 顯示；公告詳情、成績詳情、設定、登入與其他子頁均隱藏，overlay clearance 同步歸零。IME 顯示時 floating toolbar 淡出，不移到鍵盤上方。Toolbar 不接受 contextual action。
+- 頂層導航只在首頁、課表、成績、校園 root 顯示；公告詳情、成績詳情、設定、登入與其他子頁均隱藏，子頁 entry 的 overlay clearance 歸零。IME 顯示時 floating toolbar 淡出，不移到鍵盤上方。Toolbar 不接受 contextual action。
+- 導航可見性與 root 幾何空間分開：shell 以目前視窗的 Bar／Rail 版面提供 `LocalRootNavigationClearance`，`toEntries` 依 entry 自身 route 提供 `LocalNavigationClearance`。root 即使正在 push／pop 子頁或隱藏導航，仍使用當下 root clearance；子頁始終為零，不能隨全域 currentRoute 改變背景 root 的高度。旋轉、resize 及共享導航尺寸變更仍即時重算，不快取首次量測值。Compact 沿用共享 clearance，不因 toolbar 動畫改變捲動範圍；RootScroll 註冊仍由原本的 active stack／scene 控制。
 - `NavEntry.contentKey` 包含所屬頂層目的地，避免不同 stack 中的「個人」等共用 route 共用 saveable state／ViewModel。切換不 pop；重選先 pop 到 root，在 root 則交給既有 scroll owner 回頂端。重選不重建 route、不觸發 reload 或 haptic。
 - Overlay 間距由 shell 的 `LocalNavigationClearance` 統一提供；頁面使用 `PocketScaffold` 安排 Snackbar／FAB，`navigationContentPadding` 加在 scroll content 內。`PocketScaffold` 扣除 overlay 間距時仍保留 `contentWindowInsets` 的系統底部安全間距，即使頁面沒有 bottomBar。自訂 viewport 必須把相同 clearance 加入捲動 extent；原生 WebView 保留安全 viewport。不要在各頁複製 toolbar 尺寸。
 - Compact 只觀察已消耗的垂直 user scroll，不消耗手勢或隱藏入口；滑動 indicator、shape morph、icon 與 IME 動效沿用 `PocketMotion`。Haptic 僅在切換不同頂層目的地時發出一次 `SegmentTick`。
@@ -46,4 +49,4 @@ flowchart TD
 
 - 頂層切換的 entry transition 為 None；內容透過 `rootBodyMotion()` 使用同一個 NavDisplay AnimatedContent scope，只做輕微位移，不做淡入／淡出，避免新頁背景先遮住舊內容後出現空白；品牌與操作膠囊不參與位移。課表直接在同一個 Compose composition 繪製，另存圖片使用 GraphicsLayer 擷取，不為匯出建立嵌入式 ComposeView，避免切換時等待 View 重新繪製。子頁轉場維持既有 slide／fade。
 
-- 頂層頁使用 `RootSceneStrategy` 保留首頁 composition，避免返回時重建並測量全部可見 widget。隱藏首頁維持 CREATED lifecycle、不放置或繪製內容、不提供 accessibility 子節點及 root reselect callback；其他目的地的返回紀錄不變。子頁與首次設定仍交由預設 SceneStrategy，沿用原轉場。
+- 頂層頁使用 `RootSceneStrategy` 保留首頁 composition，避免返回時重建並測量全部可見 widget。隱藏首頁維持 CREATED lifecycle、不放置或繪製內容、不提供 accessibility 子節點及 root reselect callback；其他目的地的返回紀錄不變。首次設定使用獨立的 `OnboardingSceneStrategy`；登入與其他子頁仍交由預設 SceneStrategy。

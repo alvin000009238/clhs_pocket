@@ -13,6 +13,17 @@ interface GradeRepository {
 
     suspend fun fetchStudentInfo(session: AuthenticatedSession): StudentInfo
 
+    suspend fun fetchRecordSemesters(session: AuthenticatedSession): List<RecordSemester> =
+        throw UnsupportedOperationException()
+    suspend fun fetchAttendanceHistory(session: AuthenticatedSession): List<RecordHistoryStatistic> =
+        throw UnsupportedOperationException()
+    suspend fun fetchMeritHistory(session: AuthenticatedSession): List<RecordHistoryStatistic> =
+        throw UnsupportedOperationException()
+    suspend fun fetchAttendance(session: AuthenticatedSession, semester: RecordSemester): AttendanceRecord =
+        throw UnsupportedOperationException()
+    suspend fun fetchMerits(session: AuthenticatedSession, semester: RecordSemester): List<MeritRecord> =
+        throw UnsupportedOperationException()
+
     suspend fun loadSimulatorCredits(
         session: AuthenticatedSession,
         yearValue: String,
@@ -58,6 +69,25 @@ class SchoolGradeRepository(
     private val sessionLock = Any()
     @Volatile
     private var activeSession: AuthenticatedSession? = null
+
+    override suspend fun fetchRecordSemesters(session: AuthenticatedSession): List<RecordSemester> =
+        recordsRequest(session) { client.fetchRecordSemesters(session) }
+    override suspend fun fetchAttendanceHistory(session: AuthenticatedSession): List<RecordHistoryStatistic> =
+        recordsRequest(session) { client.fetchAttendanceHistory(session) }
+    override suspend fun fetchMeritHistory(session: AuthenticatedSession): List<RecordHistoryStatistic> =
+        recordsRequest(session) { client.fetchMeritHistory(session) }
+    override suspend fun fetchAttendance(session: AuthenticatedSession, semester: RecordSemester): AttendanceRecord =
+        recordsRequest(session) { client.fetchAttendance(session, semester) }
+    override suspend fun fetchMerits(session: AuthenticatedSession, semester: RecordSemester): List<MeritRecord> =
+        recordsRequest(session) { client.fetchMerits(session, semester) }
+
+    private suspend fun <T> recordsRequest(session: AuthenticatedSession, request: suspend () -> T): T {
+        val generation = captureSessionGeneration(session)
+        return request().also {
+            sessionStore.validateSession(session)
+            if (!isCurrentSession(session, generation)) throw CancellationException("Session changed")
+        }
+    }
 
     override suspend fun restoreSession(): AuthenticatedSession? {
         val session = sessionStore.loadSession() ?: return null

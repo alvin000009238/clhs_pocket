@@ -1,6 +1,8 @@
 package com.clhs.score.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
@@ -11,9 +13,13 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
 import java.nio.file.Files
 import java.time.Instant
 import java.time.LocalDateTime
@@ -21,6 +27,9 @@ import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
 class SchoolCalendarTest {
+    @get:Rule
+    val temporaryFolder = TemporaryFolder()
+
     private lateinit var server: MockWebServer
 
     @Before
@@ -94,6 +103,91 @@ class SchoolCalendarTest {
         } finally {
             cacheDirectory.deleteRecursively()
         }
+    }
+
+    @Test
+    fun repeatedAndConcurrentCacheLoadsReuseDecodedFeed() = runTest {
+        val fetchedAt = Instant.parse("2026-08-09T00:00:00Z")
+        val cacheFile = File(temporaryFolder.root, "school-calendar.ics")
+        cacheFile.writeText(SAMPLE_ICS)
+        assertTrue(cacheFile.setLastModified(fetchedAt.toEpochMilli()))
+        val repository = NetworkSchoolCalendarRepository(
+            cacheDirectory = temporaryFolder.root,
+            feedUrl = server.url("/calendar.ics").toString(),
+            nowProvider = { fetchedAt },
+        )
+
+        val snapshots = List(8) {
+            async(Dispatchers.Default) { checkNotNull(repository.loadCached()) }
+        }.awaitAll()
+        val feed = snapshots.first().feed
+
+        snapshots.forEach { assertSame(feed, it.feed) }
+        assertSame(feed, repository.load(forceRefresh = false).feed)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun decodedCachePreservesFreshnessBoundaryAndForcedRefresh() = runTest {
+        val fetchedAt = Instant.parse("2026-08-09T00:00:00Z")
+        var now = fetchedAt
+        val repository = NetworkSchoolCalendarRepository(
+            cacheDirectory = temporaryFolder.root,
+            feedUrl = server.url("/calendar.ics").toString(),
+            nowProvider = { now },
+        )
+        server.enqueue(calendarResponse())
+        val original = repository.load(forceRefresh = false)
+
+        now = fetchedAt.plusSeconds(6 * 60 * 60)
+        assertEquals(original, repository.load(forceRefresh = false))
+        assertEquals(1, server.requestCount)
+
+        now = now.plusMillis(1)
+        server.enqueue(calendarResponse().setBody(SAMPLE_ICS.replace("UID:all-day", "UID:new-day")))
+        val refreshed = repository.load(forceRefresh = false)
+        assertEquals("new-day", refreshed.feed.events.first().id)
+        assertEquals(now, refreshed.fetchedAt)
+        assertEquals(2, server.requestCount)
+
+        now = now.plusSeconds(1)
+        server.enqueue(calendarResponse())
+        val forced = repository.load(forceRefresh = true)
+        assertEquals(original.feed, forced.feed)
+        assertEquals(now, forced.fetchedAt)
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun sameSizeAndTimestampReplacementAndDeletionInvalidateDecodedCache() = runTest {
+        val fetchedAt = Instant.parse("2026-08-09T00:00:00Z")
+        val cacheFile = File(temporaryFolder.root, "school-calendar.ics")
+        cacheFile.writeText(SAMPLE_ICS)
+        assertTrue(cacheFile.setLastModified(fetchedAt.toEpochMilli()))
+        val originalLength = cacheFile.length()
+        val repository = NetworkSchoolCalendarRepository(
+            cacheDirectory = temporaryFolder.root,
+            feedUrl = server.url("/calendar.ics").toString(),
+            nowProvider = { fetchedAt },
+        )
+        val original = checkNotNull(repository.loadCached())
+
+        server.enqueue(calendarResponse().setBody(SAMPLE_ICS.replace("UID:all-day", "UID:new-day")))
+        NetworkSchoolCalendarRepository(
+            cacheDirectory = temporaryFolder.root,
+            feedUrl = server.url("/calendar.ics").toString(),
+            nowProvider = { fetchedAt },
+        ).load(forceRefresh = true)
+
+        assertEquals(originalLength, cacheFile.length())
+        assertEquals(fetchedAt.toEpochMilli(), cacheFile.lastModified())
+        assertEquals("new-day", repository.load(forceRefresh = false).feed.events.first().id)
+        assertTrue(cacheFile.delete())
+        assertNull(repository.loadCached())
+
+        cacheFile.writeText(SAMPLE_ICS)
+        assertTrue(cacheFile.setLastModified(fetchedAt.toEpochMilli()))
+        assertEquals(original, repository.loadCached())
     }
 
     @Test

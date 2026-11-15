@@ -11,6 +11,11 @@ enum class WeatherSource {
     CWA,
 }
 
+enum class ScheduleDisplayMode {
+    DAY,
+    WEEK,
+}
+
 data class WeatherConfiguration(
     val source: WeatherSource,
     val credentialRevision: Long = 0L,
@@ -29,6 +34,7 @@ data class AppSettings(
     val weatherSource: WeatherSource = WeatherSource.OPEN_METEO,
     val weatherCredentialRevision: Long = 0L,
     val startOnSchedule: Boolean = false,
+    val scheduleDisplayMode: ScheduleDisplayMode = ScheduleDisplayMode.WEEK,
     val profileAvatarShapeIndex: Int = 0,
     val hasCompletedOnboarding: Boolean = false,
     val hasSeenYouBikeWidget: Boolean = false,

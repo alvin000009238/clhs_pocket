@@ -10,6 +10,8 @@
 - `SchoolCookieJar` 的讀、寫、取代與清除都必須同步，避免平行請求互相覆蓋。
 - Client 以完整 session 判斷授權更替，不只比較學號；每條請求鏈固定 generation。舊 token／回應不得提交，CookieJar 的 generation view 不允許舊請求寫入新 Cookie 或在 redirect 中借用新 Cookie。每個 generation 的衍生 client 共用原 dispatcher 與連線池，保留四個請求上限。
 - 登出、學生切換與提醒停止必須清除對應資料；清除失敗不能假裝成功。
+- 缺曠與獎懲沿用同一個 client、Session token 與 generation；每條多步查詢固定 generation。紀錄僅保存在 `StudentRecordsStateOwner` 記憶體，不寫 cache、SavedStateHandle 或 Analytics。開始登入、發布新 authority 及登出前同步清除，舊回應與舊登入錯誤不能影響新帳號。
+- 在校紀錄的 `Order` 是排序值，允許負整數；校方單學期缺曠摘要以 `Order = -1` 排列「全部」。排序值與缺曠／獎懲次數分開驗證，次數仍須為非負整數。
 
 ## WebView
 

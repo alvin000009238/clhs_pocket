@@ -11,6 +11,7 @@ import com.clhs.score.data.YouBikeStation
 import com.clhs.score.domain.overview.OverviewLayoutEngine
 import com.clhs.score.domain.overview.OverviewLayoutJson
 import com.clhs.score.domain.overview.OverviewWidgetInstance
+import com.clhs.score.domain.overview.OverviewWidgetConfig
 import com.clhs.score.domain.overview.OverviewWidgetDefinitions
 import com.clhs.score.domain.overview.OverviewWidgetSize
 import com.clhs.score.domain.overview.OverviewPlacement
@@ -162,6 +163,15 @@ class OverviewViewModel(
     fun cancelEditing() {
         if (_editor.value.saving) return
         updateEditor(_editor.value.copy(draft = null, resetUndo = null, error = null))
+    }
+    fun addCalendarCountdown(eventId: String, title: String): Boolean {
+        val current = _editor.value
+        if (eventId.isBlank() || current.loading || current.saving || current.layoutError != null) return false
+        beginEditing()
+        val widget = OverviewWidgetInstance.create("countdown", OverviewWidgetConfig.SchoolEvent(eventId, title))
+        putWidget(widget)
+        moveWidget(widget.id, 0)
+        return true
     }
     private fun edit(transform: (List<OverviewWidgetInstance>) -> List<OverviewWidgetInstance>) {
         val current = _editor.value

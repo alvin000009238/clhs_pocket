@@ -10,17 +10,17 @@ import java.nio.file.Paths
 class NotificationPermissionArchitectureTest {
     @Test
     fun notificationPermissionFlowUsesRuntimeRequestAndSystemAvailabilityChecks() {
-        val personal = readSource("app/src/main/java/com/clhs/score/ui/PersonalScreen.kt")
+        val generalSettings = readSource("app/src/main/java/com/clhs/score/ui/GeneralSettingsScreen.kt")
         val grades = readSource("app/src/main/java/com/clhs/score/ui/GradesScreen.kt")
         val onboarding = readSource("app/src/main/java/com/clhs/score/ui/OnboardingScreen.kt")
         val app = readSource("app/src/main/java/com/clhs/score/ui/ScoreApp.kt")
         val helper = readSource("app/src/main/java/com/clhs/score/notifications/NotificationPermissionHelper.kt")
 
-        listOf(personal, grades, onboarding).forEach { source ->
+        listOf(generalSettings, grades, onboarding).forEach { source ->
             assertTrue(source.contains("ActivityResultContracts.RequestPermission()"))
             assertTrue(source.contains("shouldShowPostNotificationsRationale()"))
         }
-        assertTrue(personal.contains("Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU"))
+        assertTrue(generalSettings.contains("Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU"))
         assertTrue(grades.contains("Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU"))
         assertTrue(onboarding.contains("notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)"))
         assertTrue(onboarding.contains("openAppNotificationSettings()"))
