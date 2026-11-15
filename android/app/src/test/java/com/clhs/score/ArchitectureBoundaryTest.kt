@@ -483,6 +483,10 @@ class ArchitectureBoundaryTest {
 
         val handler = mainActivity.substringAfter("private fun handleIntent(").substringBefore("private fun showBiometricUnlockPrompt(")
         assertTrue(handler.contains("consumeNotificationAction(applicationContext, intent)"))
+        assertTrue(handler.contains("val hasCapability = intent.hasExtra(NotificationActionCapabilities.EXTRA_CAPABILITY)"))
+        assertTrue(handler.contains("if (!hasCapability && requestsPublicUpdate)"))
+        assertTrue(capabilities.contains("return NotificationActionCapabilities.consume(context, token)"))
+        assertFalse(capabilities.contains("getStringExtra(\"check_update\")"))
         assertFalse(handler.contains("getStringExtra(\"from\")"))
         assertFalse(handler.contains("getBooleanExtra"))
         assertTrue(capabilities.contains("UUID.randomUUID()"))

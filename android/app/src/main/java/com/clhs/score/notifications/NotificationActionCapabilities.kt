@@ -131,12 +131,5 @@ internal object NotificationActionCapabilities {
 internal fun consumeNotificationAction(context: Context, intent: Intent?): NotificationAction? {
     val token = intent?.getStringExtra(NotificationActionCapabilities.EXTRA_CAPABILITY)
     intent?.removeExtra(NotificationActionCapabilities.EXTRA_CAPABILITY)
-    val action = NotificationActionCapabilities.consume(context, token)
-    // FCM notification payloads opened from the background bypass our service.
-    // Update checks are public operations and carry no account capability.
-    val checkUpdate = intent?.getStringExtra("check_update") == "true" ||
-        intent?.getStringExtra("action") == "check_update"
-    intent?.removeExtra("check_update")
-    if (intent?.getStringExtra("action") == "check_update") intent.removeExtra("action")
-    return action ?: NotificationAction.CheckUpdate.takeIf { checkUpdate }
+    return NotificationActionCapabilities.consume(context, token)
 }
