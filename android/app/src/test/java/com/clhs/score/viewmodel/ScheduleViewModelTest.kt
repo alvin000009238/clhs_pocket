@@ -977,6 +977,23 @@ class ScheduleViewModelTest {
     }
 
     @Test
+    fun browserNewerSameWeekSnapshotSurvivesAutomaticCheck() = runTest(dispatcher) {
+        val now = LocalDateTime.parse("2026-11-14T12:00:00")
+        val old = ScheduleReport("115_1", "230", ScheduleScope.CURRENT_WEEK,
+            weekStartDate = "2026-11-16", weekEndDate = "2026-11-22",
+            items = listOf(ScheduleItem(1, 1, "Old")))
+        val updated = old.copy(items = listOf(ScheduleItem(1, 1, "Updated")))
+        val repository = ControllableScheduleRepository(updated,
+            overviewSchedule = com.clhs.score.data.CachedScheduleReport(old, 0L))
+        val vm = ScheduleViewModel(repository, nowProvider = { now })
+        runCurrent()
+        assertEquals(updated, vm.uiState.value.report)
+        vm.ensureCurrentWeek()
+        runCurrent()
+        assertEquals(updated, vm.uiState.value.report)
+        assertEquals(emptyList<LocalDate>(), repository.scheduleTargetDates)
+    }
+    @Test
     fun tappingCurrentWeekWithOnlyUpcomingWeekLoadedDoesNotFetchCalendarWeek() = runTest(dispatcher) {
         val next = ScheduleReport("115_1", "230", ScheduleScope.CURRENT_WEEK,
             weekStartDate = "2026-11-16", weekEndDate = "2026-11-22",

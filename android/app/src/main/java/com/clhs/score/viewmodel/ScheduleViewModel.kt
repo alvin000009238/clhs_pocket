@@ -140,6 +140,11 @@ class ScheduleViewModel(
                             it.report.yearTermValue == latest.yearTermValue &&
                             it.report.classNo == latest.classNo
                     }
+                    val preferredSnapshot = matchingOverview?.let { overview ->
+                        if (overview.report.weekStartDate == latest.weekStartDate &&
+                            (snapshot.fetchedAtMillis ?: Long.MIN_VALUE) > (overview.fetchedAtMillis ?: Long.MIN_VALUE)
+                        ) snapshot else overview
+                    } ?: snapshot
                     val now = nowProvider()
                     val today = now.toLocalDate()
                     val latestStart = latest.weekStartDate?.let { start ->
@@ -150,8 +155,8 @@ class ScheduleViewModel(
                         latestStart != null &&
                         latestStart > today
                     if (matchingOverview != null) {
-                        rememberSnapshot(matchingOverview)
-                        automaticSnapshot = matchingOverview
+                        rememberSnapshot(preferredSnapshot)
+                        automaticSnapshot = preferredSnapshot
                     } else if (latest.scope == ScheduleScope.CURRENT_WEEK && !isFutureWithoutOverview) {
                         automaticSnapshot = snapshot
                     }
@@ -181,11 +186,11 @@ class ScheduleViewModel(
                             selectedScope = latest.scope,
                             weekTargetDate = manualWeekTarget,
                             report = if (manualWeekTarget == null && latest.scope == ScheduleScope.CURRENT_WEEK) {
-                                matchingOverview?.report ?: latest
+                                preferredSnapshot.report
                             } else latest,
                         )
                     }
-                    val automaticCandidate = matchingOverview ?: snapshot
+                    val automaticCandidate = preferredSnapshot
                     if (manualWeekTarget == null &&
                         latest.scope == ScheduleScope.CURRENT_WEEK &&
                         (isFutureWithoutOverview || needsAutomaticConfirmation(automaticCandidate, now))
