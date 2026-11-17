@@ -51,7 +51,25 @@ jobs:
 
       - name: Generate release Baseline and Startup Profiles
         working-directory: android
-        run: ./gradlew --no-daemon :app:generateDemoReleaseBaselineProfile --warning-mode all
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon :app:generateDemoReleaseBaselineProfile --warning-mode all --info --stacktrace 2>&1 | tee baseline-profile-generation.log
+
+      - name: Upload profile generation diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-baseline-profile-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            android/baseline-profile-generation.log
+            android/benchmark/build/reports/androidTests/
+            android/benchmark/build/outputs/androidTest-results/
+            android/benchmark/build/outputs/managed_device_android_test_additional_output/
+            android/benchmark/build/outputs/connected_android_test_additional_output/
+            android/benchmark/build/outputs/logs/
+            android/build/reports/problems/
 
       - name: Validate and copy generated profiles
         run: |
