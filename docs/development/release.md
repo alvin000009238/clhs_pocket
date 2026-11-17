@@ -61,6 +61,8 @@ Dev 與正式版使用相同 package、簽章、正式資料與 Firebase 設定�
 
 採樣先完成首次設定，以 Demo 假登入進入首頁，再分別收集啟動與課表／成績概覽互動。缺少首頁、目的地或內容時直接失敗，不能略過互動後視為成功；首次設定或導覽文案變更時也要同步更新採樣腳本。
 
+CI 明確限定執行 `BaselineProfileGenerator`，避免將一般 `StartupBenchmark` 混入 Profile 生成。課表完成條件使用可由 UIAutomator 讀取的 Demo 課程文字，不依賴裝飾性欄位標題。每次執行均保留 `android-baseline-profile-diagnostics-<run ID>-<attempt>` artifact 14 天，包含 Gradle log、裝置測試結果與報告；失敗時先查看其中的測試 XML 與例外，再判斷原因。
+
 1. 在 Actions 選擇 **Android Baseline Profiles**，以 **Run workflow** 指定要採樣的分支。
 2. 成功後下載 `android-baseline-profiles-<完整 commit SHA>` artifact，核對採樣 commit。Artifact 僅含 `baseline-prof.txt` 與 `startup-prof.txt`。
 3. 將兩個檔案一起放入 `android/app/src/productionRelease/generated/baselineProfiles/`，在 repository root 執行下列檢查。
