@@ -53,7 +53,7 @@ jobs:
         working-directory: android
         run: |
           set -o pipefail
-          ./gradlew --no-daemon :app:generateDemoReleaseBaselineProfile --warning-mode all --info --stacktrace 2>&1 | tee baseline-profile-generation.log
+          ./gradlew --no-daemon :app:generateDemoReleaseBaselineProfile -Pandroid.testInstrumentationRunnerArguments.class=com.clhs.score.benchmark.BaselineProfileGenerator --warning-mode all --info --stacktrace 2>&1 | tee baseline-profile-generation.log
 
       - name: Upload profile generation diagnostics
         if: always()
