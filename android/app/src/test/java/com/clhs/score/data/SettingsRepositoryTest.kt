@@ -19,6 +19,29 @@ import org.junit.rules.TemporaryFolder
 
 class SettingsRepositoryTest {
     @Test
+    fun scheduleDisplayModeSurvivesDataStoreRecreation() = runTest {
+        val file = temporaryFolder.newFile("schedule-display-mode.preferences_pb")
+        val storeJob = Job(backgroundScope.coroutineContext[Job])
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = CoroutineScope(backgroundScope.coroutineContext + storeJob),
+            produceFile = { file },
+        )
+        try {
+            val repository = SettingsRepository(dataStore)
+            repository.setHasCompletedOnboarding(true)
+            assertEquals(ScheduleDisplayMode.WEEK, repository.settings.first().scheduleDisplayMode)
+            repository.setScheduleDisplayMode(ScheduleDisplayMode.DAY)
+        } finally {
+            storeJob.cancelAndJoin()
+        }
+        val restoredStore = PreferenceDataStoreFactory.create(scope = backgroundScope, produceFile = { file })
+        val restored = SettingsRepository(restoredStore)
+        assertEquals(ScheduleDisplayMode.DAY, restored.loadForStartup().scheduleDisplayMode)
+        restored.setScheduleDisplayMode(ScheduleDisplayMode.WEEK)
+        assertEquals(ScheduleDisplayMode.WEEK, restored.settings.first().scheduleDisplayMode)
+    }
+
+    @Test
     fun profileAvatarChoiceSurvivesDataStoreRecreationAndWraps() = runTest {
         val file = temporaryFolder.newFile("profile-avatar.preferences_pb")
         val storeJob = Job(backgroundScope.coroutineContext[Job])

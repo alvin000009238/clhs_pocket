@@ -32,11 +32,11 @@ class StartupBenchmark {
         setupBlock = { ensureDemoSession() },
     ) {
         startActivityAndWait()
-        openDemoDestination("課表", "時間")
+        openDemoDestination("課表", "國語文")
         scrollContent()
         openDemoDestination("成績", "加權平均")
         scrollGradesContent()
-        openDemoDestination("課表", "時間")
+        openDemoDestination("課表", "國語文")
         scrollContent()
     }
 

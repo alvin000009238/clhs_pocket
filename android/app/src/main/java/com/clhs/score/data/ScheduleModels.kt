@@ -154,6 +154,44 @@ data class ScheduleReport(
     }
 }
 
+enum class ScheduleAvailability { AVAILABLE, EMPTY, UNPUBLISHED, FAILED }
+
+class ScheduleFetchException(val result: ScheduleFetchResult) : SchoolException(
+    when (result) {
+        is ScheduleFetchResult.Unpublished -> "學校尚未提供這一週的課表"
+        is ScheduleFetchResult.Failed -> "無法更新週課表，請稍後重試"
+        else -> "無法取得課表"
+    }, (result as? ScheduleFetchResult.Failed)?.error,
+) {
+    val fallback: ScheduleReport? get() = when (val value = result) {
+        is ScheduleFetchResult.Unpublished -> value.semesterFallback
+        is ScheduleFetchResult.Failed -> value.semesterFallback
+        else -> null
+    }
+}
+
+sealed interface ScheduleFetchResult {
+    data class Available(
+        val report: ScheduleReport,
+        val semesterBaseline: ScheduleReport? = null,
+    ) : ScheduleFetchResult
+
+    data class Empty(
+        val report: ScheduleReport,
+        val semesterBaseline: ScheduleReport? = null,
+    ) : ScheduleFetchResult
+
+    data class Unpublished(
+        val requestedDate: LocalDate,
+        val semesterFallback: ScheduleReport? = null,
+    ) : ScheduleFetchResult
+
+    data class Failed(
+        val error: Exception,
+        val semesterFallback: ScheduleReport? = null,
+    ) : ScheduleFetchResult
+}
+
 internal fun ScheduleReport.displayItems(): List<ScheduleItem> =
     items.applySubjectOverrides(subjectOverrides)
 
@@ -244,27 +282,30 @@ internal fun compareScheduleItems(
         }
 }
 
-internal fun parseScheduleWeekOptions(json: String): List<ScheduleWeekOption> {
+internal fun parseScheduleWeekOptionsOrNull(json: String): List<ScheduleWeekOption>? {
     val root = runCatching { SchoolJson.parseToJsonElement(json) }.getOrNull()
     val options = when (root) {
         is JsonArray -> root
-        is JsonObject -> (root["Data"] ?: root["data"] ?: root["Result"] ?: root["result"] ?: root["items"]) as? JsonArray
+        is JsonObject -> {
+            val containers = listOf("Data", "data", "Result", "result", "items")
+                .mapNotNull { root[it] }
+            containers.singleOrNull() as? JsonArray
+        }
         else -> null
-    } ?: return emptyList()
+    } ?: return null
 
-    return options.mapNotNull { element ->
-        val option = element as? JsonObject ?: return@mapNotNull null
-        val item = option["Item"] as? JsonObject
-        val weekNo = (option.stringField("Value", "value") ?: item?.stringField("WeekNo"))
-            ?.toIntOrNull()
-            ?.takeIf { it > 0 }
-            ?.toString()
-            ?: return@mapNotNull null
-        val startDate = item?.dateField("StartDateDisplay", "StartDate") ?: return@mapNotNull null
-        val endDate = item.dateField("EndDateDisplay", "EndDate") ?: return@mapNotNull null
-        val start = runCatching { LocalDate.parse(startDate) }.getOrNull() ?: return@mapNotNull null
-        val end = runCatching { LocalDate.parse(endDate) }.getOrNull() ?: return@mapNotNull null
-        if (end < start) return@mapNotNull null
+    val weeks = options.map { element ->
+        val option = element as? JsonObject ?: return null
+        val item = option["Item"] as? JsonObject ?: return null
+        val values = listOfNotNull(option.stringField("Value", "value"), item.stringField("WeekNo"))
+            .map { it.toIntOrNull()?.takeIf { value -> value > 0 } ?: return null }
+            .distinct()
+        val weekNo = values.singleOrNull()?.toString() ?: return null
+        val startDate = item.dateField("StartDateDisplay", "StartDate") ?: return null
+        val endDate = item.dateField("EndDateDisplay", "EndDate") ?: return null
+        val start = runCatching { LocalDate.parse(startDate) }.getOrNull() ?: return null
+        val end = runCatching { LocalDate.parse(endDate) }.getOrNull() ?: return null
+        if (end < start) return null
 
         ScheduleWeekOption(
             text = option.stringField("DisplayText", "Text", "text") ?: "第 $weekNo 週",
@@ -273,6 +314,10 @@ internal fun parseScheduleWeekOptions(json: String): List<ScheduleWeekOption> {
             endDate = endDate,
         )
     }
+    if (weeks.distinctBy { it.value }.size != weeks.size) return null
+    val orderedWeeks = weeks.sortedBy { it.startDate }
+    if (orderedWeeks.zipWithNext().any { (previous, next) -> previous.endDate >= next.startDate }) return null
+    return weeks
 }
 
 internal fun selectScheduleWeek(

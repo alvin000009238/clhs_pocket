@@ -4,12 +4,8 @@ import com.clhs.score.ui.navigation.navigationContentPadding
 
 import android.os.Build
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,12 +27,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import com.clhs.score.ui.navigation.PocketScaffold as Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,21 +55,16 @@ import com.clhs.score.data.PERIOD_TIMES
 import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleScope
-import com.clhs.score.data.displayItems
 import com.clhs.score.ui.FloatingSubpageLayout
 import com.clhs.score.ui.OutlinedRoundedSymbol
 import com.clhs.score.ui.SettingsGroup
 import com.clhs.score.ui.SettingsSwitchRow
 import com.clhs.score.widget.ScheduleWidgetPreferences
-import com.clhs.score.widget.classifyWidgetScheduleItems
-import com.clhs.score.widget.selectWidgetSchedule
 import com.clhs.score.widget.widgetScheduleDateLabel
 import com.clhs.score.widget.widgetScheduleDayLabel
 import com.clhs.score.widget.widgetScheduleShortDateLabel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.LocalDateTime
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -138,11 +126,8 @@ internal fun WidgetSettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .wrapContentWidth(Alignment.CenterHorizontally)
-                .widthIn(max = 720.dp)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState())
+                .padding(com.clhs.score.ui.readingContentPadding(androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)))
                 .navigationContentPadding()
                 .padding(top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 32.dp)
         ) {
@@ -297,25 +282,12 @@ private fun ScheduleWidgetPreview(
     widgetSize: DpSize,
     modifier: Modifier = Modifier
 ) {
-    val now = LocalDateTime.now()
-    val today = now.toLocalDate()
-    val currentTotalMinutes = now.hour * 60 + now.minute
-
-    val sourceItems = report?.displayItems().orEmpty()
-    val validFrom = report
-        ?.takeIf { it.scope == ScheduleScope.CURRENT_WEEK }
-        ?.weekStartDate
-        ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-        ?: today
-    val selection = selectWidgetSchedule(sourceItems, today, currentTotalMinutes, afterLastClass, validFrom)
+    val view = com.clhs.score.widget.resolveWidgetSchedule(report, java.time.Instant.now(), afterLastClass)
+    val today = view.today
+    val selection = view.selection
+    val sections = view.sections
     val isExpiredCurrentWeek =
         report?.scope == ScheduleScope.CURRENT_WEEK && !report.isValidOn(selection.date)
-    val sections = classifyWidgetScheduleItems(
-        items = selection.items,
-        selectionDate = selection.date,
-        today = today,
-        currentMinutes = currentTotalMinutes,
-    )
     val isShort = widgetSize.height < 160.dp
     val isNarrow = widgetSize.width < 220.dp
     val isCompact = widgetSize.height < 260.dp
@@ -512,3 +484,15 @@ private fun PreviewScheduleItemRow(
 }
 
 private fun String.isMeaningfulPreviewText(): Boolean = isNotBlank() && this != "null"
+
+@androidx.compose.ui.tooling.preview.Preview(widthDp = 360, heightDp = 220, showBackground = true)
+@Composable
+private fun WidgetScheduleCardPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        ScheduleWidgetPreview(
+            report = com.clhs.score.data.FakeScheduleData.report("115_1", "230", ScheduleScope.SEMESTER),
+            showTeacher = true, showClassroom = true, showTime = true,
+            afterLastClass = true, widgetSize = DpSize(360.dp, 220.dp),
+        )
+    }
+}

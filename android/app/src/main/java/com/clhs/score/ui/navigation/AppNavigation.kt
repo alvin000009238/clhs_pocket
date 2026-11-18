@@ -175,6 +175,9 @@ internal fun AppRoute.analyticsScreenName(): String = when (this) {
 internal fun topLevelNavigationType(width: Dp, height: Dp = Dp.Infinity): NavigationSuiteType =
     if (width < 600.dp && height >= 480.dp) NavigationSuiteType.ShortNavigationBarCompact else NavigationSuiteType.NavigationRail
 
+internal fun entryNavigationClearance(route: NavKey, rootClearance: Dp): Dp =
+    if (TopLevelDestination.entries.any { it.route == route }) rootClearance else 0.dp
+
 @Composable
 fun rememberAppNavigationState(onboardingRequired: Boolean = false): AppNavigationState {
     val startRoute: NavKey = OverviewRoute
@@ -329,7 +332,11 @@ fun AppNavigationState.toEntries(
             NavEntry(route, contentKey = "$parent:${entry.contentKey}", metadata = entry.metadata +
                 if (TopLevelDestination.entries.any { it.route == route }) mapOf(RootSceneDestinationKey to route)
                 else emptyMap()) {
-                entry.Content()
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalNavigationClearance provides entryNavigationClearance(route, LocalRootNavigationClearance.current),
+                ) {
+                    entry.Content()
+                }
             }
         }
     }
@@ -373,6 +380,7 @@ fun AuthenticatedAppShell(
         val showNavigation = TopLevelDestination.entries.any { it.route == route }
         val rail = topLevelNavigationType(maxWidth, maxHeight) == NavigationSuiteType.NavigationRail
         val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+        val rootClearance = if (rail) 0.dp else PocketNavigationLayout.clearance
         val clearance = if (showNavigation && !rail && !imeVisible) PocketNavigationLayout.clearance else 0.dp
         fun select(destination: TopLevelDestination, withHaptic: Boolean = true) {
             if (navigationState.topLevelRoute != destination.route) {
@@ -413,6 +421,7 @@ fun AuthenticatedAppShell(
             ) {
                 androidx.compose.runtime.CompositionLocalProvider(
                     LocalNavigationClearance provides clearance,
+                    LocalRootNavigationClearance provides rootClearance,
                     LocalNavigationCompact provides compact,
                     LocalExpandNavigation provides { compact = false },
                     LocalNavigationScrollConnection provides scrollConnection,

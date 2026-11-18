@@ -31,23 +31,42 @@ import java.time.LocalDate
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun SettingsTransferScreen(state: SettingsTransferUiState, owner: SettingsTransferViewModel, onBack: () -> Unit) {
+    SettingsTransferContent(state, onBack, owner::writeFile, owner::readFile, owner::consumeMessage,
+        owner::exportCurrent, owner::edit, owner::loadCurrent, owner::previewImport,
+        owner::dismissPreview, owner::importSettings)
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun SettingsTransferContent(
+    state: SettingsTransferUiState,
+    onBack: () -> Unit,
+    onWriteFile: (android.net.Uri?) -> Unit,
+    onReadFile: (android.net.Uri) -> Unit,
+    onConsumeMessage: () -> Unit,
+    onExport: (() -> Unit) -> Unit,
+    onEdit: (String) -> Unit,
+    onLoadCurrent: () -> Unit,
+    onPreviewImport: () -> Unit,
+    onDismissPreview: () -> Unit,
+    onImport: (Boolean) -> Unit,
+) {
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     var advanced by rememberSaveable { mutableStateOf(false) }
     var showContents by rememberSaveable { mutableStateOf(false) }
-    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json"), owner::writeFile)
+    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json"), onWriteFile)
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) owner.readFile(uri)
+        if (uri != null) onReadFile(uri)
     }
     LaunchedEffect(state.message) {
-        state.message?.let { snackbar.showSnackbar(it); owner.consumeMessage() }
+        state.message?.let { snackbar.showSnackbar(it); onConsumeMessage() }
     }
     val enabled = !state.loading && !state.busy
     BackHandler(state.busy) {}
-    SubpageLayout(title = "備份與還原", onBack = { if (!state.busy) onBack() }, snackbarHost = { SnackbarHost(snackbar) }) {
-        Column(Modifier.wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 720.dp)
-            .fillMaxSize().align(Alignment.TopCenter).imePadding().verticalScroll(rememberScrollState())
-            .padding(navigationContentPadding(PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp))),
+    SubpageLayout(title = "備份與還原", onBack = { if (!state.busy) onBack() }, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+        Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())
+            .padding(readingContentPadding(navigationContentPadding(PaddingValues(start = 20.dp, end = 20.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 12.dp)))),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -57,7 +76,7 @@ internal fun SettingsTransferScreen(state: SettingsTransferUiState, owner: Setti
                     Text("保存目前配置，或從備份檔還原。", style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Button(onClick = hapticClick {
-                        owner.exportCurrent { export.launch("clhs-pocket-settings-" + LocalDate.now() + ".json") }
+                        onExport { export.launch("clhs-pocket-settings-" + LocalDate.now() + ".json") }
                     }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shapes = ButtonDefaults.shapes()) {
                         OutlinedRoundedSymbol("download", contentDescription = null)
                         Spacer(Modifier.width(8.dp))
@@ -99,16 +118,16 @@ internal fun SettingsTransferScreen(state: SettingsTransferUiState, owner: Setti
             }
             AnimatedVisibility(advanced) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(value = state.text, onValueChange = owner::edit, enabled = enabled,
+                    OutlinedTextField(value = state.text, onValueChange = onEdit, enabled = enabled,
                         label = { Text("設定 JSON") }, modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 400.dp),
                         textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), isError = state.error != null)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = {
                             context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("CLHS Pocket 設定", state.text))
                         }, enabled = enabled && state.text.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("複製") }
-                        TextButton(onClick = owner::loadCurrent, enabled = enabled, shapes = ButtonDefaults.shapes()) { Text("重設草稿") }
+                        TextButton(onClick = onLoadCurrent, enabled = enabled, shapes = ButtonDefaults.shapes()) { Text("重設草稿") }
                     }
-                    FilledTonalButton(onClick = owner::previewImport, enabled = enabled && state.text.isNotBlank(),
+                    FilledTonalButton(onClick = onPreviewImport, enabled = enabled && state.text.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text("套用 JSON") }
                 }
             }
@@ -122,7 +141,7 @@ internal fun SettingsTransferScreen(state: SettingsTransferUiState, owner: Setti
         } }, confirmButton = { TextButton(onClick = { showContents = false }) { Text("知道了") } })
     state.preview?.let { document ->
         var includeSubjects by remember(document) { mutableStateOf(state.canImportSubjects) }
-        AlertDialog(onDismissRequest = { if (!state.busy) owner.dismissPreview() }, title = { Text("還原備份？") },
+        AlertDialog(onDismissRequest = { if (!state.busy) onDismissPreview() }, title = { Text("還原備份？") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text("目前的設定與首頁配置將被取代。")
@@ -147,9 +166,18 @@ internal fun SettingsTransferScreen(state: SettingsTransferUiState, owner: Setti
                     state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             },
-            confirmButton = { TextButton(onClick = { owner.importSettings(includeSubjects) }, enabled = !state.busy,
+            confirmButton = { TextButton(onClick = { onImport(includeSubjects) }, enabled = !state.busy,
                 shapes = ButtonDefaults.shapes()) { Text(if (state.busy) "還原中" else "確認還原") } },
-            dismissButton = { TextButton(onClick = owner::dismissPreview, enabled = !state.busy,
+            dismissButton = { TextButton(onClick = onDismissPreview, enabled = !state.busy,
                 shapes = ButtonDefaults.shapes()) { Text("取消") } })
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Settings transfer phone", widthDp = 390, heightDp = 844)
+@androidx.compose.ui.tooling.preview.Preview(name = "Settings transfer wide", widthDp = 1100, heightDp = 900)
+@Composable
+private fun SettingsTransferContentPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        SettingsTransferContent(SettingsTransferUiState(loading = false), {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
 }

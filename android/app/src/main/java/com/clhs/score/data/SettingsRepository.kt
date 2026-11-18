@@ -52,6 +52,9 @@ class SettingsRepository internal constructor(
             } ?: WeatherSource.OPEN_METEO,
             weatherCredentialRevision = prefs[KEY_WEATHER_CREDENTIAL_REVISION] ?: 0L,
             startOnSchedule = prefs[KEY_START_ON_SCHEDULE] ?: false,
+            scheduleDisplayMode = prefs[KEY_SCHEDULE_DISPLAY_MODE]?.let { name ->
+                runCatching { ScheduleDisplayMode.valueOf(name) }.getOrNull()
+            } ?: ScheduleDisplayMode.WEEK,
             profileAvatarShapeIndex = (prefs[KEY_PROFILE_AVATAR_SHAPE] ?: 0).coerceIn(0, 3),
             hasCompletedOnboarding = prefs[KEY_HAS_COMPLETED_ONBOARDING] ?: false,
             hasSeenYouBikeWidget = prefs[KEY_HAS_SEEN_YOUBIKE_WIDGET] ?: false,
@@ -142,6 +145,10 @@ class SettingsRepository internal constructor(
 
     suspend fun setStartOnSchedule(enabled: Boolean) {
         dataStore.edit { it[KEY_START_ON_SCHEDULE] = enabled }
+    }
+
+    suspend fun setScheduleDisplayMode(mode: ScheduleDisplayMode) {
+        dataStore.edit { it[KEY_SCHEDULE_DISPLAY_MODE] = mode.name }
     }
 
     suspend fun markYouBikeWidgetSeen() {
@@ -252,6 +259,7 @@ class SettingsRepository internal constructor(
         val KEY_HAS_COMPLETED_ONBOARDING = booleanPreferencesKey("has_completed_onboarding_v2")
         val KEY_HAS_SEEN_YOUBIKE_WIDGET = booleanPreferencesKey("has_seen_youbike_widget")
         val KEY_START_ON_SCHEDULE = booleanPreferencesKey("start_on_schedule")
+        val KEY_SCHEDULE_DISPLAY_MODE = stringPreferencesKey("schedule_display_mode")
         val KEY_PROFILE_AVATAR_SHAPE = intPreferencesKey("profile_avatar_shape")
         val KEY_WEATHER_SOURCE = stringPreferencesKey("weather_source")
         val KEY_WEATHER_CREDENTIAL_REVISION = longPreferencesKey("weather_credential_revision")

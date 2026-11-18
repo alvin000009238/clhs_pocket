@@ -1,0 +1,203 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "b59dc2f4eeda49a6936ef64d01a65126",
+    "entities": [
+      {
+        "tableName": "schedule_snapshots",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `studentNo` TEXT NOT NULL, `cacheKey` TEXT NOT NULL, `yearTerm` TEXT NOT NULL, `classNo` TEXT NOT NULL, `weekStart` TEXT, `capturedAt` INTEGER NOT NULL, `reportJson` TEXT NOT NULL, `semesterId` TEXT, `baselineOnly` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`semesterId`) REFERENCES `schedule_snapshots`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "studentNo",
+            "columnName": "studentNo",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cacheKey",
+            "columnName": "cacheKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "yearTerm",
+            "columnName": "yearTerm",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "classNo",
+            "columnName": "classNo",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weekStart",
+            "columnName": "weekStart",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "capturedAt",
+            "columnName": "capturedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reportJson",
+            "columnName": "reportJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "semesterId",
+            "columnName": "semesterId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "baselineOnly",
+            "columnName": "baselineOnly",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_schedule_snapshots_semesterId",
+            "unique": false,
+            "columnNames": [
+              "semesterId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_schedule_snapshots_semesterId` ON `${TABLE_NAME}` (`semesterId`)"
+          },
+          {
+            "name": "index_schedule_snapshots_studentNo_cacheKey_capturedAt",
+            "unique": false,
+            "columnNames": [
+              "studentNo",
+              "cacheKey",
+              "capturedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_schedule_snapshots_studentNo_cacheKey_capturedAt` ON `${TABLE_NAME}` (`studentNo`, `cacheKey`, `capturedAt`)"
+          },
+          {
+            "name": "index_schedule_snapshots_studentNo_yearTerm_classNo_weekStart",
+            "unique": false,
+            "columnNames": [
+              "studentNo",
+              "yearTerm",
+              "classNo",
+              "weekStart"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_schedule_snapshots_studentNo_yearTerm_classNo_weekStart` ON `${TABLE_NAME}` (`studentNo`, `yearTerm`, `classNo`, `weekStart`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "schedule_snapshots",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "semesterId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "schedule_pointers",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`studentNo` TEXT NOT NULL, `purpose` TEXT NOT NULL, `snapshotId` TEXT NOT NULL, PRIMARY KEY(`studentNo`, `purpose`), FOREIGN KEY(`snapshotId`) REFERENCES `schedule_snapshots`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "studentNo",
+            "columnName": "studentNo",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "purpose",
+            "columnName": "purpose",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotId",
+            "columnName": "snapshotId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "studentNo",
+            "purpose"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_schedule_pointers_snapshotId",
+            "unique": false,
+            "columnNames": [
+              "snapshotId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_schedule_pointers_snapshotId` ON `${TABLE_NAME}` (`snapshotId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "schedule_snapshots",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "snapshotId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "schedule_imports",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`studentNo` TEXT NOT NULL, PRIMARY KEY(`studentNo`))",
+        "fields": [
+          {
+            "fieldPath": "studentNo",
+            "columnName": "studentNo",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "studentNo"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b59dc2f4eeda49a6936ef64d01a65126')"
+    ]
+  }
+}

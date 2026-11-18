@@ -134,6 +134,7 @@ class AnnouncementStateProvider : PreviewParameterProvider<SchoolAnnouncementsUi
     )
 }
 
+@Preview(name = "School Announcements Tablet", widthDp = 1280, heightDp = 800)
 @Preview(name = "School Announcements", showBackground = true, widthDp = 390, heightDp = 844)
 @Composable
 private fun SchoolAnnouncementsPreview(
