@@ -30,8 +30,8 @@ internal fun YouBikeCard(
     Surface(onClick = hapticClick(onRefresh), enabled = !editing && !state.isRefreshing, modifier = modifier.fillMaxWidth(), shape = PocketVisual.metricShape,
         color = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
-        Column(Modifier.padding(horizontal = OverviewSpacing.content, vertical = if (expanded) OverviewSpacing.content else 8.dp),
-            verticalArrangement = if (expanded) Arrangement.SpaceBetween else Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.padding(horizontal = OverviewSpacing.content, vertical = if (expanded) 14.dp else 8.dp),
+            verticalArrangement = if (expanded) Arrangement.spacedBy(8.dp, Alignment.CenterVertically) else Arrangement.spacedBy(4.dp)) {
             val snapshot = state.snapshot
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                 Text(stationName, Modifier.weight(1f).padding(end = if (editing) 40.dp else 0.dp),

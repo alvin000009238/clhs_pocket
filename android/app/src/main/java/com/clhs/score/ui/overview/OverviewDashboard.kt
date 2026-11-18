@@ -147,9 +147,9 @@ internal fun OverviewDashboard(
         if (widgets.none { it.id == widget.id && it.enabled }) revealWidgetId = widget.id
         actions.putWidget(widget)
     }
-    val visible = remember(widgets, editor.editing, state.items) {
+    val visible = remember(widgets, editor.editing, state.items, authState) {
         widgets.filter { it.type != "date_time" && it.enabled && (editor.editing || it.type != "alerts" || state.items.any { item ->
-            item.kind == OverviewItemKind.GradeUpdate
+            item.kind.isOverviewAlert() && (authState is AuthState.Authenticated || !item.kind.isPrivate())
         }) }
     }
     val density = LocalDensity.current

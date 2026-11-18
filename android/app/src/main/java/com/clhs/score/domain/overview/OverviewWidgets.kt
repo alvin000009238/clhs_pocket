@@ -118,7 +118,7 @@ object OverviewWidgetDefinitions {
         OverviewWidgetDefinition("weather", "天氣", "partly_cloudy_day", listOf(size(2, 1), size(2, 2), size(4, 1), size(4, 2)), size(2, 2), true),
         OverviewWidgetDefinition("youbike", "YouBike", "pedal_bike", listOf(size(2, 1), size(2, 2), size(4, 1)), size(2, 2), true),
         OverviewWidgetDefinition("countdown", "倒數", "calendar_today", listOf(size(2, 1), size(2, 2), size(4, 1)), size(2, 1), true),
-        OverviewWidgetDefinition("alerts", "成績異動", "notifications", listOf(size(4, 1), size(4, 2), size(4, 3)), size(4, 2)),
+        OverviewWidgetDefinition("alerts", "課程／成績異動", "notifications", listOf(size(4, 1), size(4, 2), size(4, 3)), size(4, 2)),
         OverviewWidgetDefinition("calendar", "近期行程", "event", listOf(size(4, 1), size(4, 2), size(4, 3)), size(4, 2)),
         OverviewWidgetDefinition("announcements", "重要公告", "campaign", listOf(size(4, 1), size(4, 2), size(4, 3)), size(4, 2)),
     )

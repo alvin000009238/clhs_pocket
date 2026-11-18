@@ -257,9 +257,9 @@ internal fun OverviewWidgetContent(
             }
         }
         "alerts" -> Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            val grades = remember(visibleItems) { visibleItems.filter { it.kind == OverviewItemKind.GradeUpdate } }
-            if (grades.isNotEmpty()) AlertGroup(grades, open)
-            if (editing && grades.isEmpty()) Text("目前沒有成績異動",
+            val alerts = remember(visibleItems) { visibleItems.filter { it.kind.isOverviewAlert() } }
+            OverviewAlerts(alerts, open)
+            if (editing && alerts.isEmpty()) Text("目前沒有課程或成績異動",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

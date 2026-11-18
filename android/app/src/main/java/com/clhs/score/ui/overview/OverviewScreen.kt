@@ -177,7 +177,7 @@ private fun OverviewContent(
     val calendar = remember(visibleItems) { visibleItems.filter { it.kind == OverviewItemKind.CalendarEvent } }
     val announcements = remember(visibleItems) { visibleItems.filter { it.kind == OverviewItemKind.Announcement } }
     val alerts = remember(visibleItems) {
-        visibleItems.filter { it.kind == OverviewItemKind.GradeUpdate }
+        visibleItems.filter { it.kind.isOverviewAlert() }
     }
 
     val sections = remember(preferences, alerts.isNotEmpty()) {
@@ -231,7 +231,7 @@ private fun OverviewContent(
                 onRefreshYouBike,
             )
             "alerts" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (alerts.isNotEmpty()) AlertGroup(alerts, onOpenDestination)
+                OverviewAlerts(alerts, onOpenDestination)
             }
             "countdown" -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 CountdownCards(state.countdowns, onOpenDestination)
@@ -305,7 +305,7 @@ internal fun OverviewSection(
     action: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(OverviewSpacing.headerGap)) {
         SectionHeader(title, onViewAll, action)
         content()
     }
@@ -548,8 +548,19 @@ private fun OverviewListRow(item: OverviewItem, today: LocalDate, supporting: St
         trailingContent = { OutlinedRoundedSymbol("keyboard_arrow_right", size = 20.dp, contentDescription = null) },
     ) { Text(item.title, style = MaterialTheme.typography.titleMediumEmphasized) }
 }
+internal fun OverviewItemKind.isOverviewAlert(): Boolean =
+    this == OverviewItemKind.ScheduleChange || this == OverviewItemKind.GradeUpdate
+
 @Composable
-internal fun AlertGroup(items: List<OverviewItem>, onOpenDestination: (OverviewDestination) -> Unit) {
+internal fun OverviewAlerts(items: List<OverviewItem>, onOpenDestination: (OverviewDestination) -> Unit) {
+    for (kind in listOf(OverviewItemKind.ScheduleChange, OverviewItemKind.GradeUpdate)) {
+        val group = items.filter { it.kind == kind }
+        if (group.isNotEmpty()) AlertGroup(group, onOpenDestination)
+    }
+}
+
+@Composable
+private fun AlertGroup(items: List<OverviewItem>, onOpenDestination: (OverviewDestination) -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
