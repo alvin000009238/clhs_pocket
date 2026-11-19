@@ -1,6 +1,6 @@
 package com.clhs.score.domain.overview
 
-import java.time.Instant
+import com.clhs.score.shared.time.Instant
 
 /** Native source periods; precipitation is never interpolated to a different interval. */
 data class WeatherForecastPeriod(

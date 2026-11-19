@@ -36,33 +36,6 @@ import java.time.format.DateTimeFormatter
 import java.time.format.ResolverStyle
 import java.util.concurrent.TimeUnit
 
-@Serializable
-data class YouBikeStation(val id: String, val name: String, val latitude: Double? = null, val longitude: Double? = null, val district: String = "", val address: String = "") {
-    companion object { val SCHOOL = YouBikeStation("500304002", "中壢高中", 24.9621, 121.2112) }
-}
-
-data class YouBikeSnapshot(
-    val availableBikes: Int,
-    val emptyDocks: Int,
-    val totalDocks: Int,
-    val ordinaryBikes: Int?,
-    val electricBikes: Int?,
-    val isOperating: Boolean,
-    val updatedAt: Instant,
-    val fetchedAt: Instant,
-) {
-    fun isStale(now: Instant): Boolean = Duration.between(updatedAt, now).let {
-        it.isNegative || it > Duration.ofMinutes(5)
-    }
-}
-
-data class YouBikeState(
-    val snapshot: YouBikeSnapshot? = null,
-    val isRefreshing: Boolean = false,
-    val failed: Boolean = false,
-    val isManuallyRefreshing: Boolean = false,
-)
-
 class YouBikeRepository internal constructor(
     private val useFakeData: Boolean = false,
     private val client: OkHttpClient = OkHttpClient.Builder()
