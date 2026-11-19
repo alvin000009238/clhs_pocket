@@ -45,7 +45,6 @@ import androidx.savedstate.compose.serialization.serializers.MutableStateSeriali
 import com.clhs.score.ui.FilledRoundedSymbol
 import com.clhs.score.ui.OutlinedRoundedSymbol
 import com.clhs.score.analytics.AnalyticsScreenNames
-import com.clhs.score.shared.PocketRoot
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -95,10 +94,10 @@ enum class TopLevelDestination(
     val label: String,
     val icon: String,
 ) {
-    Overview(OverviewRoute, PocketRoot.Overview.zhTwLabel, "home"),
-    Schedule(ScheduleRoute, PocketRoot.Schedule.zhTwLabel, "calendar_view_week"),
-    Grades(GradesRoute, PocketRoot.Grades.zhTwLabel, "bar_chart"),
-    Campus(CampusRoute, PocketRoot.Campus.zhTwLabel, "school"),
+    Overview(OverviewRoute, "首頁", "home"),
+    Schedule(ScheduleRoute, "課表", "calendar_view_week"),
+    Grades(GradesRoute, "成績", "bar_chart"),
+    Campus(CampusRoute, "校園", "school"),
 }
 
 enum class AuthRequirement { Public, Session }
