@@ -63,46 +63,6 @@ data class ScheduleItem(
     val classroom: String = "",
 )
 
-const val SCHEDULE_SUBJECT_OVERRIDE_MAX_LENGTH = 80
-
-@Serializable
-data class ScheduleSubjectOverride(
-    val originalSubjectName: String,
-    val customSubjectName: String? = null,
-    val customTeacherName: String? = null,
-    val customClassroom: String? = null,
-)
-
-internal fun ScheduleSubjectOverride.normalizedOrNull(): ScheduleSubjectOverride? {
-    val original = originalSubjectName.trim()
-    require(original.isNotEmpty()) { "Original subject name is required" }
-
-    fun String?.customValue(): String? = this
-        ?.trim()
-        ?.takeIf(String::isNotEmpty)
-        ?.also { value ->
-            require(value.length <= SCHEDULE_SUBJECT_OVERRIDE_MAX_LENGTH) {
-                "Custom schedule value is too long"
-            }
-        }
-
-    val normalized = copy(
-        originalSubjectName = original,
-        customSubjectName = customSubjectName.customValue(),
-        customTeacherName = customTeacherName.customValue(),
-        customClassroom = customClassroom.customValue(),
-    )
-    return normalized.takeIf {
-        it.customSubjectName != null || it.customTeacherName != null || it.customClassroom != null
-    }
-}
-
-internal fun List<ScheduleSubjectOverride>.normalizedSubjectOverrides(): List<ScheduleSubjectOverride> =
-    mapNotNull(ScheduleSubjectOverride::normalizedOrNull)
-        .associateBy(ScheduleSubjectOverride::originalSubjectName)
-        .values
-        .sortedBy(ScheduleSubjectOverride::originalSubjectName)
-
 internal fun List<ScheduleItem>.applySubjectOverrides(
     overrides: List<ScheduleSubjectOverride>,
 ): List<ScheduleItem> {
