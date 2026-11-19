@@ -11,8 +11,12 @@ targets:
     sources:
       - path: Sources
       - path: Resources
+      - path: Widgets/Shared
+    dependencies:
+      - target: CLHSPocketWidgets
     settings:
       base:
+        CODE_SIGN_ENTITLEMENTS: Sources/Platform/CLHSPocket.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.clhs.pocket.ios
         PRODUCT_NAME: CLHSPocket
         MARKETING_VERSION: "0.1.0"
@@ -37,12 +41,35 @@ targets:
           fi
           cd "$SRCROOT/../android"
           ./gradlew :shared:embedAndSignAppleFrameworkForXcode
+  CLHSPocketWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Widgets/Extension
+      - path: Widgets/Shared
+      - path: Sources/Theme/PocketTheme.swift
+      - path: Resources/Fonts
+    settings:
+      base:
+        CODE_SIGN_ENTITLEMENTS: Widgets/Extension/CLHSPocketWidgets.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.clhs.pocket.ios.widgets
+        PRODUCT_NAME: CLHSPocketWidgets
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: Widgets/Extension/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: "壢中 Pocket"
+        SKIP_INSTALL: YES
   CLHSPocketTests:
     type: bundle.unit-test
     platform: iOS
     deploymentTarget: "18.0"
     sources:
       - path: Tests
+      - path: Widgets/Tests
     dependencies:
       - target: CLHSPocket
     settings:
@@ -50,8 +77,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.clhs.pocket.ios.tests
         SWIFT_VERSION: "6.0"
         GENERATE_INFOPLIST_FILE: YES
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/CLHSPocket.app/CLHSPocket"
         BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/CLHSPocket.app/CLHSPocket"
         FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../android/shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
   CLHSPocketUITests:
     type: bundle.ui-testing
@@ -72,8 +99,8 @@ schemes:
     build:
       targets:
         CLHSPocket: all
-        CLHSPocketUITests: [test]
         CLHSPocketTests: [test]
+        CLHSPocketUITests: [test]
     run:
       config: Debug
     test:

@@ -27,6 +27,8 @@ struct PersonalView: View {
                         .padding(12)
                     }
 
+                    PlatformSettingsSection()
+
                     section("設定") {
                         VStack(spacing: 0) {
                             navRow("bell.badge", "通知", model.notificationsEnabled ? "已開啟" : "已關閉") { NotificationSettingsView() }

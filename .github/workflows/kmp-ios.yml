@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   ios-build:
-    name: Kotlin iOS framework, SwiftUI build and UI tests
+    name: Kotlin iOS framework, app, widget extension, unit and UI tests
     runs-on: macos-26
     timeout-minutes: 60
     steps:
@@ -58,10 +58,10 @@ jobs:
                   break
           ')"
           test -n "$UDID"
-          # Simulator builds are signed ad hoc; disabling signing would break the Keychain unit tests.
+          # Ad hoc signing keeps the Keychain and App Group entitlements the unit tests and widget need.
           TEST_RUNNER_SHOT_DIR="$RUNNER_TEMP/pocket-shots" xcodebuild \
             -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket \
-            -destination "id=$UDID" test
+            -destination "id=$UDID" CODE_SIGN_IDENTITY=- test
       - name: Upload UI test screenshots
         if: always()
         uses: actions/upload-artifact@v4

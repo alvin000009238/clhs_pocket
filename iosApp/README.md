@@ -17,7 +17,7 @@ cd iosApp
 xcodegen generate
 xcodebuild -project CLHSPocket.xcodeproj -scheme CLHSPocket \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
-  CODE_SIGNING_ALLOWED=NO build
+  CODE_SIGN_IDENTITY=- build
 ```
 
 Xcode 的 build phase 會執行 `./gradlew :shared:embedAndSignAppleFrameworkForXcode`，不需另外先編譯 framework。
@@ -40,6 +40,19 @@ cd iosApp && TEST_RUNNER_SHOT_DIR=/tmp/pocket-shots xcodebuild \
 
 UI 變更必須在 Simulator 檢視淺色與深色截圖；只通過建置不算視覺驗證。
 
+## 小工具、通知與即時動態
+
+範圍、限制與驗證結果見 [iOS 小工具、通知、即時動態與背景更新](../docs/migration/ios-widgets-notifications.md)。
+
+小工具透過 App Group 讀取快照，entitlement 必須嵌入才有效。建置與測試一律使用 ad-hoc 簽署（`CODE_SIGN_IDENTITY=-`），不要加 `CODE_SIGNING_ALLOWED=NO`；否則 App 仍可執行，但小工具只會顯示「開啟 App 查看課表」。
+
+```sh
+# 只跑單元測試
+xcodebuild -project CLHSPocket.xcodeproj -scheme CLHSPocket \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  CODE_SIGN_IDENTITY=- -only-testing:CLHSPocketTests test
+```
+
 ## 啟動參數
 
 | 參數 | 用途 |
@@ -58,6 +71,10 @@ UI 變更必須在 Simulator 檢視淺色與深色截圖；只通過建置不算
 | `Sources/App/` | `AppModel`（session、分頁、各分頁獨立導覽堆疊、本機偏好）、`RootView`、`PocketAppServices`（登入、通知、App 鎖定、資料轉移的協定與示範實作） |
 | `Sources/Theme/` | Pocket 色彩、字體、卡片與 Liquid Glass 後備 |
 | `Sources/Features/` | 歡迎與登入、首頁與小工具編輯、課表、成績（明細、模擬器）、校園（公告、行事曆、在校紀錄）、個人與設定 |
+| `Sources/Platform/` | 小工具快照發布、通知、即時動態、背景更新、Deep Link |
+| `Widgets/Extension/` | WidgetKit extension：課表小工具與即時動態 |
+| `Widgets/Shared/` | App 與 extension 共用的快照模型 |
+| `Widgets/Tests/` | `CLHSPocketTests` 單元測試 |
 | `UITests/` | 端到端流程與截圖 |
 | `../android/shared/src/commonMain/kotlin/com/clhs/score/shared/app/` | Swift 使用的入口：`PocketDataSource`、`PocketDashboard`、`PocketGrades`、`PocketScheduleStore`、`PocketCampusStore` |
 

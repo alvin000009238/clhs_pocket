@@ -8,6 +8,27 @@
 	<array>
 		<string>zh-Hant</string>
 	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.clhs.pocket.ios.refresh</string>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.clhs.pocket.ios</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>clhspocket</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>使用 Face ID 解鎖壢中 Pocket，保護你的成績、課表與出缺勤紀錄。</string>
 	<key>UIAppFonts</key>

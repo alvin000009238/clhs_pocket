@@ -47,9 +47,13 @@ Swift 只依賴 `com.clhs.score.shared.app`：
 
 仍是 `shared.app` 內固定示範值的部分：天氣數值、YouBike 車輛數、公告內文與附件、行事曆事件。對應的 repository 與解析共用化後應替換。
 
+## 小工具、通知、即時動態與 Deep Link
+
+以示範資料實作，範圍與限制見 [iOS 小工具、通知、即時動態與背景更新](ios-widgets-notifications.md)。段考與公告通知尚無真實資料來源；背景更新只通過編譯。
+
 ## 尚未開始
 
-校務登入與正式連線、WKWebView、Keychain 與生物辨識、通知與背景更新、WidgetKit 與 Live Activities、Deep Link、成績提醒、公告附件與圖片預覽。
+把正式資料、WKWebView 登入、Keychain、App 鎖定、通知、小工具與 Deep Link 接進畫面（各自的實作已在 `Sources/Data`、`Sources/Security`、`Sources/Platform`、`Widgets/`，見 [資料與安全](ios-data-security.md) 與 [小工具與通知](ios-widgets-notifications.md)）；成績提醒；公告附件與圖片預覽。
 
 ## 驗證
 

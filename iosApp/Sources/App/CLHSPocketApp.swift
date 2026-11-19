@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct CLHSPocketApp: App {
+    @UIApplicationDelegateAdaptor(PocketAppDelegate.self) private var appDelegate
     @State private var model = AppModel()
 
     init() {
@@ -15,6 +16,7 @@ struct CLHSPocketApp: App {
                 .preferredColorScheme(model.appearance.colorScheme)
                 .tint(PocketColor.primary)
                 .environment(\.locale, Locale(identifier: "zh_Hant_TW"))
+                .pocketPlatform(model)
         }
     }
 }
