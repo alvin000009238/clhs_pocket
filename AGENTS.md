@@ -21,7 +21,7 @@ Paths below are relative to the repository root.
 | Attendance and merit records | `android/app/src/main/java/com/clhs/score/data/StudentRecords.kt`, `android/app/src/main/java/com/clhs/score/viewmodel/StudentRecordsStateOwner.kt`, `android/app/src/main/java/com/clhs/score/ui/StudentRecordsScreen.kt` |
 | Background work and Widget | `android/app/src/main/java/com/clhs/score/reminders/`, `android/app/src/main/java/com/clhs/score/widget/` |
 | Unit / framework tests | `android/app/src/test/`, `android/app/src/androidTest/` |
-| Preview data | `android/app/src/main/java/com/clhs/score/data/FakeData.kt`, `android/app/src/main/java/com/clhs/score/ui/ScorePreviews.kt` |
+| Preview data | `android/shared/src/commonMain/kotlin/com/clhs/score/data/FakeData.kt`, `android/app/src/main/java/com/clhs/score/ui/ScorePreviews.kt` |
 | Build / release automation | `android/`, `.github/workflows/` |
 
 ## Read only the relevant guide

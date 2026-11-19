@@ -7,7 +7,7 @@ Set-Location android
 .\gradlew.bat :app:installDemoDebug
 ```
 
-`demo` flavor 固定 `BuildConfig.USE_FAKE_DATA=true`，使用 `FakeGradeRepository`、`FakeScheduleRepository` 與 `FakeData.session` 假帳號，不需要校務帳號。`production` 固定真實資料；舊 `-PuseFakeData=true` 已移除。展示資料集中在 `android/app/src/main/java/com/clhs/score/data/FakeData.kt`，Compose Preview 在 `ui/ScorePreviews.kt` 直接以該資料組成 UI state。
+`demo` flavor 固定 `BuildConfig.USE_FAKE_DATA=true`，使用 `FakeGradeRepository`、`FakeScheduleRepository` 與 `FakeData.session` 假帳號，不需要校務帳號。`production` 固定真實資料；舊 `-PuseFakeData=true` 已移除。展示資料集中在 `android/shared/src/commonMain/kotlin/com/clhs/score/data/FakeData.kt`，Compose Preview 在 `ui/ScorePreviews.kt` 直接以該資料組成 UI state。
 
 YouBike 在 Demo 與 Production 都使用官方公開即時資料，不受 `USE_FAKE_DATA` 控制；Preview 與隔離單元測試仍使用假資料。
 

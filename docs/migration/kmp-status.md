@@ -46,9 +46,15 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 | 範例成績 | `MockGradeSystem.kt`（自 `FakeData.kt` 拆出 `StudentScenario`、`MockGradeSystem`） |
 | 課表模型、解析、更新時機 | `ScheduleModels.kt` |
 | 天氣與 YouBike 模型 | `WeatherLocation.kt`、`WeatherForecastPeriod.kt`、`YouBikeModels.kt`（解析與網路仍在 `app`） |
+| 課程時段解析 | `CourseResolution.kt`（以 `Instant` 為輸入；Android 的 `Clock` 版本留在 `app` 的 `SchoolCourseClock.kt`） |
+| 範例資料 | `FakeData.kt`、`FakeScheduleData.kt`（`FakeGradeRepository` 留在 `app` 的 `FakeGradeRepository.kt`） |
 | 公告與行事曆模型 | `SchoolAnnouncementModels.kt`、`SchoolCalendarModels.kt`（解析與網路仍在 `app`） |
 
 `GradeAnalysisTest`、`SimulatorCreditsTest`、`GradeReportDifferTest`、`GradeSummaryDisplayTest` 已改用 `kotlin.test` 並搬到 `commonTest`，Android host 與 iOS 目標共用同一份測試。
+
+## 檔名限制
+
+`app` 與 `shared` 使用同一個 package，含頂層宣告的檔案不可同名：兩邊都會產生 `<檔名>Kt` 類別，執行時只會載入其中一個（曾造成 `NoSuchMethodError`）。拆檔時 `app` 留下的部分要改檔名。
 
 ## 已知的行為差異
 
@@ -56,9 +62,8 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 
 ## 尚未搬移
 
-- `FakeData.kt` 其餘部分（範例公告、課表、紀錄、`FakeGradeRepository`）。
 - 公告、行事曆、天氣、YouBike 的解析（目前與 OkHttp、Jsoup、biweekly 寫在同一個檔案，且使用 `java.time.Instant`／`Duration`）。
-- `domain/overview` 的模型與彙整邏輯、`CourseResolution.kt`、設定模型與 `SettingsTransfer.kt`。
+- `domain/overview` 的模型與彙整邏輯、設定模型與 `SettingsTransfer.kt`。
 - 給 iOS 使用的 transport 介面與 repository。
 
 ## 目前驗證結果（Linux）
