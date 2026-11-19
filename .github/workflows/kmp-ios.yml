@@ -1,0 +1,46 @@
+name: KMP iOS Foundation
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'android/shared/**'
+      - 'android/settings.gradle.kts'
+      - 'android/build.gradle.kts'
+      - 'iosApp/**'
+      - '.github/workflows/kmp-ios.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-build:
+    name: Kotlin iOS framework and SwiftUI simulator build
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK and XcodeGen
+        run: |
+          sdkmanager "platforms;android-37" "build-tools;37.0.0"
+          brew install xcodegen
+          sudo xcode-select --switch /Applications/Xcode_26.4.app/Contents/Developer
+      - name: Kotlin/Native common tests and framework compilation
+        working-directory: android
+        run: |
+          ./gradlew :shared:iosSimulatorArm64Test :shared:linkDebugFrameworkIosSimulatorArm64 --no-configuration-cache --warning-mode all
+      - name: Generate native Xcode project
+        working-directory: iosApp
+        run: xcodegen generate
+      - name: Build SwiftUI iOS simulator app (unsigned)
+        run: |
+          xcodebuild -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build
