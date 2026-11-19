@@ -168,16 +168,19 @@ class ScoreUiTest {
         }
         settleUi()
 
-        composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
-        settleUi()
         val tab = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)
         composeRule.onNode(hasText("摘要") and tab).assertIsDisplayed()
         composeRule.onNode(hasText("科目") and tab).assertIsDisplayed()
         composeRule.onNode(hasText("分析") and tab).assertIsDisplayed()
-        composeRule.onAllNodesWithText("114-上").assertCountEquals(0)
-        composeRule.onNodeWithContentDescription("選擇成績").performClick()
+        composeRule.onNodeWithContentDescription("選擇學期").assertIsDisplayed().performClick()
+        composeRule.onNode(hasText("114學年度 上學期") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).assertIsDisplayed()
+        androidx.test.espresso.Espresso.pressBack()
         composeRule.onNodeWithText("114-上").assertIsDisplayed()
-        composeRule.onNode(hasText("期末考") and hasClickAction()).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("選擇考試").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("期中考").assertIsDisplayed()
+        composeRule.onNode(hasText("期末考") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).assertIsDisplayed()
         androidx.test.espresso.Espresso.pressBack()
         composeRule.onAllNodesWithText("全部科目").assertCountEquals(0)
         composeRule.onAllNodesWithText("圖表").assertCountEquals(0)
@@ -204,8 +207,9 @@ class ScoreUiTest {
         }
         settleUi()
 
-        composeRule.onNodeWithContentDescription("選擇成績").performClick()
-        composeRule.onNode(hasText("期末考") and hasClickAction()).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("選擇考試").performScrollTo().assertIsDisplayed().performClick()
+        composeRule.onNode(hasText("期末考") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).assertIsDisplayed()
         androidx.test.espresso.Espresso.pressBack()
         composeRule.onAllNodesWithText("班級前", substring = true)[0].performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("類組前", substring = true).performScrollTo().assertIsDisplayed()
@@ -224,7 +228,6 @@ class ScoreUiTest {
             }
         }
 
-        composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
         settleUi()
         composeRule.onNode(hasText("科目") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick()
         settleUi()
@@ -253,14 +256,10 @@ class ScoreUiTest {
         }
         settleUi()
 
-        composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
-        settleUi()
         composeRule.onNode(hasText("科目") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick()
         settleUi()
         composeRule.onNodeWithText("國文").performScrollTo().assertIsDisplayed()
 
-        composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
-        settleUi()
         composeRule.onNode(hasText("分析") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick()
         settleUi()
         composeRule.onNodeWithText("成績模擬器").performScrollTo().assertIsDisplayed()
