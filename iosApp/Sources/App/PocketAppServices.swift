@@ -2,7 +2,7 @@ import Foundation
 
 /// Seams for capabilities owned by other layers (networking, Keychain,
 /// notifications). Milestone 2 ships demo implementations only; the real ones
-/// are injected through `PocketServices` once they exist.
+/// are injected through `PocketAppServices` once they exist.
 @MainActor
 protocol SchoolAccountService {
     /// Returns nil on success, otherwise a user-facing zh-TW error message.
@@ -23,7 +23,7 @@ protocol AppLockService {
 }
 
 @MainActor
-struct PocketServices {
+struct PocketAppServices {
     var account: any SchoolAccountService = DemoSchoolAccountService()
     var notifications: any NotificationPermissionService = DemoNotificationPermissionService()
     var appLock: any AppLockService = DemoAppLockService()

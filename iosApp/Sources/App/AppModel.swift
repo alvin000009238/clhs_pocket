@@ -87,7 +87,7 @@ final class AppModel {
     }
 
     let dataSource: PocketDataSource = PocketEnvironment.shared.demo()
-    let services = PocketServices()
+    let services = PocketAppServices()
     private let defaults = UserDefaults.standard
     private let fixedClock: PocketClock?
 

@@ -19,7 +19,7 @@ SwiftUI App（iOS 18.0 以上、iPhone / iPad）、訪客優先、四個分頁�
 
 ### 以示範服務代替的部分
 
-`iosApp/Sources/App/PocketServices.swift` 定義四個協定，目前都是示範實作，等待接上正式實作：
+`iosApp/Sources/App/PocketAppServices.swift` 定義四個協定，目前都是示範實作，等待接上正式實作：
 
 | 協定 | 示範行為 | 正式實作負責範圍 |
 | --- | --- | --- |

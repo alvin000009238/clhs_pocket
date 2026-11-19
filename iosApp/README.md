@@ -54,7 +54,7 @@ UI 變更必須在 Simulator 檢視淺色與深色截圖；只通過建置不算
 
 | 路徑 | 內容 |
 | --- | --- |
-| `Sources/App/` | `AppModel`（session、分頁、各分頁獨立導覽堆疊、本機偏好）、`RootView`、`PocketServices`（登入、通知、App 鎖定、資料轉移的協定與示範實作） |
+| `Sources/App/` | `AppModel`（session、分頁、各分頁獨立導覽堆疊、本機偏好）、`RootView`、`PocketAppServices`（登入、通知、App 鎖定、資料轉移的協定與示範實作） |
 | `Sources/Theme/` | Pocket 色彩、字體、卡片與 Liquid Glass 後備 |
 | `Sources/Features/` | 歡迎與登入、首頁與小工具編輯、課表、成績（明細、模擬器）、校園（公告、行事曆、在校紀錄）、個人與設定 |
 | `UITests/` | 端到端流程與截圖 |
