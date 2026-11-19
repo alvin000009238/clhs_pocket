@@ -46,9 +46,16 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 | 範例成績 | `MockGradeSystem.kt`（自 `FakeData.kt` 拆出 `StudentScenario`、`MockGradeSystem`） |
 | 課表模型、解析、更新時機 | `ScheduleModels.kt` |
 | 天氣與 YouBike 模型 | `WeatherLocation.kt`、`WeatherForecastPeriod.kt`、`YouBikeModels.kt`（解析與網路仍在 `app`） |
+| 課程時段解析 | `CourseResolution.kt`（以 `Instant` 為輸入；Android 的 `Clock` 版本留在 `app` 的 `SchoolCourseClock.kt`） |
+| 範例資料 | `FakeData.kt`、`FakeScheduleData.kt`、`FakeRecordData.kt`（`FakeGradeRepository` 留在 `app` 的 `FakeGradeRepository.kt`） |
+| 設定模型 | `AppSettings.kt`（含 `OverviewPreferences`、`BackgroundPause`；以裝置時區判斷的 `BackgroundPause.contains` 留在 `app`） |
 | 公告與行事曆模型 | `SchoolAnnouncementModels.kt`、`SchoolCalendarModels.kt`（解析與網路仍在 `app`） |
 
 `GradeAnalysisTest`、`SimulatorCreditsTest`、`GradeReportDifferTest`、`GradeSummaryDisplayTest` 已改用 `kotlin.test` 並搬到 `commonTest`，Android host 與 iOS 目標共用同一份測試。
+
+## 檔名限制
+
+`app` 與 `shared` 使用同一個 package，含頂層宣告的檔案不可同名：兩邊都會產生 `<檔名>Kt` 類別，執行時只會載入其中一個（曾造成 `NoSuchMethodError`）。拆檔時 `app` 留下的部分要改檔名。
 
 ## 已知的行為差異
 
@@ -56,9 +63,8 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 
 ## 尚未搬移
 
-- `FakeData.kt` 其餘部分（範例公告、課表、紀錄、`FakeGradeRepository`）。
 - 公告、行事曆、天氣、YouBike 的解析（目前與 OkHttp、Jsoup、biweekly 寫在同一個檔案，且使用 `java.time.Instant`／`Duration`）。
-- `domain/overview` 的模型與彙整邏輯、`CourseResolution.kt`、設定模型與 `SettingsTransfer.kt`。
+- `domain/overview` 的模型與彙整邏輯、`SettingsTransfer.kt`。
 - 給 iOS 使用的 transport 介面與 repository。
 
 ## 目前驗證結果（Linux）
@@ -70,5 +76,6 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 | `:app:testDemoDebugUnitTest` | PASS |
 | `:shared:iosSimulatorArm64Test`、`:shared:iosX64Test` | BLOCKED（Linux 上被 Gradle 停用，需在 macOS 執行） |
 | 完整 Android gate（`e6fb6b7`：demo 測試、production `FlavorConfigurationTest`、`lintDemoDebug`、兩個 flavor 的 assemble） | PASS（第二次執行）。第一次執行 FAIL：`lintAnalyzeDemoDebugUnitTest` 在 `kspProductionDebugKotlin` 重新產生檔案時讀取 `build/generated/ksp/productionDebug`，出現 `FileNotFoundException`；KSP 輸出完成後重跑即通過，尚未確認這個競態在 `main` 是否也會發生。 |
-| Android 模擬器畫面比對 | NOT_RUN |
+| Android 模擬器啟動檢查（API 35 x86_64 模擬器、`demoDebug`、`6d613fe`） | PASS：導覽頁 4 步、範例帳號登入、首頁／課表／成績／校園／個人頁，淺色與深色皆正常顯示範例資料，沒有當機。 |
+| Android 搬移前後畫面逐一比對 | NOT_RUN（搬移前沒有先截基準圖，只能確認搬移後畫面正常） |
 | iOS 建置、Simulator、畫面檢查 | NOT_RUN（由 macOS session 進行） |

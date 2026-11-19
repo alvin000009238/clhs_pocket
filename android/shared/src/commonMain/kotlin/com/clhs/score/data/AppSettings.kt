@@ -66,3 +66,22 @@ data class OverviewPreferences(
         val DEFAULT_SECTION_ORDER = listOf("schedule", "weather", "alerts", "countdown", "calendar", "announcements", "youbike")
     }
 }
+
+/** One daily device-local interval; the end is exclusive. */
+data class BackgroundPause(
+    val enabled: Boolean = false,
+    val startMinute: Int = 23 * 60,
+    val endMinute: Int = 7 * 60,
+) {
+    init {
+        require(startMinute in 0..1439 && endMinute in 0..1439)
+        require(startMinute != endMinute)
+    }
+
+    /** [minuteOfDay] is the device-local wall-clock minute, 0..1439. */
+    fun containsMinute(minuteOfDay: Int): Boolean {
+        if (!enabled) return false
+        return if (startMinute < endMinute) minuteOfDay in startMinute until endMinute
+        else minuteOfDay >= startMinute || minuteOfDay < endMinute
+    }
+}
