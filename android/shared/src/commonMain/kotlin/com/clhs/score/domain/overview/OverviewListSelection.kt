@@ -53,7 +53,8 @@ fun OverviewState.recentEvents(config: OverviewWidgetConfig.ListItems): List<Ove
         .filter { item ->
             val maximum = config.maxEventDurationDays ?: return@filter true
             val event = eventsById[(item.destination as? OverviewDestination.CalendarEvent)?.id] ?: return@filter true
-            event.start.nanosUntil(event.endExclusive) <= maximum * NANOS_PER_DAY
+            // Limits beyond the Long nanosecond range (about 106751 days) cannot exclude any representable event.
+            maximum > Long.MAX_VALUE / NANOS_PER_DAY || event.start.nanosUntil(event.endExclusive) <= maximum * NANOS_PER_DAY
         }.sortedWith(compareBy(nullsFirst(LOCAL_DATE_TIME_ORDER)) { it.eventTime }).take(config.limit).toList()
 }
 
