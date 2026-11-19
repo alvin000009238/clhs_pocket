@@ -128,6 +128,12 @@ final class AppModel {
         didSet {
             defaults.set(session.rawValue, forKey: Key.session)
             syncSource()
+            guard live != nil, oldValue != session else { return }
+            // The demo account and real data never share read state.
+            syncingUnread = true
+            unreadAnnouncementIds = session == .demo ? PocketCampusStore.shared.defaultUnreadIds() : []
+            syncingUnread = false
+            if session != .demo { Task { await syncUnread() } }
         }
     }
 
@@ -146,8 +152,17 @@ final class AppModel {
     }
 
     var unreadAnnouncementIds: Set<String> {
-        didSet { defaults.set(Array(unreadAnnouncementIds), forKey: Key.unread) }
+        didSet {
+            guard usesLiveData else {
+                defaults.set(Array(unreadAnnouncementIds), forKey: Key.unread)
+                return
+            }
+            let read = oldValue.subtracting(unreadAnnouncementIds)
+            guard !syncingUnread, !read.isEmpty, let live else { return }
+            Task { try? await live.backend.call { try await $0.markAnnouncementsRead(ids: read, token: $1) } }
+        }
     }
+    @ObservationIgnored private var syncingUnread = false
 
     var bookmarkedAnnouncementIds: Set<String> {
         didSet { defaults.set(Array(bookmarkedAnnouncementIds), forKey: Key.bookmarks) }
@@ -197,6 +212,8 @@ final class AppModel {
         PocketPlatformCoordinator.shared.unlockGate = AppLockRouteGate(lock: lock).pass
         live = defaults.string(forKey: "dataMode") == "demo" ? nil : (try? PocketBackend.live()).map(LiveDataController.init)
         syncSource()
+        if defaults.string(forKey: Key.dashboard) == nil { dashboardLayout = PocketDashboard.shared.defaultLayout() }
+        if usesLiveData { unreadAnnouncementIds = [] }
     }
 
     var sharedWeatherSource: WeatherSource { weatherSource == "cwa" ? .cwa : .openMeteo }
@@ -211,6 +228,17 @@ final class AppModel {
             await live.refreshPrivate(force: force)
         }
         await live.refreshPublic(weatherSource: sharedWeatherSource, force: force)
+        await syncUnread()
+    }
+
+    /// In live mode the read state lives in the shared announcement repository.
+    private func syncUnread() async {
+        guard usesLiveData, let live else { return }
+        if let ids = try? await live.backend.call({ try await $0.unreadAnnouncementIds(token: $1) }) {
+            syncingUnread = true
+            unreadAnnouncementIds = Set(ids)
+            syncingUnread = false
+        }
     }
 
     /// Completes a login from the school web view. Returns the message to show on failure.
@@ -260,6 +288,14 @@ final class AppModel {
         } else {
             selectedTab = tab
         }
+    }
+
+    /// Presents the login sheet from any guest gate.
+    var showingLogin = false
+    var loginActionTitle: String { live != nil ? "登入校務帳號" : "使用示範帳號" }
+
+    func requestLogin() {
+        if live != nil { showingLogin = true } else { enterDemo() }
     }
 
     func enterDemo() {

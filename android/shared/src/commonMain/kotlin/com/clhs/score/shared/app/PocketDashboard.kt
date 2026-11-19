@@ -78,7 +78,8 @@ object PocketDashboard {
     private val privateTypes = setOf("schedule", "alerts")
 
     private fun decode(layout: String): List<OverviewWidgetInstance> =
-        runCatching { OverviewLayoutJson.decodeFromString(serializer, layout) }.getOrNull() ?: demoWidgets()
+        runCatching { OverviewLayoutJson.decodeFromString(serializer, layout) }.getOrNull()
+            ?: if (PocketData.isDemo) demoWidgets() else defaultOverviewWidgets()
 
     private fun encode(widgets: List<OverviewWidgetInstance>): String = OverviewLayoutJson.encodeToString(serializer, widgets)
 
@@ -97,7 +98,8 @@ object PocketDashboard {
         return defaults.take(1) + extras + defaults.drop(1)
     }
 
-    fun defaultLayout(): String = encode(demoWidgets())
+    /** Demo mode shows every widget kind; real data starts from the same default as Android. */
+    fun defaultLayout(): String = encode(if (PocketData.isDemo) demoWidgets() else defaultOverviewWidgets())
 
     fun columns(widthPoints: Double, fontScale: Double): Int =
         OverviewLayoutEngine.columns(widthPoints.toFloat(), fontScale.toFloat())

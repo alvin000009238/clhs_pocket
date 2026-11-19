@@ -17,6 +17,9 @@ struct RootView: View {
             }
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: model.hasCompletedOnboarding)
+        .sheet(isPresented: Binding(get: { model.showingLogin }, set: { model.showingLogin = $0 })) {
+            LoginView()
+        }
         .pocketPrivacyProtected(lock: model.lock)
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }

@@ -236,7 +236,53 @@ struct OnboardingView: View {
 }
 
 /// School-account form. Authentication is delegated to `SchoolAccountService`.
+/// The school's own login page in production; the synthetic account form in demo mode.
 struct LoginView: View {
+    @Environment(AppModel.self) private var model
+    var onSignedIn: () -> Void = {}
+
+    var body: some View {
+        if model.live != nil {
+            SchoolLoginSheet(onSignedIn: onSignedIn)
+        } else {
+            DemoLoginForm(onSignedIn: onSignedIn)
+        }
+    }
+}
+
+/// Hosts `SchoolLoginScreen`: the web view captures the session cookies, the shared core verifies them.
+private struct SchoolLoginSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let onSignedIn: () -> Void
+    @State private var isVerifying = false
+    @State private var message: String?
+
+    var body: some View {
+        SchoolLoginScreen(
+            isVerifying: isVerifying,
+            errorMessage: message,
+            onLogin: { studentNo, cookies in
+                guard !isVerifying else { return }
+                isVerifying = true
+                Task {
+                    message = await model.signIn(studentNo: studentNo, cookies: cookies)
+                    isVerifying = false
+                    if message == nil {
+                        dismiss()
+                        onSignedIn()
+                    }
+                }
+            },
+            onClose: { dismiss() },
+            onDismissError: { message = nil }
+        )
+        .background(PocketColor.background.ignoresSafeArea())
+        .interactiveDismissDisabled(isVerifying)
+    }
+}
+
+private struct DemoLoginForm: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     var onSignedIn: () -> Void = {}
@@ -408,9 +454,9 @@ struct GuestGateView: View {
                     .multilineTextAlignment(.center)
                     .padding(.top, 8)
                 Button {
-                    model.enterDemo()
+                    model.requestLogin()
                 } label: {
-                    Text("使用示範帳號")
+                    Text(model.loginActionTitle)
                         .font(.headline)
                         .frame(maxWidth: 320, minHeight: 52)
                         .frame(maxWidth: .infinity)

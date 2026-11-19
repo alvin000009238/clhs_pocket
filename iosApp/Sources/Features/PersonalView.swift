@@ -51,7 +51,7 @@ struct PersonalView: View {
                                 Button {
                                     model.signOut()
                                 } label: {
-                                    actionRow("rectangle.portrait.and.arrow.right", "登出示範帳號", tint: PocketColor.negative)
+                                    actionRow("rectangle.portrait.and.arrow.right", model.session == .demo ? "登出示範帳號" : "登出", tint: PocketColor.negative)
                                 }
                                 .accessibilityIdentifier("sign-out")
                             } else {
@@ -172,9 +172,9 @@ struct PersonalView: View {
                         .font(.subheadline)
                         .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
                     Button {
-                        model.enterDemo()
+                        if model.live != nil { showingLogin = true } else { model.enterDemo() }
                     } label: {
-                        Text("使用示範帳號")
+                        Text(model.loginActionTitle)
                             .font(.subheadline.weight(.semibold))
                             .padding(.horizontal, 18)
                             .frame(minHeight: 44)

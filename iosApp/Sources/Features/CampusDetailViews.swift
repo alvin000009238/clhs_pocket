@@ -369,7 +369,7 @@ struct StudentRecordsView: View {
                 } description: {
                     Text("在校紀錄屬於個人資料，需要先登入校務帳號。")
                 } actions: {
-                    Button("使用示範帳號") { model.enterDemo() }
+                    Button(model.loginActionTitle) { model.requestLogin() }
                         .buttonStyle(.borderedProminent)
                         .accessibilityIdentifier("records-demo")
                 }

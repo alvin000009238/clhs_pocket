@@ -190,9 +190,9 @@ private struct GuestHeroCard: View {
                         .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
                 }
                 Button {
-                    model.enterDemo()
+                    model.requestLogin()
                 } label: {
-                    Text("使用示範帳號")
+                    Text(model.loginActionTitle)
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, 18)
                         .frame(minHeight: 44)
