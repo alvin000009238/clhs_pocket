@@ -946,7 +946,7 @@ class ArchitectureBoundaryTest {
 
     @Test
     fun scheduleUsesFixedSubjectAccentsWithoutPostProcessing() {
-        val modelSource = readSource("app/src/main/java/com/clhs/score/data/ScheduleModels.kt")
+        val modelSource = readSource("shared/src/commonMain/kotlin/com/clhs/score/data/ScheduleModels.kt")
         val screenSource = readSource("app/src/main/java/com/clhs/score/ui/schedule/ScheduleScreen.kt")
 
         assertTrue(modelSource.contains("darkPredefinedColors"))
