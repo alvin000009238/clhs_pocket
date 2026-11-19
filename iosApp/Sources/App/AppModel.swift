@@ -86,12 +86,32 @@ final class AppModel {
         static let appLock = "appLockEnabled"
     }
 
-    let dataSource: PocketDataSource = PocketEnvironment.shared.demo()
+    private let source: PocketDataSource = PocketEnvironment.shared.demo()
+    /// Real data through `PocketBackend`; nil with `-dataMode demo` (UI tests, screenshots).
+    let live: LiveDataController?
+    /// Face ID / Touch ID / passcode lock over the whole window.
+    let lock: AppLockController
+    /// Message of an account action that failed (for example an incomplete logout cleanup).
+    var accountError: String?
+
+    /// Facade over whichever source is active. Reading it subscribes the view to live updates.
+    var dataSource: PocketDataSource {
+        _ = live?.revision
+        return source
+    }
+
+    /// True while the screens show real data rather than the synthetic fixtures.
+    var usesLiveData: Bool { live != nil && session != .demo }
     let services = PocketAppServices()
     private let defaults = UserDefaults.standard
     private let fixedClock: PocketClock?
 
-    var clock: PocketClock
+    private var storedClock: PocketClock
+    /// Every screen derives its content from the clock, so it also carries the live-data revision.
+    var clock: PocketClock {
+        _ = live?.revision
+        return storedClock
+    }
     var selectedTab: PocketTab
     var paths: [PocketTab: [PocketRoute]] = [:]
     var showingPersonal = false
@@ -105,7 +125,14 @@ final class AppModel {
     }
 
     var session: PocketSession {
-        didSet { defaults.set(session.rawValue, forKey: Key.session) }
+        didSet {
+            defaults.set(session.rawValue, forKey: Key.session)
+            syncSource()
+        }
+    }
+
+    private func syncSource() {
+        if usesLiveData { PocketData.shared.useLive() } else { PocketData.shared.useDemo() }
     }
 
     /// Home widget layout in the shared `OverviewWidgetInstance` JSON format.
@@ -165,15 +192,47 @@ final class AppModel {
         selectedTab = defaults.string(forKey: Key.initialTab).flatMap(PocketTab.init) ?? .home
         // `-demoClock 2026-11-18T10:35` pins time for previews, tests and screenshots.
         fixedClock = defaults.string(forKey: Key.demoClock).flatMap(AppModel.parseClock)
-        clock = fixedClock ?? AppModel.systemClock()
+        storedClock = fixedClock ?? AppModel.systemClock()
+        lock = AppLockController(isEnabled: defaults.bool(forKey: Key.appLock), authenticator: AppModel.authenticator(defaults))
+        PocketPlatformCoordinator.shared.unlockGate = AppLockRouteGate(lock: lock).pass
+        live = defaults.string(forKey: "dataMode") == "demo" ? nil : (try? PocketBackend.live()).map(LiveDataController.init)
+        syncSource()
+    }
+
+    var sharedWeatherSource: WeatherSource { weatherSource == "cwa" ? .cwa : .openMeteo }
+
+    /// Launch and every return to the foreground: restore the session once, then refresh.
+    func refreshLiveData(force: Bool = false) async {
+        guard let live else { return }
+        if !restored {
+            restored = true
+            await live.restore()
+        } else {
+            await live.refreshPrivate(force: force)
+        }
+        await live.refreshPublic(weatherSource: sharedWeatherSource, force: force)
+    }
+
+    /// Completes a login from the school web view. Returns the message to show on failure.
+    func signIn(studentNo: String, cookies: [String: String]) async -> String? {
+        guard let live else { return "示範模式無法登入校務系統" }
+        do {
+            try await live.login(studentNo: studentNo, cookies: cookies)
+            session = .guest
+            hasCompletedOnboarding = true
+            return nil
+        } catch {
+            return error.message
+        }
     }
 
     var profile: PocketProfile { dataSource.profile() }
-    var isSignedIn: Bool { session == .demo }
+    var isSignedIn: Bool { session == .demo || live?.session != nil }
+    @ObservationIgnored private var restored = false
 
     func refreshClock() {
         let next = fixedClock ?? AppModel.systemClock()
-        if next != clock { clock = next }
+        if next != storedClock { storedClock = next }
     }
 
     func widgets(columns: Int) -> [PocketWidget] {
@@ -221,9 +280,17 @@ final class AppModel {
     }
 
     func signOut() {
-        Task { await services.account.signOut() }
+        let wasDemo = session == .demo
         session = .guest
         paths = [:]
+        guard !wasDemo, let live else { return }
+        Task {
+            do { try await live.logout() } catch { accountError = Self.cleanupMessage(PocketError(error)) }
+        }
+    }
+
+    private static func cleanupMessage(_ error: PocketError) -> String {
+        error.kind == .cleanupIncomplete ? "\(error.message)。請再試一次，完成前無法重新登入。" : error.message
     }
 
     /// Values a settings backup carries. Credentials and school data are never included.
@@ -251,8 +318,9 @@ final class AppModel {
 
     /// Signs out and restores every device-local preference to its default.
     func deleteAllData() async {
-        await services.transfer.deleteAllData()
-        await services.account.signOut()
+        if let live {
+            do { try await live.deleteAllData() } catch { accountError = Self.cleanupMessage(PocketError(error)) }
+        }
         session = .guest
         paths = [:]
         appearance = .system
@@ -268,7 +336,6 @@ final class AppModel {
         pauseStart = 23 * 60
         pauseEnd = 6 * 60
         weatherSource = "open-meteo"
-        appLockEnabled = false
     }
 
     func replayOnboarding() {
@@ -276,6 +343,16 @@ final class AppModel {
         paths = [:]
         selectedTab = .home
         hasCompletedOnboarding = false
+    }
+
+    /// `-lockAuth succeed|manual` replaces the system prompt in UI tests; `manual` dismisses the
+    /// automatic prompt once so the lock screen stays visible until its button is tapped.
+    private static func authenticator(_ defaults: UserDefaults) -> DeviceAuthenticating {
+        switch defaults.string(forKey: "lockAuth") {
+        case "succeed": ScriptedAuthenticator(cancelFirst: false)
+        case "manual": ScriptedAuthenticator(cancelFirst: true)
+        default: SystemDeviceAuthenticator()
+        }
     }
 
     private static var calendar: Calendar {

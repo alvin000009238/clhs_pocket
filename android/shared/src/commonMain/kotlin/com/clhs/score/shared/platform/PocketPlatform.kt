@@ -1,13 +1,12 @@
 package com.clhs.score.shared.platform
 
 import com.clhs.score.data.BackgroundPause
-import com.clhs.score.data.FakeScheduleData
 import com.clhs.score.data.GradeChange
 import com.clhs.score.data.GradeChangeField
 import com.clhs.score.data.GradeChangeSet
-import com.clhs.score.data.ScheduleScope
 import com.clhs.score.shared.app.PocketClock
 import com.clhs.score.shared.app.PocketEnvironment
+import com.clhs.score.shared.app.PocketSchedules
 import com.clhs.score.shared.time.datePart
 import com.clhs.score.shared.time.schoolDateTimeAt
 
@@ -30,12 +29,9 @@ object PocketPlatform {
      */
     fun demoScheduleSnapshot(scheduleNowMillis: Long, deviceNowMillis: Long): WidgetScheduleSnapshot? {
         val today = schoolDateTimeAt(scheduleNowMillis).datePart()
-        val report = FakeScheduleData.report(
-            FakeScheduleData.currentYearValue(today),
-            FakeScheduleData.classes.first().value,
-            ScheduleScope.CURRENT_WEEK,
-            today,
-        )
+        // The active source: the synthetic timetable in demo mode, the signed-in student's
+        // loaded timetable otherwise (null until it has been fetched).
+        val report = PocketSchedules.currentWeek(today)
         return buildWidgetScheduleSnapshot(report, scheduleNowMillis)?.shiftedBy(deviceNowMillis - scheduleNowMillis)
     }
 

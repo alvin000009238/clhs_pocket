@@ -131,16 +131,20 @@ struct AppLockSettingsView: View {
                     get: { model.appLockEnabled },
                     set: { wanted in
                         Task {
-                            let ok = await model.services.appLock.authenticate(reason: wanted ? "開啟 App 鎖定" : "關閉 App 鎖定")
+                            let ok = await model.lock.setEnabled(wanted)
                             failed = !ok
                             if ok { model.appLockEnabled = wanted }
                         }
                     }
                 ))
-                .disabled(!model.services.appLock.isBiometryAvailable)
+                .disabled(model.lock.method == .unavailable)
                 .accessibilityIdentifier("app-lock-toggle")
             } footer: {
-                Text(failed ? "驗證沒有成功，設定未變更。" : "使用 Face ID、Touch ID 或裝置密碼保護成績與在校紀錄。此版本以示範服務代替系統驗證。")
+                Text(
+                    model.lock.method == .unavailable ? "這部裝置尚未設定密碼。請先到「設定」設定裝置密碼，才能開啟 App 鎖定。"
+                        : failed ? "驗證沒有成功，設定未變更。"
+                        : "使用 Face ID、Touch ID 或裝置密碼保護成績與在校紀錄。離開 App 後再回來需要重新驗證。"
+                )
             }
         }
     }

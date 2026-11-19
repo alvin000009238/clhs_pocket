@@ -17,16 +17,9 @@ protocol NotificationPermissionService {
 }
 
 @MainActor
-protocol AppLockService {
-    var isBiometryAvailable: Bool { get }
-    func authenticate(reason: String) async -> Bool
-}
-
-@MainActor
 struct PocketAppServices {
     var account: any SchoolAccountService = DemoSchoolAccountService()
     var notifications: any NotificationPermissionService = DemoNotificationPermissionService()
-    var appLock: any AppLockService = DemoAppLockService()
     var transfer: any DataTransferService = DemoDataTransferService()
 }
 
@@ -47,11 +40,6 @@ struct DemoSchoolAccountService: SchoolAccountService {
 
 struct DemoNotificationPermissionService: NotificationPermissionService {
     func requestAuthorization() async -> Bool { true }
-}
-
-struct DemoAppLockService: AppLockService {
-    var isBiometryAvailable: Bool { true }
-    func authenticate(reason: String) async -> Bool { true }
 }
 
 /// Settings backup and local-data removal. Session B owns the real implementation
@@ -79,4 +67,21 @@ struct DemoDataTransferService: DataTransferService {
     }
 
     func deleteAllData() async {}
+}
+
+/// Stands in for the system authentication prompt in UI tests. Never used without `-lockAuth`.
+final class ScriptedAuthenticator: DeviceAuthenticating, @unchecked Sendable {
+    private var cancelNext: Bool
+
+    init(cancelFirst: Bool) { cancelNext = cancelFirst }
+
+    func method() -> AppLockMethod { .faceID }
+
+    func authenticate(reason: String) async -> AppLockOutcome {
+        if cancelNext {
+            cancelNext = false
+            return .cancelled
+        }
+        return .success
+    }
 }

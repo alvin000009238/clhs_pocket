@@ -18,6 +18,10 @@ import com.clhs.score.data.WeatherLocation
 import com.clhs.score.data.YearTermOption
 import com.clhs.score.data.YouBikeSnapshot
 import com.clhs.score.data.YouBikeStation
+import com.clhs.score.data.latestExam
+import com.clhs.score.data.latestYearTerm
+import com.clhs.score.data.parseYearTerm
+import com.clhs.score.data.parseYearTermOrNull
 import com.clhs.score.domain.overview.WeatherSnapshot
 import com.clhs.score.shared.time.LocalDate
 
@@ -102,9 +106,17 @@ object PocketLive : PocketSource {
     private val attendanceBySemester = mutableMapOf<String, AttendanceRecord>()
     private val meritsBySemester = mutableMapOf<String, List<MeritRecord>>()
 
-    override val currentYearValue: String get() = structure.lastOrNull { it.exams.isNotEmpty() }?.value.orEmpty()
-    override val currentExamValue: String
-        get() = structure.lastOrNull { it.exams.isNotEmpty() }?.exams?.lastOrNull()?.value.orEmpty()
+    private val currentTerm get() = structure.filter { it.exams.isNotEmpty() }.latestYearTerm() ?: structure.latestYearTerm()
+    override val currentYearValue: String get() = currentTerm?.value.orEmpty()
+    override val currentExamValue: String get() = currentTerm?.latestExam()?.value.orEmpty()
+
+    /** Stored oldest first, the order the facades expect. */
+    fun putStructure(items: List<YearTermOption>) {
+        structure = items.sortedWith(
+            compareBy<YearTermOption>({ parseYearTerm(it.value, "0", "0").first.toIntOrNull() ?: 0 })
+                .thenBy { parseYearTerm(it.value, "0", "0").second.toIntOrNull() ?: 0 },
+        )
+    }
 
     override fun report(yearValue: String, examValue: String): GradeReport? = reports["$yearValue/$examValue"]
     fun putReport(yearValue: String, examValue: String, report: GradeReport) { reports["$yearValue/$examValue"] = report }
@@ -162,6 +174,15 @@ object PocketLive : PocketSource {
     override fun merits(semester: RecordSemester): List<MeritRecord>? = meritsBySemester[semesterKey(semester)]
     fun putMerits(semester: RecordSemester, records: List<MeritRecord>) { meritsBySemester[semesterKey(semester)] = records }
 
+    /** `[year, term]` of a schedule or grade year option, or null when it is malformed. */
+    fun yearTermParts(value: String): List<String>? = parseYearTermOrNull(value)?.let { listOf(it.first, it.second) }
+
+    /** Exams of the newest term that has any, oldest first: what the grades screen needs first. */
+    fun currentTermExamValues(): List<String> = currentTerm?.exams.orEmpty().map { it.value }
+
+    /** The term a given exam belongs to, or null. */
+    fun yearValueOf(examValue: String): String? = structure.firstOrNull { term -> term.exams.any { it.value == examValue } }?.value
+
     /** Drops everything that belongs to a signed-in student. Public data stays. */
     fun clearPrivate() {
         structure = emptyList()
@@ -193,4 +214,9 @@ object PocketData {
 
     fun useDemo() { current = DemoSource }
     fun useLive() { current = PocketLive }
+}
+
+/** The active timetable for platform features (widget snapshot, reminders, Live Activity). */
+object PocketSchedules {
+    fun currentWeek(today: LocalDate): ScheduleReport? = PocketData.current.schedule(ScheduleScope.CURRENT_WEEK, today, "")
 }

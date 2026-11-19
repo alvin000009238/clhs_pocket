@@ -17,6 +17,16 @@ struct RootView: View {
             }
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: model.hasCompletedOnboarding)
+        .pocketPrivacyProtected(lock: model.lock)
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            await model.refreshLiveData()
+        }
+        .alert("帳號資料", isPresented: Binding(get: { model.accountError != nil }, set: { if !$0 { model.accountError = nil } })) {
+            Button("好") { model.accountError = nil }
+        } message: {
+            Text(model.accountError ?? "")
+        }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             while !Task.isCancelled {

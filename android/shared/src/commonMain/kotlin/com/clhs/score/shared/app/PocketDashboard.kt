@@ -82,6 +82,10 @@ object PocketDashboard {
 
     private fun encode(widgets: List<OverviewWidgetInstance>): String = OverviewLayoutJson.encodeToString(serializer, widgets)
 
+    /** The layout as stored in the shared settings, and back. */
+    fun instances(layout: String): List<OverviewWidgetInstance> = decode(layout)
+    fun layout(instances: List<OverviewWidgetInstance>): String = encode(instances)
+
     /** Android's default widgets plus one weather tile and two countdowns so the demo shows every kind. */
     private fun demoWidgets(): List<OverviewWidgetInstance> {
         val defaults = defaultOverviewWidgets()
