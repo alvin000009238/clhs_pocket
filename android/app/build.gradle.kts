@@ -221,6 +221,7 @@ baselineProfile {
 }
 
 dependencies {
+    implementation(project(":shared"))
     implementation(libs.androidx.room.runtime)
     ksp(libs.androidx.room.compiler)
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
