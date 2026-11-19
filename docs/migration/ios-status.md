@@ -32,9 +32,13 @@ Swift 只依賴 `com.clhs.score.shared.app.PocketDataSource`：
 | `DemoPocketDataSource` 的天氣與 YouBike | Overview 彙整、天氣與 YouBike repository |
 | `PocketDates` 的日期計算 | `com.clhs.score.shared.time` |
 
+## 小工具、通知、即時動態與 Deep Link
+
+以示範資料實作，範圍與限制見 [iOS 小工具、通知、即時動態與背景更新](ios-widgets-notifications.md)。段考與公告通知尚無真實資料來源；背景更新只通過編譯。
+
 ## 尚未開始
 
-校務登入與正式連線、WKWebView、Keychain 與生物辨識、通知與背景更新、WidgetKit 與 Live Activities、設定匯入匯出、Deep Link、首頁自訂、成績模擬器與科目趨勢、課表匯出與科目覆寫、出缺勤與獎懲、公告內文、完整行事曆。
+校務登入與正式連線、WKWebView、Keychain 與生物辨識、設定匯入匯出、首頁自訂、成績模擬器與科目趨勢、課表匯出與科目覆寫、出缺勤與獎懲、公告內文、完整行事曆。
 
 ## 驗證
 
