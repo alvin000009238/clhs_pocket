@@ -84,6 +84,8 @@ private struct SubjectScoreCard: View {
             Text(value)
                 .font(PocketFont.display(22, relativeTo: .title2))
                 .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
                 .foregroundStyle(PocketColor.onPrimaryContainer)
             if !note.isEmpty {
                 Text(note)
@@ -157,6 +159,8 @@ private struct SubjectTrendCard: View {
             Circle().fill(color).frame(width: 8, height: 8)
             Text(text).font(.caption).foregroundStyle(PocketColor.onSurfaceVariant)
         }
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .fixedSize()
         .accessibilityHidden(true)
     }
 }

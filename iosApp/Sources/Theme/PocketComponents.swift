@@ -67,6 +67,9 @@ struct PocketChip: View {
             }
             Text(text)
         }
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .layoutPriority(1)
         .font(.caption.weight(.semibold))
         .foregroundStyle(foreground)
         .padding(.horizontal, 10)

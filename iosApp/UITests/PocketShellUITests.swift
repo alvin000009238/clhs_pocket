@@ -221,8 +221,9 @@ final class PocketShellUITests: XCTestCase {
         let field = app.textFields["override-subject"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap()
-        field.typeText("A")
+        field.typeText("A\n")
         capture("40-schedule-override-edit")
+        reveal(app.buttons["override-save"])
         app.buttons["override-save"].tap()
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "數學A")).firstMatch.waitForExistence(timeout: 5))
         capture("41-schedule-override")

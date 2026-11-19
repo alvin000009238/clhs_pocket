@@ -476,6 +476,9 @@ private struct RecordRow: View {
                 Text(row.dateText)
                     .font(.footnote)
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .layoutPriority(1)
                     .foregroundStyle(PocketColor.onSurfaceVariant)
             }
             Text(row.detail)
