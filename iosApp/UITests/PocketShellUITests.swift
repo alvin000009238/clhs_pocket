@@ -18,6 +18,7 @@ final class PocketShellUITests: XCTestCase {
             "-session", session,
             "-appearance", "system",
             "-demoClock", "2026-11-18T10:35",
+            "-dataMode", "demo",
         ]
         // Optional Dynamic Type pass, e.g. TEST_RUNNER_CONTENT_SIZE=UICTContentSizeCategoryAccessibilityXL.
         if let size = ProcessInfo.processInfo.environment["CONTENT_SIZE"], !size.isEmpty {
