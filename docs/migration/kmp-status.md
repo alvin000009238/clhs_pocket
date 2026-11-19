@@ -52,7 +52,7 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 
 ## 已知的行為差異
 
-- `YouBikeSnapshot.isStale` 原本以 `Duration`（奈秒）比較 5 分鐘門檻，現在以毫秒比較。只有當下時間落在門檻後不到 1 毫秒時結果不同；`ScoreViewModelTest` 等既有測試通過，沒有另外為這個邊界新增測試。
+- `YouBikeSnapshot.isStale` 原本以 `Duration`（奈秒）比較 5 分鐘門檻，現在以毫秒比較。只有當下時間落在門檻後不到 1 毫秒時結果不同；既有的 `YouBikeRepositoryTest`（300 秒、301 秒、早 1 秒）通過，沒有另外為亞毫秒邊界新增測試。
 
 ## 尚未搬移
 
