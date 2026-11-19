@@ -1,14 +1,23 @@
 package com.clhs.score.ui
 
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasScrollToIndexAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelStore
 import com.clhs.score.data.FakeData
 import com.clhs.score.ui.announcements.SchoolAnnouncementsScreen
@@ -22,10 +31,14 @@ class SchoolAnnouncementsScreenTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun clearingCollapsedSearchRestoresNonmatchingAnnouncements() {
+    fun clearingCollapsedSearchRestoresNonmatchingAnnouncementsInShortWindow() {
         val store = ViewModelStore()
         lateinit var viewModel: SchoolAnnouncementsViewModel
-        val announcements = FakeData.announcementPage.announcements
+        val samples = FakeData.announcementPage.announcements
+        val announcements = List(20) { index ->
+            val sample = samples[index % samples.size]
+            sample.copy(id = "${sample.id}-$index", title = "${sample.title}（${index + 1}）")
+        }
         val keyword = announcements.first().title
         try {
             composeRule.runOnUiThread {
@@ -43,14 +56,19 @@ class SchoolAnnouncementsScreenTest {
             }
             composeRule.setContent {
                 val state by viewModel.uiState.collectAsState()
-                ScoreTheme {
-                    SchoolAnnouncementsScreen(
-                        uiState = state,
-                        onBack = {}, onRefresh = viewModel::refresh, onLoadMore = viewModel::loadMore,
-                        onSearch = viewModel::search, onClearSearch = { viewModel.clearSearch() },
-                        onOpenAnnouncement = {}, onOpenOfficialWebsite = {},
-                        onOpenAnnouncementReminder = {}, onNoticeShown = viewModel::consumeNotice,
-                    )
+                val density = LocalDensity.current
+                CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
+                    ScoreTheme {
+                        Box(Modifier.size(320.dp, 400.dp)) {
+                            SchoolAnnouncementsScreen(
+                                uiState = state,
+                                onBack = {}, onRefresh = viewModel::refresh, onLoadMore = viewModel::loadMore,
+                                onSearch = viewModel::search, onClearSearch = { viewModel.clearSearch() },
+                                onOpenAnnouncement = {}, onOpenOfficialWebsite = {},
+                                onOpenAnnouncementReminder = {}, onNoticeShown = viewModel::consumeNotice,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -65,7 +83,10 @@ class SchoolAnnouncementsScreenTest {
                     viewModel.uiState.value.announcements.size == announcements.size
             }
             composeRule.onNodeWithContentDescription("清除搜尋：$keyword").assertDoesNotExist()
-            composeRule.onNodeWithText(announcements.last().title).performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText(announcements.last().title).assertDoesNotExist()
+            composeRule.onNode(hasScrollToIndexAction())
+                .performScrollToNode(hasText(announcements.last().title))
+            composeRule.onNodeWithText(announcements.last().title).assertIsDisplayed()
         } finally {
             composeRule.runOnUiThread { store.clear() }
         }
