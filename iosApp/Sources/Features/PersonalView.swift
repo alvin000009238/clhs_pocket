@@ -25,6 +25,8 @@ struct PersonalView: View {
                         .padding(12)
                     }
 
+                    PlatformSettingsSection()
+
                     section("關於") {
                         VStack(spacing: 0) {
                             infoRow("info.circle", "版本", Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")

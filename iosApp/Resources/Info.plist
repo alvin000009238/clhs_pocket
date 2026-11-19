@@ -8,6 +8,27 @@
 	<array>
 		<string>zh-Hant</string>
 	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.clhs.pocket.ios.refresh</string>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.clhs.pocket.ios</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>clhspocket</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Huninn-Regular.ttf</string>
