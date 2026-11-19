@@ -54,6 +54,22 @@ class GradeSubjectBrowsingTest {
     }
 
     @Test
+    fun blankDisplaysUseTheSameNumericFallbackAsSubjectCards() {
+        val subjects = listOf(
+            subject("未公布", 100.0, scoreDisplay = "未公布"),
+            subject("空白低分", 40.0, scoreDisplay = ""),
+            subject("空格高分", 90.0, scoreDisplay = "  "),
+            subject("已公布", 80.0),
+            subject("空白零分", null, scoreDisplay = ""),
+        )
+
+        assertEquals(listOf("空白零分", "空白低分", "已公布", "空格高分", "未公布"),
+            gradeSubjectsForDisplay(subjects, GradeSubjectSort.ScoreAscending, false).map { it.subject.subjectName })
+        assertEquals(listOf("空格高分", "已公布", "空白低分", "空白零分", "未公布"),
+            gradeSubjectsForDisplay(subjects, GradeSubjectSort.ScoreDescending, false).map { it.subject.subjectName })
+    }
+
+    @Test
     fun filterUsesOfficialFlunkFlagWithoutInventingPassingThresholds() {
         val subjects = listOf(subject("及格", 55.0), subject("待加強", 65.0, flunk = true), subject("未公布", null))
 
