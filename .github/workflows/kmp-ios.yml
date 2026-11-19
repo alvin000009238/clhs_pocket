@@ -44,7 +44,7 @@ jobs:
       - name: Generate native Xcode project
         working-directory: iosApp
         run: xcodegen generate
-      - name: Build the SwiftUI app and run the UI tests on a simulator
+      - name: Build the app and widget extension, run the unit tests and the UI flows on a simulator
         run: |
           UDID="$(xcrun simctl list devices available -j | python3 -c '
           import json, sys
@@ -59,9 +59,13 @@ jobs:
           ')"
           test -n "$UDID"
           # Ad hoc signing keeps the Keychain and App Group entitlements the unit tests and widget need.
+          # Unit tests first, in their own run: when the unit-test host starts in the same run as
+          # the UI flows it sometimes hangs before connecting to the test runner.
+          xcodebuild -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket \
+            -destination "id=$UDID" CODE_SIGN_IDENTITY=- -only-testing:CLHSPocketTests test
           TEST_RUNNER_SHOT_DIR="$RUNNER_TEMP/pocket-shots" xcodebuild \
             -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket \
-            -destination "id=$UDID" CODE_SIGN_IDENTITY=- test
+            -destination "id=$UDID" CODE_SIGN_IDENTITY=- -only-testing:CLHSPocketUITests test
       - name: Upload UI test screenshots
         if: always()
         uses: actions/upload-artifact@v4

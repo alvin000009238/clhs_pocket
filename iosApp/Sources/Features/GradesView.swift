@@ -302,7 +302,8 @@ private struct InsightCard: View {
                             .monospacedDigit()
                             .foregroundStyle(tone)
                     }
-                    .accessibilityElement(children: .combine)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(item.name)，與班平均相差 \(item.percentText) 分")
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)

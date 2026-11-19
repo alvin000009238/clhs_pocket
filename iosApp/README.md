@@ -38,6 +38,8 @@ cd iosApp && TEST_RUNNER_SHOT_DIR=/tmp/pocket-shots xcodebuild \
 
 測試不要加 `CODE_SIGNING_ALLOWED=NO`（Keychain 單元測試需要簽署的測試主程式）；只跑 UI 流程可加 `-only-testing:CLHSPocketUITests`。
 
+單元測試與 UI 流程建議分兩次執行（`-only-testing:CLHSPocketTests`、`-only-testing:CLHSPocketUITests`）：同一次執行時，單元測試的宿主 App 偶爾會在連上測試執行器之前停住。CI 也是分兩次跑。
+
 UI 變更必須在 Simulator 檢視淺色與深色截圖；只通過建置不算視覺驗證。
 
 ## 小工具、通知與即時動態
@@ -61,7 +63,7 @@ xcodebuild -project CLHSPocket.xcodeproj -scheme CLHSPocket \
 | `-hasCompletedOnboarding NO` | 重新顯示歡迎畫面 |
 | `-dataMode demo` | 使用示範資料；不加這個參數就是正式模式（訪客可看公開資料，登入走校務系統） |
 | `-session guest` / `demo` | 示範模式下以訪客或示範帳號啟動 |
-| `-lockAuth succeed` / `manual` | 以固定結果取代 Face ID／密碼驗證；`manual` 會停在鎖定畫面等待點按 |
+| `-lockAuth succeed` / `manual` / `relock` | 以固定結果取代 Face ID／密碼驗證；`manual` 會停在鎖定畫面等待點按，`relock` 啟動時解鎖、之後回到前景都維持鎖定 |
 | `-appLockEnabled YES` | 啟動時開啟 App 鎖定 |
 | `-platform.liveActivity NO` | 不啟動即時動態 |
 | `-appearance system` / `light` / `dark` | 外觀 |
