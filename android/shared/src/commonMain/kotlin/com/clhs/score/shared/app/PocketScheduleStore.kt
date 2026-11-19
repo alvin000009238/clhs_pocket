@@ -32,7 +32,7 @@ object PocketScheduleStore {
     private fun encode(overrides: List<ScheduleSubjectOverride>) =
         json.encodeToString(serializer, overrides.normalizedSubjectOverrides())
 
-    fun classes(): List<PocketChoice> = FakeScheduleData.classes.map { PocketChoice(it.value, it.text, "") }
+    fun classes(): List<PocketChoice> = PocketData.current.scheduleClasses.map { PocketChoice(it.value, it.text, "") }
 
     fun schedule(
         scope: PocketScheduleScope,

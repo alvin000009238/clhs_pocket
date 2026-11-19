@@ -4,6 +4,7 @@ import com.clhs.score.data.FakeScheduleData
 import com.clhs.score.data.PERIOD_TIMES
 import com.clhs.score.data.ScheduleChangeType
 import com.clhs.score.data.ScheduleItem
+import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleSubjectOverride
 import com.clhs.score.data.applySubjectOverrides
 import com.clhs.score.data.ScheduleScope
@@ -27,7 +28,7 @@ internal object DemoSchedule {
     private const val LAST_MORNING_PERIOD = 4
     private const val SCHOOL_DAYS = 5
 
-    private val demoClass get() = FakeScheduleData.classes.first()
+    private val ownClass get() = PocketData.current.scheduleClasses.firstOrNull()
 
     private val periods = PERIOD_TIMES.mapIndexed { index, time -> PocketPeriod(index + 1, time.start, time.end) }
 
@@ -42,16 +43,16 @@ internal object DemoSchedule {
         val overrides: List<ScheduleSubjectOverride> = emptyList(),
     )
 
-    private fun classOf(view: View) = FakeScheduleData.classes.firstOrNull { it.value == view.classValue } ?: demoClass
+    private fun classOf(view: View) =
+        PocketData.current.scheduleClasses.firstOrNull { it.value == view.classValue } ?: ownClass
 
-    private fun report(scope: ScheduleScope, clock: PocketClock, view: View = View()) =
-        clock.date().shiftDays(7L * view.weekOffset).let { today ->
-            FakeScheduleData.report(FakeScheduleData.currentYearValue(today), classOf(view).value, scope, today)
-        }
+    /** Null while the live schedule has not been loaded, or is not valid for the requested week. */
+    private fun report(scope: ScheduleScope, clock: PocketClock, view: View = View()): ScheduleReport? =
+        PocketData.current.schedule(scope, clock.date().shiftDays(7L * view.weekOffset), view.classValue)
 
     private fun slots(scope: PocketScheduleScope, clock: PocketClock, view: View): List<Slot> {
         val isWeek = scope == PocketScheduleScope.CURRENT_WEEK
-        val report = report(if (isWeek) ScheduleScope.CURRENT_WEEK else ScheduleScope.SEMESTER, clock, view)
+        val report = report(if (isWeek) ScheduleScope.CURRENT_WEEK else ScheduleScope.SEMESTER, clock, view) ?: return emptyList()
         val changes = report.changes.orEmpty().associateBy { it.dayOfWeek to it.period }
         val live = report.items.map { item ->
             val change = changes[item.dayOfWeek to item.period]
@@ -87,18 +88,19 @@ internal object DemoSchedule {
             )
         }
         val cells = mergedCells(slots(scope, clock, view), clock, trackStatus = isWeek && view.weekOffset == 0)
-        val (year, term) = source.yearTermValue.split("_").let { it[0] to it.getOrElse(1) { "1" } }
+        val (year, term) = source?.yearTermValue.orEmpty().split("_").let { it[0] to it.getOrElse(1) { "1" } }
         return PocketSchedule(
             scope = scope,
             scopeLabel = if (isWeek) "本週課表" else "學期課表",
-            termText = "$year 學年度 第 $term 學期",
-            className = classOf(view).text,
+            termText = if (source == null) "" else "$year 學年度 第 $term 學期",
+            className = classOf(view)?.text.orEmpty(),
             rangeText = "${monday.shortText()} – ${monday.shiftDays(SCHOOL_DAYS - 1L).shortText()}",
-            weekText = source.weekNo?.let { "第 $it 週" }.orEmpty(),
+            weekText = source?.weekNo?.let { "第 $it 週" }.orEmpty(),
             days = days,
             periods = periods,
             cells = cells,
-            changeCount = source.changes.orEmpty().size,
+            changeCount = source?.changes.orEmpty().size,
+            isAvailable = source != null,
         )
     }
 
@@ -166,7 +168,7 @@ internal object DemoSchedule {
         val sunday = today.shiftDays(7L - clock.dayOfWeek)
         return (0L..7L).map(today::shiftDays).flatMap { date ->
             val source = if (date <= sunday) week else semester
-            source.displayItems().filter { it.dayOfWeek == date.weekday().isoNumber }.mapNotNull { it.occurrenceOn(date) }
+            source?.displayItems().orEmpty().filter { it.dayOfWeek == date.weekday().isoNumber }.mapNotNull { it.occurrenceOn(date) }
         }.sortedBy { it.start }
     }
 

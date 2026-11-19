@@ -146,8 +146,8 @@ object PocketDashboard {
                 customTime = (config as? OverviewWidgetConfig.CustomCountdown)?.time.orEmpty(),
                 needsSignIn = locked,
                 hero = if (widget.type == "schedule" && !locked) DemoSchedule.hero(clock) else null,
-                weather = (config as? OverviewWidgetConfig.Weather)?.let { DemoLive.weather(it.location) },
-                youBike = (config as? OverviewWidgetConfig.YouBike)?.let { DemoLive.youBike(it.station) },
+                weather = (config as? OverviewWidgetConfig.Weather)?.let { PocketData.current.weather(it.location) },
+                youBike = (config as? OverviewWidgetConfig.YouBike)?.let { PocketData.current.youBike(it.station) },
                 countdown = countdown?.let {
                     PocketCountdown(it.id, it.label, it.title, it.supportingText.removeSuffix(" 開始").slashDate())
                 },
@@ -234,13 +234,13 @@ object PocketDashboard {
     }
 
     fun setWeatherLocation(layout: String, id: String, locationId: String): String = update(layout, id) { widget ->
-        val location = DemoLive.locations.firstOrNull { it.id == locationId } ?: return@update widget
+        val location = PocketData.current.weatherLocations.firstOrNull { it.id == locationId } ?: return@update widget
         val current = widget.config() as? OverviewWidgetConfig.Weather ?: return@update widget
         widget.withConfig(current.copy(location = location))
     }
 
     fun setYouBikeStation(layout: String, id: String, stationId: String): String = update(layout, id) { widget ->
-        val station = DemoLive.stations.firstOrNull { it.id == stationId } ?: return@update widget
+        val station = PocketData.current.youBikeStations.firstOrNull { it.id == stationId } ?: return@update widget
         if (widget.type == "youbike") widget.withConfig(OverviewWidgetConfig.YouBike(station)) else widget
     }
 
@@ -264,9 +264,9 @@ object PocketDashboard {
         widget.withConfig(current.copy(limit = limit.coerceIn(1, 20)))
     }
 
-    fun weatherLocations(): List<PocketChoice> = DemoLive.locations.map { PocketChoice(it.id, it.name, it.county) }
+    fun weatherLocations(): List<PocketChoice> = PocketData.current.weatherLocations.map { PocketChoice(it.id, it.name, it.county) }
 
-    fun youBikeStations(): List<PocketChoice> = DemoLive.stations.map { PocketChoice(it.id, it.name, it.district + it.address) }
+    fun youBikeStations(): List<PocketChoice> = PocketData.current.youBikeStations.map { PocketChoice(it.id, it.name, it.district + it.address) }
 
     fun countdownEvents(clock: PocketClock): List<PocketChoice> = DemoCampus.upcomingEvents(clock).map {
         val row = DemoCampus.eventRow(it, clock.date())

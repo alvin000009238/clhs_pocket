@@ -142,6 +142,8 @@ data class PocketSchedule(
     val periods: List<PocketPeriod>,
     val cells: List<PocketScheduleCell>,
     val changeCount: Int,
+    /** False while no timetable has been loaded for this view. */
+    val isAvailable: Boolean = true,
 )
 
 data class PocketExamOption(val text: String, val value: String)

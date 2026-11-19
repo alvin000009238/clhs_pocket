@@ -56,7 +56,11 @@ internal object DemoCampus {
 
     val defaultCountdownEventIds: Set<String> = setOf("demo-e3", "demo-e5")
 
-    fun sharedAnnouncements(clock: PocketClock): List<SchoolAnnouncement> {
+    fun sharedAnnouncements(clock: PocketClock): List<SchoolAnnouncement> = PocketData.current.announcements(clock)
+
+    fun sharedEvents(clock: PocketClock): List<SchoolCalendarEvent> = PocketData.current.events(clock)
+
+    fun demoAnnouncements(clock: PocketClock): List<SchoolAnnouncement> {
         val today = clock.date()
         val seeded = FakeData.announcementPage.announcements.map {
             it.copy(title = it.title.replace("八月", ""), date = today.shiftDays(-1).slashText())
@@ -69,7 +73,7 @@ internal object DemoCampus {
         }
     }
 
-    fun sharedEvents(clock: PocketClock): List<SchoolCalendarEvent> {
+    fun demoEvents(clock: PocketClock): List<SchoolCalendarEvent> {
         val today = clock.date()
         val midnight = localTimeOf(0, 0)
         return calendar.map {
