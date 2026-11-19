@@ -13,6 +13,7 @@ final class URLSessionTransport: NSObject, HttpTransport, URLSessionDataDelegate
         let limit: Int64
         var data = Data()
         var tooLarge = false
+        var redirect: HTTPURLResponse?
 
         init(callback: HttpCallback, limit: Int64) {
             self.callback = callback
@@ -90,6 +91,7 @@ final class URLSessionTransport: NSObject, HttpTransport, URLSessionDataDelegate
         _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
         newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
     ) {
+        lock.withLock { pending[task.taskIdentifier]?.redirect = response }
         completionHandler(nil)
     }
 
@@ -115,11 +117,11 @@ final class URLSessionTransport: NSObject, HttpTransport, URLSessionDataDelegate
             entry.callback.onFailure(failure: HttpFailure(kind: .tooLarge, message: "Response too large"))
             return
         }
-        if let error {
+        if let error, entry.redirect == nil {
             entry.callback.onFailure(failure: Self.failure(for: error))
             return
         }
-        guard let response = task.response as? HTTPURLResponse, let url = response.url else {
+        guard let response = entry.redirect ?? (task.response as? HTTPURLResponse), let url = response.url else {
             entry.callback.onFailure(failure: HttpFailure(kind: .connection, message: "No HTTP response"))
             return
         }
