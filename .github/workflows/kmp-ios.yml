@@ -25,10 +25,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-      - uses: android-actions/setup-android@v3
-      - name: Install Android SDK and XcodeGen
+      - name: Install Android SDK packages and XcodeGen
         run: |
-          sdkmanager "platforms;android-37" "build-tools;37.0.0"
+          # macos-26 already includes modern Android command-line tools.
+          # setup-android@v3 attempts to install the removed legacy 'tools' package.
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "build-tools;37.0.0"
           brew install xcodegen
           sudo xcode-select --switch /Applications/Xcode_26.4.app/Contents/Developer
       - name: Kotlin/Native common tests and framework compilation
