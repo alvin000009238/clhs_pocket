@@ -96,7 +96,17 @@ struct AnnouncementListView: View {
 
 struct AnnouncementDetailView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
     let id: String
+    @State private var loadingDetail = true
+    @State private var attachmentNotice = false
+
+    private func loadDetail() async {
+        guard model.usesLiveData, let live = model.live else { return }
+        loadingDetail = true
+        await live.loadAnnouncementDetail(id: id, category: "")
+        loadingDetail = false
+    }
 
     var body: some View {
         let detail = PocketCampusStore.shared.announcementDetail(clock: model.clock, id: id)
@@ -136,32 +146,64 @@ struct AnnouncementDetailView: View {
                                 VStack(spacing: 0) {
                                     ForEach(Array(detail.attachments.enumerated()), id: \.element.name) { index, file in
                                         if index > 0 { PocketRowDivider().padding(.leading, 60) }
-                                        HStack(spacing: 12) {
-                                            PocketIconTile(systemImage: "doc.fill", size: 36)
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(file.name).font(.body.weight(.medium)).foregroundStyle(PocketColor.onSurface)
-                                                Text(file.sizeText).font(.footnote).monospacedDigit().foregroundStyle(PocketColor.onSurfaceVariant)
+                                        Button {
+                                            if let url = URL(string: file.url), url.scheme == "https" || url.scheme == "http" {
+                                                openURL(url)
+                                            } else {
+                                                attachmentNotice = true
                                             }
-                                            Spacer(minLength: 0)
+                                        } label: {
+                                            HStack(spacing: 12) {
+                                                PocketIconTile(systemImage: "doc.fill", size: 36)
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(file.name).font(.body.weight(.medium)).foregroundStyle(PocketColor.onSurface)
+                                                        .multilineTextAlignment(.leading)
+                                                    if !file.sizeText.isEmpty {
+                                                        Text(file.sizeText).font(.footnote).monospacedDigit().foregroundStyle(PocketColor.onSurfaceVariant)
+                                                    }
+                                                }
+                                                Spacer(minLength: 0)
+                                                Image(systemName: "arrow.up.right.square")
+                                                    .foregroundStyle(PocketColor.primary)
+                                                    .accessibilityHidden(true)
+                                            }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .frame(minHeight: 44)
+                                            .contentShape(.rect)
                                         }
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
+                                        .buttonStyle(.plain)
                                         .accessibilityElement(children: .combine)
+                                        .accessibilityHint("開啟附件")
+                                        .accessibilityIdentifier("attachment-\(index)")
                                     }
                                 }
                             }
-                            Text("示範資料不含實際檔案。")
-                                .font(.footnote)
-                                .foregroundStyle(PocketColor.onSurfaceVariant)
-                                .padding(.horizontal, 4)
+                            if !model.usesLiveData {
+                                Text("示範資料不含實際檔案。")
+                                    .font(.footnote)
+                                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                                    .padding(.horizontal, 4)
+                            }
                         }
                     }
                 }
                 .frame(maxWidth: 720, alignment: .leading)
                 .pocketPage()
+            } else if model.usesLiveData {
+                PocketPendingView(isLoading: loadingDetail, title: "無法載入公告內容", message: model.live?.lastError) {
+                    Task { await loadDetail() }
+                }
+                .pocketPage()
             } else {
                 ContentUnavailableView("找不到這則公告", systemImage: "questionmark.circle")
             }
+        }
+        .task { await loadDetail() }
+        .alert("示範附件", isPresented: $attachmentNotice) {
+            Button("好") {}
+        } message: {
+            Text("示範資料不含實際檔案；使用真實資料時會開啟學校網站上的附件。")
         }
         .background(PocketColor.background.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
@@ -356,6 +398,7 @@ struct StudentRecordsView: View {
     @Environment(AppModel.self) private var model
     let kind: Kind
     @State private var semester = 0
+    @State private var loadingRecords = false
 
     private var title: String { kind == .attendance ? "出缺勤" : "獎懲紀錄" }
 
@@ -385,6 +428,12 @@ struct StudentRecordsView: View {
         let records = kind == .attendance
             ? store.attendance(semesterIndex: Int32(semester)) : store.merits(semesterIndex: Int32(semester))
         return ScrollView {
+            if records.semesters.isEmpty {
+                PocketPendingView(
+                    isLoading: model.live?.isLoadingPrivate ?? false, title: "紀錄尚未載入", message: model.live?.lastError
+                ) { Task { await model.refreshLiveData(force: true) } }
+                .pocketPage()
+            } else {
             VStack(alignment: .leading, spacing: PocketMetrics.sectionSpacing) {
                 Menu {
                     ForEach(Array(records.semesters.enumerated()), id: \.offset) { index, label in
@@ -410,6 +459,11 @@ struct StudentRecordsView: View {
                 .accessibilityLabel("選擇學期，目前為\(records.semesters[Int(records.semesterIndex)])")
                 .accessibilityIdentifier("records-semester")
 
+                if !records.isLoaded {
+                    PocketPendingView(isLoading: loadingRecords, title: "這個學期的紀錄尚未載入", message: model.live?.lastError) {
+                        Task { await loadRecords() }
+                    }
+                } else {
                 PocketColumns {
                     if !records.summary.isEmpty {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: PocketMetrics.cardSpacing)], spacing: PocketMetrics.cardSpacing) {
@@ -451,9 +505,20 @@ struct StudentRecordsView: View {
                         }
                     }
                 }
+                }
             }
             .pocketPage()
+            }
         }
+        .refreshable { await model.refreshLiveData(force: true) }
+        .task(id: "\(semester)-\(records.semesters.count)") { await loadRecords() }
+    }
+
+    private func loadRecords() async {
+        guard model.usesLiveData, let live = model.live else { return }
+        loadingRecords = true
+        await live.loadRecords(semesterIndex: semester)
+        loadingRecords = false
     }
 }
 

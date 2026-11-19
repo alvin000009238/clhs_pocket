@@ -7,6 +7,7 @@ struct ScheduleView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var showsSemester = false
     @State private var classValue = ""
+    @State private var loadingClass = false
     @State private var weekOffset = 0
     @State private var selectedCell: PocketScheduleCell?
 
@@ -28,9 +29,18 @@ struct ScheduleView: View {
 
                 header(schedule)
 
-                ScheduleGrid(schedule: schedule) { selectedCell = $0 }
-                    .padding(sizeClass == .regular ? 16 : 8)
-                    .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
+                if schedule.isAvailable {
+                    ScheduleGrid(schedule: schedule) { selectedCell = $0 }
+                        .padding(sizeClass == .regular ? 16 : 8)
+                        .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
+                } else {
+                    PocketPendingView(
+                        isLoading: model.live?.isLoadingPrivate ?? false || loadingClass,
+                        title: weekOffset == 0 ? "課表尚未載入" : "只提供本週課表",
+                        message: weekOffset == 0 ? model.live?.lastError : "其他週次請改看學期課表。",
+                        retry: weekOffset == 0 ? { Task { await model.refreshLiveData(force: true) } } : nil
+                    )
+                }
 
                 Text("點選課程可查看教師與教室，也可以自訂顯示名稱。")
                     .font(.footnote)
@@ -38,6 +48,13 @@ struct ScheduleView: View {
                     .padding(.horizontal, 4)
             }
             .pocketPage()
+        }
+        .refreshable { await model.refreshLiveData(force: true) }
+        .task(id: classValue) {
+            guard !classValue.isEmpty, let live = model.live, model.usesLiveData else { return }
+            loadingClass = true
+            await live.loadSchedule(classValue: classValue)
+            loadingClass = false
         }
         .navigationTitle(PocketTab.schedule.title)
         .toolbar {

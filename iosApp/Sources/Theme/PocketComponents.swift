@@ -166,3 +166,48 @@ struct PocketBrandMark: View {
         .accessibilityLabel("壢中 Pocket")
     }
 }
+
+/// Placeholder for content that real data has not delivered yet: a spinner while loading,
+/// otherwise the reason and a retry.
+struct PocketPendingView: View {
+    let isLoading: Bool
+    let title: String
+    var message: String?
+    var retry: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if isLoading {
+                ProgressView()
+                    .controlSize(.large)
+                Text("載入中…")
+                    .font(.subheadline)
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+            } else {
+                Image(systemName: "icloud.slash")
+                    .font(.largeTitle)
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(PocketFont.cardTitle)
+                    .foregroundStyle(PocketColor.onSurface)
+                if let message {
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                        .multilineTextAlignment(.center)
+                }
+                if let retry {
+                    Button("重試", action: retry)
+                        .buttonStyle(.borderedProminent)
+                        .padding(.top, 4)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+        .padding(.horizontal, 24)
+        .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}

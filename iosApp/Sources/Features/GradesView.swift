@@ -6,13 +6,22 @@ struct GradesView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var examValue: String?
+    @State private var loadingExam = false
 
     var body: some View {
         let source = model.dataSource
         let report = source.grades(examValue: examValue ?? source.defaultExamValue())
         ScrollView {
             VStack(alignment: .leading, spacing: PocketMetrics.sectionSpacing) {
-                examPicker(report: report, terms: source.gradeTerms())
+                if !source.gradeTerms().isEmpty {
+                    examPicker(report: report, terms: source.gradeTerms())
+                }
+                if !report.isLoaded {
+                    PocketPendingView(
+                        isLoading: model.live?.isLoadingPrivate ?? false || loadingExam,
+                        title: "成績尚未載入", message: model.live?.lastError
+                    ) { Task { await model.refreshLiveData(force: true) } }
+                } else {
                 PocketColumns {
                     VStack(spacing: PocketMetrics.cardSpacing) {
                         GradeSummaryCard(report: report)
@@ -59,8 +68,16 @@ struct GradesView: View {
                             .padding(.top, 4)
                     }
                 }
+                }
             }
             .pocketPage()
+        }
+        .refreshable { await model.refreshLiveData(force: true) }
+        .task(id: report.examValue + (report.isLoaded ? "" : "?")) {
+            guard !report.isLoaded, !report.examValue.isEmpty, let live = model.live else { return }
+            loadingExam = true
+            await live.loadReport(examValue: report.examValue)
+            loadingExam = false
         }
         .navigationTitle(PocketTab.grades.title)
     }
