@@ -1,5 +1,7 @@
 package com.clhs.score.shared.app
 
+import com.clhs.score.data.FakeData
+
 /**
  * Deterministic synthetic data for the Demo configuration.
  *
@@ -9,13 +11,15 @@ package com.clhs.score.shared.app
 internal class DemoPocketDataSource : PocketDataSource {
     override val isDemo: Boolean = true
 
-    override fun profile(): PocketProfile = PocketProfile(
-        studentName = "範例學生",
-        className = "示範班級",
-        seatNo = "00",
-        studentNo = "DEMO-000",
-        isDemo = true,
-    )
+    override fun profile(): PocketProfile = FakeData.latestReport().studentInfo.let {
+        PocketProfile(
+            studentName = it.studentName,
+            className = it.className,
+            seatNo = it.seatNo,
+            studentNo = it.studentNo,
+            isDemo = true,
+        )
+    }
 
     override fun home(clock: PocketClock): PocketHome {
         val announcements = DemoCampus.announcements(clock)

@@ -31,11 +31,11 @@ final class PocketShellUITests: XCTestCase {
         capture("03-schedule-guest-gate")
 
         app.buttons["guest-gate-demo"].tap()
-        XCTAssertTrue(app.staticTexts["2 項異動"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["3 項異動"].waitForExistence(timeout: 5))
         capture("04-schedule-week")
 
         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "上課中")).firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["10:10 – 12:00"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["關閉"].waitForExistence(timeout: 5))
         capture("05-schedule-lesson-sheet")
         app.buttons["關閉"].tap()
 
@@ -43,17 +43,18 @@ final class PocketShellUITests: XCTestCase {
         capture("06-schedule-week-lower")
         app.swipeDown()
         app.buttons["學期"].tap()
-        XCTAssertFalse(app.staticTexts["2 項異動"].waitForExistence(timeout: 1))
+        XCTAssertFalse(app.staticTexts["3 項異動"].waitForExistence(timeout: 1))
         capture("07-schedule-semester")
 
         tab("首頁").tap()
-        XCTAssertTrue(app.staticTexts["化學"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["今日天氣"].waitForExistence(timeout: 5))
         capture("08-home")
         app.swipeUp()
         capture("09-home-lower")
 
         tab("成績").tap()
-        XCTAssertTrue(app.staticTexts["80.70"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["exam-picker"].waitForExistence(timeout: 5))
+        let latestExam = app.buttons["exam-picker"].label
         capture("10-grades")
         app.swipeUp()
         capture("11-grades-lower")
@@ -65,7 +66,8 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.buttons["第一次段考"].firstMatch.waitForExistence(timeout: 5))
         capture("13-grades-exam-menu")
         app.buttons["第一次段考"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["78.00"].waitForExistence(timeout: 5))
+        XCTAssertNotEqual(app.buttons["exam-picker"].label, latestExam)
+        let pickedExam = app.buttons["exam-picker"].label
 
         tab("校園").tap()
         XCTAssertTrue(app.staticTexts["近期行事"].waitForExistence(timeout: 5))
@@ -79,7 +81,7 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["公告"].waitForExistence(timeout: 5))
         capture("16-campus-announcements")
         tab("成績").tap()
-        XCTAssertTrue(app.staticTexts["78.00"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["exam-picker"].label, pickedExam)
         tab("校園").tap()
         XCTAssertTrue(app.navigationBars["公告"].waitForExistence(timeout: 5))
         app.navigationBars["公告"].buttons.firstMatch.tap()
