@@ -45,3 +45,8 @@ actual typealias Instant = java.time.Instant
 actual fun instantOfEpochMilli(epochMilli: Long): Instant = java.time.Instant.ofEpochMilli(epochMilli)
 actual fun parseInstant(text: String): Instant = java.time.Instant.parse(text)
 actual fun Instant.epochMillis(): Long = toEpochMilli()
+
+actual fun LocalTime.nanoOfDayValue(): Long = toNanoOfDay()
+actual fun LocalDateTime.shiftNanos(nanos: Long): LocalDateTime = plusNanos(nanos)
+actual fun isValidTimeZoneId(id: String): Boolean = runCatching { java.time.ZoneId.of(id) }.isSuccess
+actual fun randomUuidString(): String = java.util.UUID.randomUUID().toString()

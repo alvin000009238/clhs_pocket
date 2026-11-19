@@ -81,3 +81,26 @@ expect fun parseInstant(text: String): Instant
 expect fun Instant.epochMillis(): Long
 
 fun currentInstant(): Instant = instantOfEpochMilli(currentEpochMillis())
+
+expect fun LocalTime.nanoOfDayValue(): Long
+expect fun LocalDateTime.shiftNanos(nanos: Long): LocalDateTime
+
+/** Signed nanoseconds from this date-time to [other], like `Duration.between`. */
+fun LocalDateTime.nanosUntil(other: LocalDateTime): Long =
+    datePart().daysUntil(other.datePart()) * NANOS_PER_DAY +
+        (other.timePart().nanoOfDayValue() - timePart().nanoOfDayValue())
+
+const val NANOS_PER_MINUTE = 60_000_000_000L
+const val NANOS_PER_HOUR = 60 * NANOS_PER_MINUTE
+const val NANOS_PER_DAY = 24 * NANOS_PER_HOUR
+
+/** Zero-padded `HH:mm`. */
+fun LocalTime.hourMinuteText(): String =
+    "${hourNumber().toString().padStart(2, '0')}:${minuteNumber().toString().padStart(2, '0')}"
+
+/** Whether the platform recognises [id] as a time zone. */
+expect fun isValidTimeZoneId(id: String): Boolean
+expect fun randomUuidString(): String
+
+/** Chronological order; `java.time.LocalDateTime` is not `Comparable<LocalDateTime>` in common code. */
+val LOCAL_DATE_TIME_ORDER: Comparator<LocalDateTime> = Comparator { a, b -> a.compareTo(b) }

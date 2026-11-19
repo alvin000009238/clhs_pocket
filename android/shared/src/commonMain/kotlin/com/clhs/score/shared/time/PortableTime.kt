@@ -151,6 +151,15 @@ class PortableLocalDateTime(val date: PortableLocalDate, val time: PortableLocal
     override fun hashCode(): Int = 31 * date.hashCode() + time.hashCode()
     override fun toString(): String = "${date}T$time"
 
+    fun plusNanos(nanos: Long): PortableLocalDateTime {
+        val total = time.nanoOfDay + nanos.mod(PortableLocalTime.NANOS_PER_DAY)
+        val days = nanos.floorDiv(PortableLocalTime.NANOS_PER_DAY) + total.floorDiv(PortableLocalTime.NANOS_PER_DAY)
+        return PortableLocalDateTime(
+            date.plusDays(days),
+            PortableLocalTime.ofNanoOfDay(total.mod(PortableLocalTime.NANOS_PER_DAY)),
+        )
+    }
+
     fun toEpochSecond(offsetSeconds: Int): Long =
         date.epochDay * 86_400 + time.toSecondOfDay() - offsetSeconds
 

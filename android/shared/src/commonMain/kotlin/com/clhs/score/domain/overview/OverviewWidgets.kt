@@ -1,5 +1,30 @@
 package com.clhs.score.domain.overview
 
+import com.clhs.score.shared.time.LOCAL_DATE_TIME_ORDER
+import com.clhs.score.shared.time.Instant
+import com.clhs.score.shared.time.LocalDate
+import com.clhs.score.shared.time.LocalDateTime
+import com.clhs.score.shared.time.NANOS_PER_DAY
+import com.clhs.score.shared.time.NANOS_PER_HOUR
+import com.clhs.score.shared.time.NANOS_PER_MINUTE
+import com.clhs.score.shared.time.at
+import com.clhs.score.shared.time.compareTo
+import com.clhs.score.shared.time.datePart
+import com.clhs.score.shared.time.dayNumber
+import com.clhs.score.shared.time.daysUntil
+import com.clhs.score.shared.time.epochDay
+import com.clhs.score.shared.time.hourMinuteText
+import com.clhs.score.shared.time.isValidTimeZoneId
+import com.clhs.score.shared.time.monthNumber
+import com.clhs.score.shared.time.nanosUntil
+import com.clhs.score.shared.time.parseLocalDate
+import com.clhs.score.shared.time.parseLocalDateOrNull
+import com.clhs.score.shared.time.parseLocalTime
+import com.clhs.score.shared.time.randomUuidString
+import com.clhs.score.shared.time.schoolNow
+import com.clhs.score.shared.time.shiftNanos
+import com.clhs.score.shared.time.timePart
+import com.clhs.score.shared.time.yearNumber
 import com.clhs.score.data.AppSettings
 import com.clhs.score.data.OverviewPreferences
 import com.clhs.score.data.SchoolCalendarEvent
@@ -10,16 +35,10 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.time.Duration
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.ZoneId
-import java.time.temporal.ChronoUnit
-import java.util.UUID
 
-internal val OverviewLayoutJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+val OverviewLayoutJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-internal fun OverviewWidgetConfig.Weather.resourceKey(): String = OverviewLayoutJson.encodeToString(this)
+fun OverviewWidgetConfig.Weather.resourceKey(): String = OverviewLayoutJson.encodeToString(this)
 
 @Serializable
 data class OverviewWidgetSize(val columns: Int, val rows: Int)
@@ -80,7 +99,7 @@ data class OverviewWidgetInstance(
     companion object {
         fun create(type: String, config: OverviewWidgetConfig = OverviewWidgetConfig.None): OverviewWidgetInstance {
             val definition = requireNotNull(OverviewWidgetDefinitions[type])
-            return OverviewWidgetInstance(UUID.randomUUID().toString(), type, definition.defaultSize).withConfig(config)
+            return OverviewWidgetInstance(randomUuidString(), type, definition.defaultSize).withConfig(config)
         }
     }
 }
@@ -91,7 +110,7 @@ private fun OverviewWidgetConfig.isValid(): Boolean = when (this) {
     is OverviewWidgetConfig.Weather -> location.id.isNotBlank() && location.name.isNotBlank() &&
         location.latitude.isFinite() && location.latitude in -90.0..90.0 &&
         location.longitude.isFinite() && location.longitude in -180.0..180.0 &&
-        runCatching { ZoneId.of(location.timezoneId) }.isSuccess &&
+        isValidTimeZoneId(location.timezoneId) &&
         (source != WeatherSource.CWA || (location.supportsCwa &&
             !location.cwaDataset.isNullOrBlank() && !location.cwaLocationName.isNullOrBlank()))
     is OverviewWidgetConfig.YouBike -> station.id.isNotBlank() && station.name.isNotBlank() &&
@@ -99,13 +118,13 @@ private fun OverviewWidgetConfig.isValid(): Boolean = when (this) {
         station.longitude.let { longitude -> longitude == null || (longitude.isFinite() && longitude in -180.0..180.0) }
     is OverviewWidgetConfig.SchoolEvent -> eventId.isNotBlank()
     is OverviewWidgetConfig.CustomCountdown -> title.isNotBlank() && runCatching {
-        LocalDate.parse(date)
-        time?.let(LocalTime::parse)
+        parseLocalDate(date)
+        time?.let(::parseLocalTime)
     }.isSuccess
     is OverviewWidgetConfig.ListItems -> limit in 1..20 &&
         announcementPriority.size == AnnouncementPriority.entries.size &&
         announcementPriority.toSet() == AnnouncementPriority.entries.toSet() &&
-        (maxEventDurationDays == null || maxEventDurationDays > 0)
+        maxEventDurationDays.let { days -> days == null || days > 0 }
 }
 
 data class OverviewWidgetDefinition(val type: String, val title: String, val icon: String,
@@ -146,7 +165,7 @@ fun importOverviewWidgets(settings: AppSettings, events: List<SchoolCalendarEven
             "calendar" -> listOf(OverviewWidgetInstance.create(section, OverviewWidgetConfig.ListItems(prefs.calendarLimit.coerceIn(1, 20))))
             "announcements" -> listOf(OverviewWidgetInstance.create(section, OverviewWidgetConfig.ListItems(prefs.announcementLimit.coerceIn(1, 20))))
             "countdown" -> prefs.countdownEventIds.sortedWith(compareBy<String> { it !in eventsById }
-                .thenBy { eventsById[it]?.start }
+                .thenBy(nullsFirst(LOCAL_DATE_TIME_ORDER)) { eventsById[it]?.start }
                 .thenBy { it }).map { id -> OverviewWidgetInstance.create(section,
                     OverviewWidgetConfig.SchoolEvent(id, eventsById[id]?.title.orEmpty())) }
             else -> listOf(OverviewWidgetInstance.create(section))
@@ -210,17 +229,14 @@ fun OverviewWidgetInstance.countdownItem(state: OverviewState): OverviewItem? = 
     is OverviewWidgetConfig.SchoolEvent -> state.withPreferences(OverviewPreferences(countdownEventIds = setOf(config.eventId)))
         .countdowns.firstOrNull()?.copy(id = id)
     is OverviewWidgetConfig.CustomCountdown -> runCatching {
-        val date = LocalDate.parse(config.date)
-        val time = config.time?.let(LocalTime::parse)
+        val date = parseLocalDate(config.date)
+        val time = config.time?.let(::parseLocalTime)
         val label = if (time == null) {
-            val days = ChronoUnit.DAYS.between(state.now.toLocalDate(), date)
+            val days = state.now.datePart().daysUntil(date)
             when { days < 0 -> "已到期"; days == 0L -> "今天"; else -> "$days 天" }
         } else {
-            val remaining = Duration.between(state.now, date.atTime(time))
-            when { remaining.isNegative || remaining.isZero -> "已到期"
-                remaining.toDays() > 0 -> "${remaining.toDays()} 天"
-                remaining.toHours() > 0 -> "${remaining.toHours()} 小時"
-                else -> "${remaining.toMinutes().coerceAtLeast(1)} 分鐘" }
+            val remaining = state.now.nanosUntil(date.at(time))
+            if (remaining <= 0) "已到期" else remainingLabel(remaining)
         }
         OverviewItem(id, OverviewPriority.P1, OverviewItemKind.CalendarEvent, config.title,
             config.date + (config.time?.let { " $it" } ?: ""), label, "calendar_today", OverviewDestination.Calendar,

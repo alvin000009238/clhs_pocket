@@ -463,8 +463,9 @@ fun AppShell(
                                     pendingGradeTarget = destination.yearValue to destination.examValue
                                 }
                                 is OverviewDestination.Announcement -> {
-                                    if (destination.externalUrl != null) {
-                                        if (context.openAnnouncementUrl(destination.externalUrl)) {
+                                    val externalUrl = destination.externalUrl
+                                    if (externalUrl != null) {
+                                        if (context.openAnnouncementUrl(externalUrl)) {
                                             announcementReminderViewModel.markRead(destination.id)
                                         }
                                     } else {

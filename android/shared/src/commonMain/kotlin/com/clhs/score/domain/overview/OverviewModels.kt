@@ -1,19 +1,35 @@
 package com.clhs.score.domain.overview
 
+import com.clhs.score.shared.time.LOCAL_DATE_TIME_ORDER
+import com.clhs.score.shared.time.Instant
+import com.clhs.score.shared.time.LocalDate
+import com.clhs.score.shared.time.LocalDateTime
+import com.clhs.score.shared.time.NANOS_PER_DAY
+import com.clhs.score.shared.time.NANOS_PER_HOUR
+import com.clhs.score.shared.time.NANOS_PER_MINUTE
+import com.clhs.score.shared.time.at
+import com.clhs.score.shared.time.compareTo
+import com.clhs.score.shared.time.datePart
+import com.clhs.score.shared.time.dayNumber
+import com.clhs.score.shared.time.daysUntil
+import com.clhs.score.shared.time.epochDay
+import com.clhs.score.shared.time.hourMinuteText
+import com.clhs.score.shared.time.isValidTimeZoneId
+import com.clhs.score.shared.time.monthNumber
+import com.clhs.score.shared.time.nanosUntil
+import com.clhs.score.shared.time.parseLocalDate
+import com.clhs.score.shared.time.parseLocalDateOrNull
+import com.clhs.score.shared.time.parseLocalTime
+import com.clhs.score.shared.time.randomUuidString
+import com.clhs.score.shared.time.schoolNow
+import com.clhs.score.shared.time.shiftNanos
+import com.clhs.score.shared.time.timePart
+import com.clhs.score.shared.time.yearNumber
 import com.clhs.score.data.OverviewPreferences
 import com.clhs.score.data.SchoolCalendarEvent
 import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.WeatherSource
 import com.clhs.score.data.YouBikeState
-import java.time.LocalDateTime
-import java.time.LocalDate
-import java.time.Duration
-import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
-import java.time.Instant
-import java.time.ZoneId
-
-internal val SCHOOL_ZONE: ZoneId = ZoneId.of("Asia/Taipei")
 
 enum class OverviewPriority { P0, P1, P2, P3 }
 
@@ -35,7 +51,7 @@ enum class OverviewItemKind {
     Announcement,
 }
 
-internal fun OverviewItemKind.isPrivate(): Boolean = when (this) {
+fun OverviewItemKind.isPrivate(): Boolean = when (this) {
     OverviewItemKind.CalendarEvent, OverviewItemKind.Announcement -> false
     else -> true
 }
@@ -59,7 +75,7 @@ data class OverviewItem(
     val icon: String,
     val destination: OverviewDestination,
     val eventTime: LocalDateTime? = null,
-    internal val order: Int = 0,
+    val order: Int = 0,
     val displayDate: LocalDate? = null,
 )
 
@@ -71,7 +87,7 @@ data class OverviewState(
     val preferences: OverviewPreferences = OverviewPreferences(),
     val calendarEvents: List<SchoolCalendarEvent> = emptyList(),
     val announcements: List<SchoolAnnouncement> = emptyList(),
-    val now: LocalDateTime = LocalDateTime.now(SCHOOL_ZONE),
+    val now: LocalDateTime = schoolNow(),
     val countdowns: List<OverviewItem> = emptyList(),
     val context: OverviewContext = OverviewContext.NonSchoolDay,
     val items: List<OverviewItem> = emptyList(),
@@ -94,7 +110,7 @@ data class OverviewState(
 )
 
 /** Also used at the render boundary before asynchronous auth collectors can run. */
-internal fun OverviewState.forGeneration(generation: Long?): OverviewState =
+fun OverviewState.forGeneration(generation: Long?): OverviewState =
     if (generation != null && authGeneration == generation) this else copy(
         hero = null,
         items = items.filterNot { it.kind.isPrivate() },
@@ -140,44 +156,51 @@ data class WeatherSnapshot(
     val minimumTemperatureCelsius: Int? = null,
 )
 
-internal fun OverviewState.withPreferences(value: OverviewPreferences): OverviewState {
+fun OverviewState.withPreferences(value: OverviewPreferences): OverviewState {
     val countdowns = if (value.countdownEventIds.isEmpty()) emptyList() else calendarEvents.filter { it.id in value.countdownEventIds }
-        .sortedWith(compareBy<SchoolCalendarEvent> { !now.isBefore(it.endExclusive) }.thenBy { it.start })
+        .sortedWith(compareBy<SchoolCalendarEvent> { now >= it.endExclusive }.thenBy(LOCAL_DATE_TIME_ORDER) { it.start })
         .map {
-            val ended = !now.isBefore(it.endExclusive)
-            val ongoing = !now.isBefore(it.start)
+            val ended = now >= it.endExclusive
+            val ongoing = now >= it.start
             val target = if (ongoing || ended) it.endExclusive else it.start
             // ICS all-day DTEND is exclusive; show the last active calendar day.
-            val displayTarget = if ((ongoing || ended) && it.isAllDay) target.minusNanos(1) else target
+            val displayTarget = if ((ongoing || ended) && it.isAllDay) target.shiftNanos(-1) else target
             val label = when {
                 ended -> "已結束"
                 ongoing && it.isAllDay -> "進行中"
-                it.isAllDay -> ChronoUnit.DAYS.between(now.toLocalDate(), displayTarget.toLocalDate()).let { days ->
+                it.isAllDay -> now.datePart().daysUntil(displayTarget.datePart()).let { days ->
                     if (days == 0L) "今天" else "$days 天"
                 }
-                else -> Duration.between(now, target).let { remaining ->
-                    when {
-                        remaining.toDays() > 0 -> "${remaining.toDays()} 天"
-                        remaining.toHours() > 0 -> "${remaining.toHours()} 小時"
-                        else -> "${remaining.toMinutes().coerceAtLeast(1)} 分鐘"
-                    }
-                }
+                else -> remainingLabel(now.nanosUntil(target))
             }
             OverviewItem(
                 id = "countdown-${it.id}", priority = OverviewPriority.P1,
                 kind = OverviewItemKind.CalendarEvent, title = it.title,
-                supportingText = displayTarget.format(DateTimeFormatter.ofPattern(
-                    (if (displayTarget.year != now.year) "yyyy/M/d" else "M/d") + if (it.isAllDay) "" else " HH:mm",
-                )) + if (ongoing || ended) " 結束" else " 開始",
+                supportingText = displayTarget.countdownText(includeYear = displayTarget.datePart().yearNumber() != now.datePart().yearNumber(), includeTime = !it.isAllDay) +
+                    if (ongoing || ended) " 結束" else " 開始",
                 label = label, icon = "calendar_today",
                 destination = OverviewDestination.CalendarEvent(it.id), eventTime = it.start,
-                displayDate = displayTarget.toLocalDate(),
+                displayDate = displayTarget.datePart(),
             )
         }
     val calendar = items.filter { it.kind == OverviewItemKind.CalendarEvent }
-        .sortedBy { it.eventTime }.take(value.calendarLimit.coerceIn(1, 20))
+        .sortedWith(compareBy(nullsFirst(LOCAL_DATE_TIME_ORDER)) { it.eventTime }).take(value.calendarLimit.coerceIn(1, 20))
     val announcements = items.filter { it.kind == OverviewItemKind.Announcement }
         .take(value.announcementLimit.coerceIn(1, 20))
     val other = items.filter { it.kind != OverviewItemKind.CalendarEvent && it.kind != OverviewItemKind.Announcement }
     return copy(preferences = value, countdowns = countdowns, items = other + calendar + announcements)
+}
+
+/** Positive remaining time as whole days, else whole hours, else at least one minute. */
+fun remainingLabel(remainingNanos: Long): String = when {
+    remainingNanos / NANOS_PER_DAY > 0 -> "${remainingNanos / NANOS_PER_DAY} 天"
+    remainingNanos / NANOS_PER_HOUR > 0 -> "${remainingNanos / NANOS_PER_HOUR} 小時"
+    else -> "${(remainingNanos / NANOS_PER_MINUTE).coerceAtLeast(1)} 分鐘"
+}
+
+/** `M/d`, optionally prefixed with the year and followed by ` HH:mm`. */
+private fun LocalDateTime.countdownText(includeYear: Boolean, includeTime: Boolean): String {
+    val date = datePart()
+    return (if (includeYear) "${date.yearNumber().toString().padStart(4, '0')}/" else "") +
+        "${date.monthNumber()}/${date.dayNumber()}" + if (includeTime) " ${timePart().hourMinuteText()}" else ""
 }

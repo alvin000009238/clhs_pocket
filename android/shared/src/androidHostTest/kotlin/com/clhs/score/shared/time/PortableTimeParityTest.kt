@@ -46,6 +46,9 @@ class PortableTimeParityTest {
             assertEquals(javaDateTime.toLocalDate().toString(), portable.date.toString())
             assertEquals(javaDateTime.toLocalTime().toString(), portable.time.toString())
             assertEquals(millis / 1000, portable.toEpochSecond(SCHOOL_UTC_OFFSET_SECONDS))
+            val shift = random.nextLong(-400_000_000_000_000L, 400_000_000_000_000L)
+            val shifted = portable.plusNanos(shift)
+            assertEquals(javaDateTime.plusNanos(shift).toString().take(19), "${shifted.date}T${shifted.time}:00".take(19))
         }
     }
 

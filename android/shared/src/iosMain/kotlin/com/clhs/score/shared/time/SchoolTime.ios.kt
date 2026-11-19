@@ -2,6 +2,10 @@
 
 package com.clhs.score.shared.time
 
+import platform.Foundation.NSTimeZone
+import platform.Foundation.NSUUID
+import platform.Foundation.timeZoneWithName
+
 actual typealias DayOfWeek = PortableDayOfWeek
 actual typealias LocalDate = PortableLocalDate
 actual typealias LocalTime = PortableLocalTime
@@ -44,3 +48,8 @@ actual typealias Instant = PortableInstant
 actual fun instantOfEpochMilli(epochMilli: Long): Instant = PortableInstant.ofEpochMilli(epochMilli)
 actual fun parseInstant(text: String): Instant = PortableInstant.parse(text)
 actual fun Instant.epochMillis(): Long = epochMilli
+
+actual fun LocalTime.nanoOfDayValue(): Long = nanoOfDay
+actual fun LocalDateTime.shiftNanos(nanos: Long): LocalDateTime = plusNanos(nanos)
+actual fun isValidTimeZoneId(id: String): Boolean = NSTimeZone.timeZoneWithName(id) != null
+actual fun randomUuidString(): String = NSUUID().UUIDString.lowercase()

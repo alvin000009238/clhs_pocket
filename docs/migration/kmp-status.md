@@ -49,6 +49,7 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 | 課程時段解析 | `CourseResolution.kt`（以 `Instant` 為輸入；Android 的 `Clock` 版本留在 `app` 的 `SchoolCourseClock.kt`） |
 | 範例資料 | `FakeData.kt`、`FakeScheduleData.kt`、`FakeRecordData.kt`（`FakeGradeRepository` 留在 `app` 的 `FakeGradeRepository.kt`） |
 | 設定模型 | `AppSettings.kt`（含 `OverviewPreferences`、`BackgroundPause`；以裝置時區判斷的 `BackgroundPause.contains` 留在 `app`） |
+| 首頁模型與小工具 | `domain/overview/OverviewModels.kt`（`OverviewState`、倒數計算）、`OverviewWidgets.kt`（小工具設定、版面配置）、`OverviewListSelection.kt`（重要公告與近期行程篩選）。`OverviewCoordinator`（資料彙整與更新排程）仍在 `app` |
 | 公告與行事曆模型 | `SchoolAnnouncementModels.kt`、`SchoolCalendarModels.kt`（解析與網路仍在 `app`） |
 
 `GradeAnalysisTest`、`SimulatorCreditsTest`、`GradeReportDifferTest`、`GradeSummaryDisplayTest` 已改用 `kotlin.test` 並搬到 `commonTest`，Android host 與 iOS 目標共用同一份測試。
@@ -61,10 +62,13 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 
 - `YouBikeSnapshot.isStale` 原本以 `Duration`（奈秒）比較 5 分鐘門檻，現在以毫秒比較。只有當下時間落在門檻後不到 1 毫秒時結果不同；既有的 `YouBikeRepositoryTest`（300 秒、301 秒、早 1 秒）通過，沒有另外為亞毫秒邊界新增測試。
 
+- 小工具設定的時區檢查在 Android 仍使用 `ZoneId.of`；iOS 使用 `NSTimeZone.timeZoneWithName`，兩者接受的識別字不完全相同（例如 `UTC+8` 這類偏移寫法），iOS 端尚未測試。
+- 公告收藏的網址檢查（`safeAnnouncementWebUrl`）依賴 OkHttp，仍在 `app`；iOS 需要自己的等效實作。
+
 ## 尚未搬移
 
 - 公告、行事曆、天氣、YouBike 的解析（目前與 OkHttp、Jsoup、biweekly 寫在同一個檔案，且使用 `java.time.Instant`／`Duration`）。
-- `domain/overview` 的模型與彙整邏輯、`SettingsTransfer.kt`。
+- `domain/overview/OverviewCoordinator.kt` 的彙整邏輯、`SettingsTransfer.kt`。
 - 給 iOS 使用的 transport 介面與 repository。
 
 ## 目前驗證結果（Linux）
