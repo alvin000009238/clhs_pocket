@@ -27,13 +27,11 @@ struct PersonalView: View {
                         .padding(12)
                     }
 
-                    PlatformSettingsSection()
-
                     section("設定") {
                         VStack(spacing: 0) {
                             navRow("bell.badge", "通知", model.notificationsEnabled ? "已開啟" : "已關閉") { NotificationSettingsView() }
                             PocketRowDivider().padding(.leading, 52)
-                            navRow("moon.zzz", "背景暫停時段", model.pauseEnabled ? "\(SettingsFormat.time(model.pauseStart)) – \(SettingsFormat.time(model.pauseEnd))" : "未啟用") { BackgroundPauseView() }
+                            navRow("moon.zzz", "安靜時段", model.pauseEnabled ? "\(SettingsFormat.time(model.pauseStart)) – \(SettingsFormat.time(model.pauseEnd))" : "未啟用") { BackgroundPauseView() }
                             PocketRowDivider().padding(.leading, 52)
                             navRow("cloud.sun", "天氣來源", SettingsFormat.weatherSources.first { $0.id == model.weatherSource }?.title ?? "") { WeatherSourceView() }
                             PocketRowDivider().padding(.leading, 52)
@@ -71,7 +69,7 @@ struct PersonalView: View {
                         }
                     }
 
-                    Text("此版本僅提供示範資料，不會連線到校務系統，也不會儲存任何帳號資訊。")
+                    Text(model.live != nil ? "非學校官方 App。登入資訊只保存在這台裝置的鑰匙圈，登出後會一併清除。" : "示範模式僅提供虛構資料，不會連線到校務系統，也不會儲存任何帳號資訊。")
                         .font(.footnote)
                         .foregroundStyle(PocketColor.onSurfaceVariant)
                         .padding(.horizontal, 4)

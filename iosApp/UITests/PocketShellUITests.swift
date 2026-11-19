@@ -314,7 +314,7 @@ final class PocketShellUITests: XCTestCase {
         capture("62-settings-notifications")
         app.navigationBars.buttons.firstMatch.tap()
 
-        open("settings-背景暫停時段")
+        open("settings-安靜時段")
         toggle("pause-enabled")
         XCTAssertTrue(app.staticTexts["開始"].waitForExistence(timeout: 5))
         capture("63-settings-pause")

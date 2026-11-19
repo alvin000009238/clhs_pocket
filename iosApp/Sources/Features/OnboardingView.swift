@@ -130,7 +130,7 @@ struct OnboardingView: View {
             case .notifications:
                 primary("開啟通知", id: "onboarding-notifications-allow") {
                     Task {
-                        model.notificationsEnabled = await model.services.notifications.requestAuthorization()
+                        _ = await model.enableNotifications()
                         go(to: .account)
                     }
                 }
@@ -465,7 +465,7 @@ struct GuestGateView: View {
                 }
                 .padding(.top, 28)
                 .accessibilityIdentifier("guest-gate-demo")
-                Text("校務系統登入將在後續版本提供。")
+                Text(model.live != nil ? "登入會開啟學校的校務系統頁面，密碼不會經過這個 App。" : "示範模式不會連線到校務系統。")
                     .font(.footnote)
                     .foregroundStyle(PocketColor.onSurfaceVariant)
                     .padding(.top, 12)

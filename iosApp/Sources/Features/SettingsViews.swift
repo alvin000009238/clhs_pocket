@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 enum SettingsFormat {
@@ -25,30 +26,95 @@ private struct SettingsForm<Content: View>: View {
     }
 }
 
+/// The one notifications page: permission, items, Live Activity and (in demo mode) test alerts.
+/// Every control writes `PlatformSettings` and asks the platform coordinator to re-plan.
 struct NotificationSettingsView: View {
     @Environment(AppModel.self) private var model
+    @State private var settings = PlatformSettings.shared
+    @State private var permissionDenied = false
+
+    private func binding(_ keyPath: ReferenceWritableKeyPath<PlatformSettings, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { settings[keyPath: keyPath] },
+            set: {
+                settings[keyPath: keyPath] = $0
+                model.platformSettingsChanged()
+            }
+        )
+    }
 
     var body: some View {
-        @Bindable var model = model
         SettingsForm(title: "通知") {
             Section {
                 Toggle("允許通知", isOn: Binding(
-                    get: { model.notificationsEnabled },
+                    get: { settings.notificationsEnabled },
                     set: { wanted in
-                        guard wanted else { model.notificationsEnabled = false; return }
-                        Task { model.notificationsEnabled = await model.services.notifications.requestAuthorization() }
+                        guard wanted else {
+                            settings.notificationsEnabled = false
+                            permissionDenied = false
+                            model.platformSettingsChanged()
+                            return
+                        }
+                        Task { permissionDenied = !(await model.enableNotifications()) }
                     }
                 ))
                 .accessibilityIdentifier("notifications-master")
+                if permissionDenied {
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    } label: {
+                        Label("通知權限已關閉，前往「設定」開啟", systemImage: "exclamationmark.triangle")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(PocketColor.warning)
+                    }
+                }
             } footer: {
-                Text("通知只在這台裝置上產生。此版本以示範服務代替系統通知權限。")
+                Text("通知只在這台裝置上產生，內容不包含分數與排名。")
             }
             Section("通知項目") {
-                Toggle("上課提醒", isOn: $model.notifyLessons)
-                Toggle("成績更新", isOn: $model.notifyGrades)
-                Toggle("重要公告", isOn: $model.notifyAnnouncements)
+                Toggle(isOn: binding(\.courseReminders)) { row("上課前提醒", "上課前 5 分鐘") }
+                Toggle(isOn: binding(\.gradeUpdates)) { row("成績更新", "不顯示分數與排名") }
+                Toggle(isOn: binding(\.announcements)) { row("學校公告", nil) }
             }
-            .disabled(!model.notificationsEnabled)
+            .disabled(!settings.notificationsEnabled)
+            Section {
+                Toggle(isOn: binding(\.liveActivity)) { row("即時動態", "在鎖定畫面與動態島顯示目前課程") }
+                    .accessibilityIdentifier("live-activity-toggle")
+                NavigationLink {
+                    BackgroundPauseView()
+                } label: {
+                    LabeledContent("安靜時段") {
+                        Text(settings.pauseEnabled ? "\(SettingsFormat.time(settings.pauseStartMinute)) – \(SettingsFormat.time(settings.pauseEndMinute))" : "未啟用")
+                            .monospacedDigit()
+                    }
+                }
+            } header: {
+                Text("動態與時段")
+            } footer: {
+                Text("iOS 由系統決定背景更新的時機，提醒與小工具可能在開啟 App 後才更新。")
+            }
+            if model.dataSource.isDemo, settings.notificationsEnabled {
+                Section("示範") {
+                    Menu {
+                        ForEach(PocketPlatformCoordinator.DemoAlert.allCases) { alert in
+                            Button(alert.title) { Task { await PocketPlatformCoordinator.shared.sendDemoAlert(alert) } }
+                        }
+                    } label: {
+                        Label("傳送示範通知", systemImage: "paperplane")
+                    }
+                    .accessibilityIdentifier("demo-alert-menu")
+                }
+            }
+        }
+        .tint(PocketColor.primary)
+    }
+
+    private func row(_ title: String, _ detail: String?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+            if let detail {
+                Text(detail).font(.footnote).foregroundStyle(PocketColor.onSurfaceVariant)
+            }
         }
     }
 }
@@ -63,19 +129,30 @@ struct BackgroundPauseView: View {
             },
             set: {
                 let parts = Calendar.current.dateComponents([.hour, .minute], from: $0)
-                model[keyPath: keyPath] = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+                let minute = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+                let other = keyPath == \AppModel.pauseStart ? model.pauseEnd : model.pauseStart
+                // The shared window rejects a zero-length range.
+                guard minute != other else { return }
+                model[keyPath: keyPath] = minute
+                model.platformSettingsChanged()
             }
         )
     }
 
     var body: some View {
         @Bindable var model = model
-        SettingsForm(title: "背景暫停時段") {
+        SettingsForm(title: "安靜時段") {
             Section {
-                Toggle("啟用暫停時段", isOn: $model.pauseEnabled)
+                Toggle("啟用安靜時段", isOn: Binding(
+                    get: { model.pauseEnabled },
+                    set: {
+                        model.pauseEnabled = $0
+                        model.platformSettingsChanged()
+                    }
+                ))
                     .accessibilityIdentifier("pause-enabled")
             } footer: {
-                Text("時段內不在背景更新成績與公告，也不會發出通知；開啟 App 時仍會正常更新。")
+                Text("時段內不在背景檢查成績與公告；上課提醒與小工具不受影響，開啟 App 時仍會正常更新。")
             }
             if model.pauseEnabled {
                 Section {
@@ -114,7 +191,7 @@ struct WeatherSourceView: View {
                     .accessibilityIdentifier("weather-source-\(source.id)")
                 }
             } footer: {
-                Text("示範資料的天氣數值固定，來源會在連上實際服務後生效。")
+                Text(model.usesLiveData ? "切換後會立即重新取得天氣。中央氣象署需要你自己的授權碼，尚未設定時會沿用上次的資料。" : "示範資料的天氣數值固定；使用真實資料時切換會立即重新取得天氣。")
             }
         }
     }
@@ -228,7 +305,7 @@ struct AboutView: View {
                 LabeledContent("版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
                 LabeledContent("資料來源", value: model.dataSource.isDemo ? "示範資料" : "校務系統")
             } footer: {
-                Text("非學校官方 App。此版本僅提供示範資料，不會連線到校務系統，也不會儲存任何帳號資訊。")
+                Text(model.live != nil ? "非學校官方 App。登入資訊只保存在這台裝置的鑰匙圈，登出後會一併清除。" : "非學校官方 App。示範模式僅提供虛構資料，不會連線到校務系統，也不會儲存任何帳號資訊。")
             }
         }
     }

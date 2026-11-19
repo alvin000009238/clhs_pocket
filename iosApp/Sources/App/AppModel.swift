@@ -168,19 +168,41 @@ final class AppModel {
         didSet { defaults.set(Array(bookmarkedAnnouncementIds), forKey: Key.bookmarks) }
     }
 
-    var notifyLessons: Bool { didSet { defaults.set(notifyLessons, forKey: Key.lessonAlerts) } }
-    var notifyGrades: Bool { didSet { defaults.set(notifyGrades, forKey: Key.gradeAlerts) } }
-    var notifyAnnouncements: Bool { didSet { defaults.set(notifyAnnouncements, forKey: Key.announcementAlerts) } }
-    var pauseEnabled: Bool { didSet { defaults.set(pauseEnabled, forKey: Key.pauseEnabled) } }
+    // Notification and quiet-hours preferences live in `PlatformSettings`, which the platform
+    // coordinator reads; these forward so every screen edits the same values.
+    private var platform: PlatformSettings { .shared }
+    var notifyLessons: Bool { get { platform.courseReminders } set { platform.courseReminders = newValue } }
+    var notifyGrades: Bool { get { platform.gradeUpdates } set { platform.gradeUpdates = newValue } }
+    var notifyAnnouncements: Bool { get { platform.announcements } set { platform.announcements = newValue } }
+    var pauseEnabled: Bool { get { platform.pauseEnabled } set { platform.pauseEnabled = newValue } }
     /// Minutes after midnight.
-    var pauseStart: Int { didSet { defaults.set(pauseStart, forKey: Key.pauseStart) } }
-    var pauseEnd: Int { didSet { defaults.set(pauseEnd, forKey: Key.pauseEnd) } }
-    var weatherSource: String { didSet { defaults.set(weatherSource, forKey: Key.weatherSource) } }
+    var pauseStart: Int { get { platform.pauseStartMinute } set { platform.pauseStartMinute = newValue } }
+    var pauseEnd: Int { get { platform.pauseEndMinute } set { platform.pauseEndMinute = newValue } }
+    var weatherSource: String {
+        didSet {
+            defaults.set(weatherSource, forKey: Key.weatherSource)
+            guard oldValue != weatherSource, let live else { return }
+            Task { await live.refreshPublic(weatherSource: sharedWeatherSource, force: true) }
+        }
+    }
+
+    /// Turns notifications on, asking iOS for permission outside demo mode. Returns whether they are on.
+    func enableNotifications() async -> Bool {
+        if live == nil {
+            notificationsEnabled = await services.notifications.requestAuthorization()
+            await PocketPlatformCoordinator.shared.refresh()
+            return notificationsEnabled
+        }
+        return await PocketPlatformCoordinator.shared.enableNotifications()
+    }
+
+    /// Call after changing any notification, Live Activity or quiet-hours preference.
+    func platformSettingsChanged() {
+        Task { await PocketPlatformCoordinator.shared.refresh() }
+    }
     var appLockEnabled: Bool { didSet { defaults.set(appLockEnabled, forKey: Key.appLock) } }
 
-    var notificationsEnabled: Bool {
-        didSet { defaults.set(notificationsEnabled, forKey: Key.notifications) }
-    }
+    var notificationsEnabled: Bool { get { platform.notificationsEnabled } set { platform.notificationsEnabled = newValue } }
 
     init() {
         // UI tests start every run from a clean install without touching launch-argument overrides.
@@ -190,17 +212,10 @@ final class AppModel {
         hasCompletedOnboarding = defaults.bool(forKey: Key.onboarding)
         appearance = defaults.string(forKey: Key.appearance).flatMap(PocketAppearance.init) ?? .system
         session = defaults.string(forKey: Key.session).flatMap(PocketSession.init) ?? .guest
-        notificationsEnabled = defaults.bool(forKey: Key.notifications)
         dashboardLayout = defaults.string(forKey: Key.dashboard) ?? PocketDashboard.shared.defaultLayout()
         unreadAnnouncementIds = (defaults.stringArray(forKey: Key.unread)).map(Set.init)
             ?? PocketCampusStore.shared.defaultUnreadIds()
         scheduleOverrides = defaults.string(forKey: Key.overrides) ?? "[]"
-        notifyLessons = defaults.object(forKey: Key.lessonAlerts) as? Bool ?? true
-        notifyGrades = defaults.object(forKey: Key.gradeAlerts) as? Bool ?? true
-        notifyAnnouncements = defaults.object(forKey: Key.announcementAlerts) as? Bool ?? true
-        pauseEnabled = defaults.bool(forKey: Key.pauseEnabled)
-        pauseStart = defaults.object(forKey: Key.pauseStart) as? Int ?? 23 * 60
-        pauseEnd = defaults.object(forKey: Key.pauseEnd) as? Int ?? 6 * 60
         weatherSource = defaults.string(forKey: Key.weatherSource) ?? "open-meteo"
         appLockEnabled = defaults.bool(forKey: Key.appLock)
         bookmarkedAnnouncementIds = Set(defaults.stringArray(forKey: Key.bookmarks) ?? [])
@@ -370,7 +385,8 @@ final class AppModel {
         notifyAnnouncements = true
         pauseEnabled = false
         pauseStart = 23 * 60
-        pauseEnd = 6 * 60
+        pauseEnd = 7 * 60
+        Task { await PocketPlatformCoordinator.shared.refresh() }
         weatherSource = "open-meteo"
     }
 
