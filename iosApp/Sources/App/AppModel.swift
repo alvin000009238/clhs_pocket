@@ -67,6 +67,9 @@ final class AppModel {
         static let demoClock = "demoClock"
         static let initialTab = "initialTab"
         static let notifications = "notificationsEnabled"
+        static let dashboard = "dashboardLayout"
+        static let unread = "unreadAnnouncementIds"
+        static let bookmarks = "bookmarkedAnnouncementIds"
     }
 
     let dataSource: PocketDataSource = PocketEnvironment.shared.demo()
@@ -91,6 +94,19 @@ final class AppModel {
         didSet { defaults.set(session.rawValue, forKey: Key.session) }
     }
 
+    /// Home widget layout in the shared `OverviewWidgetInstance` JSON format.
+    var dashboardLayout: String {
+        didSet { defaults.set(dashboardLayout, forKey: Key.dashboard) }
+    }
+
+    var unreadAnnouncementIds: Set<String> {
+        didSet { defaults.set(Array(unreadAnnouncementIds), forKey: Key.unread) }
+    }
+
+    var bookmarkedAnnouncementIds: Set<String> {
+        didSet { defaults.set(Array(bookmarkedAnnouncementIds), forKey: Key.bookmarks) }
+    }
+
     var notificationsEnabled: Bool {
         didSet { defaults.set(notificationsEnabled, forKey: Key.notifications) }
     }
@@ -100,6 +116,10 @@ final class AppModel {
         appearance = defaults.string(forKey: Key.appearance).flatMap(PocketAppearance.init) ?? .system
         session = defaults.string(forKey: Key.session).flatMap(PocketSession.init) ?? .guest
         notificationsEnabled = defaults.bool(forKey: Key.notifications)
+        dashboardLayout = defaults.string(forKey: Key.dashboard) ?? PocketDashboard.shared.defaultLayout()
+        unreadAnnouncementIds = (defaults.stringArray(forKey: Key.unread)).map(Set.init)
+            ?? PocketCampusStore.shared.defaultUnreadIds()
+        bookmarkedAnnouncementIds = Set(defaults.stringArray(forKey: Key.bookmarks) ?? [])
         selectedTab = defaults.string(forKey: Key.initialTab).flatMap(PocketTab.init) ?? .home
         // `-demoClock 2026-11-18T10:35` pins time for previews, tests and screenshots.
         fixedClock = defaults.string(forKey: Key.demoClock).flatMap(AppModel.parseClock)
@@ -112,6 +132,17 @@ final class AppModel {
     func refreshClock() {
         let next = fixedClock ?? AppModel.systemClock()
         if next != clock { clock = next }
+    }
+
+    func widgets(columns: Int) -> [PocketWidget] {
+        PocketDashboard.shared.widgets(
+            layout: dashboardLayout, columns: Int32(columns), clock: clock, signedIn: isSignedIn,
+            unreadIds: unreadAnnouncementIds, bookmarkedIds: bookmarkedAnnouncementIds
+        )
+    }
+
+    func editDashboard(_ change: (PocketDashboard, String) -> String) {
+        dashboardLayout = change(PocketDashboard.shared, dashboardLayout)
     }
 
     func path(for tab: PocketTab) -> Binding<[PocketRoute]> {
@@ -197,3 +228,9 @@ extension PocketEventRow: @retroactive Identifiable {}
 extension PocketScheduleCell: @retroactive Identifiable {}
 extension PocketYouBikeStation: @retroactive Identifiable {}
 extension PocketCountdown: @retroactive Identifiable {}
+extension PocketWidget: @retroactive Identifiable {}
+extension PocketAlertRow: @retroactive Identifiable {}
+extension PocketChoice: @retroactive Identifiable {}
+extension PocketWidgetType: @retroactive Identifiable {
+    public var id: String { type }
+}

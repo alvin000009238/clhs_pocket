@@ -209,6 +209,27 @@ internal object DemoSchedule {
         )
     }
 
+    /** This week's timetable changes followed by the latest grade publication. */
+    fun alerts(clock: PocketClock): List<PocketAlertRow> {
+        val week = schedule(PocketScheduleScope.CURRENT_WEEK, clock)
+        val changes = week.cells.filter { it.change != PocketCellChange.NONE }.map { cell ->
+            val day = week.days.first { it.dayOfWeek == cell.dayOfWeek }
+            val verb = when (cell.change) {
+                PocketCellChange.CANCELLED -> "停課"
+                PocketCellChange.ADDED -> "加課"
+                else -> "調課"
+            }
+            PocketAlertRow(
+                id = "change-${cell.id}",
+                title = "${cell.subject} $verb",
+                detail = "週${day.label} ${day.dateText} 第 ${cell.period} 節" + if (cell.changeNote.isNotBlank()) " · ${cell.changeNote}" else "",
+                symbol = if (cell.change == PocketCellChange.CANCELLED) "calendar.badge.minus" else "arrow.triangle.2.circlepath",
+            )
+        }
+        val grade = DemoGrades.report(DemoGrades.DEFAULT_EXAM)
+        return changes + PocketAlertRow("grade-${grade.examValue}", "${grade.examTitle}成績已公布", grade.termTitle, "chart.bar.fill")
+    }
+
     private fun place(item: ScheduleItem): String =
         listOf(item.classroom, item.teacherName).filter { it.isNotEmpty() }.joinToString(" · ")
 }

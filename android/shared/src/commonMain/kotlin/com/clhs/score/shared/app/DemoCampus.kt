@@ -114,11 +114,12 @@ internal object DemoCampus {
 
     /** Home list: unread, pinned and bookmarked first, as selected by the shared overview logic. */
     fun importantAnnouncements(
-        clock: PocketClock, limit: Int, unreadIds: Set<String> = defaultUnreadIds, bookmarkedIds: Set<String> = emptySet(),
+        clock: PocketClock, config: OverviewWidgetConfig.ListItems,
+        unreadIds: Set<String> = defaultUnreadIds, bookmarkedIds: Set<String> = emptySet(),
     ): List<PocketAnnouncement> {
         val all = sharedAnnouncements(clock).associateBy { it.id }
         return overview(clock)
-            .importantAnnouncementsFrom(OverviewWidgetConfig.ListItems(limit), unreadIds, all.values.filter { it.id in bookmarkedIds })
+            .importantAnnouncementsFrom(config, unreadIds, all.values.filter { it.id in bookmarkedIds })
             .mapNotNull { all[(it.destination as? OverviewDestination.Announcement)?.id] }
             .map { announcementRow(it, unreadIds) }
     }
@@ -146,9 +147,16 @@ internal object DemoCampus {
         )
     }
 
-    fun events(clock: PocketClock, limit: Int = 20): List<PocketEventRow> {
+    fun upcomingEvents(clock: PocketClock): List<SchoolCalendarEvent> {
+        val now = clock.dateTime()
+        return sharedEvents(clock).filter { it.endExclusive > now }
+    }
+
+    fun events(
+        clock: PocketClock, config: OverviewWidgetConfig.ListItems = OverviewWidgetConfig.ListItems(20), shown: Int = config.limit,
+    ): List<PocketEventRow> {
         val byId = sharedEvents(clock).associateBy { it.id }
-        return overview(clock).recentEvents(OverviewWidgetConfig.ListItems(limit))
+        return overview(clock).recentEvents(config.copy(limit = shown.coerceIn(1, 20)))
             .mapNotNull { byId[(it.destination as? OverviewDestination.CalendarEvent)?.id] }
             .map { eventRow(it, clock.date()) }
     }

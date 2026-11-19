@@ -1,6 +1,7 @@
 package com.clhs.score.shared.app
 
 import com.clhs.score.data.FakeData
+import com.clhs.score.domain.overview.OverviewWidgetConfig
 
 /**
  * Deterministic synthetic data for the Demo configuration.
@@ -40,8 +41,8 @@ internal class DemoPocketDataSource : PocketDataSource {
                 PocketYouBikeStation("demo-1", "中壢高中", "4", "44", "電輔車 2 · 一般 2"),
                 PocketYouBikeStation("demo-2", "中壢火車站(後站)", "12", "23", "電輔車 5 · 一般 7"),
             ),
-            events = DemoCampus.events(clock, limit = 3),
-            announcements = DemoCampus.importantAnnouncements(clock, limit = 3),
+            events = DemoCampus.events(clock, shown = 3),
+            announcements = DemoCampus.importantAnnouncements(clock, OverviewWidgetConfig.ListItems(3)),
             unreadAnnouncementCount = announcements.count { it.isUnread },
         )
     }
