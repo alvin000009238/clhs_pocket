@@ -201,6 +201,7 @@ final class PocketShellUITests: XCTestCase {
         let infer = app.buttons["credits-infer"]
         reveal(infer)
         infer.tap()
+        app.swipeUp()
         let candidate = app.buttons["credits-candidate-0"]
         XCTAssertTrue(candidate.waitForExistence(timeout: 10))
         reveal(candidate)
@@ -263,15 +264,6 @@ final class PocketShellUITests: XCTestCase {
         capture("53-announcements-bookmarked")
         app.segmentedControls["announcement-filter"].buttons["全部"].tap()
 
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 5))
-        search.tap()
-        search.typeText("獎助")
-        XCTAssertTrue(app.buttons["announcement-45040"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["announcement-45055"].exists)
-        capture("54-announcements-search")
-        search.typeText("\n")
-
         tab("校園").tap()
         XCTAssertTrue(app.buttons["campus-行事曆"].waitForExistence(timeout: 5))
         app.buttons["campus-行事曆"].tap()
@@ -293,6 +285,17 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["campus-獎懲"].tap()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "銷過")).firstMatch.waitForExistence(timeout: 5))
         capture("59-merits")
+
+        // Search last: an active search replaces the tab bar on iPad.
+        tab("校園").tap()
+        app.buttons["campus-公告"].tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("獎助")
+        XCTAssertTrue(app.buttons["announcement-45040"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["announcement-45055"].exists)
+        capture("54-announcements-search")
     }
 
     func testSettingsScreensAndDeleteData() {

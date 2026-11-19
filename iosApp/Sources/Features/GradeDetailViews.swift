@@ -403,6 +403,8 @@ private struct SimulatorRow: View {
                 Text(row.scoreText)
                     .font(PocketFont.display(22, relativeTo: .title2))
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize()
                     .foregroundStyle(row.isAdjusted ? PocketColor.primary : PocketColor.onSurface)
             }
             if row.canSimulate {

@@ -4,6 +4,7 @@ import com.clhs.score.data.WeatherLocation
 import com.clhs.score.data.YouBikeStation
 import com.clhs.score.domain.overview.OverviewLayoutEngine
 import com.clhs.score.domain.overview.OverviewLayoutJson
+import com.clhs.score.domain.overview.OverviewPlacement
 import com.clhs.score.domain.overview.OverviewWidgetConfig
 import com.clhs.score.domain.overview.OverviewWidgetDefinitions
 import com.clhs.score.domain.overview.OverviewWidgetInstance
@@ -102,7 +103,7 @@ object PocketDashboard {
         unreadIds: Set<String>, bookmarkedIds: Set<String>,
     ): List<PocketWidget> {
         val instances = decode(layout).filter { it.enabled && OverviewWidgetDefinitions[it.type] != null && it.type in symbols }
-        val placements = OverviewLayoutEngine.pack(instances, columns).associateBy { it.id }
+        val placements = fillTrailingColumns(OverviewLayoutEngine.pack(instances, columns), columns).associateBy { it.id }
         val overview = DemoCampus.overview(clock)
         return instances.mapNotNull { widget ->
             val place = placements[widget.id] ?: return@mapNotNull null
@@ -148,7 +149,7 @@ object PocketDashboard {
                 weather = (config as? OverviewWidgetConfig.Weather)?.let { DemoLive.weather(it.location) },
                 youBike = (config as? OverviewWidgetConfig.YouBike)?.let { DemoLive.youBike(it.station) },
                 countdown = countdown?.let {
-                    PocketCountdown(it.id, it.label, it.title, it.supportingText.removeSuffix(" 開始"))
+                    PocketCountdown(it.id, it.label, it.title, it.supportingText.removeSuffix(" 開始").slashDate())
                 },
                 events = if (widget.type == "calendar" && list != null) DemoCampus.events(clock, list, shown) else emptyList(),
                 announcements = if (widget.type == "announcements" && list != null)
@@ -167,6 +168,35 @@ object PocketDashboard {
     }
 
     /** Widget kinds for the "add" list; single-instance kinds already on the dashboard cannot be added again. */
+    private val isoDate = Regex("""(\d{4})-(\d{2})-(\d{2})""")
+
+    private fun String.slashDate(): String = isoDate.replace(this) { match ->
+        val (year, month, day) = match.destructured
+        "$year/${month.toInt()}/${day.toInt()}"
+    }
+
+    /**
+     * On wide grids the shared reading-order packing leaves the columns to the right of a
+     * row's last widget empty. Rendering stretches that widget across them so tablets get
+     * full-width rows; stored sizes and the packing itself are unchanged.
+     */
+    internal fun fillTrailingColumns(placements: List<OverviewPlacement>, columns: Int): List<OverviewPlacement> {
+        if (columns <= 4) return placements
+        val occupied = placements.flatMap { place ->
+            (place.row until place.row + place.rows).flatMap { y -> (place.column until place.column + place.columns).map { x -> x to y } }
+        }.toMutableSet()
+        return placements.map { place ->
+            var width = place.columns
+            while (place.column + width < columns &&
+                (place.row until place.row + place.rows).none { y -> (place.column + width) to y in occupied }
+            ) {
+                for (y in place.row until place.row + place.rows) occupied += (place.column + width) to y
+                width++
+            }
+            place.copy(columns = width)
+        }
+    }
+
     fun widgetTypes(layout: String): List<PocketWidgetType> {
         val present = decode(layout).map { it.type }.toSet()
         return OverviewWidgetDefinitions.all.map {

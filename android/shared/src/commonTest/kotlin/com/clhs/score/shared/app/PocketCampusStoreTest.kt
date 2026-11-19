@@ -73,3 +73,57 @@ class PocketScheduleStoreTest {
         assertTrue(next.cells.none { it.status != PocketCellStatus.NORMAL } && next.days.none { it.isToday })
     }
 }
+
+class PocketDashboardTabletTest {
+    private val clock = PocketClock(2026, 11, 18, 3, 10 * 60 + 35)
+
+    private fun widgets(columns: Int) =
+        PocketDashboard.widgets(PocketDashboard.defaultLayout(), columns, clock, true, emptySet(), emptySet())
+
+    @Test
+    fun wideGridsFillEachRowWithoutOverlapAndPhonesAreUntouched() {
+        assertTrue(widgets(4).all { it.column + it.columns <= 4 })
+        val wide = widgets(6)
+        val cells = wide.flatMap { w -> (w.row until w.row + w.rows).flatMap { y -> (w.column until w.column + w.columns).map { x -> x to y } } }
+        assertEquals(cells.size, cells.toSet().size)
+        assertTrue(wide.all { it.column + it.columns <= 6 })
+        assertTrue(wide.filter { it.type in setOf("alerts", "calendar", "announcements") }.all { it.columns == 6 })
+    }
+
+    @Test
+    fun editingAddsRemovesReordersResizesAndConfiguresWidgets() {
+        val start = PocketDashboard.defaultLayout()
+        fun types(layout: String) = widgetsOf(layout).map { it.type }
+        val added = PocketDashboard.add(start, "youbike", clock)
+        assertEquals(types(start) + "youbike", types(added))
+        assertEquals(start, PocketDashboard.add(start, "schedule", clock)) // single-instance widget
+        val bike = widgetsOf(added).last()
+        assertEquals("youbike", widgetsOf(PocketDashboard.move(added, bike.id, 0)).first().type)
+        assertEquals(types(start), types(PocketDashboard.remove(added, bike.id)))
+
+        val weather = widgetsOf(start).first { it.type == "weather" }
+        val resized = widgetsOf(PocketDashboard.resize(start, weather.id, 4, 1)).first { it.id == weather.id }
+        assertEquals(4 to 1, resized.columns to resized.rows)
+        assertEquals(start, PocketDashboard.resize(start, weather.id, 3, 3)) // not an offered size
+        val other = PocketDashboard.weatherLocations().first { it.id != weather.selectionId }
+        assertEquals(other.id, widgetsOf(PocketDashboard.setWeatherLocation(start, weather.id, other.id)).first { it.id == weather.id }.selectionId)
+
+        val countdown = widgetsOf(start).first { it.type == "countdown" }
+        assertEquals(start, PocketDashboard.setCustomCountdown(start, countdown.id, "畢旅", "not-a-date", ""))
+        val custom = widgetsOf(PocketDashboard.setCustomCountdown(start, countdown.id, "畢旅", "2026-12-01", "")).first { it.id == countdown.id }
+        assertEquals("畢旅", custom.countdown?.title)
+        assertEquals("2026/12/1", custom.countdown?.dateText)
+
+        val list = widgetsOf(start).first { it.type == "calendar" }
+        assertEquals(1, widgetsOf(PocketDashboard.setListLimit(start, list.id, 1)).first { it.id == list.id }.events.size)
+    }
+
+    @Test
+    fun guestsNeverReceivePrivateWidgetContent() {
+        val guest = PocketDashboard.widgets(PocketDashboard.defaultLayout(), 4, clock, false, emptySet(), emptySet())
+        val private = guest.filter { it.type == "schedule" || it.type == "alerts" }
+        assertTrue(private.isNotEmpty() && private.all { it.needsSignIn && it.hero == null && it.alerts.isEmpty() })
+    }
+
+    private fun widgetsOf(layout: String) = PocketDashboard.widgets(layout, 4, clock, true, emptySet(), emptySet())
+}
