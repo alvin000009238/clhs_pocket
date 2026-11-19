@@ -47,7 +47,8 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 | 課表模型、解析、更新時機 | `ScheduleModels.kt` |
 | 天氣與 YouBike 模型 | `WeatherLocation.kt`、`WeatherForecastPeriod.kt`、`YouBikeModels.kt`（解析與網路仍在 `app`） |
 | 課程時段解析 | `CourseResolution.kt`（以 `Instant` 為輸入；Android 的 `Clock` 版本留在 `app` 的 `SchoolCourseClock.kt`） |
-| 範例資料 | `FakeData.kt`、`FakeScheduleData.kt`（`FakeGradeRepository` 留在 `app` 的 `FakeGradeRepository.kt`） |
+| 範例資料 | `FakeData.kt`、`FakeScheduleData.kt`、`FakeRecordData.kt`（`FakeGradeRepository` 留在 `app` 的 `FakeGradeRepository.kt`） |
+| 設定模型 | `AppSettings.kt`（含 `OverviewPreferences`、`BackgroundPause`；以裝置時區判斷的 `BackgroundPause.contains` 留在 `app`） |
 | 公告與行事曆模型 | `SchoolAnnouncementModels.kt`、`SchoolCalendarModels.kt`（解析與網路仍在 `app`） |
 
 `GradeAnalysisTest`、`SimulatorCreditsTest`、`GradeReportDifferTest`、`GradeSummaryDisplayTest` 已改用 `kotlin.test` 並搬到 `commonTest`，Android host 與 iOS 目標共用同一份測試。
@@ -63,7 +64,7 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 ## 尚未搬移
 
 - 公告、行事曆、天氣、YouBike 的解析（目前與 OkHttp、Jsoup、biweekly 寫在同一個檔案，且使用 `java.time.Instant`／`Duration`）。
-- `domain/overview` 的模型與彙整邏輯、設定模型與 `SettingsTransfer.kt`。
+- `domain/overview` 的模型與彙整邏輯、`SettingsTransfer.kt`。
 - 給 iOS 使用的 transport 介面與 repository。
 
 ## 目前驗證結果（Linux）
