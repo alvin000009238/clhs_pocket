@@ -274,6 +274,66 @@ final class PlatformTests: XCTestCase {
         XCTAssertEqual(center.coursePausedUntilMillis, 0)
     }
 
+    func testPauseDuringSchedulingDoesNotBringTodaysRemindersBack() async throws {
+        let scheduler = FakeScheduler()
+        let center = center(scheduler)
+        let pauseAt = lessonTime
+        // The pause lands right after the first reminder of the pre-pause plan is added.
+        await scheduler.setAfterAdd { await center.pauseCourseRemindersForToday(now: pauseAt) }
+
+        await center.syncCourseReminders(snapshotJSON: try demoJSON(at: lessonTime), now: lessonTime, settings: settings())
+        let midnight = PlatformClock.parseDemoClock("2026-11-19T00:00")!
+        let pending = await scheduler.pending
+        XCTAssertFalse(pending.isEmpty)
+        XCTAssertTrue(pending.allSatisfy { $0.fireDate! >= midnight }, "today's reminders must stay paused")
+        XCTAssertEqual(center.capabilities.count, pending.count)
+    }
+
+    func testDemoCourseAlertDoesNotReplaceTheRealReminder() async throws {
+        let scheduler = FakeScheduler()
+        let center = center(scheduler)
+        await center.syncCourseReminders(snapshotJSON: try demoJSON(at: lessonTime), now: lessonTime, settings: settings())
+        let before = await scheduler.pending
+        let real = try XCTUnwrap(before.first)
+
+        await center.deliver(PlannedNotification(
+            identifier: PocketNotificationCenter.demoCourseIdentifier, fireAtMillis: nil,
+            title: real.title, body: real.body, link: "clhspocket://schedule"
+        ))
+        let after = await scheduler.pending
+        XCTAssertEqual(after.count, before.count + 1)
+        XCTAssertTrue(after.contains(real), "the scheduled 5-minute reminder must survive the demo alert")
+        let demo = try XCTUnwrap(after.first { $0.identifier == PocketNotificationCenter.demoCourseIdentifier })
+        XCTAssertTrue(demo.isCourseReminder)
+    }
+
+    func testPauseActionNeedsALiveCapabilityAndSession() async throws {
+        let coordinator = PocketPlatformCoordinator.shared
+        let center = coordinator.notifications
+        let wasSignedIn = coordinator.isSignedIn
+        await coordinator.sessionChanged(signedIn: true)
+        center.coursePausedUntilMillis = 0
+        let token = center.capabilities.issue(for: "pause-test", link: .schedule)
+
+        await coordinator.pauseCourseRemindersForToday(capability: nil, now: lessonTime)
+        await coordinator.pauseCourseRemindersForToday(capability: "forged", now: lessonTime)
+        XCTAssertEqual(center.coursePausedUntilMillis, 0, "a missing or forged token must not pause")
+
+        await coordinator.handleNotificationResponse(action: "unknown-action", capability: token)
+        XCTAssertEqual(center.coursePausedUntilMillis, 0)
+        await coordinator.handleNotificationResponse(action: PocketNotificationRequest.pauseDayAction, capability: token)
+        XCTAssertGreaterThan(center.coursePausedUntilMillis, 0)
+        XCTAssertEqual(center.capabilities.consume(token), .schedule, "pausing keeps the notification openable")
+
+        // Sign-out revokes the token, so a notification left on screen can no longer pause.
+        let stale = center.capabilities.issue(for: "pause-test-2", link: .schedule)
+        await coordinator.sessionChanged(signedIn: false)
+        await coordinator.clearSessionData()
+        await coordinator.pauseCourseRemindersForToday(capability: stale, now: lessonTime)
+        XCTAssertEqual(center.coursePausedUntilMillis, 0)
+        await coordinator.sessionChanged(signedIn: wasSignedIn)
+    }
+
     func testQuietWindowDoesNotDropCourseReminders() async throws {
         let scheduler = FakeScheduler()
         let center = center(scheduler)

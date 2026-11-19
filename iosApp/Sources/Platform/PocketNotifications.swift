@@ -75,7 +75,7 @@ struct SystemNotificationScheduler: NotificationScheduling {
 
     /// Registers the course category so reminders show "暫停一日".
     static func registerCategories() {
-        let pause = UNNotificationAction(identifier: PocketNotificationRequest.pauseDayAction, title: "暫停一日", options: [])
+        let pause = UNNotificationAction(identifier: PocketNotificationRequest.pauseDayAction, title: "暫停一日", options: [.authenticationRequired])
         UNUserNotificationCenter.current().setNotificationCategories([
             UNNotificationCategory(identifier: PocketNotificationRequest.courseCategory, actions: [pause], intentIdentifiers: []),
         ])
@@ -122,6 +122,9 @@ final class NotificationCapabilityStore {
         return entry["link"].flatMap(PocketDeepLink.init(rawValue:))
     }
 
+    /// Whether `token` is still outstanding, without redeeming it.
+    func isValid(_ token: String) -> Bool { entries[token] != nil }
+
     func revoke(identifiers: [String]) {
         let ids = Set(identifiers)
         entries = entries.filter { !ids.contains($0.value["id"] ?? "") }
@@ -162,10 +165,14 @@ final class PocketNotificationCenter {
             fireDate: planned.fireAtMillis.map { Date(epochMillis: $0.int64Value) },
             capability: capabilities.issue(for: planned.identifier, link: link),
             isCourseReminder: planned.identifier.hasPrefix(ReminderPlanningKt.COURSE_REMINDER_PREFIX)
+                || planned.identifier == Self.demoCourseIdentifier
         )
     }
 
     private static let coursePausedUntilKey = "platform.coursePausedUntilMillis"
+
+    /// The demo course alert has its own identifier so it never replaces a real reminder.
+    static let demoCourseIdentifier = "demo-course"
 
     /// End of the "暫停一日" pause, or 0 when course reminders are not paused.
     var coursePausedUntilMillis: Int64 {
@@ -203,15 +210,23 @@ final class PocketNotificationCenter {
             pausedUntilMillis: coursePausedUntilMillis
         )
         var added: [String] = []
+        var addedBefore: [(id: String, fireMillis: Int64)] = []
         for item in planned {
-            guard isCurrent(), let request = request(for: item) else { break }
+            guard isCurrent() else { break }
+            // "暫停一日" can arrive between two adds; the plan predates it.
+            let fireMillis = item.fireAtMillis?.int64Value ?? 0
+            guard fireMillis >= coursePausedUntilMillis, let request = request(for: item) else { continue }
             try? await scheduler.add(request)
             added.append(request.identifier)
+            addedBefore.append((request.identifier, fireMillis))
         }
-        if !isCurrent() {
-            // The last add may have raced the sign-out cleanup.
-            await scheduler.removePending(added)
-            capabilities.revoke(identifiers: added)
+        // The last add may have raced a sign-out or a pause; withdraw what no longer belongs.
+        let withdrawn = isCurrent()
+            ? addedBefore.filter { $0.fireMillis < coursePausedUntilMillis }.map(\.id)
+            : added
+        if !withdrawn.isEmpty {
+            await scheduler.removePending(withdrawn)
+            capabilities.revoke(identifiers: withdrawn)
         }
     }
 

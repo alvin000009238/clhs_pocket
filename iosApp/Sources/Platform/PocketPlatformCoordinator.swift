@@ -176,7 +176,7 @@ final class PocketPlatformCoordinator: NSObject {
         }
         guard let planned else { return }
         await notifications.deliver(PlannedNotification(
-            identifier: alert == .course ? planned.identifier : "demo-\(alert.rawValue)",
+            identifier: "demo-\(alert.rawValue)",
             fireAtMillis: KotlinLong(value: now.addingTimeInterval(delay).epochMillis),
             title: planned.title,
             body: planned.body,
@@ -212,7 +212,13 @@ final class PocketPlatformCoordinator: NSObject {
     }
 
     /// The "暫停一日" action; runs without opening the app.
-    func pauseCourseRemindersForToday(now: Date = Date()) async {
+    ///
+    /// Android guards its pause action with the session generation; here the
+    /// notification's capability plays that role (it is revoked on sign-out
+    /// and is not consumed, so the notification can still be opened), and the
+    /// action itself requires the device to be unlocked.
+    func pauseCourseRemindersForToday(capability: String?, now: Date = Date()) async {
+        guard isSignedIn, let capability, notifications.capabilities.isValid(capability) else { return }
         await notifications.pauseCourseRemindersForToday(now: now)
         await LessonActivityController.endAll()
     }
@@ -226,18 +232,38 @@ extension PocketPlatformCoordinator: UNUserNotificationCenterDelegate {
         [.banner, .list, .sound]
     }
 
+    // The completion-handler form is used on purpose: UIKit aborts the app when
+    // this completion runs off the main thread, which is where the `async`
+    // form of this method would resume.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse
-    ) async {
-        if response.actionIdentifier == PocketNotificationRequest.pauseDayAction {
-            await PocketPlatformCoordinator.shared.pauseCourseRemindersForToday()
-            return
-        }
-        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
         let capability = response.notification.request.content.userInfo[PocketNotificationRequest.capabilityKey] as? String
-        await PocketPlatformCoordinator.shared.handleNotificationTap(capability: capability)
+        let action = response.actionIdentifier
+        let done = MainThreadCompletion(run: completionHandler)
+        Task { @MainActor in
+            await PocketPlatformCoordinator.shared.handleNotificationResponse(action: action, capability: capability)
+            done.run()
+        }
     }
+
+    func handleNotificationResponse(action: String, capability: String?) async {
+        switch action {
+        case PocketNotificationRequest.pauseDayAction:
+            await pauseCourseRemindersForToday(capability: capability)
+        case UNNotificationDefaultActionIdentifier:
+            await handleNotificationTap(capability: capability)
+        default:
+            break
+        }
+    }
+}
+
+/// Carries a system completion handler to the main actor, where it must be called.
+private struct MainThreadCompletion: @unchecked Sendable {
+    let run: () -> Void
 }
 
 final class PocketAppDelegate: NSObject, UIApplicationDelegate {
