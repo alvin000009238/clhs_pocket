@@ -2,7 +2,7 @@
 
 package com.clhs.score.shared.time
 
-import java.time.Instant
+
 import java.time.ZoneId
 
 actual typealias DayOfWeek = java.time.DayOfWeek
@@ -37,5 +37,11 @@ actual fun LocalDateTime.datePart(): LocalDate = toLocalDate()
 actual fun LocalDateTime.timePart(): LocalTime = toLocalTime()
 
 actual fun schoolDateTimeAt(epochMillis: Long): LocalDateTime =
-    java.time.LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), schoolZone)
+    java.time.LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(epochMillis), schoolZone)
 actual fun LocalDateTime.schoolEpochMillis(): Long = atZone(schoolZone).toInstant().toEpochMilli()
+
+actual typealias Instant = java.time.Instant
+
+actual fun instantOfEpochMilli(epochMilli: Long): Instant = java.time.Instant.ofEpochMilli(epochMilli)
+actual fun parseInstant(text: String): Instant = java.time.Instant.parse(text)
+actual fun Instant.epochMillis(): Long = toEpochMilli()

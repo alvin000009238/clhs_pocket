@@ -38,3 +38,9 @@ actual fun schoolDateTimeAt(epochMillis: Long): LocalDateTime = PortableLocalDat
 
 actual fun LocalDateTime.schoolEpochMillis(): Long =
     toEpochSecond(SCHOOL_UTC_OFFSET_SECONDS) * 1000 + time.nano / 1_000_000
+
+actual typealias Instant = PortableInstant
+
+actual fun instantOfEpochMilli(epochMilli: Long): Instant = PortableInstant.ofEpochMilli(epochMilli)
+actual fun parseInstant(text: String): Instant = PortableInstant.parse(text)
+actual fun Instant.epochMillis(): Long = epochMilli

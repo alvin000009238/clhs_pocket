@@ -72,3 +72,12 @@ expect fun LocalDateTime.schoolEpochMillis(): Long
 fun currentEpochMillis(): Long = kotlin.time.Clock.System.now().toEpochMilliseconds()
 fun schoolNow(): LocalDateTime = schoolDateTimeAt(currentEpochMillis())
 fun schoolToday(): LocalDate = schoolNow().datePart()
+
+expect class Instant : Comparable<Instant>
+
+expect fun instantOfEpochMilli(epochMilli: Long): Instant
+/** ISO UTC text such as `2026-08-09T05:00:00Z`; throws on anything else. */
+expect fun parseInstant(text: String): Instant
+expect fun Instant.epochMillis(): Long
+
+fun currentInstant(): Instant = instantOfEpochMilli(currentEpochMillis())

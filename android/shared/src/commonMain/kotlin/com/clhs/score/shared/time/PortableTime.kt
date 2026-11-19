@@ -181,3 +181,34 @@ private fun String.digits(start: Int, end: Int): Int {
     }
     return value
 }
+
+/** UTC timestamp with millisecond precision, standing in for `java.time.Instant`. */
+class PortableInstant private constructor(val epochMilli: Long) : Comparable<PortableInstant> {
+    override fun compareTo(other: PortableInstant): Int = epochMilli.compareTo(other.epochMilli)
+    override fun equals(other: Any?): Boolean = other is PortableInstant && epochMilli == other.epochMilli
+    override fun hashCode(): Int = epochMilli.hashCode()
+
+    override fun toString(): String {
+        val utc = PortableLocalDateTime.ofEpochSecond(
+            epochMilli.floorDiv(1000L), (epochMilli.mod(1000L) * 1_000_000).toInt(), 0,
+        )
+        val time = utc.time
+        // `Instant.toString` always prints seconds.
+        val seconds = if (time.second == 0 && time.nano == 0) ":00" else ""
+        return "${utc.date}T$time${seconds}Z"
+    }
+
+    companion object {
+        fun ofEpochMilli(epochMilli: Long): PortableInstant = PortableInstant(epochMilli)
+
+        /** ISO UTC text such as `2026-08-09T05:00:00Z`. */
+        fun parse(text: String): PortableInstant {
+            require(text.length >= 20 && text[10] == 'T' && text.endsWith('Z')) { "Invalid instant" }
+            val date = PortableLocalDate.parse(text.substring(0, 10))
+            val time = PortableLocalTime.parse(text.substring(11, text.length - 1))
+            return PortableInstant(
+                PortableLocalDateTime(date, time).toEpochSecond(0) * 1000 + time.nano / 1_000_000,
+            )
+        }
+    }
+}
