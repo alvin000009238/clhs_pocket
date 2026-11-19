@@ -1,20 +1,31 @@
 name: CLHSPocket
 options:
   minimumXcodeGenVersion: "2.40.0"
+  deploymentTarget:
+    iOS: "18.0"
 targets:
   CLHSPocket:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.0"
     sources:
       - path: Sources
+      - path: Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.clhs.pocket.ios
+        PRODUCT_NAME: CLHSPocket
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: Resources/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: "壢中 Pocket"
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../android/shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
         OTHER_LDFLAGS: "$(inherited) -framework PocketShared"
     preBuildScripts:
@@ -26,3 +37,29 @@ targets:
           fi
           cd "$SRCROOT/../android"
           ./gradlew :shared:embedAndSignAppleFrameworkForXcode
+  CLHSPocketUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: UITests
+    dependencies:
+      - target: CLHSPocket
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.clhs.pocket.ios.uitests
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: CLHSPocket
+schemes:
+  CLHSPocket:
+    build:
+      targets:
+        CLHSPocket: all
+        CLHSPocketUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - CLHSPocketUITests
