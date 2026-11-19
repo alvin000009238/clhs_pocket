@@ -164,6 +164,7 @@ private struct GradeSummaryCard: View {
                         .foregroundStyle(PocketColor.onPrimaryContainer)
                         .minimumScaleFactor(0.6)
                         .lineLimit(1)
+                        .accessibilityLabel("加權平均 \(report.averageText) 分")
                     if report.deltaSign != 0 {
                         let up = report.deltaSign > 0
                         HStack(spacing: 3) {

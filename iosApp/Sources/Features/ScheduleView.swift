@@ -1,4 +1,5 @@
 import PocketShared
+import Photos
 import SwiftUI
 
 struct ScheduleView: View {
@@ -9,6 +10,7 @@ struct ScheduleView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var classValue = ""
     @State private var loadingClass = false
+    @State private var photoMessage: String?
     @State private var weekOffset = 0
     @State private var selectedCell: PocketScheduleCell?
 
@@ -74,11 +76,22 @@ struct ScheduleView: View {
                             Label("分享課表圖片", systemImage: "square.and.arrow.up")
                         }
                     }
+                    if schedule.isAvailable {
+                        Button("儲存到照片", systemImage: "square.and.arrow.down") {
+                            Task { await saveToPhotos(schedule) }
+                        }
+                        .accessibilityIdentifier("schedule-save-photo")
+                    }
                 } label: {
                     Label("班級與分享", systemImage: "ellipsis")
                 }
                 .accessibilityIdentifier("schedule-menu")
             }
+        }
+        .alert("課表圖片", isPresented: Binding(get: { photoMessage != nil }, set: { if !$0 { photoMessage = nil } })) {
+            Button("好") { photoMessage = nil }
+        } message: {
+            Text(photoMessage ?? "")
         }
         .sheet(item: $selectedCell) { cell in
             ScheduleCellSheet(cell: cell, days: schedule.days)
@@ -90,6 +103,29 @@ struct ScheduleView: View {
     /// Renders the grid off screen so the shared image does not depend on scroll position.
     @MainActor
     private func exportImage(_ schedule: PocketSchedule) -> Image? {
+        exportUIImage(schedule).map { Image(uiImage: $0) }
+    }
+
+    /// Add-only access: the app can write the image but never read the library.
+    private func saveToPhotos(_ schedule: PocketSchedule) async {
+        guard let image = exportUIImage(schedule) else {
+            photoMessage = "無法產生課表圖片。"
+            return
+        }
+        guard await PHPhotoLibrary.requestAuthorization(for: .addOnly) == .authorized else {
+            photoMessage = "尚未允許加入照片。請到「設定」›「壢中 Pocket」›「照片」開啟後再試一次。"
+            return
+        }
+        do {
+            try await PHPhotoLibrary.shared().performChanges { PHAssetChangeRequest.creationRequestForAsset(from: image) }
+            photoMessage = "已儲存到照片。"
+        } catch {
+            photoMessage = "儲存失敗，請再試一次。"
+        }
+    }
+
+    @MainActor
+    private func exportUIImage(_ schedule: PocketSchedule) -> UIImage? {
         let content = VStack(alignment: .leading, spacing: 12) {
             Text("\(schedule.className) · \(schedule.scopeLabel)")
                 .font(PocketFont.sectionTitle)
@@ -106,7 +142,7 @@ struct ScheduleView: View {
         .environment(\.horizontalSizeClass, .regular)
         let renderer = ImageRenderer(content: content)
         renderer.scale = 2
-        return renderer.uiImage.map { Image(uiImage: $0) }
+        return renderer.uiImage
     }
 
     /// With accessibility text five columns cannot hold a subject name, so the grid keeps a

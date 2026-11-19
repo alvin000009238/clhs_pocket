@@ -29,6 +29,8 @@
 	<array>
 		<string>fetch</string>
 	</array>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>把課表圖片儲存到你的照片。壢中 Pocket 不會讀取你的照片。</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>使用 Face ID 解鎖壢中 Pocket，保護你的成績、課表與出缺勤紀錄。</string>
 	<key>UIAppFonts</key>

@@ -176,6 +176,49 @@ final class PocketShellUITests: XCTestCase {
         capture("25-home-customised-lower")
     }
 
+    func testHomeWidgetsReorderByDragging() {
+        launch(onboarded: true, session: "demo")
+        let widgets = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "widget-"))
+        XCTAssertTrue(widgets.firstMatch.waitForExistence(timeout: 10))
+        func order() -> [String] {
+            widgets.allElementsBoundByIndex
+                .sorted { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
+                .map(\.identifier)
+        }
+        let before = order()
+        XCTAssertGreaterThanOrEqual(before.count, 3)
+        let moved = widgets.matching(identifier: before[1]).firstMatch
+        let target = widgets.matching(identifier: before[2]).firstMatch
+        moved.press(forDuration: 1.2, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.6)
+        Thread.sleep(forTimeInterval: 1)
+        let after = order()
+        XCTAssertEqual(Set(after), Set(before))
+        XCTAssertNotEqual(after, before, "dragging a widget onto another must change the order")
+        capture("26-home-reordered")
+    }
+
+    /// Xcode's accessibility audit on the four root screens: every element needs a description
+    /// VoiceOver can read, and controls need a usable hit region.
+    func testRootScreensPassTheAccessibilityAudit() throws {
+        launch(onboarded: true, session: "demo")
+        XCTAssertTrue(app.buttons["home-edit"].waitForExistence(timeout: 10))
+        var issues: [String] = []
+        for (index, tab) in ["首頁", "課表", "成績", "校園"].enumerated() {
+            if index > 0 { self.tab(tab).tap() }
+            Thread.sleep(forTimeInterval: 1)
+            try app.performAccessibilityAudit(for: [.sufficientElementDescription, .hitRegion]) { issue in
+                let element = issue.element
+                issues.append("\(tab): \(issue.compactDescription) [\(element?.identifier ?? "") | \(element?.label ?? "") | \(element?.elementType.rawValue ?? 0) | \(element?.frame.debugDescription ?? "")]")
+                return true
+            }
+        }
+        if let directory = ProcessInfo.processInfo.environment["SHOT_DIR"] {
+            try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            try? issues.joined(separator: "\n").write(toFile: directory + "/accessibility-audit.txt", atomically: true, encoding: .utf8)
+        }
+        XCTAssertTrue(issues.isEmpty, issues.joined(separator: "\n"))
+    }
+
     func testGradeDetailAndSimulator() {
         launch(onboarded: true, session: "demo")
         tab("成績").tap()

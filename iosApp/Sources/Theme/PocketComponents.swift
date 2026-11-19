@@ -76,7 +76,7 @@ struct PocketChip: View {
     var body: some View {
         HStack(spacing: 4) {
             if let systemImage {
-                Image(systemName: systemImage).imageScale(.small)
+                Image(systemName: systemImage).imageScale(.small).accessibilityHidden(true)
             }
             Text(text)
         }

@@ -7,6 +7,8 @@ struct HomeView: View {
     @State private var width: CGFloat = 0
     @State private var showingEditor = false
     @State private var editing: PocketWidget?
+    @State private var dropTarget: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Column count comes from the shared layout engine so breakpoints match Android.
     private var columns: Int {
@@ -22,8 +24,28 @@ struct HomeView: View {
                 DashboardGrid(columns: columns) {
                     ForEach(widgets) { widget in
                         WidgetView(widget: widget, columns: columns)
+                            .overlay {
+                                if dropTarget == widget.id {
+                                    RoundedRectangle(cornerRadius: PocketMetrics.cardRadius, style: .continuous)
+                                        .strokeBorder(PocketColor.primary, lineWidth: 3)
+                                }
+                            }
                             .dashboardPlacement(widget)
                             .contextMenu { menu(for: widget) }
+                            // Press and drag a widget onto another to take its place; the editor
+                            // offers the same reordering with buttons for VoiceOver and Switch Control.
+                            .draggable(widget.id)
+                            .dropDestination(for: String.self) { ids, _ in
+                                guard let id = ids.first, id != widget.id,
+                                      widgets.contains(where: { $0.id == id }),
+                                      let target = widgets.firstIndex(where: { $0.id == widget.id }) else { return false }
+                                withAnimation(reduceMotion ? nil : .snappy) {
+                                    model.editDashboard { $0.move(layout: $1, id: id, index: Int32(target)) }
+                                }
+                                return true
+                            } isTargeted: { targeted in
+                                if targeted { dropTarget = widget.id } else if dropTarget == widget.id { dropTarget = nil }
+                            }
                     }
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
