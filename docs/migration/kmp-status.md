@@ -76,5 +76,6 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 | `:app:testDemoDebugUnitTest` | PASS |
 | `:shared:iosSimulatorArm64Test`、`:shared:iosX64Test` | BLOCKED（Linux 上被 Gradle 停用，需在 macOS 執行） |
 | 完整 Android gate（`e6fb6b7`：demo 測試、production `FlavorConfigurationTest`、`lintDemoDebug`、兩個 flavor 的 assemble） | PASS（第二次執行）。第一次執行 FAIL：`lintAnalyzeDemoDebugUnitTest` 在 `kspProductionDebugKotlin` 重新產生檔案時讀取 `build/generated/ksp/productionDebug`，出現 `FileNotFoundException`；KSP 輸出完成後重跑即通過，尚未確認這個競態在 `main` 是否也會發生。 |
-| Android 模擬器畫面比對 | NOT_RUN |
+| Android 模擬器啟動檢查（API 35 x86_64 模擬器、`demoDebug`、`6d613fe`） | PASS：導覽頁 4 步、範例帳號登入、首頁／課表／成績／校園／個人頁，淺色與深色皆正常顯示範例資料，沒有當機。 |
+| Android 搬移前後畫面逐一比對 | NOT_RUN（搬移前沒有先截基準圖，只能確認搬移後畫面正常） |
 | iOS 建置、Simulator、畫面檢查 | NOT_RUN（由 macOS session 進行） |
