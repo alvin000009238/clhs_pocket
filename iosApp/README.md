@@ -31,11 +31,12 @@ cd android && ./gradlew :shared:iosSimulatorArm64Test
 # UI 流程，並把每個畫面的截圖寫到 SHOT_DIR
 cd iosApp && TEST_RUNNER_SHOT_DIR=/tmp/pocket-shots xcodebuild \
   -project CLHSPocket.xcodeproj -scheme CLHSPocket \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
-  CODE_SIGNING_ALLOWED=NO test
+  -destination 'platform=iOS Simulator,name=iPhone 17' test
 ```
 
 加上 `TEST_RUNNER_CONTENT_SIZE=UICTContentSizeCategoryAccessibilityXL` 可用輔助使用字級跑同一組流程。
+
+測試不要加 `CODE_SIGNING_ALLOWED=NO`（Keychain 單元測試需要簽署的測試主程式）；只跑 UI 流程可加 `-only-testing:CLHSPocketUITests`。
 
 UI 變更必須在 Simulator 檢視淺色與深色截圖；只通過建置不算視覺驗證。
 

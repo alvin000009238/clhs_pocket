@@ -58,9 +58,10 @@ jobs:
                   break
           ')"
           test -n "$UDID"
+          # Simulator builds are signed ad hoc; disabling signing would break the Keychain unit tests.
           TEST_RUNNER_SHOT_DIR="$RUNNER_TEMP/pocket-shots" xcodebuild \
             -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket \
-            -destination "id=$UDID" CODE_SIGNING_ALLOWED=NO test
+            -destination "id=$UDID" test
       - name: Upload UI test screenshots
         if: always()
         uses: actions/upload-artifact@v4
