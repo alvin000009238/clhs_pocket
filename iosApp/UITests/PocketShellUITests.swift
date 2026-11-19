@@ -47,7 +47,7 @@ final class PocketShellUITests: XCTestCase {
         capture("07-schedule-semester")
 
         tab("首頁").tap()
-        XCTAssertTrue(app.staticTexts["今日天氣"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "還有 25 分鐘下課")).firstMatch.waitForExistence(timeout: 5))
         capture("08-home")
         app.swipeUp()
         capture("09-home-lower")
@@ -90,6 +90,9 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["行事曆"].waitForExistence(timeout: 5))
         capture("17-campus-calendar")
 
+        // Reselecting the active tab pops its stack back to the root.
+        tab("校園").tap()
+        XCTAssertTrue(app.staticTexts["近期行事"].waitForExistence(timeout: 5))
         app.buttons["personal-button"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["示範帳號 DEMO-000"].waitForExistence(timeout: 5))
         capture("18-personal")
@@ -99,6 +102,8 @@ final class PocketShellUITests: XCTestCase {
     }
 
     private func tab(_ title: String) -> XCUIElement {
+        // The iOS 26 tab bar minimises while scrolled down; scroll back to restore it.
+        if !app.tabBars.buttons[title].exists { app.swipeDown() }
         let inTabBar = app.tabBars.buttons[title]
         return inTabBar.exists ? inTabBar : app.buttons[title].firstMatch
     }
