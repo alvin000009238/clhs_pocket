@@ -19,15 +19,12 @@ import android.content.ContextWrapper
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.BorderStroke
@@ -38,7 +35,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -71,9 +67,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.SplitButtonLayout
-import androidx.compose.material3.SplitButtonDefaults
-import androidx.compose.material3.SplitButtonShapes
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -94,17 +87,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -190,6 +178,7 @@ fun GradesScreen(
 ) {
     val summaryDisplay = creditState.summaryDisplay(state.report, state.studentNo, state.selectedYearValue, state.selectedExamValue)
     val context = LocalContext.current
+    val inspectionMode = LocalInspectionMode.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentOnStartGradeReminder by rememberUpdatedState(onStartGradeReminder)
     val currentOnSetNotificationsEnabled by rememberUpdatedState(onSetNotificationsEnabled)
@@ -197,23 +186,16 @@ fun GradesScreen(
     val waitingForNotificationGrant = rememberSaveable { mutableStateOf(false) }
     val waitingForBatteryOptimizationGrant = rememberSaveable { mutableStateOf(false) }
     var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
-    var showGradeTabs by rememberSaveable { mutableStateOf(false) }
-    val currentShowGradeTabs by rememberUpdatedState(showGradeTabs)
-    var navigationBounds by remember { mutableStateOf(Rect.Zero) }
-    var contentPosition by remember { mutableStateOf(Offset.Zero) }
     val navigationCompact = com.clhs.score.ui.navigation.LocalNavigationCompact.current
-    val expandNavigation = com.clhs.score.ui.navigation.LocalExpandNavigation.current
-    LaunchedEffect(navigationCompact) {
-        if (navigationCompact) showGradeTabs = false
-    }
-    var showGradeSelection by rememberSaveable { mutableStateOf(false) }
     var showMoreMenu by rememberSaveable { mutableStateOf(false) }
     var showGradeReminderDetails by rememberSaveable { mutableStateOf(false) }
     var showExportDialog by rememberSaveable { mutableStateOf(false) }
-    var notificationsAvailable by remember {
-        mutableStateOf(context.canPostNotifications(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID))
+    var notificationsAvailable by remember(context, inspectionMode) {
+        mutableStateOf(!inspectionMode && context.canPostNotifications(NotificationChannels.GRADE_REMINDERS_CHANNEL_ID))
     }
-    var isBatteryOptimizationIgnored by remember { mutableStateOf(BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)) }
+    var isBatteryOptimizationIgnored by remember(context, inspectionMode) {
+        mutableStateOf(!inspectionMode && BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context))
+    }
 
     val pagerState = rememberPagerState(
         initialPage = GradesDestination.Overview.ordinal,
@@ -231,7 +213,6 @@ fun GradesScreen(
         else -> overviewScrollState
     }
     com.clhs.score.ui.navigation.RegisterRootScroll {
-        showGradeTabs = false
         if (currentScrollState.value > 0) currentScrollState.animateScrollTo(0)
     }
     fun refreshReminderPrerequisites() {
@@ -274,9 +255,9 @@ fun GradesScreen(
         }
     }
 
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, inspectionMode) {
+        if (inspectionMode) return@DisposableEffect onDispose { }
         val observer = LifecycleEventObserver observer@{ _, event ->
-            if (event == Lifecycle.Event.ON_STOP) showGradeTabs = false
             if (event != Lifecycle.Event.ON_RESUME) {
                 return@observer
             }
@@ -390,33 +371,10 @@ fun GradesScreen(
     androidx.compose.runtime.CompositionLocalProvider(
         com.clhs.score.ui.navigation.LocalNavigationClearance provides navigationClearance + tabsHeight + 16.dp,
     ) {
-        Box(Modifier.fillMaxSize()
-            .onGloballyPositioned { contentPosition = it.positionInRoot() }
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    if (currentShowGradeTabs && !navigationBounds.contains(down.position + contentPosition)) {
-                        showGradeTabs = false
-                    }
-                }
-            }) {
+        Box(Modifier.fillMaxSize()) {
             RootFloatingScaffold(
                 dynamicColor = dynamicColor,
                 actions = {
-                    Box {
-                        IconButton(onClick = { showGradeSelection = !showGradeSelection },
-                            shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape)) {
-                            OutlinedRoundedSymbol("swap_horiz", tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "選擇成績")
-                        }
-                        DropdownMenu(expanded = showGradeSelection,
-                            onDismissRequest = { showGradeSelection = false },
-                            shape = CircleShape,
-                            offset = DpOffset(0.dp, 10.dp)) {
-                            Box(Modifier.padding(horizontal = 4.dp)) {
-                                GradeSelectionPill(state, onSelectYear, onSelectExam)
-                            }
-                        }
-                    }
                     Box {
                         IconButton(
                             onClick = { showMoreMenu = true },
@@ -472,6 +430,10 @@ fun GradesScreen(
                 },
                 snackbarHost = snackbarHost,
             ) { padding, pageHeader ->
+                val gradesHeader: @Composable () -> Unit = {
+                    pageHeader()
+                    GradeSelectionHeader(state, onSelectYear, onSelectExam)
+                }
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
                     onRefresh = hapticClick(onReload),
@@ -487,16 +449,16 @@ fun GradesScreen(
                             report == null && (state.isLoadingStructure || state.isLoadingGrades) -> GradesTabPage(
                                 scrollState = overviewScrollState,
                                 contentPadding = padding,
-                                pageHeader = pageHeader,
+                                pageHeader = gradesHeader,
                             ) { OverviewSkeleton() }
 
                             report == null -> GradesTabPage(
                                 scrollState = overviewScrollState,
                                 contentPadding = padding,
-                                pageHeader = pageHeader,
+                                pageHeader = gradesHeader,
                             ) {
                                 EmptyPanel(
-                                    message = when {
+                                    message = state.errorMessage ?: when {
                                         state.structure.isEmpty() -> "尚未取得可查詢考試"
                                         state.structure
                                             .firstOrNull { it.value == state.selectedYearValue }
@@ -511,7 +473,7 @@ fun GradesScreen(
                             analysis == null -> GradesTabPage(
                                 scrollState = overviewScrollState,
                                 contentPadding = padding,
-                                pageHeader = pageHeader,
+                                pageHeader = gradesHeader,
                             ) { OverviewSkeleton() }
 
                             else -> HorizontalPager(
@@ -527,7 +489,7 @@ fun GradesScreen(
                                 GradesTabPage(
                                     scrollState = tabScrollState,
                                     contentPadding = padding,
-                                    pageHeader = pageHeader,
+                                    pageHeader = gradesHeader,
                                     bringIntoViewSpec = if (destination == GradesDestination.Subjects.ordinal) {
                                         SubjectCardBringIntoViewSpec
                                     } else LocalBringIntoViewSpec.current,
@@ -544,15 +506,11 @@ fun GradesScreen(
                                             trend = state.trend,
                                         )
 
-                                        GradesDestination.Subjects.ordinal -> androidx.compose.runtime.CompositionLocalProvider(
-                                            com.clhs.score.ui.navigation.LocalNavigationClearance provides navigationClearance,
-                                        ) {
-                                            SubjectsTab(
-                                                analyses = analysis.subjects,
-                                                expandedSubjectKeys = state.expandedSubjectKeys,
-                                                onToggleSubject = onToggleSubject,
-                                            )
-                                        }
+                                        GradesDestination.Subjects.ordinal -> SubjectsTab(
+                                            analyses = analysis.subjects,
+                                            expandedSubjectKeys = state.expandedSubjectKeys,
+                                            onToggleSubject = onToggleSubject,
+                                        )
 
                                         GradesDestination.Analysis.ordinal -> AdvancedTab(
                                             report = report,
@@ -590,76 +548,33 @@ fun GradesScreen(
                 exit = fadeOut(PocketMotion.stateChange()) +
                     scaleOut(animationSpec = PocketMotion.contentReflow(), targetScale = 0.94f),
             ) {
-                BoxWithConstraints(
+                Box(
                     modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth().height(tabsHeight),
                     contentAlignment = Alignment.Center,
                 ) {
-                    val expandedWidth = maxWidth
-                    val navigationWidth by animateDpAsState(
-                        targetValue = if (showGradeTabs) expandedWidth else 88.dp.coerceAtMost(expandedWidth),
-                        animationSpec = PocketMotion.contentReflow(),
-                        label = "成績分頁展開收合",
-                    )
                     Surface(
-                        modifier = Modifier.width(navigationWidth).height(tabsHeight)
-                            .onGloballyPositioned { navigationBounds = it.boundsInRoot() }
-                            .testTag("gradesPageNavigation"),
+                        modifier = Modifier.fillMaxWidth().height(tabsHeight).testTag("gradesPageNavigation"),
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.82f),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
-                        Crossfade(
-                            targetState = showGradeTabs,
-                            animationSpec = PocketMotion.stateChange(),
-                            label = "成績分頁內容",
-                        ) { expanded ->
-                            if (expanded) {
-                                PrimaryTabRow(
-                                    modifier = Modifier.requiredWidth(expandedWidth),
-                                    selectedTabIndex = pagerState.currentPage,
-                                    containerColor = Color.Transparent,
-                                    divider = {},
-                                ) {
-                                    GradesDestination.entries.forEach { destination ->
-                                        Tab(
-                                            selected = pagerState.currentPage == destination.ordinal,
-                                            enabled = showGradeTabs && !navigationCompact,
-                                            onClick = hapticClick {
-                                                showGradeTabs = false
-                                                pagerScope.launch { pagerState.animateScrollToPage(destination.ordinal) }
-                                            },
-                                            modifier = Modifier.height(tabsHeight),
-                                            text = {
-                                                Text(destination.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                                            },
-                                        )
-                                    }
-                                }
-                            } else {
-                                TextButton(
-                                    enabled = !showGradeTabs && !navigationCompact,
+                        PrimaryTabRow(
+                            selectedTabIndex = pagerState.currentPage,
+                            containerColor = Color.Transparent,
+                            divider = {},
+                        ) {
+                            GradesDestination.entries.forEach { destination ->
+                                Tab(
+                                    selected = pagerState.currentPage == destination.ordinal,
+                                    enabled = state.report != null && state.analysis != null && !navigationCompact,
                                     onClick = hapticClick {
-                                        expandNavigation()
-                                        showGradeTabs = true
+                                        pagerScope.launch { pagerState.animateScrollToPage(destination.ordinal) }
                                     },
-                                    modifier = Modifier.fillMaxWidth().height(tabsHeight).semantics {
-                                        contentDescription = "切換成績分頁"
-                                        stateDescription = GradesDestination.entries[pagerState.currentPage].label
+                                    modifier = Modifier.height(tabsHeight),
+                                    text = {
+                                        Text(destination.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
                                     },
-                                ) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        GradesDestination.entries.forEach { destination ->
-                                            val selected = pagerState.currentPage == destination.ordinal
-                                            Box(
-                                                Modifier.size(if (selected) 8.dp else 6.dp)
-                                                    .background(
-                                                        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        CircleShape,
-                                                    ),
-                                            )
-                                        }
-                                    }
-                                }
+                                )
                             }
                         }
                     }
@@ -700,152 +615,118 @@ private fun GradesTabPage(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun GradeSelectionPill(
+private fun GradeSelectionHeader(
     state: GradesUiState,
     onSelectYear: (String) -> Unit,
     onSelectExam: (String) -> Unit,
 ) {
     val selectedYear = state.structure.find { it.value == state.selectedYearValue }
-    val selectedYearLabel = selectedYear?.let(::compactYearTermLabel)
-    val selectedExamLabel = selectedYear?.exams
-        ?.firstOrNull { it.value == state.selectedExamValue }
-        ?.text
-    val enabled = state.structure.isNotEmpty() && !state.isLoadingStructure
-    var yearMenuExpanded by remember { mutableStateOf(false) }
-    var examMenuExpanded by remember { mutableStateOf(false) }
-    val buttonContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-    val buttonContentColor = MaterialTheme.colorScheme.onSurface
-    val buttonColors = ButtonDefaults.filledTonalButtonColors(
-        containerColor = buttonContainerColor,
-        contentColor = buttonContentColor,
-        disabledContainerColor = buttonContainerColor.copy(alpha = 0.38f),
-        disabledContentColor = buttonContentColor.copy(alpha = 0.42f),
-    )
-    val leadingButtonShapes = SplitButtonDefaults.leadingButtonShapesFor(48.dp)
-    val trailingShape = SplitButtonDefaults.trailingButtonShapesFor(48.dp).shape
-    val examButtonShapes = SplitButtonShapes(trailingShape, trailingShape, trailingShape)
-    val yearButtonShapes = SplitButtonShapes(
-        shape = leadingButtonShapes.shape,
-        pressedShape = leadingButtonShapes.shape,
-        checkedShape = leadingButtonShapes.shape,
-    )
+    val selectedExam = selectedYear?.exams?.find { it.value == state.selectedExamValue }
+    val canSelect = state.structure.isNotEmpty() && !state.isLoadingStructure
+    val yearLabel = selectedYear?.let(::compactYearTermLabel)
+        ?: if (state.isLoadingStructure) "載入中" else "選擇學期"
+    val examLabel = selectedExam?.text
+        ?: if (state.isLoadingStructure) "載入中" else "選擇考試"
 
-    Box {
-        SplitButtonLayout(
-            leadingButton = {
-                Box {
-                    SplitButtonDefaults.TonalTrailingButton(
-                        modifier = Modifier.height(48.dp),
-                        checked = yearMenuExpanded,
-                        enabled = enabled,
-                        shapes = yearButtonShapes,
-                        colors = buttonColors,
-                        contentPadding = SplitButtonDefaults.leadingButtonContentPaddingFor(48.dp),
-                        onCheckedChange = { checked ->
-                            yearMenuExpanded = checked
-                            if (checked) {
-                                examMenuExpanded = false
-                            }
-                        },
-                    ) {
-                        Text(
-                            text = selectedYearLabel ?: if (state.isLoadingStructure) "載入中" else "選擇學年度",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("成績", style = MaterialTheme.typography.headlineSmall)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val stackSelectors = maxWidth < 280.dp * androidx.compose.ui.platform.LocalDensity.current.fontScale
+            val yearSelector: @Composable (Modifier) -> Unit = { modifier ->
+                GradeSelectionMenu(
+                    label = "學期",
+                    value = yearLabel,
+                    enabled = canSelect,
+                    modifier = modifier.testTag("gradesYearSelector"),
+                ) { close ->
+                    state.structure.forEach { year ->
+                        DropdownMenuItem(
+                            text = { Text(year.text) },
+                            modifier = Modifier.semantics { selected = year.value == state.selectedYearValue },
+                            trailingIcon = {
+                                if (year.value == state.selectedYearValue) {
+                                    FilledRoundedSymbol(icon = "check", contentDescription = null)
+                                }
+                            },
+                            onClick = {
+                                close()
+                                if (year.value != state.selectedYearValue) onSelectYear(year.value)
+                            },
                         )
                     }
-                    DropdownMenu(
-                        expanded = yearMenuExpanded,
-                        onDismissRequest = { yearMenuExpanded = false },
-                        offset = DpOffset(x = 0.dp, y = 10.dp),
-                    ) {
-                        state.structure.forEach { year ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = compactYearTermLabel(year),
-                                        fontWeight = if (year.value == state.selectedYearValue) FontWeight.SemiBold else FontWeight.Normal,
-                                    )
-                                },
-                                trailingIcon = {
-                                    if (year.value == state.selectedYearValue) {
-                                        FilledRoundedSymbol(icon = "check", contentDescription = null)
-                                    }
-                                },
-                                onClick = {
-                                    yearMenuExpanded = false
-                                    if (year.value != state.selectedYearValue) {
-                                        onSelectYear(year.value)
-                                    }
-                                },
-                            )
-                        }
-                    }
                 }
-            },
-            trailingButton = {
-                Box {
-                    SplitButtonDefaults.TonalTrailingButton(
-                        modifier = Modifier.height(48.dp),
-                        checked = examMenuExpanded,
-                        enabled = enabled,
-                        shapes = examButtonShapes,
-                        colors = buttonColors,
-                        onCheckedChange = { checked ->
-                            examMenuExpanded = checked
-                            if (checked) {
-                                yearMenuExpanded = false
-                            }
-                        },
-                    ) {
-                        Text(
-                            text = selectedExamLabel ?: if (state.isLoadingStructure) "載入中" else "選擇考試",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+            }
+            val examSelector: @Composable (Modifier) -> Unit = { modifier ->
+                GradeSelectionMenu(
+                    label = "考試",
+                    value = examLabel,
+                    enabled = canSelect && !selectedYear?.exams.isNullOrEmpty(),
+                    modifier = modifier.testTag("gradesExamSelector"),
+                ) { close ->
+                    selectedYear?.exams.orEmpty().forEach { exam ->
+                        DropdownMenuItem(
+                            text = { Text(exam.text) },
+                            modifier = Modifier.semantics { selected = exam.value == state.selectedExamValue },
+                            trailingIcon = {
+                                if (exam.value == state.selectedExamValue) {
+                                    FilledRoundedSymbol(icon = "check", contentDescription = null)
+                                }
+                            },
+                            onClick = {
+                                close()
+                                if (exam.value != state.selectedExamValue) onSelectExam(exam.value)
+                            },
                         )
                     }
-                    DropdownMenu(
-                        expanded = examMenuExpanded,
-                        onDismissRequest = { examMenuExpanded = false },
-                        offset = DpOffset(x = 0.dp, y = 10.dp),
-                    ) {
-                        if (selectedYear == null || selectedYear.exams.isEmpty()) {
-                            DropdownMenuItem(
-                                enabled = false,
-                                text = { Text("此學期沒有考試資料") },
-                                onClick = {},
-                            )
-                        } else {
-                            selectedYear.exams.forEach { exam ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = exam.text,
-                                            fontWeight = if (exam.value == state.selectedExamValue) FontWeight.SemiBold else FontWeight.Normal,
-                                        )
-                                    },
-                                    trailingIcon = {
-                                        if (exam.value == state.selectedExamValue) {
-                                            FilledRoundedSymbol(icon = "check", contentDescription = null)
-                                        }
-                                    },
-                                    onClick = {
-                                        examMenuExpanded = false
-                                        onSelectExam(exam.value)
-                                    },
-                                )
-                            }
-                        }
-                    }
                 }
+            }
+            if (stackSelectors) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    yearSelector(Modifier.fillMaxWidth())
+                    examSelector(Modifier.fillMaxWidth())
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    yearSelector(Modifier.weight(1f))
+                    examSelector(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun GradeSelectionMenu(
+    label: String,
+    value: String,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    items: @Composable (close: () -> Unit) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
+        androidx.compose.material3.FilledTonalButton(
+            onClick = hapticClick { expanded = true },
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).semantics {
+                contentDescription = "選擇$label"
+                stateDescription = value
             },
-        )
+            shape = MaterialTheme.shapes.medium,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(label, style = MaterialTheme.typography.labelSmall)
+                Text(value, style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            OutlinedRoundedSymbol(icon = "keyboard_arrow_down", contentDescription = null)
+        }
+        DropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
+            items { expanded = false }
+        }
     }
 }
 

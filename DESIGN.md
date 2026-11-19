@@ -122,7 +122,7 @@ YouBike 由使用者新增並選站。2×1 顯示總量與一般／電輔數量�
 
 ### 成績
 
-`ui/GradesScreen.kt` 顯示摘要、科目與分析，底部浮動 `PrimaryTabRow` 位於導覽列上方。學期與考試 split button 由右上角「選擇成績」按鈕展開。保留 pager 滑動、各頁捲動位置與下拉更新。成績子內容與圖表見 `ui/GradesSubjectsTab.kt`、`ui/GradesAnalysisTab.kt`、`ui/Charts.kt`、`ui/SubjectTrendLineChart.kt`；沿用資料、圖例、語意色與標籤。
+`ui/GradesScreen.kt` 顯示摘要、科目與分析，底部浮動 `PrimaryTabRow` 位於導覽列上方。目前學期與考試直接顯示於內容頂部，可分別開啟選單；窄螢幕或放大字體時改為上下排列。分頁直接顯示名稱，單次點擊即可切換；科目可依官方未達及格標記篩選並依分數排序，未公布的分數排在最後。保留 pager 滑動、各頁捲動位置與下拉更新。成績子內容與圖表見 `ui/GradesSubjectsTab.kt`、`ui/GradesAnalysisTab.kt`、`ui/Charts.kt`、`ui/SubjectTrendLineChart.kt`；沿用資料、圖例、語意色與標籤。
 
 成績模擬器摘要固定在底部，以數值、箭頭與總分呈現調整結果；原始與調整後標籤保留於無障礙語意。列表依摘要實際高度避讓，最後一科可完整捲出。寬版內容與摘要限制寬度並置中。右上角進階模式開啟獨立可捲動面板，包含採計、反推、學分設定與恢復全部；面板不受科目列表位置影響。學分設定與進階面板分開開啟。
 
