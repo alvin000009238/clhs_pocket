@@ -31,3 +31,26 @@ private fun GradeSubjectsBrowsingPreview() {
         }
     }
 }
+
+@Preview(name = "Subject ranks large text", widthDp = 320, heightDp = 600, fontScale = 2f)
+@Preview(name = "Subject ranks large text dark", widthDp = 320, heightDp = 600, fontScale = 2f, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun SubjectRanksLargeTextPreview() {
+    val analysis = buildGradeAnalysis(MockGradeSystem.generateReport()).subjects.first()
+    ScoreTheme {
+        Surface {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
+                SubjectCard(
+                    analysis = analysis.copy(subject = analysis.subject.copy(
+                        classRank = 31,
+                        classRankCount = 38,
+                        yearRank = 184,
+                        yearRankCount = 226,
+                    )),
+                    expanded = false,
+                    onToggle = {},
+                )
+            }
+        }
+    }
+}

@@ -28,6 +28,8 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -172,13 +174,15 @@ class ScoreUiTest {
         composeRule.onNode(hasText("摘要") and tab).assertIsDisplayed()
         composeRule.onNode(hasText("科目") and tab).assertIsDisplayed()
         composeRule.onNode(hasText("分析") and tab).assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("選擇學期").assertIsDisplayed().performClick()
+        // Each precomposed pager page has a header; the initial page is Overview.
+        composeRule.onAllNodesWithContentDescription("選擇學期").onFirst().assertIsDisplayed().performClick()
         composeRule.onNode(hasText("114學年度 上學期") and
             SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).assertIsDisplayed()
         androidx.test.espresso.Espresso.pressBack()
-        composeRule.onNodeWithText("114-上").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("選擇考試").assertIsDisplayed().performClick()
-        composeRule.onNodeWithText("期中考").assertIsDisplayed()
+        composeRule.onAllNodesWithText("114-上").onFirst().assertIsDisplayed()
+        composeRule.onAllNodesWithContentDescription("選擇考試").onFirst().assertIsDisplayed().performClick()
+        composeRule.onNode(hasText("期中考") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, false)).assertIsDisplayed()
         composeRule.onNode(hasText("期末考") and
             SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).assertIsDisplayed()
         androidx.test.espresso.Espresso.pressBack()
@@ -207,7 +211,7 @@ class ScoreUiTest {
         }
         settleUi()
 
-        composeRule.onNodeWithContentDescription("選擇考試").performScrollTo().assertIsDisplayed().performClick()
+        composeRule.onAllNodesWithContentDescription("選擇考試").onFirst().performScrollTo().assertIsDisplayed().performClick()
         composeRule.onNode(hasText("期末考") and
             SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).assertIsDisplayed()
         androidx.test.espresso.Espresso.pressBack()
