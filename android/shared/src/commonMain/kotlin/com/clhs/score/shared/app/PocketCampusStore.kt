@@ -14,7 +14,7 @@ import com.clhs.score.shared.time.yearNumber
 
 enum class PocketAnnouncementFilter { ALL, UNREAD, BOOKMARKED }
 
-data class PocketAttachment(val name: String, val sizeText: String)
+data class PocketAttachment(val name: String, val sizeText: String, val url: String = "")
 
 data class PocketAnnouncementDetail(
     val id: String,
@@ -108,6 +108,19 @@ object PocketCampusStore {
 
     fun announcementDetail(clock: PocketClock, id: String): PocketAnnouncementDetail? {
         val item = DemoCampus.sharedAnnouncements(clock).firstOrNull { it.id == id } ?: return null
+        if (!PocketData.isDemo) {
+            // Null until the live detail has been loaded; the list row is not a substitute for the body.
+            val live = PocketData.current.announcementDetail(id) ?: return null
+            return PocketAnnouncementDetail(
+                id = live.id, title = live.title, dateText = live.date, unit = live.unit, category = live.category,
+                isPinned = item.isPinned,
+                paragraphs = plainParagraphs(live.htmlContent),
+                attachments = live.attachments.map { file ->
+                    PocketAttachment(file.name, file.sizeBytes?.let { bytes -> if (bytes >= 1_048_576) "${bytes / 1_048_576} MB" else "${(bytes + 1023) / 1024} KB" }.orEmpty(), file.url)
+                },
+                officialUrl = live.officialUrl,
+            )
+        }
         return PocketAnnouncementDetail(
             id = item.id,
             title = item.title,
@@ -126,6 +139,15 @@ object PocketCampusStore {
             officialUrl = "https://www.clhs.tyc.edu.tw/ischool/public/news_view/show.php?nid=${item.id}",
         )
     }
+
+    private val blockBreak = Regex("(?i)<br\\s*/?>|</p>|</div>|</li>|</tr>|</h[1-6]>")
+    private val anyTag = Regex("<[^>]*>")
+
+    /** Announcement HTML reduced to readable paragraphs; markup is never rendered. */
+    internal fun plainParagraphs(html: String): List<String> = html
+        .replace(blockBreak, "\n").replace(anyTag, "")
+        .replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
+        .split('\n').map { it.trim() }.filter { it.isNotEmpty() }
 
     /** Month grid starting on Monday, padded to whole weeks. */
     fun month(clock: PocketClock, year: Int, month: Int): PocketCalendarMonth {
