@@ -1,0 +1,28 @@
+name: CLHSPocket
+options:
+  minimumXcodeGenVersion: "2.40.0"
+targets:
+  CLHSPocket:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.clhs.pocket.ios
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../android/shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+        OTHER_LDFLAGS: "$(inherited) -framework PocketShared"
+    preBuildScripts:
+      - name: "Compile Kotlin framework"
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED" = "YES" ]; then
+            exit 0
+          fi
+          cd "$SRCROOT/../android"
+          ./gradlew :shared:embedAndSignAppleFrameworkForXcode
