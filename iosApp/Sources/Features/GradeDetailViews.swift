@@ -262,13 +262,25 @@ private struct DistributionCard: View {
 
 struct GradeSimulatorView: View {
     let examValue: String
+
+    var body: some View {
+        if let simulator = PocketGrades.shared.simulator(examValue: examValue) {
+            GradeSimulatorContent(simulator: simulator)
+        } else {
+            ContentUnavailableView("成績尚未載入", systemImage: "chart.bar", description: Text("載入這次考試的成績後才能試算。"))
+                .navigationTitle("成績模擬器")
+                .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+private struct GradeSimulatorContent: View {
     @State private var simulator: PocketSimulator
     @State private var revision = 0
     @State private var showingCredits = false
 
-    init(examValue: String) {
-        self.examValue = examValue
-        _simulator = State(initialValue: PocketGrades.shared.simulator(examValue: examValue))
+    init(simulator: PocketSimulator) {
+        _simulator = State(initialValue: simulator)
     }
 
     private func edit(_ change: (PocketSimulator) -> Void) {
