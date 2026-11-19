@@ -12,8 +12,12 @@ struct PocketNotificationRequest: Equatable, Sendable {
     var fireDate: Date?
     /// One-use capability redeemed on tap; the destination is not in the payload.
     var capability: String
+    /// Course reminders carry the "暫停一日" action.
+    var isCourseReminder = false
 
     static let capabilityKey = "capability"
+    static let courseCategory = "course-reminder"
+    static let pauseDayAction = "pause-day"
 }
 
 protocol NotificationScheduling: Sendable {
@@ -21,6 +25,8 @@ protocol NotificationScheduling: Sendable {
     func requestAuthorization() async -> Bool
     func add(_ request: PocketNotificationRequest) async throws
     func pendingIdentifiers() async -> [String]
+    /// Pending course reminders with their fire dates, for "暫停一日".
+    func pendingCourseReminders() async -> [(identifier: String, fireDate: Date)]
     func removePending(_ identifiers: [String]) async
     func removeAll() async
 }
@@ -44,6 +50,7 @@ struct SystemNotificationScheduler: NotificationScheduling {
         content.sound = .default
         content.threadIdentifier = request.identifier.hasPrefix(ReminderPlanningKt.COURSE_REMINDER_PREFIX) ? "course" : request.identifier
         content.userInfo = [PocketNotificationRequest.capabilityKey: request.capability]
+        if request.isCourseReminder { content.categoryIdentifier = PocketNotificationRequest.courseCategory }
         let trigger = request.fireDate.map { date in
             UNTimeIntervalNotificationTrigger(timeInterval: max(1, date.timeIntervalSinceNow), repeats: false)
         }
@@ -54,8 +61,24 @@ struct SystemNotificationScheduler: NotificationScheduling {
         await center.pendingNotificationRequests().map(\.identifier)
     }
 
+    func pendingCourseReminders() async -> [(identifier: String, fireDate: Date)] {
+        await center.pendingNotificationRequests().compactMap { request in
+            guard request.identifier.hasPrefix(ReminderPlanningKt.COURSE_REMINDER_PREFIX),
+                  let date = (request.trigger as? UNTimeIntervalNotificationTrigger)?.nextTriggerDate() else { return nil }
+            return (request.identifier, date)
+        }
+    }
+
     func removePending(_ identifiers: [String]) async {
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+
+    /// Registers the course category so reminders show "暫停一日".
+    static func registerCategories() {
+        let pause = UNNotificationAction(identifier: PocketNotificationRequest.pauseDayAction, title: "暫停一日", options: [])
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(identifier: PocketNotificationRequest.courseCategory, actions: [pause], intentIdentifiers: []),
+        ])
     }
 
     func removeAll() async {
@@ -137,22 +160,58 @@ final class PocketNotificationCenter {
             title: planned.title,
             body: planned.body,
             fireDate: planned.fireAtMillis.map { Date(epochMillis: $0.int64Value) },
-            capability: capabilities.issue(for: planned.identifier, link: link)
+            capability: capabilities.issue(for: planned.identifier, link: link),
+            isCourseReminder: planned.identifier.hasPrefix(ReminderPlanningKt.COURSE_REMINDER_PREFIX)
         )
     }
 
+    private static let coursePausedUntilKey = "platform.coursePausedUntilMillis"
+
+    /// End of the "暫停一日" pause, or 0 when course reminders are not paused.
+    var coursePausedUntilMillis: Int64 {
+        get { Int64(defaults.double(forKey: Self.coursePausedUntilKey)) }
+        set { defaults.set(Double(newValue), forKey: Self.coursePausedUntilKey) }
+    }
+
+    func isCoursePaused(at date: Date) -> Bool { date.epochMillis < coursePausedUntilMillis }
+
+    /// "暫停一日": silences course reminders until the next school day, as on Android.
+    func pauseCourseRemindersForToday(now: Date) async {
+        coursePausedUntilMillis = PocketPlatform.shared.coursePauseEndMillis(nowMillis: now.epochMillis)
+        let until = Date(epochMillis: coursePausedUntilMillis)
+        let paused = await scheduler.pendingCourseReminders().filter { $0.fireDate < until }.map(\.identifier)
+        await scheduler.removePending(paused)
+        capabilities.revoke(identifiers: paused)
+    }
+
     /// Replaces every pending course reminder with the current plan.
-    func syncCourseReminders(snapshotJSON: String?, now: Date, settings: PlatformNotificationSettings) async {
+    ///
+    /// `isCurrent` is asked again after every suspension point: a sign-out
+    /// that lands in the middle must not leave reminders behind.
+    func syncCourseReminders(
+        snapshotJSON: String?,
+        now: Date,
+        settings: PlatformNotificationSettings,
+        isCurrent: @MainActor () -> Bool = { true }
+    ) async {
         let stale = await scheduler.pendingIdentifiers().filter { $0.hasPrefix(ReminderPlanningKt.COURSE_REMINDER_PREFIX) }
         await scheduler.removePending(stale)
         capabilities.revoke(identifiers: stale)
-        guard await scheduler.isAuthorized() else { return }
+        guard await scheduler.isAuthorized(), isCurrent() else { return }
         let planned = PocketPlatform.shared.courseReminders(
-            snapshotJson: snapshotJSON, nowMillis: now.epochMillis, settings: settings
+            snapshotJson: snapshotJSON, nowMillis: now.epochMillis, settings: settings,
+            pausedUntilMillis: coursePausedUntilMillis
         )
+        var added: [String] = []
         for item in planned {
-            guard let request = request(for: item) else { continue }
+            guard isCurrent(), let request = request(for: item) else { break }
             try? await scheduler.add(request)
+            added.append(request.identifier)
+        }
+        if !isCurrent() {
+            // The last add may have raced the sign-out cleanup.
+            await scheduler.removePending(added)
+            capabilities.revoke(identifiers: added)
         }
     }
 
@@ -181,5 +240,6 @@ final class PocketNotificationCenter {
         await scheduler.removeAll()
         capabilities.revokeAll()
         defaults.removeObject(forKey: Self.seenAnnouncementsKey)
+        defaults.removeObject(forKey: Self.coursePausedUntilKey)
     }
 }

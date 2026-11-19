@@ -13,13 +13,32 @@ private actor FakeScheduler: NotificationScheduling {
     func add(_ request: PocketNotificationRequest) async throws {
         pending.removeAll { $0.identifier == request.identifier }
         pending.append(request)
+        await afterAdd?()
     }
+    /// Runs after each add, standing in for a sign-out that lands mid-refresh.
+    var afterAdd: (@Sendable () async -> Void)?
+    func setAfterAdd(_ hook: (@Sendable () async -> Void)?) { afterAdd = hook }
     func pendingIdentifiers() async -> [String] { pending.map(\.identifier) }
+    func pendingCourseReminders() async -> [(identifier: String, fireDate: Date)] {
+        pending.compactMap { request in request.fireDate.map { (request.identifier, $0) } }
+    }
     func removePending(_ identifiers: [String]) async { pending.removeAll { identifiers.contains($0.identifier) } }
     func removeAll() async {
         pending = []
         removedAll = true
     }
+}
+
+@MainActor
+private final class SessionFlag: Sendable {
+    var signedIn = true
+    func signOut() { signedIn = false }
+}
+
+private struct StubAuthenticator: DeviceAuthenticating {
+    let outcome: AppLockOutcome
+    func method() -> AppLockMethod { .passcode }
+    func authenticate(reason: String) async -> AppLockOutcome { outcome }
 }
 
 @MainActor
@@ -210,6 +229,102 @@ final class PlatformTests: XCTestCase {
         let disabled = await scheduler.pending
         XCTAssertTrue(disabled.isEmpty)
         XCTAssertEqual(center.capabilities.count, 0)
+    }
+
+    func testSignOutDuringSchedulingLeavesNoReminderBehind() async throws {
+        let scheduler = FakeScheduler()
+        let center = center(scheduler)
+        let session = SessionFlag()
+        await scheduler.setAfterAdd { await session.signOut() }
+
+        await center.syncCourseReminders(
+            snapshotJSON: try demoJSON(at: lessonTime), now: lessonTime, settings: settings(),
+            isCurrent: { session.signedIn }
+        )
+        let pending = await scheduler.pending
+        XCTAssertTrue(pending.isEmpty, "the reminder added as the session ended must be withdrawn")
+        XCTAssertEqual(center.capabilities.count, 0)
+    }
+
+    func testPauseForTheDayRemovesTodaysRemindersAndKeepsTomorrows() async throws {
+        let scheduler = FakeScheduler()
+        let center = center(scheduler)
+        let json = try demoJSON(at: lessonTime)
+        await center.syncCourseReminders(snapshotJSON: json, now: lessonTime, settings: settings())
+        let before = await scheduler.pending
+        XCTAssertTrue(before.allSatisfy(\.isCourseReminder), "course reminders carry the pause action")
+
+        await center.pauseCourseRemindersForToday(now: lessonTime)
+        let midnight = PlatformClock.parseDemoClock("2026-11-19T00:00")!
+        XCTAssertEqual(Date(epochMillis: center.coursePausedUntilMillis), midnight)
+        XCTAssertTrue(center.isCoursePaused(at: lessonTime))
+        XCTAssertFalse(center.isCoursePaused(at: midnight))
+        var pending = await scheduler.pending
+        XCTAssertFalse(pending.isEmpty)
+        XCTAssertLessThan(pending.count, before.count)
+        XCTAssertTrue(pending.allSatisfy { $0.fireDate! >= midnight })
+        XCTAssertEqual(center.capabilities.count, pending.count)
+
+        // A later refresh on the same day must not bring today's reminders back.
+        await center.syncCourseReminders(snapshotJSON: json, now: lessonTime.addingTimeInterval(60), settings: settings())
+        pending = await scheduler.pending
+        XCTAssertTrue(pending.allSatisfy { $0.fireDate! >= midnight })
+
+        await center.removeEverything()
+        XCTAssertEqual(center.coursePausedUntilMillis, 0)
+    }
+
+    func testQuietWindowDoesNotDropCourseReminders() async throws {
+        let scheduler = FakeScheduler()
+        let center = center(scheduler)
+        let json = try demoJSON(at: lessonTime)
+        await center.syncCourseReminders(snapshotJSON: json, now: lessonTime, settings: settings())
+        let normal = await scheduler.pending.count
+        let allDay = PlatformNotificationSettings(
+            notificationsEnabled: true, courseReminders: true, gradeUpdates: true, announcements: true,
+            pauseEnabled: true, pauseStartMinute: 0, pauseEndMinute: 1439, utcOffsetSeconds: 8 * 3600
+        )
+        await center.syncCourseReminders(snapshotJSON: json, now: lessonTime, settings: allDay)
+        let quiet = await scheduler.pending.count
+        XCTAssertEqual(quiet, normal)
+    }
+
+    func testProtectedNotificationTapWaitsForTheUnlockGate() async throws {
+        let suiteDefaults = try XCTUnwrap(defaults)
+        let coordinator = PocketPlatformCoordinator.shared
+        let store = coordinator.notifications.capabilities
+        var opened: [PocketDeepLink] = []
+        coordinator.openLink = { opened.append($0) }
+        defer {
+            coordinator.openLink = nil
+            coordinator.unlockGate = nil
+            store.revokeAll()
+        }
+        _ = suiteDefaults
+
+        coordinator.unlockGate = { false }
+        await coordinator.handleNotificationTap(capability: store.issue(for: "g1", link: .grades))
+        XCTAssertEqual(opened, [], "a failed unlock must not reveal grades")
+
+        // Public destinations are not gated.
+        await coordinator.handleNotificationTap(capability: store.issue(for: "a1", link: .announcements))
+        XCTAssertEqual(opened, [.announcements])
+
+        coordinator.unlockGate = { true }
+        await coordinator.handleNotificationTap(capability: store.issue(for: "g2", link: .grades))
+        XCTAssertEqual(opened, [.announcements, .grades])
+    }
+
+    func testAppLockGatePassesOnlyAfterAuthentication() async {
+        let off = AppLockRouteGate(lock: AppLockController(isEnabled: false, authenticator: StubAuthenticator(outcome: .failed)))
+        let offPassed = await off.pass()
+        XCTAssertTrue(offPassed)
+        let denied = AppLockRouteGate(lock: AppLockController(isEnabled: true, authenticator: StubAuthenticator(outcome: .failed)))
+        let deniedPassed = await denied.pass()
+        XCTAssertFalse(deniedPassed)
+        let granted = AppLockRouteGate(lock: AppLockController(isEnabled: true, authenticator: StubAuthenticator(outcome: .success)))
+        let grantedPassed = await granted.pass()
+        XCTAssertTrue(grantedPassed)
     }
 
     func testNothingIsScheduledWithoutPermission() async throws {

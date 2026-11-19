@@ -34,8 +34,17 @@ final class PocketPlatformCoordinator: NSObject {
 
     private static let signedInKey = "platform.sessionActive"
 
+    /// Bumped on every sign-in or sign-out so an in-flight refresh can tell it is stale.
+    private var sessionGeneration = 0
+
+    /// Asked before a notification tap reveals a protected destination. The
+    /// shell installs it (see `AppLockRouteGate`); with no gate installed the
+    /// destination's own sign-in gate is the only protection.
+    var unlockGate: (@MainActor () async -> Bool)?
+
     /// Called by the app shell whenever the session changes or the app becomes active.
     func sessionChanged(signedIn: Bool) async {
+        if signedIn != isSignedIn { sessionGeneration += 1 }
         isSignedIn = signedIn
         await refresh()
     }
@@ -45,6 +54,7 @@ final class PocketPlatformCoordinator: NSObject {
     /// Must run before the app finishes launching (BGTaskScheduler requirement).
     func didFinishLaunching() {
         UNUserNotificationCenter.current().delegate = self
+        SystemNotificationScheduler.registerCategories()
         BGTaskScheduler.shared.register(forTaskWithIdentifier: PocketPlatformID.refreshTask, using: nil) { task in
             guard let task = task as? BGAppRefreshTask else { return }
             let work = Task { @MainActor in
@@ -74,7 +84,11 @@ final class PocketPlatformCoordinator: NSObject {
             await clearSessionData()
             return
         }
+        let generation = sessionGeneration
+        let isCurrent: @MainActor () -> Bool = { [unowned self] in generation == sessionGeneration && isSignedIn }
         let shared = settings.shared(at: deviceNow)
+        // As on Android, the quiet window only stops background grade and
+        // announcement checks; the widget snapshot and course reminders continue.
         let paused = PocketPlatform.shared.isBackgroundPaused(nowMillis: deviceNow.epochMillis, settings: shared)
         let scheduleNow = PlatformClock.scheduleNow(deviceNow: deviceNow)
         let json = data.scheduleSnapshotJSON(scheduleNow: scheduleNow, deviceNow: deviceNow)
@@ -85,13 +99,21 @@ final class PocketPlatformCoordinator: NSObject {
         }
         WidgetCenter.shared.reloadAllTimelines()
 
-        await notifications.syncCourseReminders(snapshotJSON: json, now: deviceNow, settings: shared)
-        if !paused {
+        await notifications.syncCourseReminders(snapshotJSON: json, now: deviceNow, settings: shared, isCurrent: isCurrent)
+        if !paused, isCurrent() {
             await notifications.deliver(data.gradeNotification(at: deviceNow, settings: shared))
             await notifications.checkAnnouncements(data.announcementHeadlines(at: scheduleNow), now: deviceNow, settings: shared)
         }
+        // A sign-out during the awaits above already ran its own cleanup; run it
+        // again so nothing this pass scheduled or published survives.
+        guard isCurrent() else {
+            if !isSignedIn { await clearSessionData() }
+            return
+        }
         let glance = json.flatMap { ScheduleSnapshot.decode(Data($0.utf8)) }?.glance(at: deviceNow)
-        await LessonActivityController.sync(glance: glance, enabled: settings.liveActivity)
+        await LessonActivityController.sync(
+            glance: glance, enabled: settings.liveActivity && !notifications.isCoursePaused(at: deviceNow)
+        )
         scheduleBackgroundRefresh()
     }
 
@@ -141,7 +163,7 @@ final class PocketPlatformCoordinator: NSObject {
         case .course:
             let reminders = PocketPlatform.shared.courseReminders(
                 snapshotJson: store.loadData().flatMap { String(data: $0, encoding: .utf8) },
-                nowMillis: now.epochMillis, settings: shared
+                nowMillis: now.epochMillis, settings: shared, pausedUntilMillis: 0
             )
             planned = reminders.first
         case .grade:
@@ -154,7 +176,7 @@ final class PocketPlatformCoordinator: NSObject {
         }
         guard let planned else { return }
         await notifications.deliver(PlannedNotification(
-            identifier: "demo-\(alert.rawValue)",
+            identifier: alert == .course ? planned.identifier : "demo-\(alert.rawValue)",
             fireAtMillis: KotlinLong(value: now.addingTimeInterval(delay).epochMillis),
             title: planned.title,
             body: planned.body,
@@ -181,10 +203,18 @@ final class PocketPlatformCoordinator: NSObject {
     }
 
     /// Redeems a notification's one-use capability. An unknown, reused or
-    /// revoked token opens the app without navigating anywhere.
-    func handleNotificationTap(capability: String?) {
+    /// revoked token opens the app without navigating anywhere, and a
+    /// protected destination is only opened after the unlock gate passes.
+    func handleNotificationTap(capability: String?) async {
         guard let capability, let link = notifications.capabilities.consume(capability) else { return }
+        if link.tab.requiresSession, let unlockGate, !(await unlockGate()) { return }
         route(link)
+    }
+
+    /// The "暫停一日" action; runs without opening the app.
+    func pauseCourseRemindersForToday(now: Date = Date()) async {
+        await notifications.pauseCourseRemindersForToday(now: now)
+        await LessonActivityController.endAll()
     }
 }
 
@@ -200,9 +230,13 @@ extension PocketPlatformCoordinator: UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        if response.actionIdentifier == PocketNotificationRequest.pauseDayAction {
+            await PocketPlatformCoordinator.shared.pauseCourseRemindersForToday()
+            return
+        }
         guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
         let capability = response.notification.request.content.userInfo[PocketNotificationRequest.capabilityKey] as? String
-        await MainActor.run { PocketPlatformCoordinator.shared.handleNotificationTap(capability: capability) }
+        await PocketPlatformCoordinator.shared.handleNotificationTap(capability: capability)
     }
 }
 

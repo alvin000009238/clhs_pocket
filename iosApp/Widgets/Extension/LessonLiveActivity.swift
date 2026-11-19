@@ -96,8 +96,20 @@ extension LessonActivityAttributes.ContentState {
 private struct LessonCountdown: View {
     let state: LessonActivityAttributes.ContentState
     let phase: LessonActivityPhase
+    /// On a dimmed Lock Screen iOS hides a timer's seconds ("15:--"), so the
+    /// fixed clock time is shown there instead.
+    @Environment(\.isLuminanceReduced) private var isLuminanceReduced
 
     var body: some View {
+        if isLuminanceReduced, phase != .ended {
+            Text(phase == .inClass ? state.endText : state.startText).monospacedDigit()
+        } else {
+            timer
+        }
+    }
+
+    @ViewBuilder
+    private var timer: some View {
         switch phase {
         case .upcoming:
             Text(timerInterval: Date.now...state.start, countsDown: true)
@@ -131,6 +143,7 @@ private struct PeriodBadge: View {
 private struct LessonLockScreenView: View {
     let state: LessonActivityAttributes.ContentState
     let phase: LessonActivityPhase
+    @Environment(\.isLuminanceReduced) private var isLuminanceReduced
     @ScaledMetric(relativeTo: .subheadline) private var timerWidth: CGFloat = 46
 
     var body: some View {
@@ -146,7 +159,8 @@ private struct LessonLockScreenView: View {
                 .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
                 Spacer(minLength: 8)
                 HStack(spacing: 4) {
-                    if phase != .ended { Text(phase == .inClass ? "剩" : "還有") }
+                    if phase != .ended, !isLuminanceReduced { Text(phase == .inClass ? "剩" : "還有") }
+                    if isLuminanceReduced, phase != .ended { Text(phase == .inClass ? "下課" : "上課") }
                     // A timer text takes all offered width, so it gets a fixed slot.
                     LessonCountdown(state: state, phase: phase)
                         .frame(width: timerWidth, alignment: .trailing)

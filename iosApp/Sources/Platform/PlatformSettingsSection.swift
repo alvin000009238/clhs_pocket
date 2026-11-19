@@ -42,7 +42,7 @@ struct PlatformSettingsSection: View {
                     divider
                     toggleRow("platter.filled.top.iphone", "即時動態", "在鎖定畫面與動態島顯示目前課程", isOn: binding(\.liveActivity))
                     divider
-                    toggleRow("moon", "安靜時段", "時段內不提醒，也不在背景更新", isOn: binding(\.pauseEnabled))
+                    toggleRow("moon", "安靜時段", "時段內不在背景檢查段考與公告", isOn: binding(\.pauseEnabled))
                     if settings.pauseEnabled {
                         HStack(spacing: 12) {
                             Spacer().frame(width: 28)

@@ -45,13 +45,15 @@ object PocketPlatform {
         snapshotJson: String?,
         nowMillis: Long,
         settings: PlatformNotificationSettings,
+        pausedUntilMillis: Long,
     ): List<PlannedNotification> = planCourseReminders(
         snapshot = snapshotJson?.let(::decodeWidgetScheduleSnapshot),
         nowMillis = nowMillis,
         notificationsEnabled = settings.notificationsEnabled && settings.courseReminders,
-        pause = settings.pause(),
-        utcOffsetSeconds = settings.utcOffsetSeconds,
+        pausedUntilMillis = pausedUntilMillis,
     )
+
+    fun coursePauseEndMillis(nowMillis: Long): Long = coursePauseEnd(nowMillis)
 
     /** Synthetic change set; production will diff two fetched reports with `GradeReportDiffer`. */
     fun demoGradeNotification(nowMillis: Long, settings: PlatformNotificationSettings): PlannedNotification? =

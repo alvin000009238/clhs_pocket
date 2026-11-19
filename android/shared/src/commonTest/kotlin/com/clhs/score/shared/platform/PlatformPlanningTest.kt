@@ -100,32 +100,39 @@ class PlatformPlanningTest {
     @Test
     fun courseRemindersFireFiveMinutesEarlyAndSkipPastOrDisabledOnes() {
         val snapshot = buildWidgetScheduleSnapshot(report, at(9, 0))
-        val planned = planCourseReminders(snapshot, at(10, 6), true, BackgroundPause(), taipei)
+        val planned = planCourseReminders(snapshot, at(10, 6), true)
         assertEquals(listOf(at(11, 5), at(8, 5, day = 19)), planned.map { it.fireAtMillis })
         assertEquals("即將上課 · 第 4 節", planned.first().title)
         assertEquals("體育 · 11:10–12:00 · 操場", planned.first().body)
         assertEquals(PocketLinks.SCHEDULE, planned.first().link)
         assertEquals(planned.size, planned.map { it.identifier }.toSet().size)
 
-        assertTrue(planCourseReminders(snapshot, at(9, 0), false, BackgroundPause(), taipei).isEmpty())
-        assertTrue(planCourseReminders(snapshot, at(0, 0, day = 23), true, BackgroundPause(), taipei).isEmpty())
-        assertEquals(1, planCourseReminders(snapshot, at(9, 0), true, BackgroundPause(), taipei, limit = 1).size)
+        assertTrue(planCourseReminders(snapshot, at(9, 0), false).isEmpty())
+        assertTrue(planCourseReminders(snapshot, at(0, 0, day = 23), true).isEmpty())
+        assertEquals(1, planCourseReminders(snapshot, at(9, 0), true, limit = 1).size)
     }
 
     @Test
-    fun quietWindowDropsRemindersOnBothSidesOfItsBoundaries() {
-        val snapshot = buildWidgetScheduleSnapshot(report, at(9, 0))
-        // 10:05 is inside [10:00, 11:05); 11:05 is the exclusive end and stays.
-        val pause = BackgroundPause(enabled = true, startMinute = 10 * 60, endMinute = 11 * 60 + 5)
-        val planned = planCourseReminders(snapshot, at(9, 0), true, pause, taipei)
-        assertEquals(listOf(at(11, 5), at(8, 5, day = 19)), planned.map { it.fireAtMillis })
-
-        val overnight = BackgroundPause(enabled = true, startMinute = 23 * 60, endMinute = 8 * 60 + 6)
+    fun quietWindowDoesNotSilenceCourseRemindersButPauseForTheDayDoes() {
+        val json = assertNotNull(buildWidgetScheduleSnapshot(report, at(9, 0))).encode()
+        // Android applies the background pause to grade and announcement checks only.
+        val quiet = settings(pause = true, start = 10 * 60, end = 11 * 60 + 30)
         assertEquals(
-            listOf(at(10, 5), at(11, 5)),
-            planCourseReminders(snapshot, at(9, 0), true, overnight, taipei).map { it.fireAtMillis },
+            listOf(at(10, 5), at(11, 5), at(8, 5, day = 19)),
+            PocketPlatform.courseReminders(json, at(9, 0), quiet, 0L).map { it.fireAtMillis },
         )
-        // The window follows the device offset, not the school zone.
+
+        val pausedUntil = PocketPlatform.coursePauseEndMillis(at(9, 0))
+        assertEquals(at(0, 0, day = 19), pausedUntil)
+        assertEquals(at(0, 0, day = 19), coursePauseEnd(at(23, 59)))
+        assertEquals(
+            listOf(at(8, 5, day = 19)),
+            PocketPlatform.courseReminders(json, at(9, 0), quiet, pausedUntil).map { it.fireAtMillis },
+        )
+    }
+
+    @Test
+    fun quietWindowMinuteFollowsTheGivenOffset() {
         assertEquals(9 * 60, minuteOfDayAt(at(9, 0), taipei))
         assertEquals(60, minuteOfDayAt(at(9, 0), 0))
         assertEquals(15 * 60 + 30, minuteOfDayAt(at(9, 0), -(9 * 3600 + 1800)))

@@ -3,6 +3,12 @@ package com.clhs.score.shared.platform
 import com.clhs.score.data.BackgroundPause
 import com.clhs.score.data.GradeChangeSet
 import com.clhs.score.data.GradeReminderText
+import com.clhs.score.shared.time.at
+import com.clhs.score.shared.time.datePart
+import com.clhs.score.shared.time.localTimeOf
+import com.clhs.score.shared.time.schoolDateTimeAt
+import com.clhs.score.shared.time.schoolEpochMillis
+import com.clhs.score.shared.time.shiftDays
 
 /** A local notification the platform should hand to its scheduler verbatim. */
 data class PlannedNotification(
@@ -46,22 +52,24 @@ const val MAX_PENDING_COURSE_REMINDERS = 40
 
 /**
  * Pre-class reminders for the lessons in [snapshot] that have not reached
- * their reminder time yet. Reminders inside the quiet window are dropped, not
- * deferred: a late "starting soon" alert would be wrong.
+ * their reminder time yet.
+ *
+ * As on Android, the background quiet window does not apply here: it only
+ * stops background grade and announcement checks. Course reminders are
+ * silenced by [pausedUntilMillis] instead (the "暫停一日" action).
  */
 fun planCourseReminders(
     snapshot: WidgetScheduleSnapshot?,
     nowMillis: Long,
     notificationsEnabled: Boolean,
-    pause: BackgroundPause,
-    utcOffsetSeconds: Int,
+    pausedUntilMillis: Long = 0L,
     limit: Int = MAX_PENDING_COURSE_REMINDERS,
 ): List<PlannedNotification> {
     if (snapshot == null || !notificationsEnabled || nowMillis >= snapshot.validUntilMillis) return emptyList()
     return snapshot.lessons.asSequence()
         .map { it to it.startMillis - COURSE_ADVANCE_MINUTES * MILLIS_PER_MINUTE }
         .filter { (_, fireAt) -> fireAt > nowMillis && fireAt < snapshot.validUntilMillis }
-        .filterNot { (_, fireAt) -> pause.containsInstant(fireAt, utcOffsetSeconds) }
+        .filter { (_, fireAt) -> fireAt >= pausedUntilMillis }
         .take(limit.coerceAtLeast(0))
         .map { (lesson, fireAt) ->
             PlannedNotification(
@@ -75,6 +83,10 @@ fun planCourseReminders(
         }
         .toList()
 }
+
+/** Start of the next school day after [nowMillis]: where "暫停一日" ends, as on Android. */
+fun coursePauseEnd(nowMillis: Long): Long =
+    schoolDateTimeAt(nowMillis).datePart().shiftDays(1).at(localTimeOf(0, 0)).schoolEpochMillis()
 
 const val GRADE_NOTIFICATION_ID = "grade-update"
 const val ANNOUNCEMENT_NOTIFICATION_ID = "announcement-update"
