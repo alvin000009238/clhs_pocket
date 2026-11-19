@@ -16,9 +16,9 @@ permissions:
 
 jobs:
   ios-build:
-    name: Kotlin iOS framework and SwiftUI simulator build
+    name: Kotlin iOS framework, SwiftUI build and UI tests
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -31,7 +31,12 @@ jobs:
           # setup-android@v3 attempts to install the removed legacy 'tools' package.
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"
           brew install xcodegen
-          sudo xcode-select --switch /Applications/Xcode_26.4.app/Contents/Developer
+      - name: Select the newest installed Xcode 26
+        run: |
+          # Runner images rotate Xcode point releases; never pin one that may be removed.
+          XCODE="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -n 1)"
+          sudo xcode-select --switch "${XCODE:-/Applications/Xcode.app}/Contents/Developer"
+          xcodebuild -version
       - name: Kotlin/Native common tests and framework compilation
         working-directory: android
         run: |
@@ -39,9 +44,27 @@ jobs:
       - name: Generate native Xcode project
         working-directory: iosApp
         run: xcodegen generate
-      - name: Build SwiftUI iOS simulator app (unsigned)
+      - name: Build the SwiftUI app and run the UI tests on a simulator
         run: |
-          xcodebuild -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket \
-            -configuration Debug -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO build
+          UDID="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          runtimes = json.load(sys.stdin)["devices"]
+          ios = sorted((k for k in runtimes if "SimRuntime.iOS-" in k),
+                       key=lambda k: [int(p) for p in k.rsplit("iOS-", 1)[1].split("-")])
+          for runtime in reversed(ios):
+              phones = [d for d in runtimes[runtime] if d["name"].startswith("iPhone")]
+              if phones:
+                  print(phones[0]["udid"])
+                  break
+          ')"
+          test -n "$UDID"
+          TEST_RUNNER_SHOT_DIR="$RUNNER_TEMP/pocket-shots" xcodebuild \
+            -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket \
+            -destination "id=$UDID" CODE_SIGNING_ALLOWED=NO test
+      - name: Upload UI test screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ui-screenshots
+          path: ${{ runner.temp }}/pocket-shots
+          if-no-files-found: ignore

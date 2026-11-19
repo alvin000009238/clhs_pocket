@@ -35,6 +35,8 @@ cd iosApp && TEST_RUNNER_SHOT_DIR=/tmp/pocket-shots xcodebuild \
   CODE_SIGNING_ALLOWED=NO test
 ```
 
+加上 `TEST_RUNNER_CONTENT_SIZE=UICTContentSizeCategoryAccessibilityXL` 可用輔助使用字級跑同一組流程。
+
 UI 變更必須在 Simulator 檢視淺色與深色截圖；只通過建置不算視覺驗證。
 
 ## 啟動參數
@@ -45,15 +47,17 @@ UI 變更必須在 Simulator 檢視淺色與深色截圖；只通過建置不算
 | `-hasCompletedOnboarding NO` | 重新顯示歡迎畫面 |
 | `-session guest` / `demo` | 以訪客或示範帳號啟動 |
 | `-appearance system` / `light` / `dark` | 外觀 |
+| `-resetLocalState YES` | 啟動時清除本機偏好（UI 測試每次都從乾淨狀態開始） |
+| `-UIPreferredContentSizeCategoryName <類別>` | 系統參數，指定動態字級，例如 `UICTContentSizeCategoryAccessibilityXL` |
 
 ## 結構
 
 | 路徑 | 內容 |
 | --- | --- |
-| `Sources/App/` | `AppModel`（session、分頁、各分頁獨立導覽堆疊）、`RootView` |
+| `Sources/App/` | `AppModel`（session、分頁、各分頁獨立導覽堆疊、本機偏好）、`RootView`、`PocketServices`（登入、通知、App 鎖定、資料轉移的協定與示範實作） |
 | `Sources/Theme/` | Pocket 色彩、字體、卡片與 Liquid Glass 後備 |
-| `Sources/Features/` | 歡迎、首頁、課表、成績、校園、個人 |
+| `Sources/Features/` | 歡迎與登入、首頁與小工具編輯、課表、成績（明細、模擬器）、校園（公告、行事曆、在校紀錄）、個人與設定 |
 | `UITests/` | 端到端流程與截圖 |
-| `../android/shared/src/commonMain/kotlin/com/clhs/score/shared/app/` | Swift 使用的 `PocketDataSource` 與示範實作 |
+| `../android/shared/src/commonMain/kotlin/com/clhs/score/shared/app/` | Swift 使用的入口：`PocketDataSource`、`PocketDashboard`、`PocketGrades`、`PocketScheduleStore`、`PocketCampusStore` |
 
-SwiftUI 只呈現 `PocketDataSource` 回傳的顯示用快照；計算（加權平均、排名、課表合併與異動、倒數）都留在共用 Kotlin。
+SwiftUI 只呈現 `PocketDataSource` 回傳的顯示用快照；計算（加權平均、排名、學分驗證與推算、課表合併與異動、小工具排版、倒數、公告篩選）都留在共用 Kotlin。

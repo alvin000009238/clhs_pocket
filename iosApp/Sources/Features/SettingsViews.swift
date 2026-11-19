@@ -175,6 +175,18 @@ struct DataSettingsView: View {
             Section {
                 Button("刪除這台裝置上的資料", systemImage: "trash", role: .destructive) { confirmingDelete = true }
                     .accessibilityIdentifier("data-delete")
+                .confirmationDialog("刪除這台裝置上的所有資料？", isPresented: $confirmingDelete, titleVisibility: .visible) {
+                    Button("刪除資料", role: .destructive) {
+                        Task {
+                            await model.deleteAllData()
+                            message = "已刪除資料並登出。"
+                        }
+                    }
+                    .accessibilityIdentifier("data-delete-confirm")
+                    Button("取消", role: .cancel) {}
+                } message: {
+                    Text("這個動作無法復原。")
+                }
             } footer: {
                 Text("會登出帳號並清除所有設定、收藏與已讀狀態，無法復原。")
             }
@@ -190,18 +202,6 @@ struct DataSettingsView: View {
             } else {
                 message = "這不是壢中 Pocket 的設定備份。"
             }
-        }
-        .confirmationDialog("刪除這台裝置上的所有資料？", isPresented: $confirmingDelete, titleVisibility: .visible) {
-            Button("刪除資料", role: .destructive) {
-                Task {
-                    await model.deleteAllData()
-                    message = "已刪除資料並登出。"
-                }
-            }
-            .accessibilityIdentifier("data-delete-confirm")
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("這個動作無法復原。")
         }
     }
 }

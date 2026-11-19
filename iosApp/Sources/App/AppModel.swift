@@ -141,6 +141,10 @@ final class AppModel {
     }
 
     init() {
+        // UI tests start every run from a clean install without touching launch-argument overrides.
+        if defaults.bool(forKey: "resetLocalState"), let domain = Bundle.main.bundleIdentifier {
+            defaults.removePersistentDomain(forName: domain)
+        }
         hasCompletedOnboarding = defaults.bool(forKey: Key.onboarding)
         appearance = defaults.string(forKey: Key.appearance).flatMap(PocketAppearance.init) ?? .system
         session = defaults.string(forKey: Key.session).flatMap(PocketSession.init) ?? .guest

@@ -65,7 +65,7 @@ struct AnnouncementListView: View {
             .frame(maxWidth: 720)
             .pocketPage()
         }
-        .searchable(text: $query, prompt: "搜尋標題或處室")
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜尋標題或處室")
         .navigationTitle("公告")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {

@@ -14,6 +14,7 @@ struct CLHSPocketApp: App {
                 .environment(model)
                 .preferredColorScheme(model.appearance.colorScheme)
                 .tint(PocketColor.primary)
+                .environment(\.locale, Locale(identifier: "zh_Hant_TW"))
         }
     }
 }

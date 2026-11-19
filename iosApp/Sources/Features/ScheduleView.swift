@@ -92,45 +92,47 @@ struct ScheduleView: View {
     }
 
     private func header(_ schedule: PocketSchedule) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 12) {
                 Text(showsSemester ? schedule.termText : "\(schedule.rangeText) · \(schedule.weekText)")
                     .font(PocketFont.sectionTitle)
                     .monospacedDigit()
                     .foregroundStyle(PocketColor.onSurface)
                     .accessibilityIdentifier("schedule-range")
-                HStack(spacing: 8) {
-                    Text(showsSemester ? "\(schedule.className) · 固定課表" : "\(schedule.className) · \(schedule.termText)")
-                        .font(.subheadline)
-                        .foregroundStyle(PocketColor.onSurfaceVariant)
-                    if schedule.changeCount > 0 {
-                        PocketChip(
-                            text: "\(schedule.changeCount) 項異動",
-                            systemImage: "arrow.left.arrow.right",
-                            foreground: PocketColor.onTertiaryContainer,
-                            background: PocketColor.tertiaryContainer
-                        )
+                Spacer(minLength: 8)
+                if !showsSemester {
+                    HStack(spacing: 6) {
+                        Button("上一週", systemImage: "chevron.left") { weekOffset -= 1 }
+                            .disabled(weekOffset <= Int(PocketScheduleStore.shared.MIN_WEEK_OFFSET))
+                            .accessibilityIdentifier("schedule-previous-week")
+                        Button("下一週", systemImage: "chevron.right") { weekOffset += 1 }
+                            .disabled(weekOffset >= Int(PocketScheduleStore.shared.MAX_WEEK_OFFSET))
+                            .accessibilityIdentifier("schedule-next-week")
                     }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
                 }
             }
-            Spacer(minLength: 8)
-            if !showsSemester {
-                HStack(spacing: 6) {
-                    Button("上一週", systemImage: "chevron.left") { weekOffset -= 1 }
-                        .disabled(weekOffset <= Int(PocketScheduleStore.shared.MIN_WEEK_OFFSET))
-                        .accessibilityIdentifier("schedule-previous-week")
-                    if weekOffset != 0 {
-                        Button("回到本週") { weekOffset = 0 }
-                            .font(.subheadline.weight(.semibold))
-                            .accessibilityIdentifier("schedule-this-week")
-                    }
-                    Button("下一週", systemImage: "chevron.right") { weekOffset += 1 }
-                        .disabled(weekOffset >= Int(PocketScheduleStore.shared.MAX_WEEK_OFFSET))
-                        .accessibilityIdentifier("schedule-next-week")
+            HStack(spacing: 8) {
+                Text(showsSemester ? "\(schedule.className) · 固定課表" : schedule.className)
+                    .font(.subheadline)
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                if schedule.changeCount > 0 {
+                    PocketChip(
+                        text: "\(schedule.changeCount) 項異動",
+                        systemImage: "arrow.left.arrow.right",
+                        foreground: PocketColor.onTertiaryContainer,
+                        background: PocketColor.tertiaryContainer
+                    )
                 }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
+                Spacer(minLength: 8)
+                if !showsSemester, weekOffset != 0 {
+                    Button("回到本週") { weekOffset = 0 }
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 32)
+                        .accessibilityIdentifier("schedule-this-week")
+                }
             }
         }
         .padding(.horizontal, 4)

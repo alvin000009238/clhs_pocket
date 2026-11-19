@@ -1,41 +1,56 @@
 # iOS 移植狀態
 
-本文件記錄原生 iOS App（`iosApp/`）的實際完成度。未列為「完成」的項目一律尚未實作。
+本文件記錄原生 iOS App（`iosApp/`）的實際完成度。未列為「完成」的項目一律尚未實作。所有畫面目前都使用共用 Kotlin 的示範資料；連線、Keychain、通知與 Widget 由其他工作階段負責。
 
-## 里程碑 1：原生外殼與四個根畫面（示範資料）
+## 里程碑 1：原生外殼與四個根畫面
+
+SwiftUI App（iOS 18.0 以上、iPhone / iPad）、訪客優先、四個分頁各自獨立的 `NavigationStack`、Pocket 淺色與深色主題、iOS 26 Liquid Glass 與 iOS 18 後備樣式：完成。
+
+## 里程碑 2：功能與介面對齊 Android（示範資料）
 
 | 項目 | 狀態 |
 | --- | --- |
-| SwiftUI App、iOS 18.0 最低版本、iPhone / iPad | 完成 |
-| 使用 `PocketShared`，示範資料來自共用 Kotlin | 完成 |
-| 訪客優先歡迎畫面、課表與成績的登入提示 | 完成（單頁歡迎畫面；Android 的四步驟流程尚未移植） |
-| 首頁、課表、成績、校園四個分頁，各自獨立的 `NavigationStack` | 完成 |
-| 個人入口（外觀切換、登出示範帳號） | 完成 |
-| Pocket 淺色與深色主題、Huninn / Outfit 字體 | 完成 |
-| iOS 26 Liquid Glass（`#available`）與 iOS 18 後備樣式 | iOS 26.5 已驗證；iOS 18 後備樣式可編譯但未在實機或模擬器執行 |
+| 四步驟歡迎流程（歡迎、外觀、通知、連結校務帳號／先逛逛） | 完成 |
+| 首頁小工具：新增、移除、排序、調整尺寸；天氣地點、YouBike 站點、學校行程與自訂倒數、清單則數 | 完成，配置使用共用 `OverviewWidgetInstance` JSON 與 `OverviewLayoutEngine` |
+| 成績：切換考試、科目明細（五標、班級分布、走勢）、成績分析、模擬器（共用 `SimulatorCredits` 的預設、驗證、推算）、分享摘要 | 完成；分享為純文字摘要，沒有圖片或檔案匯出 |
+| 課表：本週／學期、切換班級與週次、異動標示、自訂科目、課程明細、分享課表圖片 | 完成；圖片經系統分享表單輸出，沒有直接存入相簿的按鈕 |
+| 校園：公告分類、搜尋、已讀與收藏、內文；行事曆月曆與列表；出缺勤與獎懲 | 完成；公告內文與附件為示範文字，附件無法開啟 |
+| 個人與設定：外觀、通知、背景暫停時段、天氣來源、App 鎖定、設定匯入匯出、刪除資料、關於、登入與登出 | 介面完成；見下方「以示範服務代替的部分」 |
+
+### 以示範服務代替的部分
+
+`iosApp/Sources/App/PocketServices.swift` 定義四個協定，目前都是示範實作，等待接上正式實作：
+
+| 協定 | 示範行為 | 正式實作負責範圍 |
+| --- | --- | --- |
+| `SchoolAccountService` | 只接受 `DEMO-000` / `demo`，不連線 | 校務登入、Keychain |
+| `NotificationPermissionService` | 一律回報已允許 | 系統通知權限與排程 |
+| `AppLockService` | 一律驗證成功 | Face ID / Touch ID / 裝置密碼 |
+| `DataTransferService` | 以自訂 JSON 匯出入設定，刪除只清本機偏好 | 共用的設定轉移格式、快取與憑證清除 |
+
+通知項目、背景暫停時段、天氣來源與 App 鎖定目前只儲存偏好值，不會改變任何行為。所有偏好存在 `UserDefaults`。
 
 ## 共用 Kotlin 介面
 
-Swift 只依賴 `com.clhs.score.shared.app.PocketDataSource`：
+Swift 只依賴 `com.clhs.score.shared.app`：
 
-- 成績：`FakeData` 的報表經 `buildGradeAnalysis` 產生平均、排名百分比與強弱科。
-- 課表：`FakeScheduleData` 的學期與本週課表、`compareScheduleItems` 的異動、`getSubjectColors` 的科目色。
-- 個人資料：`FakeData` 的示範學生。
-- 首頁的天氣、YouBike、倒數，以及校園公告與行事曆：目前是 `shared.app` 內的固定示範資料，因為對應的彙整與解析仍在 `android/app`。
-
-待共用化後應替換的部分：
-
-| iOS 暫時實作 | 應改用 |
+| 入口 | 使用的共用邏輯 |
 | --- | --- |
-| `DemoSchedule.hero`（目前課程與下一堂） | `resolveCourses` |
-| `DemoCampus`（公告、行事曆、倒數） | 公告與行事曆解析、`FakeData.announcementPage` |
-| `DemoPocketDataSource` 的天氣與 YouBike | Overview 彙整、天氣與 YouBike repository |
-| `PocketDates` 的日期計算 | `com.clhs.score.shared.time` |
+| `PocketDataSource` | `FakeData`、`buildGradeAnalysis`、`FakeScheduleData`、`compareScheduleItems`、`getSubjectColors` |
+| `DemoSchedule.hero` | `resolveCourses`、`ScheduleItem.occurrenceOn` |
+| `PocketDashboard` | `OverviewWidgetInstance` / `OverviewWidgetConfig`、`OverviewLayoutEngine`、`recentEvents`、`importantAnnouncementsFrom`、倒數計算 |
+| `PocketGrades`、`PocketSimulator` | `buildGradeAnalysis`、`scoreDistributions`、`SimulatorCredits`、`weightedAverageFor`、`gradeSummaryDisplay` |
+| `PocketScheduleStore` | `ScheduleSubjectOverride` 的正規化與 `applySubjectOverrides` |
+| `PocketCampusStore` | `FakeData.announcementPage`、`FakeRecordData`、`shared.time` |
+
+日期與時間一律使用 `com.clhs.score.shared.time`；先前的 `PocketDates` 已移除。
+
+仍是 `shared.app` 內固定示範值的部分：天氣數值、YouBike 車輛數、公告內文與附件、行事曆事件。對應的 repository 與解析共用化後應替換。
 
 ## 尚未開始
 
-校務登入與正式連線、WKWebView、Keychain 與生物辨識、通知與背景更新、WidgetKit 與 Live Activities、設定匯入匯出、Deep Link、首頁自訂、成績模擬器與科目趨勢、課表匯出與科目覆寫、出缺勤與獎懲、公告內文、完整行事曆。
+校務登入與正式連線、WKWebView、Keychain 與生物辨識、通知與背景更新、WidgetKit 與 Live Activities、Deep Link、成績提醒、公告附件與圖片預覽。
 
 ## 驗證
 
-指令見 [iosApp/README.md](../../iosApp/README.md)。UI 測試 `PocketShellUITests` 會走過歡迎畫面、訪客提示、四個分頁、分頁堆疊保留、個人頁，並輸出截圖。
+指令見 [iosApp/README.md](../../iosApp/README.md)。`PocketShellUITests` 有六個流程（歡迎與訪客外殼、首頁編輯、成績明細與模擬器、課表自訂與換週、校園、設定與刪除資料），並輸出每個畫面的截圖。
