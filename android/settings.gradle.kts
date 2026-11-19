@@ -23,3 +23,4 @@ dependencyResolutionManagement {
 rootProject.name = "SchoolGradesAndroid"
 include(":app")
 include(":benchmark")
+include(":shared")
