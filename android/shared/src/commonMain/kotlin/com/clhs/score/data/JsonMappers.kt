@@ -13,39 +13,39 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-internal val SchoolJson = Json {
+val SchoolJson = Json {
     ignoreUnknownKeys = true
     isLenient = true
 }
 
-internal fun JsonElement?.asObjectOrNull(): JsonObject? = this as? JsonObject
+fun JsonElement?.asObjectOrNull(): JsonObject? = this as? JsonObject
 
-internal fun JsonElement?.asArrayOrNull(): JsonArray? = this as? JsonArray
+fun JsonElement?.asArrayOrNull(): JsonArray? = this as? JsonArray
 
-internal fun JsonElement?.asPrimitiveOrNull(): JsonPrimitive? = this as? JsonPrimitive
+fun JsonElement?.asPrimitiveOrNull(): JsonPrimitive? = this as? JsonPrimitive
 
-internal fun JsonObject.string(key: String, default: String = ""): String {
+fun JsonObject.string(key: String, default: String = ""): String {
     val element = this[key]
     if (element == null || element is JsonNull) return default
     return element.asPrimitiveOrNull()?.contentOrNull ?: default
 }
 
-internal fun JsonObject.boolean(key: String, default: Boolean = false): Boolean {
+fun JsonObject.boolean(key: String, default: Boolean = false): Boolean {
     val primitive = this[key].asPrimitiveOrNull() ?: return default
     return primitive.booleanOrNull ?: primitive.contentOrNull?.toBooleanStrictOrNull() ?: default
 }
 
-internal fun JsonObject.int(key: String): Int? {
+fun JsonObject.int(key: String): Int? {
     val primitive = this[key].asPrimitiveOrNull() ?: return null
     return primitive.intOrNull ?: primitive.doubleOrNull?.toInt() ?: primitive.contentOrNull?.toDoubleOrNull()?.toInt()
 }
 
-internal fun JsonObject.double(key: String): Double? {
+fun JsonObject.double(key: String): Double? {
     val primitive = this[key].asPrimitiveOrNull() ?: return null
     return primitive.doubleOrNull ?: primitive.contentOrNull?.toDoubleOrNull()
 }
 
-internal fun parseGradeReport(raw: String): GradeReport {
+fun parseGradeReport(raw: String): GradeReport {
     val root = SchoolJson.parseToJsonElement(raw).jsonObject
     val result = root["Result"].asObjectOrNull()
         ?.takeIf { it.isNotEmpty() }
@@ -131,7 +131,7 @@ internal fun parseGradeReport(raw: String): GradeReport {
     )
 }
 
-internal fun parseOptions(raw: String): List<Pair<String, String>> {
+fun parseOptions(raw: String): List<Pair<String, String>> {
     val element = SchoolJson.parseToJsonElement(raw)
     val array = element.asArrayOrNull() ?: element.jsonArray
     return array.mapNotNull { item ->

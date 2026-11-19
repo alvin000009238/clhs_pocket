@@ -165,7 +165,10 @@ class ArchitectureBoundaryTest {
         val combined = "$dataSource\n$viewModelSource"
 
         assertTrue(dataSource.contains("CookieJar.NO_COOKIES"))
-        assertTrue(dataSource.contains("https://calendar.google.com/calendar/ical/"))
+        assertTrue(
+            readSource("shared/src/commonMain/kotlin/com/clhs/score/data/SchoolCalendarModels.kt")
+                .contains("https://calendar.google.com/calendar/ical/"),
+        )
         listOf("SchoolGradeClient", "SessionStore", "AuthenticatedSession", "SchoolCookieJar").forEach { term ->
             assertFalse("Public calendar must not access school authentication: $term", combined.contains(term))
         }
@@ -946,7 +949,7 @@ class ArchitectureBoundaryTest {
 
     @Test
     fun scheduleUsesFixedSubjectAccentsWithoutPostProcessing() {
-        val modelSource = readSource("app/src/main/java/com/clhs/score/data/ScheduleModels.kt")
+        val modelSource = readSource("shared/src/commonMain/kotlin/com/clhs/score/data/ScheduleModels.kt")
         val screenSource = readSource("app/src/main/java/com/clhs/score/ui/schedule/ScheduleScreen.kt")
 
         assertTrue(modelSource.contains("darkPredefinedColors"))

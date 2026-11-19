@@ -1,16 +1,26 @@
 package com.clhs.score.data
 
+import com.clhs.score.shared.time.LOCAL_DATE_TIME_MIN
+import com.clhs.score.shared.time.LocalDate
+import com.clhs.score.shared.time.LocalDateTime
+import com.clhs.score.shared.time.LocalTime
+import com.clhs.score.shared.time.at
+import com.clhs.score.shared.time.compareTo
+import com.clhs.score.shared.time.datePart
+import com.clhs.score.shared.time.dayOfWeekOf
+import com.clhs.score.shared.time.epochDay
+import com.clhs.score.shared.time.localTimeOf
+import com.clhs.score.shared.time.nextOrSame
+import com.clhs.score.shared.time.parseLocalDate
+import com.clhs.score.shared.time.parseLocalTime
+import com.clhs.score.shared.time.shiftDays
+import kotlin.jvm.JvmName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import java.time.DayOfWeek
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.LocalTime
-import java.time.temporal.TemporalAdjusters
 
 @Serializable
 data class PeriodTime(val start: String, val end: String) {
@@ -63,7 +73,7 @@ data class ScheduleItem(
     val classroom: String = "",
 )
 
-internal fun List<ScheduleItem>.applySubjectOverrides(
+fun List<ScheduleItem>.applySubjectOverrides(
     overrides: List<ScheduleSubjectOverride>,
 ): List<ScheduleItem> {
     if (overrides.isEmpty()) return this
@@ -108,9 +118,9 @@ data class ScheduleReport(
 ) {
     fun isValidOn(date: LocalDate): Boolean {
         if (scope == ScheduleScope.SEMESTER) return true
-        val start = weekStartDate?.let { value -> runCatching { LocalDate.parse(value) }.getOrNull() } ?: return false
-        val end = weekEndDate?.let { value -> runCatching { LocalDate.parse(value) }.getOrNull() } ?: return false
-        return date in start..end
+        val start = weekStartDate?.let { value -> runCatching { parseLocalDate(value) }.getOrNull() } ?: return false
+        val end = weekEndDate?.let { value -> runCatching { parseLocalDate(value) }.getOrNull() } ?: return false
+        return date >= start && date <= end
     }
 }
 
@@ -152,11 +162,11 @@ sealed interface ScheduleFetchResult {
     ) : ScheduleFetchResult
 }
 
-internal fun ScheduleReport.displayItems(): List<ScheduleItem> =
+fun ScheduleReport.displayItems(): List<ScheduleItem> =
     items.applySubjectOverrides(subjectOverrides)
 
 @JvmName("applySubjectOverridesToChanges")
-internal fun List<ScheduleChange>.applySubjectOverrides(
+fun List<ScheduleChange>.applySubjectOverrides(
     overrides: List<ScheduleSubjectOverride>,
 ): List<ScheduleChange> {
     if (overrides.isEmpty()) return this
@@ -174,47 +184,47 @@ internal fun List<ScheduleChange>.applySubjectOverrides(
     }
 }
 
-internal fun ScheduleReport.displayChanges(): List<ScheduleChange> =
+fun ScheduleReport.displayChanges(): List<ScheduleChange> =
     changes.orEmpty().applySubjectOverrides(subjectOverrides)
 
-internal fun ScheduleReport.refreshAt(): LocalDateTime? {
+fun ScheduleReport.refreshAt(): LocalDateTime? {
     if (scope != ScheduleScope.CURRENT_WEEK) return null
     val startDate = weekStartDate
-        ?.let { value -> runCatching { LocalDate.parse(value) }.getOrNull() }
-        ?: return LocalDateTime.MIN
+        ?.let { value -> runCatching { parseLocalDate(value) }.getOrNull() }
+        ?: return LOCAL_DATE_TIME_MIN
     val datedItems = items.map { item ->
-        val dayOfWeek = runCatching { DayOfWeek.of(item.dayOfWeek) }.getOrNull()
-            ?: return LocalDateTime.MIN
-        startDate.with(TemporalAdjusters.nextOrSame(dayOfWeek)) to item
+        val dayOfWeek = runCatching { dayOfWeekOf(item.dayOfWeek) }.getOrNull()
+            ?: return LOCAL_DATE_TIME_MIN
+        startDate.nextOrSame(dayOfWeek) to item
     }
-    val lastClassDate = datedItems.maxOfOrNull { it.first }
-        ?: return startDate.plusWeeks(1).atStartOfDay()
+    val lastClassDate = datedItems.maxByOrNull { it.first.epochDay() }?.first
+        ?: return startDate.shiftDays(7).at(localTimeOf(0, 0))
     val endTimes = datedItems.filter { it.first == lastClassDate }.map { (_, item) ->
         PERIOD_TIMES.getOrNull(item.period - 1)
             ?.end
-            ?.let { value -> runCatching { LocalTime.parse(value) }.getOrNull() }
+            ?.let { value -> runCatching { parseLocalTime(value) }.getOrNull() }
     }
     val refreshTime = if (endTimes.any { it == null }) {
-        LocalTime.parse(PERIOD_TIMES.last().end)
+        parseLocalTime(PERIOD_TIMES.last().end)
     } else {
-        endTimes.filterNotNull().maxOrNull() ?: return LocalDateTime.MIN
+        endTimes.filterNotNull().maxOrNull() ?: return LOCAL_DATE_TIME_MIN
     }
-    return lastClassDate.atTime(refreshTime)
+    return lastClassDate.at(refreshTime)
 }
 
-internal fun ScheduleReport.shouldRefreshAt(now: LocalDateTime): Boolean =
-    refreshAt()?.let { refreshAt -> !now.isBefore(refreshAt) } ?: false
+fun ScheduleReport.shouldRefreshAt(now: LocalDateTime): Boolean =
+    refreshAt()?.let { refreshAt -> now >= refreshAt } ?: false
 
-internal fun ScheduleReport.refreshTargetDateAt(now: LocalDateTime): LocalDate {
-    val today = now.toLocalDate()
+fun ScheduleReport.refreshTargetDateAt(now: LocalDateTime): LocalDate {
+    val today = now.datePart()
     val nextWeekStart = weekStartDate
-        ?.let { value -> runCatching { LocalDate.parse(value) }.getOrNull() }
-        ?.plusWeeks(1)
+        ?.let { value -> runCatching { parseLocalDate(value) }.getOrNull() }
+        ?.shiftDays(7)
         ?: return today
     return if (shouldRefreshAt(now) && today < nextWeekStart) nextWeekStart else today
 }
 
-internal fun compareScheduleItems(
+fun compareScheduleItems(
     semesterItems: List<ScheduleItem>,
     weekItems: List<ScheduleItem>,
 ): List<ScheduleChange> {
@@ -242,7 +252,7 @@ internal fun compareScheduleItems(
         }
 }
 
-internal fun parseScheduleWeekOptionsOrNull(json: String): List<ScheduleWeekOption>? {
+fun parseScheduleWeekOptionsOrNull(json: String): List<ScheduleWeekOption>? {
     val root = runCatching { SchoolJson.parseToJsonElement(json) }.getOrNull()
     val options = when (root) {
         is JsonArray -> root
@@ -263,8 +273,8 @@ internal fun parseScheduleWeekOptionsOrNull(json: String): List<ScheduleWeekOpti
         val weekNo = values.singleOrNull()?.toString() ?: return null
         val startDate = item.dateField("StartDateDisplay", "StartDate") ?: return null
         val endDate = item.dateField("EndDateDisplay", "EndDate") ?: return null
-        val start = runCatching { LocalDate.parse(startDate) }.getOrNull() ?: return null
-        val end = runCatching { LocalDate.parse(endDate) }.getOrNull() ?: return null
+        val start = runCatching { parseLocalDate(startDate) }.getOrNull() ?: return null
+        val end = runCatching { parseLocalDate(endDate) }.getOrNull() ?: return null
         if (end < start) return null
 
         ScheduleWeekOption(
@@ -280,25 +290,25 @@ internal fun parseScheduleWeekOptionsOrNull(json: String): List<ScheduleWeekOpti
     return weeks
 }
 
-internal fun selectScheduleWeek(
+fun selectScheduleWeek(
     options: List<ScheduleWeekOption>,
     targetDate: LocalDate,
 ): ScheduleWeekOption? =
     options
         .filter { option ->
-            val start = runCatching { LocalDate.parse(option.startDate) }.getOrNull()
-            val end = runCatching { LocalDate.parse(option.endDate) }.getOrNull()
-            start != null && end != null && targetDate in start..end
+            val start = runCatching { parseLocalDate(option.startDate) }.getOrNull()
+            val end = runCatching { parseLocalDate(option.endDate) }.getOrNull()
+            start != null && end != null && targetDate >= start && targetDate <= end
         }
         .distinctBy { it.value }
         .singleOrNull()
 
-internal fun parseScheduleItems(timetableJson: String): List<ScheduleItem> {
+fun parseScheduleItems(timetableJson: String): List<ScheduleItem> {
     val root = runCatching { SchoolJson.parseToJsonElement(timetableJson) }.getOrNull() ?: return emptyList()
     return parseScheduleItems(root)
 }
 
-internal fun parseScheduleItemsOrNull(timetableJson: String): List<ScheduleItem>? {
+fun parseScheduleItemsOrNull(timetableJson: String): List<ScheduleItem>? {
     val root = runCatching { SchoolJson.parseToJsonElement(timetableJson) }.getOrNull() ?: return null
     val items = parseScheduleItems(root)
     return items.takeIf { it.isNotEmpty() || root.isRecognizedEmptySchedule() }

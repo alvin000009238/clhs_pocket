@@ -95,8 +95,8 @@ private fun OverviewWidgetConfig.isValid(): Boolean = when (this) {
         (source != WeatherSource.CWA || (location.supportsCwa &&
             !location.cwaDataset.isNullOrBlank() && !location.cwaLocationName.isNullOrBlank()))
     is OverviewWidgetConfig.YouBike -> station.id.isNotBlank() && station.name.isNotBlank() &&
-        (station.latitude == null || (station.latitude.isFinite() && station.latitude in -90.0..90.0)) &&
-        (station.longitude == null || (station.longitude.isFinite() && station.longitude in -180.0..180.0))
+        station.latitude.let { latitude -> latitude == null || (latitude.isFinite() && latitude in -90.0..90.0) } &&
+        station.longitude.let { longitude -> longitude == null || (longitude.isFinite() && longitude in -180.0..180.0) }
     is OverviewWidgetConfig.SchoolEvent -> eventId.isNotBlank()
     is OverviewWidgetConfig.CustomCountdown -> title.isNotBlank() && runCatching {
         LocalDate.parse(date)

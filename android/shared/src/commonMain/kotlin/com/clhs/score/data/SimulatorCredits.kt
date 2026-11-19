@@ -1,12 +1,21 @@
 package com.clhs.score.data
 
-import java.math.BigDecimal
-import java.math.RoundingMode
+import com.clhs.score.shared.math.BigDecimal
+import com.clhs.score.shared.math.DECIMAL_ZERO
+import com.clhs.score.shared.math.RoundingMode
+import com.clhs.score.shared.math.decimalValueOf
+import com.clhs.score.shared.math.formatFixed
+import com.clhs.score.shared.math.formatLocalizedFixed
+import com.clhs.score.shared.math.minus
+import com.clhs.score.shared.math.plus
+import com.clhs.score.shared.math.times
+import com.clhs.score.shared.math.toPlainDecimalOrNull
+
 
 /** Combined credits for each reported subject, never a claim about official course weights. */
 object SimulatorCredits {
     const val MAX_CREDITS = 4
-    internal const val MAX_SUBJECTS = 64
+    const val MAX_SUBJECTS = 64
     private val hundred = BigDecimal(100)
     private val decimalPattern = Regex("[0-9]+(?:\\.[0-9]+)?")
 
@@ -65,7 +74,7 @@ object SimulatorCredits {
         if (!validCredits(credits, names) || adjustedScores.keys.any { it !in names }) {
             return Calculation(issue = Issue.INVALID_CREDITS)
         }
-        var total = BigDecimal.ZERO
+        var total = DECIMAL_ZERO
         var count = 0
         subjects.forEachIndexed { index, subject ->
             val credit = credits[names[index]] ?: 1
@@ -132,8 +141,8 @@ object SimulatorCredits {
         val maximum = IntArray(subjects.size) { fixedCredits[names[it]] ?: MAX_CREDITS }
         val suffixMinCount = IntArray(subjects.size + 1)
         val suffixMaxCount = IntArray(subjects.size + 1)
-        val suffixMinScore = Array(subjects.size + 1) { BigDecimal.ZERO }
-        val suffixMaxScore = Array(subjects.size + 1) { BigDecimal.ZERO }
+        val suffixMinScore = Array(subjects.size + 1) { DECIMAL_ZERO }
+        val suffixMaxScore = Array(subjects.size + 1) { DECIMAL_ZERO }
         for (index in subjects.indices.reversed()) {
             suffixMinCount[index] = suffixMinCount[index + 1] + minimum[index]
             suffixMaxCount[index] = suffixMaxCount[index + 1] + maximum[index]
@@ -171,7 +180,7 @@ object SimulatorCredits {
                 if (truncation != null) return
             }
         }
-        search(0, 0, BigDecimal.ZERO)
+        search(0, 0, DECIMAL_ZERO)
         val status = when {
             truncation != null -> InferenceStatus.SEARCH_LIMITED
             candidates.isEmpty() -> InferenceStatus.NO_SOLUTIONS
@@ -197,18 +206,18 @@ object SimulatorCredits {
     private fun validCredits(credits: Map<String, Int>, names: List<String>): Boolean =
         credits.all { (name, credit) -> name in names && credit in 1..MAX_CREDITS }
 
-    internal fun subjectScore(subject: SubjectScore): BigDecimal? =
+    fun subjectScore(subject: SubjectScore): BigDecimal? =
         if (subject.absent || subject.cheating) null else decimal(subject.scoreDisplay)?.takeIf(::validScore)
 
     private fun validScore(score: BigDecimal): Boolean =
-        score.scale() in 0..8 && score.precision() <= 18 && score >= BigDecimal.ZERO && score <= hundred
+        score.scale() in 0..8 && score.precision() <= 18 && score >= DECIMAL_ZERO && score <= hundred
 
     // Exponents and oversized inputs are rejected before constructing a BigDecimal.
     private fun decimal(display: String): BigDecimal? {
         if (display.length > 32) return null
         val text = display.trim()
         if (!decimalPattern.matches(text)) return null
-        return text.toBigDecimalOrNull()?.takeIf { it.scale() <= 8 && it.precision() <= 18 }
+        return text.toPlainDecimalOrNull()?.takeIf { it.scale() <= 8 && it.precision() <= 18 }
     }
 
     /** Positive HALF_UP displays represent [value-halfUnit, value+halfUnit). */
@@ -218,7 +227,7 @@ object SimulatorCredits {
 
     private fun interval(value: BigDecimal): Interval {
         val halfUnit = BigDecimal("0.5").movePointLeft(value.scale())
-        return Interval((value - halfUnit).max(BigDecimal.ZERO), value + halfUnit)
+        return Interval((value - halfUnit).max(DECIMAL_ZERO), value + halfUnit)
     }
 
     private data class Displays(val total: Interval, val average: Interval) {
@@ -235,10 +244,10 @@ object SimulatorCredits {
         return Displays(interval(total), interval(average))
     }
 
-    internal fun summaryTotal(display: String): BigDecimal? =
+    fun summaryTotal(display: String): BigDecimal? =
         decimal(display)?.takeIf { it <= hundred * BigDecimal(MAX_CREDITS * MAX_SUBJECTS) }
 
-    internal fun summaryAverage(display: String): BigDecimal? =
+    fun summaryAverage(display: String): BigDecimal? =
         decimal(display)?.takeIf { it <= hundred }
 
 }

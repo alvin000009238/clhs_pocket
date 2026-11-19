@@ -18,14 +18,14 @@ data class GradeReminderState(
     val stoppedReason: String? = null,
     val consecutiveFailures: Int = 0,
 ) {
-    fun isActive(nowMillis: Long = System.currentTimeMillis()): Boolean =
+    fun isActive(nowMillis: Long = kotlin.time.Clock.System.now().toEpochMilliseconds()): Boolean =
         enabled && nowMillis < expiresAtMillis
 
     fun isActiveFor(
         studentNo: String,
         yearValue: String?,
         examValue: String?,
-        nowMillis: Long = System.currentTimeMillis(),
+        nowMillis: Long = kotlin.time.Clock.System.now().toEpochMilliseconds(),
     ): Boolean =
         isActive(nowMillis) &&
             this.studentNo == studentNo &&
@@ -33,7 +33,7 @@ data class GradeReminderState(
             this.examValue == examValue
 }
 
-internal data class GradeReminderIdentity(
+data class GradeReminderIdentity(
     val enabled: Boolean,
     val studentNo: String,
     val yearValue: String,
@@ -42,7 +42,7 @@ internal data class GradeReminderIdentity(
     val expiresAtMillis: Long,
 )
 
-internal fun GradeReminderState.identity() = GradeReminderIdentity(
+fun GradeReminderState.identity() = GradeReminderIdentity(
     enabled = enabled,
     studentNo = studentNo,
     yearValue = yearValue,
@@ -51,7 +51,7 @@ internal fun GradeReminderState.identity() = GradeReminderIdentity(
     expiresAtMillis = expiresAtMillis,
 )
 
-internal fun mutateReminderStateIfCurrent(
+fun mutateReminderStateIfCurrent(
     current: GradeReminderState,
     expected: GradeReminderIdentity,
     transform: (GradeReminderState) -> GradeReminderState,

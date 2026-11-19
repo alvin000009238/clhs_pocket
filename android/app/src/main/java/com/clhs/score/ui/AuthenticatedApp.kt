@@ -174,8 +174,9 @@ fun AppShell(
     val context = LocalContext.current
     fun openAnnouncement(announcement: com.clhs.score.data.SchoolAnnouncement) {
         if (announcement.contentType.equals("url", ignoreCase = true)) {
-            if (announcement.externalUrl != null) {
-                if (context.openAnnouncementUrl(announcement.externalUrl)) {
+            val externalUrl = announcement.externalUrl
+            if (externalUrl != null) {
+                if (context.openAnnouncementUrl(externalUrl)) {
                     announcementReminderViewModel.markRead(announcement.id)
                 }
             } else android.widget.Toast.makeText(

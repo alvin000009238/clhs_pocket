@@ -1,11 +1,11 @@
 package com.clhs.score.data
 
-import java.math.BigDecimal
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.clhs.score.shared.math.BigDecimal
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.test.Test
 
 class SimulatorCreditsTest {
     @Test

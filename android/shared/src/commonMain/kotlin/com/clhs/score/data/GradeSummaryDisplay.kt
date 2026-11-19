@@ -1,8 +1,18 @@
 package com.clhs.score.data
 
-import java.math.RoundingMode
+import com.clhs.score.shared.math.BigDecimal
+import com.clhs.score.shared.math.DECIMAL_ZERO
+import com.clhs.score.shared.math.RoundingMode
+import com.clhs.score.shared.math.decimalValueOf
+import com.clhs.score.shared.math.formatFixed
+import com.clhs.score.shared.math.formatLocalizedFixed
+import com.clhs.score.shared.math.minus
+import com.clhs.score.shared.math.plus
+import com.clhs.score.shared.math.times
+import com.clhs.score.shared.math.toPlainDecimalOrNull
 
-internal data class GradeSummaryDisplay(
+
+data class GradeSummaryDisplay(
     val totalText: String = "--",
     val averageText: String = "--",
     val isTotalEstimated: Boolean = false,
@@ -11,7 +21,7 @@ internal data class GradeSummaryDisplay(
     val needsCreditAttention: Boolean = true,
 )
 
-internal fun gradeSummaryDisplay(
+fun gradeSummaryDisplay(
     report: GradeReport,
     appliedCredits: Map<String, Int>,
     isAppliedStateReliable: Boolean,
