@@ -187,8 +187,11 @@ final class PocketShellUITests: XCTestCase {
         }
         let before = order()
         XCTAssertGreaterThanOrEqual(before.count, 3)
-        let moved = widgets.matching(identifier: before[1]).firstMatch
-        let target = widgets.matching(identifier: before[2]).firstMatch
+        // With accessibility text sizes only the first widgets fit on screen; drag between two that are.
+        let reachable = before.filter { widgets.matching(identifier: $0).firstMatch.isHittable }
+        XCTAssertGreaterThanOrEqual(reachable.count, 2)
+        let moved = widgets.matching(identifier: reachable[reachable.count - 2]).firstMatch
+        let target = widgets.matching(identifier: reachable[reachable.count - 1]).firstMatch
         moved.press(forDuration: 1.2, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.6)
         Thread.sleep(forTimeInterval: 1)
         let after = order()
@@ -256,6 +259,8 @@ final class PocketShellUITests: XCTestCase {
 
         let simulator = app.buttons["grades-simulator"]
         for _ in 0..<4 where !simulator.isHittable { app.swipeDown() }
+        // Keep the button clear of the top bar and the floating tab bar before tapping it.
+        reveal(simulator)
         simulator.tap()
         XCTAssertTrue(app.staticTexts["模擬加權平均"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["simulator-reset"].isEnabled)
