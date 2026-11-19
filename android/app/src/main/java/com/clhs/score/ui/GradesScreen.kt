@@ -458,7 +458,7 @@ fun GradesScreen(
                                 pageHeader = gradesHeader,
                             ) {
                                 EmptyPanel(
-                                    message = state.errorMessage ?: when {
+                                    message = state.loadErrorMessage ?: when {
                                         state.structure.isEmpty() -> "尚未取得可查詢考試"
                                         state.structure
                                             .firstOrNull { it.value == state.selectedYearValue }
@@ -1322,6 +1322,7 @@ private fun EmptyPanel(message: String, onReload: () -> Unit) {
             text = message,
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
         Button(
             onClick = onReload,

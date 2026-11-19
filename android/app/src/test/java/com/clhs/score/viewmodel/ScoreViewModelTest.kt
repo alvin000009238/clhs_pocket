@@ -70,6 +70,80 @@ class ScoreViewModelTest {
     }
 
     @Test
+    fun structureFailureSurvivesSnackbarDismissalUntilRetry() = runTest(dispatcher) {
+        val repository = ControllableGradeRepository()
+        val viewModel = createViewModel(repository)
+        runCurrent()
+        repository.structureDeferred.completeExceptionally(IllegalStateException("private upstream detail"))
+        runCurrent()
+
+        assertEquals(null, viewModel.gradesState.value.report)
+        assertEquals("考試清單載入失敗，請稍後再試。", viewModel.gradesState.value.loadErrorMessage)
+        viewModel.clearGradesError()
+        assertEquals(null, viewModel.gradesState.value.errorMessage)
+        assertEquals("考試清單載入失敗，請稍後再試。", viewModel.gradesState.value.loadErrorMessage)
+
+        repository.structureDeferred = CompletableDeferred()
+        viewModel.reloadStructure()
+        runCurrent()
+        assertTrue(viewModel.gradesState.value.isLoadingStructure)
+        assertEquals(null, viewModel.gradesState.value.loadErrorMessage)
+        repository.structureDeferred.complete(emptyList())
+        runCurrent()
+        assertFalse(viewModel.gradesState.value.isLoadingStructure)
+        assertEquals(null, viewModel.gradesState.value.loadErrorMessage)
+    }
+
+    @Test
+    fun reportFailureSurvivesSnackbarDismissalAndClearsOnSuccessfulRetry() = runTest(dispatcher) {
+        val repository = ControllableGradeRepository()
+        val viewModel = createViewModel(repository)
+        runCurrent()
+        repository.structureDeferred.complete(listOf(
+            YearTermOption("114學年度 上學期", "114_1", listOf(ExamOption("期末考", "114_1_E4"))),
+        ))
+        runCurrent()
+        repository.failFetch("114_1_E4")
+        runCurrent()
+
+        viewModel.clearGradesError()
+        assertEquals(null, viewModel.gradesState.value.errorMessage)
+        assertEquals(null, viewModel.gradesState.value.report)
+        assertEquals("成績載入失敗，請稍後再試。", viewModel.gradesState.value.loadErrorMessage)
+
+        repository.prepareFetchRetry("114_1_E4")
+        viewModel.reloadStructure()
+        runCurrent()
+        assertTrue(viewModel.gradesState.value.isLoadingGrades)
+        assertEquals(null, viewModel.gradesState.value.loadErrorMessage)
+        val report = FakeData.reportFor("114_1", "114_1_E4")
+        repository.completeFetch("114_1_E4", report)
+        runCurrent()
+        assertEquals(report, viewModel.gradesState.value.report)
+        assertFalse(viewModel.gradesState.value.isLoadingGrades)
+        assertEquals(null, viewModel.gradesState.value.loadErrorMessage)
+    }
+
+    @Test
+    fun choosingAnExamlessTermClearsThePreviousLoadFailure() = runTest(dispatcher) {
+        val repository = ControllableGradeRepository()
+        val viewModel = createViewModel(repository)
+        runCurrent()
+        repository.structureDeferred.complete(listOf(
+            YearTermOption("114學年度 上學期", "114_1", listOf(ExamOption("期末考", "114_1_E4"))),
+            YearTermOption("113學年度 下學期", "113_2", emptyList()),
+        ))
+        runCurrent()
+        repository.failFetch("114_1_E4")
+        runCurrent()
+        assertEquals("成績載入失敗，請稍後再試。", viewModel.gradesState.value.loadErrorMessage)
+
+        viewModel.selectYear("113_2")
+        assertEquals(null, viewModel.gradesState.value.selectedExamValue)
+        assertEquals(null, viewModel.gradesState.value.loadErrorMessage)
+    }
+
+    @Test
     fun explicitLoginCancelsPendingStartupRestore() = runTest(dispatcher) {
         val restore = CompletableDeferred<AuthenticatedSession?>()
         val viewModel = createViewModel(ControllableGradeRepository(restore))
@@ -874,7 +948,7 @@ class ScoreViewModelTest {
         private val cachedStudentInfo: StudentInfo? = null,
         private val cachedStudentInfoDeferred: CompletableDeferred<StudentInfo?>? = null,
     ) : GradeRepository {
-        val structureDeferred = CompletableDeferred<List<YearTermOption>>()
+        var structureDeferred = CompletableDeferred<List<YearTermOption>>()
         val fetchCalls = mutableListOf<Triple<String, String, Boolean>>()
         val studentInfoRequests = mutableListOf<CompletableDeferred<StudentInfo>>()
         var cancelledStudentInfoRequests = 0
@@ -966,6 +1040,11 @@ class ScoreViewModelTest {
             val matchingKey = fetches.keys.firstOrNull { it.second == examValue }
             val key = matchingKey ?: ("" to examValue)
             fetches.getOrPut(key) { CompletableDeferred() }.completeExceptionally(IllegalStateException("sensitive upstream error"))
+        }
+
+        fun prepareFetchRetry(examValue: String) {
+            val key = fetches.keys.first { it.second == examValue }
+            fetches[key] = CompletableDeferred()
         }
 
         fun failAuthenticationFetch(examValue: String) {
