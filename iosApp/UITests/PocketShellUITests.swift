@@ -20,7 +20,24 @@ final class PocketShellUITests: XCTestCase {
 
     func testGuestFirstShellAndFourIndependentStacks() {
         XCTAssertTrue(app.staticTexts["把校園生活放進口袋。"].waitForExistence(timeout: 10))
-        capture("01-onboarding")
+        capture("01-onboarding-welcome")
+        app.buttons["onboarding-next"].tap()
+        XCTAssertTrue(app.buttons["onboarding-appearance-dark"].waitForExistence(timeout: 5))
+        capture("01b-onboarding-appearance")
+        app.buttons["onboarding-next"].tap()
+        XCTAssertTrue(app.buttons["onboarding-notifications-skip"].waitForExistence(timeout: 5))
+        capture("01c-onboarding-notifications")
+        app.buttons["onboarding-notifications-skip"].tap()
+        XCTAssertTrue(app.buttons["onboarding-guest"].waitForExistence(timeout: 5))
+        capture("01d-onboarding-account")
+
+        // The login form rejects unknown credentials and accepts the demo account.
+        app.buttons["onboarding-login"].tap()
+        XCTAssertTrue(app.buttons["login-submit"].waitForExistence(timeout: 5))
+        app.buttons["login-submit"].tap()
+        XCTAssertTrue(app.staticTexts["login-error"].waitForExistence(timeout: 5))
+        capture("01e-login-error")
+        app.buttons["取消"].tap()
 
         app.buttons["onboarding-guest"].tap()
         XCTAssertTrue(app.staticTexts["登入後顯示今日課程"].waitForExistence(timeout: 5))
