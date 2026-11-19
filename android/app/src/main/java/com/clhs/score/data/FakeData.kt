@@ -193,6 +193,14 @@ object MockGradeSystem {
 }
 
 object FakeData {
+    val calendarEvents: List<SchoolCalendarEvent> by lazy {
+        val today = java.time.LocalDate.now(SCHOOL_COURSE_ZONE)
+        listOf(
+            SchoolCalendarEvent("preview-exam", "期中考與試場準備", today.atTime(8, 10), today.atTime(16, 0), false, "各班教室"),
+            SchoolCalendarEvent("preview-event", "校園活動與跨領域探索成果發表", today.plusDays(1).atStartOfDay(), today.plusDays(3).atStartOfDay(), true, "活動中心"),
+        )
+    }
+
     val session = AuthenticatedSession(
         studentNo = "DEMO-000",
         apiToken = "fake-token",
