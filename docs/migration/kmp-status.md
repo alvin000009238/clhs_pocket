@@ -65,6 +65,10 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 - 小工具設定的時區檢查在 Android 仍使用 `ZoneId.of`；iOS 使用 `NSTimeZone.timeZoneWithName`，兩者接受的識別字不完全相同（例如 `UTC+8` 這類偏移寫法），iOS 端尚未測試。
 - 公告收藏的網址檢查（`safeAnnouncementWebUrl`）依賴 OkHttp，仍在 `app`；iOS 需要自己的等效實作。
 
+## 未解決的問題
+
+- **lint 與 KSP 的競態**：在本分支修改原始碼後第一次跑完整 gate，`lintAnalyzeDemoDebugUnitTest`／`lintAnalyzeDemoDebugAndroidTest` 會在 `kspProductionDebugKotlin` 同時重新產生檔案時讀取 `app/build/generated/ksp/productionDebug/.../AnnouncementReadDao_Impl.kt`，丟出 `FileNotFoundException`；不改任何東西重跑就通過。在 `main`（`a3085ea`）以同一指令跑兩次（全新建置、修改一個原始檔後再跑）都通過，所以這個問題是本分支（含 PR #249 加入的 `:shared` 模組）才出現的。原因尚未查明，也尚未在 CI 的全新環境驗證。
+
 ## 尚未搬移
 
 - 公告、行事曆、天氣、YouBike 的解析（目前與 OkHttp、Jsoup、biweekly 寫在同一個檔案，且使用 `java.time.Instant`／`Duration`）。
@@ -79,7 +83,7 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 | `:shared:compileKotlinIosX64`、`:shared:compileTestKotlinIosX64`、`:shared:compileKotlinIosSimulatorArm64` | PASS |
 | `:app:testDemoDebugUnitTest` | PASS |
 | `:shared:iosSimulatorArm64Test`、`:shared:iosX64Test` | BLOCKED（Linux 上被 Gradle 停用，需在 macOS 執行） |
-| 完整 Android gate（`e6fb6b7`：demo 測試、production `FlavorConfigurationTest`、`lintDemoDebug`、兩個 flavor 的 assemble） | PASS（第二次執行）。第一次執行 FAIL：`lintAnalyzeDemoDebugUnitTest` 在 `kspProductionDebugKotlin` 重新產生檔案時讀取 `build/generated/ksp/productionDebug`，出現 `FileNotFoundException`；KSP 輸出完成後重跑即通過，尚未確認這個競態在 `main` 是否也會發生。 |
+| 完整 Android gate（`801c1a4`：`:shared:allTests`、demo 測試、production `FlavorConfigurationTest`、`lintDemoDebug`、兩個 flavor 的 assemble、`--warning-mode all`） | 原始碼變動後的第一次執行 FAIL（3 次皆同），緊接著重跑 PASS。詳見下方「未解決的問題」。重跑時編譯工作為 UP-TO-DATE，所以這次 PASS 沒有重新檢查 Kotlin 編譯警告。 |
 | Android 模擬器啟動檢查（API 35 x86_64 模擬器、`demoDebug`、`6d613fe`） | PASS：導覽頁 4 步、範例帳號登入、首頁／課表／成績／校園／個人頁，淺色與深色皆正常顯示範例資料，沒有當機。 |
 | Android 搬移前後畫面逐一比對 | NOT_RUN（搬移前沒有先截基準圖，只能確認搬移後畫面正常） |
 | iOS 建置、Simulator、畫面檢查 | NOT_RUN（由 macOS session 進行） |
