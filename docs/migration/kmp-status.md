@@ -82,7 +82,9 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 | `:shared:allTests`（Android host） | PASS |
 | `:shared:compileKotlinIosX64`、`:shared:compileTestKotlinIosX64`、`:shared:compileKotlinIosSimulatorArm64` | PASS |
 | `:app:testDemoDebugUnitTest` | PASS |
-| `:shared:iosSimulatorArm64Test`、`:shared:iosX64Test` | BLOCKED（Linux 上被 Gradle 停用，需在 macOS 執行） |
+| `:shared:iosSimulatorArm64Test` | 本機 BLOCKED（Linux 上被 Gradle 停用）。CI：`kmp-ios.yml` 在 macOS runner 執行這個工作，PR #250 在 `a20300a` 的該檢查通過；尚未讀取工作紀錄確認實際執行的測試數量。 |
+| `:shared:iosX64Test` | NOT_RUN |
+| PR #250 CI（`a20300a`） | PASS：Android 測試／lint／建置（全新環境，未出現 lint／KSP 競態）、iOS framework 與 SwiftUI Simulator 建置（建置的是 #249 的骨架）、CodeQL。 |
 | 完整 Android gate（`801c1a4`：`:shared:allTests`、demo 測試、production `FlavorConfigurationTest`、`lintDemoDebug`、兩個 flavor 的 assemble、`--warning-mode all`） | 原始碼變動後的第一次執行 FAIL（3 次皆同），緊接著重跑 PASS。詳見下方「未解決的問題」。重跑時編譯工作為 UP-TO-DATE，所以這次 PASS 沒有重新檢查 Kotlin 編譯警告。 |
 | Android 模擬器啟動檢查（API 35 x86_64 模擬器、`demoDebug`、`6d613fe`） | PASS：導覽頁 4 步、範例帳號登入、首頁／課表／成績／校園／個人頁，淺色與深色皆正常顯示範例資料，沒有當機。 |
 | Android 搬移前後畫面逐一比對 | NOT_RUN（搬移前沒有先截基準圖，只能確認搬移後畫面正常） |
