@@ -66,9 +66,11 @@ final class AppModel {
         static let session = "session"
         static let demoClock = "demoClock"
         static let initialTab = "initialTab"
+        static let notifications = "notificationsEnabled"
     }
 
     let dataSource: PocketDataSource = PocketEnvironment.shared.demo()
+    let services = PocketServices()
     private let defaults = UserDefaults.standard
     private let fixedClock: PocketClock?
 
@@ -89,10 +91,15 @@ final class AppModel {
         didSet { defaults.set(session.rawValue, forKey: Key.session) }
     }
 
+    var notificationsEnabled: Bool {
+        didSet { defaults.set(notificationsEnabled, forKey: Key.notifications) }
+    }
+
     init() {
         hasCompletedOnboarding = defaults.bool(forKey: Key.onboarding)
         appearance = defaults.string(forKey: Key.appearance).flatMap(PocketAppearance.init) ?? .system
         session = defaults.string(forKey: Key.session).flatMap(PocketSession.init) ?? .guest
+        notificationsEnabled = defaults.bool(forKey: Key.notifications)
         selectedTab = defaults.string(forKey: Key.initialTab).flatMap(PocketTab.init) ?? .home
         // `-demoClock 2026-11-18T10:35` pins time for previews, tests and screenshots.
         fixedClock = defaults.string(forKey: Key.demoClock).flatMap(AppModel.parseClock)
@@ -133,7 +140,15 @@ final class AppModel {
         hasCompletedOnboarding = true
     }
 
+    /// Returns nil on success, otherwise the message to show under the form.
+    func signIn(account: String, password: String) async -> String? {
+        let failure = await services.account.signIn(account: account, password: password)
+        if failure == nil { session = .demo }
+        return failure
+    }
+
     func signOut() {
+        Task { await services.account.signOut() }
         session = .guest
         paths = [:]
     }
