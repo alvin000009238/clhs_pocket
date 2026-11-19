@@ -15,9 +15,11 @@ struct GradesView: View {
                 PocketColumns {
                     VStack(spacing: PocketMetrics.cardSpacing) {
                         GradeSummaryCard(report: report)
+                        actions(report: report)
                         if report.trend.count > 1 {
                             GradeTrendCard(report: report)
                         }
+                        AnalysisCard(analysis: PocketGrades.shared.analysis(examValue: report.examValue, unused: false))
                         if !report.strengths.isEmpty || !report.weaknesses.isEmpty {
                             HStack(alignment: .top, spacing: PocketMetrics.cardSpacing) {
                                 InsightCard(title: "表現亮眼", systemImage: "arrow.up.right", tone: PocketColor.positive, items: report.strengths)
@@ -37,7 +39,11 @@ struct GradesView: View {
                             VStack(spacing: 0) {
                                 ForEach(Array(report.subjects.enumerated()), id: \.element.name) { index, subject in
                                     if index > 0 { PocketRowDivider().padding(.leading, 12) }
-                                    SubjectGradeRow(subject: subject)
+                                    NavigationLink(value: PocketRoute.subject(exam: report.examValue, name: subject.name)) {
+                                        SubjectGradeRow(subject: subject)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityIdentifier("subject-\(index)")
                                 }
                             }
                         }
@@ -53,6 +59,29 @@ struct GradesView: View {
             .pocketPage()
         }
         .navigationTitle(PocketTab.grades.title)
+    }
+
+    private func actions(report: PocketGradeReport) -> some View {
+        HStack(spacing: PocketMetrics.cardSpacing) {
+            NavigationLink(value: PocketRoute.simulator(exam: report.examValue)) {
+                actionLabel("成績模擬器", "slider.horizontal.3")
+            }
+            .accessibilityIdentifier("grades-simulator")
+            ShareLink(item: PocketGrades.shared.shareText(examValue: report.examValue)) {
+                actionLabel("分享摘要", "square.and.arrow.up")
+            }
+            .accessibilityIdentifier("grades-share")
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func actionLabel(_ title: String, _ symbol: String) -> some View {
+        Label(title, systemImage: symbol)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(PocketColor.primary)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.innerRadius, style: .continuous))
+            .contentShape(.rect)
     }
 
     private func examPicker(report: PocketGradeReport, terms: [PocketGradeTerm]) -> some View {
@@ -309,7 +338,61 @@ private struct SubjectGradeRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
+        .contentShape(.rect)
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("查看班級統計與走勢")
         .accessibilityLabel("\(subject.name) \(subject.scoreText) 分，班平均 \(subject.classAverageText)，班排 \(subject.classRankText)\(subject.isFlunk ? "，不及格" : "")")
+    }
+}
+
+private struct AnalysisCard: View {
+    let analysis: PocketAnalysis
+
+    var body: some View {
+        PocketCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("成績分析", systemImage: "text.magnifyingglass")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                Text(analysis.summary)
+                    .font(.body)
+                    .foregroundStyle(PocketColor.onSurface)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !analysis.changes.isEmpty {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) { chips }
+                        VStack(alignment: .leading, spacing: 8) { chips }
+                    }
+                }
+                if !analysis.improved.isEmpty || !analysis.declined.isEmpty {
+                    PocketRowDivider()
+                    ForEach(analysis.improved + analysis.declined, id: \.name) { item in
+                        let up = !item.percentText.hasPrefix("-")
+                        HStack(alignment: .firstTextBaseline) {
+                            Image(systemName: up ? "arrow.up.right" : "arrow.down.right")
+                                .font(.footnote.weight(.bold))
+                                .foregroundStyle(up ? PocketColor.positive : PocketColor.negative)
+                                .accessibilityHidden(true)
+                            Text(item.name).font(.subheadline.weight(.medium)).foregroundStyle(PocketColor.onSurface)
+                            Text(item.detail).font(.footnote).monospacedDigit().foregroundStyle(PocketColor.onSurfaceVariant)
+                            Spacer(minLength: 4)
+                            Text(item.percentText)
+                                .font(.subheadline.weight(.semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(up ? PocketColor.positive : PocketColor.negative)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+            }
+        }
+        .accessibilityIdentifier("grade-analysis")
+    }
+
+    @ViewBuilder private var chips: some View {
+        ForEach(analysis.changes, id: \.self) { change in
+            PocketChip(text: change, foreground: PocketColor.onPrimaryContainer, background: PocketColor.primaryContainer)
+        }
     }
 }

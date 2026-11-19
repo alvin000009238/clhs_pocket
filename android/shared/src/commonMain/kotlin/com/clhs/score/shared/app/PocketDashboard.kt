@@ -287,8 +287,3 @@ internal object DemoLive {
         )
     }
 }
-
-/** Device-local announcement read/bookmark defaults for the demo. */
-object PocketCampusStore {
-    fun defaultUnreadIds(): Set<String> = DemoCampus.defaultUnreadIds
-}

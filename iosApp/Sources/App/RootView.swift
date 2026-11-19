@@ -76,6 +76,11 @@ struct PocketShell: View {
         switch route {
         case .announcements: AnnouncementListView()
         case .calendar: CalendarListView()
+        case .announcement(let id): AnnouncementDetailView(id: id)
+        case .attendance: StudentRecordsView(kind: .attendance)
+        case .merits: StudentRecordsView(kind: .merits)
+        case .subject(let exam, let name): SubjectDetailView(examValue: exam, name: name)
+        case .simulator(let exam): GradeSimulatorView(examValue: exam)
         }
     }
 }

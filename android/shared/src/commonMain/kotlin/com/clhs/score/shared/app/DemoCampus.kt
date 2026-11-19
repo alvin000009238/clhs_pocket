@@ -98,7 +98,9 @@ internal object DemoCampus {
         )
     }
 
-    fun announcementRow(item: SchoolAnnouncement, unreadIds: Set<String>): PocketAnnouncement = PocketAnnouncement(
+    fun announcementRow(
+        item: SchoolAnnouncement, unreadIds: Set<String>, bookmarkedIds: Set<String> = emptySet(),
+    ): PocketAnnouncement = PocketAnnouncement(
         id = item.id,
         title = item.title,
         dateText = item.date,
@@ -107,6 +109,7 @@ internal object DemoCampus {
         category = item.category,
         isPinned = item.isPinned,
         isUnread = item.id in unreadIds,
+        isBookmarked = item.id in bookmarkedIds,
     )
 
     fun announcements(clock: PocketClock, unreadIds: Set<String> = defaultUnreadIds): List<PocketAnnouncement> =

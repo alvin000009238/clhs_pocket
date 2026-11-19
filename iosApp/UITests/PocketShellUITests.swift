@@ -120,7 +120,7 @@ final class PocketShellUITests: XCTestCase {
 
     private func tab(_ title: String) -> XCUIElement {
         // The iOS 26 tab bar minimises while scrolled down; scroll back to restore it.
-        if !app.tabBars.buttons[title].exists { app.swipeDown() }
+        for _ in 0..<4 where !app.tabBars.buttons[title].exists { app.swipeDown() }
         let inTabBar = app.tabBars.buttons[title]
         return inTabBar.exists ? inTabBar : app.buttons[title].firstMatch
     }

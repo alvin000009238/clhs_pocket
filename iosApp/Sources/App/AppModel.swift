@@ -26,7 +26,12 @@ enum PocketTab: String, CaseIterable, Hashable {
 
 enum PocketRoute: Hashable {
     case announcements
+    case announcement(String)
     case calendar
+    case attendance
+    case merits
+    case subject(exam: String, name: String)
+    case simulator(exam: String)
 }
 
 enum PocketAppearance: String, CaseIterable, Identifiable {

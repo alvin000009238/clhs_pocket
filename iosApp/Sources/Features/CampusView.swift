@@ -6,16 +6,22 @@ struct CampusView: View {
 
     var body: some View {
         let campus = model.dataSource.campus(clock: model.clock)
+        let announcements = PocketCampusStore.shared.announcements(
+            clock: model.clock, category: "全部", query: "", filter: .all,
+            unreadIds: model.unreadAnnouncementIds, bookmarkedIds: model.bookmarkedAnnouncementIds
+        )
+        let unread = Int(PocketCampusStore.shared.unreadCount(clock: model.clock, unreadIds: model.unreadAnnouncementIds))
+        let featured = announcements.first
         ScrollView {
             VStack(alignment: .leading, spacing: PocketMetrics.sectionSpacing) {
                 PocketColumns {
-                    if let featured = campus.featured {
+                    if let featured {
                         FeaturedAnnouncementCard(announcement: featured)
                     }
                     HStack(spacing: PocketMetrics.cardSpacing) {
                         CampusShortcut(
                             title: "公告",
-                            detail: campus.unreadCount > 0 ? "\(campus.unreadCount) 則未讀" : "已全部讀完",
+                            detail: unread > 0 ? "\(unread) 則未讀" : "已全部讀完",
                             systemImage: "megaphone.fill",
                             route: .announcements
                         )
@@ -25,6 +31,10 @@ struct CampusView: View {
                             systemImage: "calendar",
                             route: .calendar
                         )
+                    }
+                    HStack(spacing: PocketMetrics.cardSpacing) {
+                        CampusShortcut(title: "出缺勤", detail: model.isSignedIn ? "請假與缺曠" : "需要登入", systemImage: "person.badge.clock.fill", route: .attendance)
+                        CampusShortcut(title: "獎懲", detail: model.isSignedIn ? "功過紀錄" : "需要登入", systemImage: "rosette", route: .merits)
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         PocketSectionHeader(title: "近期行事") {
@@ -40,7 +50,7 @@ struct CampusView: View {
                             PocketMoreLink(value: PocketRoute.announcements)
                         }
                         PocketCard(padding: 8) {
-                            AnnouncementRows(announcements: Array(campus.announcements.dropFirst().prefix(4)))
+                            AnnouncementRows(announcements: Array(announcements.dropFirst().prefix(5)))
                         }
                     }
                 }
@@ -55,7 +65,7 @@ private struct FeaturedAnnouncementCard: View {
     let announcement: PocketAnnouncement
 
     var body: some View {
-        NavigationLink(value: PocketRoute.announcements) {
+        NavigationLink(value: PocketRoute.announcement(announcement.id)) {
             PocketCard(fill: PocketColor.tertiaryContainer, padding: 24) {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 8) {
@@ -104,6 +114,7 @@ private struct CampusShortcut: View {
                 VStack(alignment: .leading, spacing: 0) {
                     PocketIconTile(systemImage: systemImage)
                     Text(title)
+                        .lineLimit(1)
                         .font(PocketFont.cardTitle)
                         .foregroundStyle(PocketColor.onSurface)
                         .padding(.top, 14)
@@ -116,6 +127,7 @@ private struct CampusShortcut: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("campus-\(title)")
     }
 }
 
@@ -126,6 +138,7 @@ struct AnnouncementRows: View {
         VStack(spacing: 0) {
             ForEach(Array(announcements.enumerated()), id: \.element.id) { index, item in
                 if index > 0 { PocketRowDivider().padding(.leading, 12) }
+                NavigationLink(value: PocketRoute.announcement(item.id)) {
                 HStack(alignment: .top, spacing: 10) {
                     Circle()
                         .fill(item.isUnread ? PocketColor.primary : .clear)
@@ -144,6 +157,13 @@ struct AnnouncementRows: View {
                             .foregroundStyle(PocketColor.onSurfaceVariant)
                     }
                     Spacer(minLength: 8)
+                    if item.isBookmarked {
+                        Image(systemName: "bookmark.fill")
+                            .font(.footnote)
+                            .foregroundStyle(PocketColor.primary)
+                            .padding(.top, 4)
+                            .accessibilityLabel("已收藏")
+                    }
                     if item.isPinned {
                         Image(systemName: "pin.fill")
                             .font(.footnote)
@@ -154,8 +174,12 @@ struct AnnouncementRows: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 12)
+                .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
                 .accessibilityElement(children: .combine)
                 .accessibilityValue(item.isUnread ? "未讀" : "")
+                .accessibilityIdentifier("announcement-\(item.id)")
             }
         }
     }
@@ -201,48 +225,3 @@ struct EventRows: View {
     }
 }
 
-struct AnnouncementListView: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let campus = model.dataSource.campus(clock: model.clock)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(campus.unreadCount > 0 ? "\(campus.unreadCount) 則未讀 · 共 \(campus.announcements.count) 則" : "共 \(campus.announcements.count) 則")
-                    .font(.subheadline)
-                    .foregroundStyle(PocketColor.onSurfaceVariant)
-                    .padding(.horizontal, 4)
-                PocketCard(padding: 8) {
-                    AnnouncementRows(announcements: campus.announcements)
-                }
-            }
-            .frame(maxWidth: 720)
-            .pocketPage()
-        }
-        .navigationTitle("公告")
-        .navigationBarTitleDisplayMode(.large)
-    }
-}
-
-struct CalendarListView: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let campus = model.dataSource.campus(clock: model.clock)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(campus.calendarHeadline)
-                    .font(.subheadline)
-                    .foregroundStyle(PocketColor.onSurfaceVariant)
-                    .padding(.horizontal, 4)
-                PocketCard(padding: 8) {
-                    EventRows(events: campus.events)
-                }
-            }
-            .frame(maxWidth: 720)
-            .pocketPage()
-        }
-        .navigationTitle("行事曆")
-        .navigationBarTitleDisplayMode(.large)
-    }
-}

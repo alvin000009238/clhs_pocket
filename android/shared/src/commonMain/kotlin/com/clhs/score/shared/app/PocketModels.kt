@@ -80,6 +80,7 @@ data class PocketAnnouncement(
     val category: String,
     val isPinned: Boolean,
     val isUnread: Boolean,
+    val isBookmarked: Boolean = false,
 )
 
 data class PocketHome(
