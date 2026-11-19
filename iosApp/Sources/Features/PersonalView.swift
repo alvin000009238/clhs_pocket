@@ -3,6 +3,7 @@ import SwiftUI
 struct PersonalView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @State private var showingLogin = false
 
     var body: some View {
         @Bindable var model = model
@@ -25,25 +26,44 @@ struct PersonalView: View {
                         .padding(12)
                     }
 
-                    section("關於") {
+                    section("設定") {
                         VStack(spacing: 0) {
-                            infoRow("info.circle", "版本", Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
+                            navRow("bell.badge", "通知", model.notificationsEnabled ? "已開啟" : "已關閉") { NotificationSettingsView() }
                             PocketRowDivider().padding(.leading, 52)
-                            infoRow("shippingbox", "資料來源", "示範資料")
+                            navRow("moon.zzz", "背景暫停時段", model.pauseEnabled ? "\(SettingsFormat.time(model.pauseStart)) – \(SettingsFormat.time(model.pauseEnd))" : "未啟用") { BackgroundPauseView() }
                             PocketRowDivider().padding(.leading, 52)
-                            Button {
-                                model.replayOnboarding()
-                            } label: {
-                                actionRow("sparkles", "重新觀看歡迎畫面", tint: PocketColor.primary)
-                            }
+                            navRow("cloud.sun", "天氣來源", SettingsFormat.weatherSources.first { $0.id == model.weatherSource }?.title ?? "") { WeatherSourceView() }
+                            PocketRowDivider().padding(.leading, 52)
+                            navRow("lock", "App 鎖定", model.appLockEnabled ? "已開啟" : "已關閉") { AppLockSettingsView() }
+                            PocketRowDivider().padding(.leading, 52)
+                            navRow("externaldrive", "資料管理", "匯入、匯出與刪除") { DataSettingsView() }
+                            PocketRowDivider().padding(.leading, 52)
+                            navRow("info.circle", "關於", "") { AboutView() }
+                        }
+                    }
+
+                    section("帳號") {
+                        VStack(spacing: 0) {
                             if model.isSignedIn {
-                                PocketRowDivider().padding(.leading, 52)
                                 Button {
                                     model.signOut()
                                 } label: {
                                     actionRow("rectangle.portrait.and.arrow.right", "登出示範帳號", tint: PocketColor.negative)
                                 }
                                 .accessibilityIdentifier("sign-out")
+                            } else {
+                                Button {
+                                    showingLogin = true
+                                } label: {
+                                    actionRow("person.crop.circle.badge.plus", "登入校務帳號", tint: PocketColor.primary)
+                                }
+                                .accessibilityIdentifier("personal-login")
+                            }
+                            PocketRowDivider().padding(.leading, 52)
+                            Button {
+                                model.replayOnboarding()
+                            } label: {
+                                actionRow("sparkles", "重新觀看歡迎畫面", tint: PocketColor.primary)
                             }
                         }
                     }
@@ -66,6 +86,38 @@ struct PersonalView: View {
             }
         }
         .preferredColorScheme(model.appearance.colorScheme)
+        .sheet(isPresented: $showingLogin) {
+            LoginView()
+        }
+    }
+
+    private func navRow(_ icon: String, _ title: String, _ value: String, @ViewBuilder destination: @escaping () -> some View) -> some View {
+        NavigationLink {
+            destination()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .foregroundStyle(PocketColor.primary)
+                    .frame(width: 28)
+                Text(title).foregroundStyle(PocketColor.onSurface)
+                Spacer(minLength: 8)
+                Text(value)
+                    .monospacedDigit()
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                    .multilineTextAlignment(.trailing)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(PocketColor.outline)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .frame(minHeight: 48)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("settings-\(title)")
     }
 
     @ViewBuilder

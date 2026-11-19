@@ -73,8 +73,17 @@ final class AppModel {
         static let initialTab = "initialTab"
         static let notifications = "notificationsEnabled"
         static let dashboard = "dashboardLayout"
+        static let overrides = "scheduleSubjectOverrides"
         static let unread = "unreadAnnouncementIds"
         static let bookmarks = "bookmarkedAnnouncementIds"
+        static let lessonAlerts = "notifyLessons"
+        static let gradeAlerts = "notifyGrades"
+        static let announcementAlerts = "notifyAnnouncements"
+        static let pauseEnabled = "backgroundPauseEnabled"
+        static let pauseStart = "backgroundPauseStart"
+        static let pauseEnd = "backgroundPauseEnd"
+        static let weatherSource = "weatherSource"
+        static let appLock = "appLockEnabled"
     }
 
     let dataSource: PocketDataSource = PocketEnvironment.shared.demo()
@@ -104,6 +113,11 @@ final class AppModel {
         didSet { defaults.set(dashboardLayout, forKey: Key.dashboard) }
     }
 
+    /// Personal subject overrides as the shared `ScheduleSubjectOverride` JSON list.
+    var scheduleOverrides: String {
+        didSet { defaults.set(scheduleOverrides, forKey: Key.overrides) }
+    }
+
     var unreadAnnouncementIds: Set<String> {
         didSet { defaults.set(Array(unreadAnnouncementIds), forKey: Key.unread) }
     }
@@ -111,6 +125,16 @@ final class AppModel {
     var bookmarkedAnnouncementIds: Set<String> {
         didSet { defaults.set(Array(bookmarkedAnnouncementIds), forKey: Key.bookmarks) }
     }
+
+    var notifyLessons: Bool { didSet { defaults.set(notifyLessons, forKey: Key.lessonAlerts) } }
+    var notifyGrades: Bool { didSet { defaults.set(notifyGrades, forKey: Key.gradeAlerts) } }
+    var notifyAnnouncements: Bool { didSet { defaults.set(notifyAnnouncements, forKey: Key.announcementAlerts) } }
+    var pauseEnabled: Bool { didSet { defaults.set(pauseEnabled, forKey: Key.pauseEnabled) } }
+    /// Minutes after midnight.
+    var pauseStart: Int { didSet { defaults.set(pauseStart, forKey: Key.pauseStart) } }
+    var pauseEnd: Int { didSet { defaults.set(pauseEnd, forKey: Key.pauseEnd) } }
+    var weatherSource: String { didSet { defaults.set(weatherSource, forKey: Key.weatherSource) } }
+    var appLockEnabled: Bool { didSet { defaults.set(appLockEnabled, forKey: Key.appLock) } }
 
     var notificationsEnabled: Bool {
         didSet { defaults.set(notificationsEnabled, forKey: Key.notifications) }
@@ -124,6 +148,15 @@ final class AppModel {
         dashboardLayout = defaults.string(forKey: Key.dashboard) ?? PocketDashboard.shared.defaultLayout()
         unreadAnnouncementIds = (defaults.stringArray(forKey: Key.unread)).map(Set.init)
             ?? PocketCampusStore.shared.defaultUnreadIds()
+        scheduleOverrides = defaults.string(forKey: Key.overrides) ?? "[]"
+        notifyLessons = defaults.object(forKey: Key.lessonAlerts) as? Bool ?? true
+        notifyGrades = defaults.object(forKey: Key.gradeAlerts) as? Bool ?? true
+        notifyAnnouncements = defaults.object(forKey: Key.announcementAlerts) as? Bool ?? true
+        pauseEnabled = defaults.bool(forKey: Key.pauseEnabled)
+        pauseStart = defaults.object(forKey: Key.pauseStart) as? Int ?? 23 * 60
+        pauseEnd = defaults.object(forKey: Key.pauseEnd) as? Int ?? 6 * 60
+        weatherSource = defaults.string(forKey: Key.weatherSource) ?? "open-meteo"
+        appLockEnabled = defaults.bool(forKey: Key.appLock)
         bookmarkedAnnouncementIds = Set(defaults.stringArray(forKey: Key.bookmarks) ?? [])
         selectedTab = defaults.string(forKey: Key.initialTab).flatMap(PocketTab.init) ?? .home
         // `-demoClock 2026-11-18T10:35` pins time for previews, tests and screenshots.
@@ -187,6 +220,51 @@ final class AppModel {
         Task { await services.account.signOut() }
         session = .guest
         paths = [:]
+    }
+
+    /// Values a settings backup carries. Credentials and school data are never included.
+    var exportableSettings: [String: String] {
+        [
+            Key.appearance: appearance.rawValue,
+            Key.dashboard: dashboardLayout,
+            Key.overrides: scheduleOverrides,
+            Key.weatherSource: weatherSource,
+            Key.pauseEnabled: String(pauseEnabled),
+            Key.pauseStart: String(pauseStart),
+            Key.pauseEnd: String(pauseEnd),
+        ]
+    }
+
+    func applyImportedSettings(_ values: [String: String]) {
+        if let value = values[Key.appearance].flatMap(PocketAppearance.init(rawValue:)) { appearance = value }
+        if let value = values[Key.dashboard] { dashboardLayout = value }
+        if let value = values[Key.overrides] { scheduleOverrides = value }
+        if let value = values[Key.weatherSource] { weatherSource = value }
+        if let value = values[Key.pauseEnabled] { pauseEnabled = value == "true" }
+        if let value = values[Key.pauseStart].flatMap(Int.init) { pauseStart = min(max(value, 0), 1439) }
+        if let value = values[Key.pauseEnd].flatMap(Int.init) { pauseEnd = min(max(value, 0), 1439) }
+    }
+
+    /// Signs out and restores every device-local preference to its default.
+    func deleteAllData() async {
+        await services.transfer.deleteAllData()
+        await services.account.signOut()
+        session = .guest
+        paths = [:]
+        appearance = .system
+        dashboardLayout = PocketDashboard.shared.defaultLayout()
+        scheduleOverrides = "[]"
+        unreadAnnouncementIds = PocketCampusStore.shared.defaultUnreadIds()
+        bookmarkedAnnouncementIds = []
+        notificationsEnabled = false
+        notifyLessons = true
+        notifyGrades = true
+        notifyAnnouncements = true
+        pauseEnabled = false
+        pauseStart = 23 * 60
+        pauseEnd = 6 * 60
+        weatherSource = "open-meteo"
+        appLockEnabled = false
     }
 
     func replayOnboarding() {

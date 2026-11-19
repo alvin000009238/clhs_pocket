@@ -47,3 +47,29 @@ class PocketCampusStoreTest {
         assertTrue(merits.rows.single { it.category == "警告" }.note.isNotEmpty())
     }
 }
+
+class PocketScheduleStoreTest {
+    private val clock = PocketClock(2026, 11, 18, 3, 10 * 60 + 35)
+
+    private fun week(offset: Int = 0, overrides: String = "[]") =
+        PocketScheduleStore.schedule(PocketScheduleScope.CURRENT_WEEK, clock, "", offset, overrides)
+
+    @Test
+    fun overrideRenamesEveryLessonOfTheSubjectAndCanBeCleared() {
+        val subject = week().cells.first { it.change == PocketCellChange.NONE }.subject
+        val saved = PocketScheduleStore.setOverride("[]", subject, "自訂科目", "", "B101")
+        val cells = week(overrides = saved).cells.filter { it.originalSubject == subject }
+        assertTrue(cells.isNotEmpty() && cells.all { it.subject == "自訂科目" && it.classroom == "B101" && it.isOverridden })
+        assertEquals(1, PocketScheduleStore.overrides(saved).size)
+        assertEquals(emptyList(), PocketScheduleStore.overrides(PocketScheduleStore.clearOverride(saved, subject)))
+        assertEquals(emptyList(), PocketScheduleStore.overrides(PocketScheduleStore.setOverride("[]", subject, subject, " ", "")))
+    }
+
+    @Test
+    fun otherWeeksShiftDatesAndNeverShowACurrentLesson() {
+        assertTrue(week().cells.any { it.status == PocketCellStatus.CURRENT })
+        val next = week(offset = 1)
+        assertEquals("11/23", next.days.first().dateText)
+        assertTrue(next.cells.none { it.status != PocketCellStatus.NORMAL } && next.days.none { it.isToday })
+    }
+}

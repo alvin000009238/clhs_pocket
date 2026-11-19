@@ -4,13 +4,17 @@ import SwiftUI
 struct ScheduleView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showsSemester = false
+    @State private var classValue = ""
+    @State private var weekOffset = 0
     @State private var selectedCell: PocketScheduleCell?
 
     var body: some View {
-        let schedule = model.dataSource.schedule(
-            scope: showsSemester ? .semester : .currentWeek,
-            clock: model.clock
+        let store = PocketScheduleStore.shared
+        let schedule = store.schedule(
+            scope: showsSemester ? .semester : .currentWeek, clock: model.clock,
+            classValue: classValue, weekOffset: Int32(weekOffset), overrides: model.scheduleOverrides
         )
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -28,7 +32,7 @@ struct ScheduleView: View {
                     .padding(sizeClass == .regular ? 16 : 8)
                     .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
 
-                Text("點選課程可查看教師與教室。")
+                Text("點選課程可查看教師與教室，也可以自訂顯示名稱。")
                     .font(.footnote)
                     .foregroundStyle(PocketColor.onSurfaceVariant)
                     .padding(.horizontal, 4)
@@ -36,11 +40,55 @@ struct ScheduleView: View {
             .pocketPage()
         }
         .navigationTitle(PocketTab.schedule.title)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("班級", selection: $classValue) {
+                        ForEach(store.classes()) { item in
+                            Text(item.title).tag(item.id == store.classes().first?.id ? "" : item.id)
+                        }
+                    }
+                    if let image = exportImage(schedule) {
+                        ShareLink(
+                            item: image,
+                            preview: SharePreview("\(schedule.className) \(schedule.scopeLabel)", image: image)
+                        ) {
+                            Label("分享課表圖片", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                } label: {
+                    Label("班級與分享", systemImage: "ellipsis")
+                }
+                .accessibilityIdentifier("schedule-menu")
+            }
+        }
         .sheet(item: $selectedCell) { cell in
             ScheduleCellSheet(cell: cell, days: schedule.days)
-                .presentationDetents([.height(320)])
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+    }
+
+    /// Renders the grid off screen so the shared image does not depend on scroll position.
+    @MainActor
+    private func exportImage(_ schedule: PocketSchedule) -> Image? {
+        let content = VStack(alignment: .leading, spacing: 12) {
+            Text("\(schedule.className) · \(schedule.scopeLabel)")
+                .font(PocketFont.sectionTitle)
+                .foregroundStyle(PocketColor.onSurface)
+            Text(showsSemester ? schedule.termText : "\(schedule.rangeText) · \(schedule.weekText)")
+                .font(.subheadline)
+                .foregroundStyle(PocketColor.onSurfaceVariant)
+            ScheduleGrid(schedule: schedule) { _ in }
+        }
+        .padding(20)
+        .frame(width: 640)
+        .background(PocketColor.background)
+        .environment(\.colorScheme, colorScheme)
+        .environment(\.horizontalSizeClass, .regular)
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = 2
+        return renderer.uiImage.map { Image(uiImage: $0) }
     }
 
     private func header(_ schedule: PocketSchedule) -> some View {
@@ -50,18 +98,39 @@ struct ScheduleView: View {
                     .font(PocketFont.sectionTitle)
                     .monospacedDigit()
                     .foregroundStyle(PocketColor.onSurface)
-                Text(showsSemester ? "\(schedule.className) · 固定課表" : "\(schedule.className) · \(schedule.termText)")
-                    .font(.subheadline)
-                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                    .accessibilityIdentifier("schedule-range")
+                HStack(spacing: 8) {
+                    Text(showsSemester ? "\(schedule.className) · 固定課表" : "\(schedule.className) · \(schedule.termText)")
+                        .font(.subheadline)
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                    if schedule.changeCount > 0 {
+                        PocketChip(
+                            text: "\(schedule.changeCount) 項異動",
+                            systemImage: "arrow.left.arrow.right",
+                            foreground: PocketColor.onTertiaryContainer,
+                            background: PocketColor.tertiaryContainer
+                        )
+                    }
+                }
             }
             Spacer(minLength: 8)
-            if schedule.changeCount > 0 {
-                PocketChip(
-                    text: "\(schedule.changeCount) 項異動",
-                    systemImage: "arrow.left.arrow.right",
-                    foreground: PocketColor.onTertiaryContainer,
-                    background: PocketColor.tertiaryContainer
-                )
+            if !showsSemester {
+                HStack(spacing: 6) {
+                    Button("上一週", systemImage: "chevron.left") { weekOffset -= 1 }
+                        .disabled(weekOffset <= Int(PocketScheduleStore.shared.MIN_WEEK_OFFSET))
+                        .accessibilityIdentifier("schedule-previous-week")
+                    if weekOffset != 0 {
+                        Button("回到本週") { weekOffset = 0 }
+                            .font(.subheadline.weight(.semibold))
+                            .accessibilityIdentifier("schedule-this-week")
+                    }
+                    Button("下一週", systemImage: "chevron.right") { weekOffset += 1 }
+                        .disabled(weekOffset >= Int(PocketScheduleStore.shared.MAX_WEEK_OFFSET))
+                        .accessibilityIdentifier("schedule-next-week")
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
             }
         }
         .padding(.horizontal, 4)
@@ -224,12 +293,18 @@ private struct ScheduleCellView: View {
 
 private struct ScheduleCellSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppModel.self) private var model
+    @State private var editing = false
+    @State private var subject = ""
+    @State private var teacher = ""
+    @State private var classroom = ""
     let cell: PocketScheduleCell
     let days: [PocketScheduleDay]
 
     var body: some View {
         let color = PocketColor.subject(light: cell.colorLight, dark: cell.colorDark)
         let day = days.first { $0.dayOfWeek == cell.dayOfWeek }
+        ScrollView {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -277,12 +352,72 @@ private struct ScheduleCellSheet: View {
             .padding(.horizontal, 4)
             .background(PocketColor.surfaceLow, in: .rect(cornerRadius: 20, style: .continuous))
             .padding(.top, 18)
-            Spacer(minLength: 0)
+            overrideSection
         }
         .padding(.horizontal, 24)
         .padding(.top, 28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .scrollBounceBehavior(.basedOnSize)
         .presentationBackground(PocketColor.background)
+    }
+
+    @ViewBuilder private var overrideSection: some View {
+        if editing {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("自訂「\(cell.originalSubject)」的顯示")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                Group {
+                    TextField("科目名稱", text: $subject).accessibilityIdentifier("override-subject")
+                    TextField("教師（留空使用原本的）", text: $teacher)
+                    TextField("教室（留空使用原本的）", text: $classroom)
+                }
+                .textFieldStyle(.roundedBorder)
+                Text("套用到這個科目的每一堂課，只存在這台裝置。")
+                    .font(.footnote)
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                HStack(spacing: 12) {
+                    Button("儲存") {
+                        model.scheduleOverrides = PocketScheduleStore.shared.setOverride(
+                            overrides: model.scheduleOverrides, original: cell.originalSubject,
+                            subject: subject, teacher: teacher, classroom: classroom
+                        )
+                        dismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("override-save")
+                    if cell.isOverridden {
+                        Button("還原", role: .destructive) {
+                            model.scheduleOverrides = PocketScheduleStore.shared.clearOverride(
+                                overrides: model.scheduleOverrides, original: cell.originalSubject
+                            )
+                            dismiss()
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("override-clear")
+                    }
+                }
+            }
+            .padding(.top, 20)
+        } else {
+            Button {
+                let saved = PocketScheduleStore.shared.overrides(overrides: model.scheduleOverrides)
+                    .first { $0.original == cell.originalSubject }
+                subject = saved?.subject.isEmpty == false ? saved!.subject : cell.subject
+                teacher = saved?.teacher ?? ""
+                classroom = saved?.classroom ?? ""
+                editing = true
+            } label: {
+                Label(cell.isOverridden ? "編輯自訂名稱（原「\(cell.originalSubject)」）" : "自訂科目名稱", systemImage: "pencil")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(PocketColor.surfaceLow, in: .rect(cornerRadius: 16, style: .continuous))
+            }
+            .padding(.top, 14)
+            .accessibilityIdentifier("override-edit")
+        }
     }
 
     private func detail(_ icon: String, _ label: String, _ value: String) -> some View {
@@ -295,9 +430,11 @@ private struct ScheduleCellSheet: View {
             Spacer()
             Text(value)
                 .monospacedDigit()
+                .multilineTextAlignment(.trailing)
                 .foregroundStyle(PocketColor.onSurface)
         }
         .font(.body)
+        .padding(.vertical, 6)
         .padding(.horizontal, 12)
         .frame(minHeight: 48)
         .accessibilityElement(children: .combine)

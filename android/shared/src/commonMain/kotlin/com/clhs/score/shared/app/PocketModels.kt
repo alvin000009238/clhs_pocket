@@ -126,6 +126,9 @@ data class PocketScheduleCell(
     val status: PocketCellStatus,
     val change: PocketCellChange,
     val changeNote: String,
+    /** Subject name as published by the school, the key for a personal override. */
+    val originalSubject: String = subject,
+    val isOverridden: Boolean = false,
 )
 
 data class PocketSchedule(

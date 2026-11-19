@@ -4,6 +4,8 @@ import com.clhs.score.data.FakeScheduleData
 import com.clhs.score.data.PERIOD_TIMES
 import com.clhs.score.data.ScheduleChangeType
 import com.clhs.score.data.ScheduleItem
+import com.clhs.score.data.ScheduleSubjectOverride
+import com.clhs.score.data.applySubjectOverrides
 import com.clhs.score.data.ScheduleScope
 import com.clhs.score.data.getSubjectColors
 import com.clhs.score.data.CourseOccurrence
@@ -29,16 +31,27 @@ internal object DemoSchedule {
 
     private val periods = PERIOD_TIMES.mapIndexed { index, time -> PocketPeriod(index + 1, time.start, time.end) }
 
-    private data class Slot(val item: ScheduleItem, val change: PocketCellChange, val note: String)
+    private data class Slot(
+        val item: ScheduleItem, val change: PocketCellChange, val note: String, val original: String = item.subjectName,
+    )
 
-    private fun report(scope: ScheduleScope, clock: PocketClock) =
-        clock.date().let { today ->
-            FakeScheduleData.report(FakeScheduleData.currentYearValue(today), demoClass.value, scope, today)
+    /** What the schedule screen is looking at; the home hero always uses the defaults. */
+    data class View(
+        val classValue: String = "",
+        val weekOffset: Int = 0,
+        val overrides: List<ScheduleSubjectOverride> = emptyList(),
+    )
+
+    private fun classOf(view: View) = FakeScheduleData.classes.firstOrNull { it.value == view.classValue } ?: demoClass
+
+    private fun report(scope: ScheduleScope, clock: PocketClock, view: View = View()) =
+        clock.date().shiftDays(7L * view.weekOffset).let { today ->
+            FakeScheduleData.report(FakeScheduleData.currentYearValue(today), classOf(view).value, scope, today)
         }
 
-    private fun slots(scope: PocketScheduleScope, clock: PocketClock): List<Slot> {
+    private fun slots(scope: PocketScheduleScope, clock: PocketClock, view: View): List<Slot> {
         val isWeek = scope == PocketScheduleScope.CURRENT_WEEK
-        val report = report(if (isWeek) ScheduleScope.CURRENT_WEEK else ScheduleScope.SEMESTER, clock)
+        val report = report(if (isWeek) ScheduleScope.CURRENT_WEEK else ScheduleScope.SEMESTER, clock, view)
         val changes = report.changes.orEmpty().associateBy { it.dayOfWeek to it.period }
         val live = report.items.map { item ->
             val change = changes[item.dayOfWeek to item.period]
@@ -56,28 +69,30 @@ internal object DemoSchedule {
         val removed = changes.values
             .filter { it.type == ScheduleChangeType.REMOVED }
             .mapNotNull { change -> change.semesterItem?.let { Slot(it, PocketCellChange.CANCELLED, "本週停課") } }
-        return (live + removed).filter { it.item.dayOfWeek <= SCHOOL_DAYS && it.item.period <= periods.size }
+        return (live + removed)
+            .filter { it.item.dayOfWeek <= SCHOOL_DAYS && it.item.period <= periods.size }
+            .map { it.copy(item = listOf(it.item).applySubjectOverrides(view.overrides).single()) }
     }
 
-    fun schedule(scope: PocketScheduleScope, clock: PocketClock): PocketSchedule {
-        val monday = clock.date().shiftDays(-(clock.dayOfWeek - 1).toLong())
+    fun schedule(scope: PocketScheduleScope, clock: PocketClock, view: View = View()): PocketSchedule {
+        val monday = clock.date().shiftDays(7L * view.weekOffset - (clock.dayOfWeek - 1))
         val isWeek = scope == PocketScheduleScope.CURRENT_WEEK
-        val source = report(if (isWeek) ScheduleScope.CURRENT_WEEK else ScheduleScope.SEMESTER, clock)
+        val source = report(if (isWeek) ScheduleScope.CURRENT_WEEK else ScheduleScope.SEMESTER, clock, view)
         val days = (1..SCHOOL_DAYS).map { day ->
             PocketScheduleDay(
                 dayOfWeek = day,
                 label = WEEKDAY_LABELS[day - 1],
                 dateText = monday.shiftDays(day - 1L).shortText(),
-                isToday = day == clock.dayOfWeek,
+                isToday = day == clock.dayOfWeek && (!isWeek || view.weekOffset == 0),
             )
         }
-        val cells = mergedCells(slots(scope, clock), clock, trackStatus = isWeek)
+        val cells = mergedCells(slots(scope, clock, view), clock, trackStatus = isWeek && view.weekOffset == 0)
         val (year, term) = source.yearTermValue.split("_").let { it[0] to it.getOrElse(1) { "1" } }
         return PocketSchedule(
             scope = scope,
             scopeLabel = if (isWeek) "本週課表" else "學期課表",
             termText = "$year 學年度 第 $term 學期",
-            className = demoClass.text,
+            className = classOf(view).text,
             rangeText = "${monday.shortText()} – ${monday.shiftDays(SCHOOL_DAYS - 1L).shortText()}",
             weekText = source.weekNo?.let { "第 $it 週" }.orEmpty(),
             days = days,
@@ -134,6 +149,8 @@ internal object DemoSchedule {
                     status = status,
                     change = head.change,
                     changeNote = head.note,
+                    originalSubject = head.original,
+                    isOverridden = head.original != head.item.subjectName,
                 )
                 index += span
             }
