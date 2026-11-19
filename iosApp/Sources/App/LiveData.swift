@@ -11,6 +11,8 @@ final class LiveDataController {
     private(set) var session: AuthenticatedSession?
     /// Bumped after every store change so SwiftUI re-reads the facades.
     private(set) var revision = 0
+    /// Bumped whenever the signed-in student's own timetable is stored.
+    private(set) var scheduleRevision = 0
     private(set) var isLoadingPublic = false
     private(set) var isLoadingPrivate = false
     /// zh-TW message of the most recent failure, safe to show.
@@ -29,7 +31,7 @@ final class LiveDataController {
         defer { isLoadingPublic = false; publish() }
         let live = PocketLive.shared
         do {
-            let page = try await backend.call { try await $0.announcements(pageIndex: 1, keyword: "", unitId: "-1", categoryId: "-1", token: $1) }
+            let page = try await backend.call { try await $0.announcements(pageIndex: 0, keyword: "", unitId: "-1", categoryId: "-1", token: $1) }
             live.putAnnouncements(items: page.announcements)
         } catch { lastError = error.message }
         publish()
@@ -134,14 +136,16 @@ final class LiveDataController {
     }
 
     func loadReport(examValue: String, force: Bool = false) async {
-        guard let session, let year = PocketLive.shared.yearValueOf(examValue: examValue) else { return }
-        if !force, PocketLive.shared.hasReport(yearValue: year, examValue: examValue) { return }
+        // `examValue` is the term + exam key the grade screens use; the school wants the two parts.
+        guard let session, let year = PocketLive.shared.yearValueOf(examValue: examValue),
+              let code = PocketLive.shared.examCodeOf(examValue: examValue) else { return }
+        if !force, PocketLive.shared.hasReport(yearValue: year, examValue: code) { return }
         do {
             let report = try await backend.call {
-                try await $0.fetchGrades(session: session, yearValue: year, examValue: examValue, forceRefresh: force, token: $1)
+                try await $0.fetchGrades(session: session, yearValue: year, examValue: code, forceRefresh: force, token: $1)
             }
             guard self.session?.authorizationId == session.authorizationId else { return }
-            PocketLive.shared.putReport(yearValue: year, examValue: examValue, report: report)
+            PocketLive.shared.putReport(yearValue: year, examValue: code, report: report)
         } catch { note(error) }
         publish()
     }
@@ -172,7 +176,12 @@ final class LiveDataController {
                 case let value as ScheduleFetchResultUnpublished: value.semesterFallback
                 default: nil
                 }
-                if let report { live.putSchedule(classValue: classValue, report: report) }
+                if let report {
+                    live.putSchedule(classValue: classValue, report: report)
+                    // The widget snapshot, course reminders and the Live Activity are planned from
+                    // the student's own timetable, which arrives after sign-in has been announced.
+                    if classValue.isEmpty { scheduleRevision += 1 }
+                }
                 publish()
             }
         } catch { note(error) }

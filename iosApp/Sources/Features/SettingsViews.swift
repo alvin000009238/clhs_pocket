@@ -276,7 +276,7 @@ struct DataSettingsView: View {
                     Text("這個動作無法復原。")
                 }
             } footer: {
-                Text("會登出帳號並清除所有設定、收藏與已讀狀態，無法復原。")
+                Text("會登出帳號並清除所有設定、收藏與已讀狀態，無法復原。App 鎖定維持原本的設定，要關閉請到「App 鎖定」並通過驗證。")
             }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .plainText]) { result in

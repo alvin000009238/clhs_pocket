@@ -1,6 +1,7 @@
 package com.clhs.score.shared.app
 
 import com.clhs.score.data.AttendanceRecord
+import com.clhs.score.data.ExamOption
 import com.clhs.score.data.FakeData
 import com.clhs.score.data.FakeRecordData
 import com.clhs.score.data.FakeScheduleData
@@ -200,10 +201,19 @@ object PocketLive : PocketSource {
     fun yearTermParts(value: String): List<String>? = parseYearTermOrNull(value)?.let { listOf(it.first, it.second) }
 
     /** Exams of the newest term that has any, oldest first: what the grades screen needs first. */
-    fun currentTermExamValues(): List<String> = currentTerm?.exams.orEmpty().map { it.value }
+    fun currentTermExamValues(): List<String> =
+        currentTerm?.let { term -> term.exams.map { PocketExamKey.of(term.value, it.value) } }.orEmpty()
 
-    /** The term a given exam belongs to, or null. */
-    fun yearValueOf(examValue: String): String? = structure.firstOrNull { term -> term.exams.any { it.value == examValue } }?.value
+    /** The term an exam key names, or null when it is unknown. */
+    fun yearValueOf(examValue: String): String? = located(examValue)?.first?.value
+
+    /** The school's exam code inside an exam key. */
+    fun examCodeOf(examValue: String): String? = located(examValue)?.second?.value
+
+    private fun located(key: String) = locateExam(key)?.takeIf { (term, exam) ->
+        val (termValue, examValue) = PocketExamKey.parse(key)
+        exam.value == examValue && (termValue == null || termValue == term.value)
+    }
 
     /** Drops everything that belongs to a signed-in student. Public data stays. */
     fun clearPrivate() {
@@ -244,4 +254,32 @@ object PocketData {
 /** The active timetable for platform features (widget snapshot, reminders, Live Activity). */
 object PocketSchedules {
     fun currentWeek(today: LocalDate): ScheduleReport? = PocketData.current.schedule(ScheduleScope.CURRENT_WEEK, today, "")
+}
+
+/**
+ * What the grade screens pass around as an "exam value": the term and the exam code together.
+ * Exam codes repeat across terms on the school system, so the code alone does not identify a report.
+ */
+internal object PocketExamKey {
+    private const val SEPARATOR = "|"
+
+    fun of(termValue: String, examValue: String): String = termValue + SEPARATOR + examValue
+
+    /** Term value (null for a bare exam code) and exam code. */
+    fun parse(key: String): Pair<String?, String> =
+        if (SEPARATOR in key) key.substringBefore(SEPARATOR) to key.substringAfter(SEPARATOR) else null to key
+}
+
+/**
+ * The term and exam a key names. A bare exam code resolves to the newest term that has it; an
+ * unknown key falls back to the latest exam of the current term, and is null only without a structure.
+ */
+internal fun PocketSource.locateExam(key: String): Pair<YearTermOption, ExamOption>? {
+    val (termValue, examValue) = PocketExamKey.parse(key)
+    val term = (if (termValue != null) structure.firstOrNull { it.value == termValue } else null)
+        ?: structure.lastOrNull { term -> term.exams.any { it.value == examValue } }?.takeIf { termValue == null }
+        ?: structure.firstOrNull { it.value == currentYearValue }
+        ?: return null
+    val exam = term.exams.firstOrNull { it.value == examValue } ?: term.exams.lastOrNull() ?: return null
+    return term to exam
 }

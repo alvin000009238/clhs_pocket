@@ -1,5 +1,7 @@
 package com.clhs.score.shared.app
 
+import com.clhs.score.data.YearTermOption
+import com.clhs.score.data.ExamOption
 import com.clhs.score.data.FakeData
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -100,5 +102,40 @@ class DemoPocketDataSourceTest {
         assertEquals("", source.grades("114_1_E1").deltaText)
         // Unknown values fall back instead of crashing the UI.
         assertEquals(report.examValue, source.grades("nope").examValue)
+    }
+
+    /** The school reuses exam codes across terms; the picker value must still name one report. */
+    @Test
+    fun examSelectionIsKeyedByTermAndExam() {
+        val terms = listOf(
+            YearTermOption("114 學年度 第 1 學期", "114_1", listOf(ExamOption("第一次段考", "1"), ExamOption("第二次段考", "2"))),
+            YearTermOption("114 學年度 第 2 學期", "114_2", listOf(ExamOption("第一次段考", "1"))),
+        )
+        PocketData.useLive()
+        try {
+            PocketLive.clearAll()
+            PocketLive.putStructure(terms)
+            val old = FakeData.reportFor("114_1", "114_1_E1")
+            val new = FakeData.reportFor("114_1", "114_1_E2")
+            PocketLive.putReport("114_1", "1", old)
+            PocketLive.putReport("114_2", "1", new)
+
+            val options = DemoGrades.terms.associate { term -> term.value to term.exams.map { it.value } }
+            val newKey = options.getValue("114_2").single()
+            val oldKey = options.getValue("114_1").first()
+            assertTrue(newKey != oldKey)
+            assertEquals("114_2", PocketLive.yearValueOf(newKey))
+            assertEquals("1", PocketLive.examCodeOf(newKey))
+            assertEquals("114_1", PocketLive.yearValueOf(oldKey))
+
+            assertEquals(new.examSummary?.averageScoreDisplay, DemoGrades.report(newKey).averageText)
+            assertEquals(old.examSummary?.averageScoreDisplay, DemoGrades.report(oldKey).averageText)
+            assertEquals("114 學年度 第 2 學期", DemoGrades.report(newKey).termTitle)
+            assertEquals(newKey, DemoGrades.report(newKey).examValue)
+            assertEquals(listOf(newKey), PocketLive.currentTermExamValues())
+        } finally {
+            PocketLive.clearAll()
+            PocketData.useDemo()
+        }
     }
 }

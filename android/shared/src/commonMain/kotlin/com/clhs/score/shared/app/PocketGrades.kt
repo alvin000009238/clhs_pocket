@@ -84,10 +84,7 @@ object PocketGrades {
     private val source get() = PocketData.current
 
     /** Null when the exam is unknown or, in live mode, the structure has not been loaded. */
-    private fun locate(examValue: String) = source.structure
-        .firstOrNull { term -> term.exams.any { it.value == examValue } }
-        .let { it ?: source.structure.firstOrNull { term -> term.value == source.currentYearValue } }
-        ?.let { term -> (term.exams.firstOrNull { it.value == examValue } ?: term.exams.lastOrNull())?.let { term to it } }
+    private fun locate(examValue: String) = source.locateExam(examValue)
 
     internal fun report(examValue: String): GradeReport? =
         locate(examValue)?.let { (term, exam) -> source.report(term.value, exam.value) }

@@ -43,15 +43,31 @@ struct DemoNotificationPermissionService: NotificationPermissionService {
 
 /// Stands in for the system authentication prompt in UI tests. Never used without `-lockAuth`.
 final class ScriptedAuthenticator: DeviceAuthenticating, @unchecked Sendable {
-    /// Prompts before this moment are answered as cancelled. The app asks by itself each time
-    /// the scene becomes active, which can happen more than once during launch.
-    private let cancelUntil: Date
+    enum Script {
+        /// Every prompt succeeds.
+        case succeed
+        /// Prompts during launch are cancelled, later ones succeed: the lock screen stays until tapped.
+        case manual
+        /// Prompts during launch succeed, later ones are cancelled: the app opens, then stays locked
+        /// once it has been sent to the background.
+        case relock
+    }
 
-    init(cancelFirst: Bool) { cancelUntil = cancelFirst ? Date().addingTimeInterval(6) : .distantPast }
+    private let script: Script
+    /// The app asks by itself each time the scene becomes active, which can happen more than
+    /// once during launch, so the scripts switch on time rather than on a prompt count.
+    private let launchEnds = Date().addingTimeInterval(6)
+
+    init(_ script: Script) { self.script = script }
 
     func method() -> AppLockMethod { .faceID }
 
     func authenticate(reason: String) async -> AppLockOutcome {
-        Date() < cancelUntil ? .cancelled : .success
+        let launching = Date() < launchEnds
+        switch script {
+        case .succeed: return .success
+        case .manual: return launching ? .cancelled : .success
+        case .relock: return launching ? .success : .cancelled
+        }
     }
 }

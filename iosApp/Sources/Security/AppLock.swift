@@ -133,14 +133,6 @@ final class AppLockController {
         return true
     }
 
-    /// Removes the lock without a prompt. Only for "delete all data", which runs unlocked, is
-    /// confirmed by the user and leaves nothing behind for the lock to protect.
-    func resetAfterDataDeletion() {
-        isEnabled = false
-        isLocked = false
-        message = nil
-    }
-
     func scenePhaseChanged(to phase: ScenePhase) {
         if phase == .background, isEnabled {
             isLocked = true

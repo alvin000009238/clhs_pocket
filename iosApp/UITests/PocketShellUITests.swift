@@ -415,6 +415,28 @@ final class PocketShellUITests: XCTestCase {
         capture("81-unlocked-home")
     }
 
+    /// The personal sheet is a separate presentation; the lock must cover it too.
+    func testLockCoversAnOpenSheetAfterReturningFromTheBackground() {
+        // `relock`: the launch prompt succeeds, later prompts are cancelled.
+        launch(onboarded: true, session: "demo", lockAuth: "relock", extra: ["-appLockEnabled", "YES"])
+        let personal = app.buttons["personal-button"].firstMatch
+        XCTAssertTrue(personal.waitForExistence(timeout: 10))
+        personal.tap()
+        let name = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "DEMO-000")).firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 6)
+
+        XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: 1)
+        app.activate()
+
+        XCTAssertTrue(app.buttons["lock-unlock"].waitForExistence(timeout: 10))
+        XCTAssertFalse(name.exists, "personal data is still exposed to accessibility while locked")
+        XCTAssertFalse(app.buttons["sign-out"].exists)
+        XCTAssertFalse(app.navigationBars["個人"].exists)
+        capture("84-lock-over-personal-sheet")
+    }
+
     /// Production mode: a guest sees real public data and the school's own sign-in page.
     /// No credentials are entered; the page content depends on the network.
     func testProductionGuestReachesTheSchoolLoginScreen() {

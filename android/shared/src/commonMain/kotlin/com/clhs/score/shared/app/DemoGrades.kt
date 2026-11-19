@@ -11,20 +11,23 @@ import kotlin.math.roundToInt
 
 /** Presents the shared synthetic reports through the shared grade analysis. */
 internal object DemoGrades {
-    val DEFAULT_EXAM: String get() = PocketData.current.currentExamValue
+    val DEFAULT_EXAM: String get() = PocketData.current.let { PocketExamKey.of(it.currentYearValue, it.currentExamValue) }
 
     val terms: List<PocketGradeTerm>
         get() = PocketData.current.structure.reversed().map { term ->
-            PocketGradeTerm(term.text, term.value, term.exams.map { PocketExamOption(it.text, it.value) })
+            PocketGradeTerm(term.text, term.value, term.exams.map { PocketExamOption(it.text, PocketExamKey.of(term.value, it.value)) })
         }
 
     fun report(examValue: String): PocketGradeReport {
         val source = PocketData.current
-        val term = source.structure.firstOrNull { term -> term.exams.any { it.value == examValue } }
-            ?: source.structure.firstOrNull { it.value == source.currentYearValue }
-        val exam = term?.exams?.firstOrNull { it.value == examValue } ?: term?.exams?.lastOrNull()
+        val located = source.locateExam(examValue)
+        val term = located?.first
+        val exam = located?.second
         val report = if (term != null && exam != null) source.report(term.value, exam.value) else null
-        if (term == null || exam == null || report == null) return unloaded(exam?.value ?: examValue, exam?.text.orEmpty(), term?.text.orEmpty())
+        if (term == null || exam == null || report == null) {
+            val key = if (term != null && exam != null) PocketExamKey.of(term.value, exam.value) else examValue
+            return unloaded(key, exam?.text.orEmpty(), term?.text.orEmpty())
+        }
         val previous = term.previousExamOf(exam.value)
         val analysis = buildGradeAnalysis(
             report = report,
@@ -34,7 +37,7 @@ internal object DemoGrades {
         val delta = analysis.comparison?.averageDelta?.let { (it * 100).roundToInt() }
         val summary = report.examSummary
         return PocketGradeReport(
-            examValue = exam.value,
+            examValue = PocketExamKey.of(term.value, exam.value),
             examTitle = exam.text,
             termTitle = term.text,
             averageText = summary?.averageScoreDisplay ?: "--",

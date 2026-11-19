@@ -18,8 +18,11 @@ private struct PocketPlatformHook: ViewModifier {
             .task {
                 PocketPlatformCoordinator.shared.openLink = { [weak model] in model?.open($0) }
             }
-            // Runs on launch, on every return to the foreground and on sign-in or sign-out.
-            .task(id: RefreshTrigger(active: scenePhase == .active, signedIn: model.isSignedIn)) {
+            // Runs on launch, on every return to the foreground, on sign-in or sign-out, and when
+            // the timetable the snapshot is built from arrives or changes.
+            .task(id: RefreshTrigger(
+                active: scenePhase == .active, signedIn: model.isSignedIn, schedule: model.live?.scheduleRevision ?? 0
+            )) {
                 guard scenePhase == .active else {
                     PocketPlatformCoordinator.shared.scheduleBackgroundRefresh()
                     return
@@ -31,5 +34,6 @@ private struct PocketPlatformHook: ViewModifier {
     private struct RefreshTrigger: Equatable {
         let active: Bool
         let signedIn: Bool
+        let schedule: Int
     }
 }

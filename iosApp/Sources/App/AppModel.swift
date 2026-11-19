@@ -427,8 +427,6 @@ final class AppModel {
         unreadAnnouncementIds = PocketCampusStore.shared.defaultUnreadIds()
         bookmarkedAnnouncementIds = []
         weatherSource = "open-meteo"
-        lock.resetAfterDataDeletion()
-        appLockEnabled = false
         // Pending reminders, the widget snapshot and Live Activities go with the data, and the
         // notification preferences return to off so a later sign-in schedules nothing by itself.
         PlatformSettings.shared.reset()
@@ -448,8 +446,9 @@ final class AppModel {
     /// automatic prompt once so the lock screen stays visible until its button is tapped.
     private static func authenticator(_ defaults: UserDefaults) -> DeviceAuthenticating {
         switch defaults.string(forKey: "lockAuth") {
-        case "succeed": ScriptedAuthenticator(cancelFirst: false)
-        case "manual": ScriptedAuthenticator(cancelFirst: true)
+        case "succeed": ScriptedAuthenticator(.succeed)
+        case "manual": ScriptedAuthenticator(.manual)
+        case "relock": ScriptedAuthenticator(.relock)
         default: SystemDeviceAuthenticator()
         }
     }
