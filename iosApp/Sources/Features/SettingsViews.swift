@@ -230,17 +230,23 @@ struct AppLockSettingsView: View {
 struct DataSettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var importing = false
+    @State private var exporting = false
+    @State private var exported: PocketSettingsFile?
     @State private var confirmingDelete = false
     @State private var message: String?
 
     var body: some View {
         SettingsForm(title: "資料管理") {
             Section {
-                ShareLink(
-                    item: model.services.transfer.exportSettings(model.exportableSettings),
-                    preview: SharePreview("壢中 Pocket 設定備份")
-                ) {
-                    Label("匯出設定", systemImage: "square.and.arrow.up")
+                Button("匯出設定", systemImage: "square.and.arrow.up") {
+                    Task {
+                        do {
+                            exported = PocketSettingsFile(text: try await model.exportSettings())
+                            exporting = true
+                        } catch {
+                            message = PocketError(error).message
+                        }
+                    }
                 }
                 .accessibilityIdentifier("data-export")
                 Button("匯入設定", systemImage: "square.and.arrow.down") { importing = true }
@@ -248,7 +254,7 @@ struct DataSettingsView: View {
             } header: {
                 Text("設定備份")
             } footer: {
-                Text("備份包含外觀、首頁配置、自訂科目與暫停時段，不包含帳號、密碼或成績。")
+                Text("備份與 Android 版通用，包含外觀、首頁配置、通知偏好、安靜時段與登入後的自訂科目名稱，不包含帳號、密碼或成績。")
             }
             if let message {
                 Section { Text(message).font(.subheadline).accessibilityIdentifier("data-message") }
@@ -274,15 +280,24 @@ struct DataSettingsView: View {
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .plainText]) { result in
             guard case .success(let url) = result else { return }
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            if let text = try? String(contentsOf: url, encoding: .utf8),
-               let values = model.services.transfer.importSettings(text) {
-                model.applyImportedSettings(values)
-                message = "已匯入設定。"
-            } else {
-                message = "這不是壢中 Pocket 的設定備份。"
+            guard let file = try? PocketSettingsFile(contentsOf: url) else {
+                message = "無法讀取這個檔案。"
+                return
             }
+            Task {
+                do {
+                    try await model.importSettings(file.text)
+                    message = "已匯入設定。"
+                } catch {
+                    let failure = PocketError(error)
+                    message = failure.kind == .invalidInput ? "這不是壢中 Pocket 的設定備份。" : failure.message
+                }
+            }
+        }
+        .fileExporter(
+            isPresented: $exporting, document: exported, contentType: .json, defaultFilename: PocketSettingsFile.defaultFilename
+        ) { result in
+            if case .success = result { message = "已匯出設定。" }
         }
     }
 }

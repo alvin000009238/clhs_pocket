@@ -344,27 +344,62 @@ final class AppModel {
         error.kind == .cleanupIncomplete ? "\(error.message)。請再試一次，完成前無法重新登入。" : error.message
     }
 
-    /// Values a settings backup carries. Credentials and school data are never included.
-    var exportableSettings: [String: String] {
-        [
-            Key.appearance: appearance.rawValue,
-            Key.dashboard: dashboardLayout,
-            Key.overrides: scheduleOverrides,
-            Key.weatherSource: weatherSource,
-            Key.pauseEnabled: String(pauseEnabled),
-            Key.pauseStart: String(pauseStart),
-            Key.pauseEnd: String(pauseEnd),
-        ]
+    /// The shared core that reads and writes backups. Demo mode has no live controller but still
+    /// uses the same protected settings file, so a backup is Android-compatible in both modes.
+    @ObservationIgnored private lazy var transferBackend: PocketBackend? = live?.backend ?? (try? PocketBackend.live())
+
+    /// Copies this device's preferences into the shared settings, keeping fields iOS has no screen for.
+    private func storeSharedSettings(_ backend: PocketBackend) async throws(PocketError) {
+        let stored = try await backend.call { try await $0.loadSettings(token: $1) }
+        let theme: ThemeMode = switch appearance {
+        case .system: .system
+        case .light: .light
+        case .dark: .dark
+        }
+        let next = stored.doCopy(
+            themeMode: theme, dynamicColor: stored.dynamicColor, amoledBlack: stored.amoledBlack,
+            notificationsEnabled: notificationsEnabled, preferExactCourseAlarms: stored.preferExactCourseAlarms,
+            developerEnabled: stored.developerEnabled, appLockEnabled: appLockEnabled, weatherSource: sharedWeatherSource,
+            startOnSchedule: stored.startOnSchedule, scheduleDisplayMode: stored.scheduleDisplayMode,
+            profileAvatarShapeIndex: stored.profileAvatarShapeIndex, hasCompletedOnboarding: hasCompletedOnboarding,
+            backgroundPauseEnabled: pauseEnabled, backgroundPauseStartMinute: Int32(pauseStart),
+            backgroundPauseEndMinute: Int32(pauseEnd), overview: PocketDashboard.shared.instances(layout: dashboardLayout),
+            overviewLegacyOrder: false, announcementReminderEnabled: notifyAnnouncements,
+            announcementIntervalMinutes: stored.announcementIntervalMinutes, announcementUnitIds: stored.announcementUnitIds,
+            remindBeforeClass: notifyLessons
+        )
+        try await backend.call { try await $0.saveSettings(settings: next, token: $1) }
     }
 
-    func applyImportedSettings(_ values: [String: String]) {
-        if let value = values[Key.appearance].flatMap(PocketAppearance.init(rawValue:)) { appearance = value }
-        if let value = values[Key.dashboard] { dashboardLayout = value }
-        if let value = values[Key.overrides] { scheduleOverrides = value }
-        if let value = values[Key.weatherSource] { weatherSource = value }
-        if let value = values[Key.pauseEnabled] { pauseEnabled = value == "true" }
-        if let value = values[Key.pauseStart].flatMap(Int.init) { pauseStart = min(max(value, 0), 1439) }
-        if let value = values[Key.pauseEnd].flatMap(Int.init) { pauseEnd = min(max(value, 0), 1439) }
+    /// A backup in the JSON format shared with Android. Credentials and school data are never included.
+    func exportSettings() async throws(PocketError) -> String {
+        guard let backend = transferBackend else { throw PocketError(kind: .storage, message: "無法存取設定儲存空間") }
+        try await storeSharedSettings(backend)
+        let session = usesLiveData ? live?.session : nil
+        return try await backend.call { try await $0.exportSettingsJson(session: session, token: $1) }
+    }
+
+    /// Validates and applies a backup. The app lock and notification permission are never turned on by an import.
+    func importSettings(_ text: String) async throws(PocketError) {
+        guard let backend = transferBackend else { throw PocketError(kind: .storage, message: "無法存取設定儲存空間") }
+        _ = try await backend.call { try await $0.inspectSettingsJson(text: text, token: $1) }
+        let session = usesLiveData ? live?.session : nil
+        try await backend.call { try await $0.restoreSettingsJson(text: text, includeSubjects: session != nil, session: session, token: $1) }
+        let restored = try await backend.call { try await $0.loadSettings(token: $1) }
+        appearance = switch restored.themeMode {
+        case .light: .light
+        case .dark: .dark
+        default: .system
+        }
+        dashboardLayout = PocketDashboard.shared.layout(instances: restored.overview)
+        weatherSource = restored.weatherSource == .cwa ? "cwa" : "open-meteo"
+        pauseStart = Int(restored.backgroundPauseStartMinute)
+        pauseEnd = Int(restored.backgroundPauseEndMinute)
+        pauseEnabled = restored.backgroundPauseEnabled
+        notifyAnnouncements = restored.announcementReminderEnabled
+        notifyLessons = restored.remindBeforeClass
+        if !restored.notificationsEnabled { notificationsEnabled = false }
+        platformSettingsChanged()
     }
 
     /// Signs out and restores every device-local preference to its default.
