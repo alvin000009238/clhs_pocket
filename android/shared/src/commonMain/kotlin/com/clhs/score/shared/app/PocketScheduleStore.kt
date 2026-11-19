@@ -36,6 +36,11 @@ object PocketScheduleStore {
     private fun encode(overrides: List<ScheduleSubjectOverride>) =
         json.encodeToString(serializer, overrides.valid())
 
+    /** The overrides in the form the account store and the settings backup use. */
+    fun overrideModels(overrides: String): List<ScheduleSubjectOverride> = decode(overrides)
+
+    fun overridesJson(models: List<ScheduleSubjectOverride>): String = encode(models)
+
     fun classes(): List<PocketChoice> = PocketData.current.scheduleClasses.map { PocketChoice(it.value, it.text, "") }
 
     fun schedule(

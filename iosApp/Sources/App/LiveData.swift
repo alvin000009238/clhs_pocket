@@ -13,6 +13,11 @@ final class LiveDataController {
     private(set) var revision = 0
     /// Bumped whenever the signed-in student's own timetable is stored.
     private(set) var scheduleRevision = 0
+    /// The signed-in student's custom subject names as the schedule store's JSON; nil while signed
+    /// out. They live in the account's protected store, which is also what the settings backup reads.
+    private(set) var subjectOverrides: String?
+    @ObservationIgnored private var lastGradeCheck: Date?
+    private static let gradeCheckInterval: TimeInterval = 15 * 60
     private(set) var isLoadingPublic = false
     private(set) var isLoadingPrivate = false
     /// zh-TW message of the most recent failure, safe to show.
@@ -73,8 +78,31 @@ final class LiveDataController {
     }
 
     /// Memory is revoked first; a `.cleanupIncomplete` failure is rethrown so the caller offers a retry.
+    /// Shows the change at once and writes it to the account store.
+    func setSubjectOverrides(_ json: String) {
+        guard let session else { return }
+        subjectOverrides = json
+        let models = PocketScheduleStore.shared.overrideModels(overrides: json)
+        Task {
+            do {
+                try await backend.call { try await $0.saveSubjectOverrides(session: session, overrides: models, token: $1) }
+            } catch { note(PocketError(error)) }
+        }
+    }
+
+    /// After a backup was restored into the account store.
+    func reloadSubjectOverrides() async {
+        guard let session else { return }
+        do {
+            let overrides = try await backend.call { try await $0.subjectOverrides(session: session, token: $1) }
+            guard self.session?.authorizationId == session.authorizationId else { return }
+            subjectOverrides = PocketScheduleStore.shared.overridesJson(models: overrides)
+        } catch { note(error) }
+    }
+
     func logout() async throws(PocketError) {
         session = nil
+        subjectOverrides = nil
         PocketLive.shared.clearPrivate()
         publish()
         try await backend.logout()
@@ -82,6 +110,7 @@ final class LiveDataController {
 
     func deleteAllData() async throws(PocketError) {
         session = nil
+        subjectOverrides = nil
         PocketLive.shared.clearAll()
         publish()
         try await backend.deleteAllData()
@@ -93,6 +122,7 @@ final class LiveDataController {
         lastError = error.message
         if error.kind == .authenticationExpired {
             session = nil
+            subjectOverrides = nil
             PocketLive.shared.clearPrivate()
         }
     }
@@ -110,8 +140,12 @@ final class LiveDataController {
         do {
             if let cached = try await backend.call({ try await $0.latestSchedule(session: session, token: $1) }), current() {
                 live.putSchedule(classValue: "", report: cached.report)
+                scheduleRevision += 1
                 publish()
             }
+            let overrides = try await backend.call { try await $0.subjectOverrides(session: session, token: $1) }
+            guard current() else { return }
+            subjectOverrides = PocketScheduleStore.shared.overridesJson(models: overrides)
             let structure = try await backend.call { try await $0.loadStructure(session: session, forceRefresh: force, token: $1) }
             guard current() else { return }
             live.putStructure(items: structure)
@@ -188,6 +222,37 @@ final class LiveDataController {
         publish()
     }
 
+    /// Fetches the newest exam again and compares it with the report the app already had.
+    /// Returns the alert to show, or nil when nothing changed or the check could not run.
+    func checkGradeUpdate(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification? {
+        guard settings.notificationsEnabled, settings.gradeUpdates else { return nil }
+        if let lastGradeCheck, date.timeIntervalSince(lastGradeCheck) < Self.gradeCheckInterval { return nil }
+        if session == nil { await restore() }
+        let live = PocketLive.shared
+        guard let session, let key = live.currentTermExamValues().last,
+              let year = live.yearValueOf(examValue: key), let code = live.examCodeOf(examValue: key) else { return nil }
+        lastGradeCheck = date
+        do {
+            // The cached report is the baseline; nothing extra is stored for the comparison.
+            let before = try await backend.call {
+                try await $0.fetchGrades(session: session, yearValue: year, examValue: code, forceRefresh: false, token: $1)
+            }
+            let after = try await backend.call {
+                try await $0.fetchGrades(session: session, yearValue: year, examValue: code, forceRefresh: true, token: $1)
+            }
+            guard self.session?.authorizationId == session.authorizationId else { return nil }
+            live.putReport(yearValue: year, examValue: code, report: after)
+            publish()
+            return PocketPlatform.shared.gradeChangeNotification(
+                before: before, after: after, studentNo: session.studentNo, yearValue: year, examValue: code,
+                examName: after.examSummary?.examName ?? "", nowMillis: date.epochMillis, settings: settings
+            )
+        } catch {
+            // A failed background check is not worth an error on screen; the next one retries.
+            return nil
+        }
+    }
+
     func loadRecords(semesterIndex: Int) async {
         guard let session else { return }
         let semesters = PocketLive.shared.recordSemesters
@@ -209,5 +274,23 @@ final class LiveDataController {
             PocketLive.shared.putAnnouncementDetail(detail: detail)
         } catch { note(error) }
         publish()
+    }
+}
+
+/// Production data for widgets, reminders and background refresh.
+struct LivePlatformData: PlatformDataProviding {
+    let live: LiveDataController
+    private let shared = DemoPlatformData()
+
+    func scheduleSnapshotJSON(scheduleNow: Date, deviceNow: Date) -> String? {
+        shared.scheduleSnapshotJSON(scheduleNow: scheduleNow, deviceNow: deviceNow)
+    }
+
+    func announcementHeadlines(at date: Date) -> [AnnouncementHeadline] {
+        shared.announcementHeadlines(at: date)
+    }
+
+    func gradeNotification(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification? {
+        await live.checkGradeUpdate(at: date, settings: settings)
     }
 }

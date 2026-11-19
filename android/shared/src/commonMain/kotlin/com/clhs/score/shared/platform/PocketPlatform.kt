@@ -4,6 +4,8 @@ import com.clhs.score.data.BackgroundPause
 import com.clhs.score.data.GradeChange
 import com.clhs.score.data.GradeChangeField
 import com.clhs.score.data.GradeChangeSet
+import com.clhs.score.data.GradeReportDiffer
+import com.clhs.score.data.GradeReport
 import com.clhs.score.shared.app.PocketClock
 import com.clhs.score.shared.app.PocketEnvironment
 import com.clhs.score.shared.app.PocketSchedules
@@ -51,7 +53,37 @@ object PocketPlatform {
 
     fun coursePauseEndMillis(nowMillis: Long): Long = coursePauseEnd(nowMillis)
 
-    /** Synthetic change set; production will diff two fetched reports with `GradeReportDiffer`. */
+    /**
+     * Production check, as in Android's `GradeReminderWorker`: [before] is the report the app
+     * already had, [after] the one just fetched. Null when nothing changed, alerts are off or the
+     * quiet window is active. The alert names what changed, never a score or a rank.
+     */
+    fun gradeChangeNotification(
+        before: GradeReport,
+        after: GradeReport,
+        studentNo: String,
+        yearValue: String,
+        examValue: String,
+        examName: String,
+        nowMillis: Long,
+        settings: PlatformNotificationSettings,
+    ): PlannedNotification? = planGradeNotification(
+        changeSet = GradeReportDiffer.diff(
+            before = GradeReportDiffer.snapshot(before),
+            after = GradeReportDiffer.snapshot(after),
+            studentNo = studentNo,
+            yearValue = yearValue,
+            examValue = examValue,
+            examName = examName,
+            checkedAtMillis = nowMillis,
+        ),
+        nowMillis = nowMillis,
+        notificationsEnabled = settings.notificationsEnabled && settings.gradeUpdates,
+        pause = settings.pause(),
+        utcOffsetSeconds = settings.utcOffsetSeconds,
+    )
+
+    /** Synthetic change set for the demo menu. */
     fun demoGradeNotification(nowMillis: Long, settings: PlatformNotificationSettings): PlannedNotification? =
         planGradeNotification(
             changeSet = GradeChangeSet(

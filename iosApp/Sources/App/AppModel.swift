@@ -148,8 +148,17 @@ final class AppModel {
     }
 
     /// Personal subject overrides as the shared `ScheduleSubjectOverride` JSON list.
+    /// Custom subject names. Signed in, they belong to the account (and its settings backup);
+    /// otherwise they are a device preference.
     var scheduleOverrides: String {
-        didSet { defaults.set(scheduleOverrides, forKey: Key.overrides) }
+        get { live?.subjectOverrides ?? localScheduleOverrides }
+        set {
+            if let live, live.session != nil { live.setSubjectOverrides(newValue) } else { localScheduleOverrides = newValue }
+        }
+    }
+
+    private var localScheduleOverrides: String {
+        didSet { defaults.set(localScheduleOverrides, forKey: Key.overrides) }
     }
 
     var unreadAnnouncementIds: Set<String> {
@@ -216,7 +225,7 @@ final class AppModel {
         dashboardLayout = defaults.string(forKey: Key.dashboard) ?? PocketDashboard.shared.defaultLayout()
         unreadAnnouncementIds = (defaults.stringArray(forKey: Key.unread)).map(Set.init)
             ?? PocketCampusStore.shared.defaultUnreadIds()
-        scheduleOverrides = defaults.string(forKey: Key.overrides) ?? "[]"
+        localScheduleOverrides = defaults.string(forKey: Key.overrides) ?? "[]"
         weatherSource = defaults.string(forKey: Key.weatherSource) ?? "open-meteo"
         appLockEnabled = defaults.bool(forKey: Key.appLock)
         bookmarkedAnnouncementIds = Set(defaults.stringArray(forKey: Key.bookmarks) ?? [])
@@ -227,6 +236,7 @@ final class AppModel {
         lock = AppLockController(isEnabled: defaults.bool(forKey: Key.appLock), authenticator: AppModel.authenticator(defaults))
         PocketPlatformCoordinator.shared.unlockGate = AppLockRouteGate(lock: lock).pass
         live = defaults.string(forKey: "dataMode") == "demo" ? nil : (try? PocketBackend.live()).map(LiveDataController.init)
+        if let live { PocketPlatformCoordinator.shared.data = LivePlatformData(live: live) }
         syncSource()
         if defaults.string(forKey: Key.dashboard) == nil { dashboardLayout = PocketDashboard.shared.defaultLayout() }
         if usesLiveData { unreadAnnouncementIds = [] }
@@ -386,6 +396,7 @@ final class AppModel {
         _ = try await backend.call { try await $0.inspectSettingsJson(text: text, token: $1) }
         let session = usesLiveData ? live?.session : nil
         try await backend.call { try await $0.restoreSettingsJson(text: text, includeSubjects: session != nil, session: session, token: $1) }
+        await live?.reloadSubjectOverrides()
         let restored = try await backend.call { try await $0.loadSettings(token: $1) }
         appearance = switch restored.themeMode {
         case .light: .light
@@ -423,7 +434,7 @@ final class AppModel {
         paths = [:]
         appearance = .system
         dashboardLayout = PocketDashboard.shared.defaultLayout()
-        scheduleOverrides = "[]"
+        localScheduleOverrides = "[]"
         unreadAnnouncementIds = PocketCampusStore.shared.defaultUnreadIds()
         bookmarkedAnnouncementIds = []
         weatherSource = "open-meteo"

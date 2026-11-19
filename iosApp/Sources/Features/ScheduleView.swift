@@ -445,7 +445,7 @@ private struct ScheduleCellSheet: View {
                 .onChange(of: subject) { _, value in subject = Self.clamped(value) }
                 .onChange(of: teacher) { _, value in teacher = Self.clamped(value) }
                 .onChange(of: classroom) { _, value in classroom = Self.clamped(value) }
-                Text("套用到這個科目的每一堂課，只存在這台裝置。每欄最多 \(PocketScheduleStore.shared.maxOverrideLength()) 個字。")
+                Text("套用到這個科目的每一堂課，\(model.live?.session != nil ? "存在這台裝置並會包含在設定備份中" : "只存在這台裝置")。每欄最多 \(PocketScheduleStore.shared.maxOverrideLength()) 個字。")
                     .font(.footnote)
                     .foregroundStyle(PocketColor.onSurfaceVariant)
                 HStack(spacing: 12) {

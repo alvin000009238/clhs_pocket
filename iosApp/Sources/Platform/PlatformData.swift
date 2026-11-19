@@ -3,16 +3,16 @@ import PocketShared
 
 /// Where widgets, reminders and background refresh get their data.
 ///
-/// The iOS app has no school session yet, so the only implementation is
-/// backed by the shared synthetic fixtures. A production provider must keep
-/// the same contract: return timetable facts only, never credentials.
+/// `DemoPlatformData` reads the shared source that is active (synthetic fixtures in demo mode,
+/// the signed-in student's data in production); `LivePlatformData` adds the grade check.
+/// Every provider keeps the same contract: timetable facts only, never credentials.
 @MainActor
 protocol PlatformDataProviding {
     /// Shared-encoded widget snapshot, or nil when no valid timetable exists.
     func scheduleSnapshotJSON(scheduleNow: Date, deviceNow: Date) -> String?
     func announcementHeadlines(at date: Date) -> [AnnouncementHeadline]
-    /// A grade-change alert when a check found differences.
-    func gradeNotification(at date: Date, settings: PlatformNotificationSettings) -> PlannedNotification?
+    /// A grade-change alert when a check found differences. May fetch from the school.
+    func gradeNotification(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification?
 }
 
 struct DemoPlatformData: PlatformDataProviding {
@@ -28,7 +28,7 @@ struct DemoPlatformData: PlatformDataProviding {
     }
 
     /// The demo timetable never changes on its own; alerts are sent from the demo menu.
-    func gradeNotification(at date: Date, settings: PlatformNotificationSettings) -> PlannedNotification? {
+    func gradeNotification(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification? {
         nil
     }
 }

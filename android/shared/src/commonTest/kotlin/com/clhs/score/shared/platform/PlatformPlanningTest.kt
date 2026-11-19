@@ -1,5 +1,7 @@
 package com.clhs.score.shared.platform
 
+import com.clhs.score.data.GradeReport
+import com.clhs.score.data.FakeData
 import com.clhs.score.data.BackgroundPause
 import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleReport
@@ -175,5 +177,24 @@ class PlatformPlanningTest {
         val broken = settings(pause = true, start = 600, end = 600)
         assertTrue(PocketPlatform.isBackgroundPaused(at(23, 30), broken))
         assertFalse(PocketPlatform.isBackgroundPaused(at(12, 0), broken))
+    }
+
+    @Test
+    fun gradeCheckComparesTheCachedReportWithTheFetchedOne() {
+        val before = FakeData.reportFor("114_1", "114_1_E1")
+        val after = before.copy(subjects = before.subjects.mapIndexed { index, subject ->
+            if (index == 0) subject.copy(scoreDisplay = "1.0", score = 1.0) else subject
+        })
+        fun check(old: GradeReport, new: GradeReport, settings: PlatformNotificationSettings, now: Long = at(12, 0)) =
+            PocketPlatform.gradeChangeNotification(old, new, "DEMO-000", "114_1", "114_1_E1", "第一次段考", now, settings)
+
+        // The first check has the same report on both sides: it only establishes the baseline.
+        assertNull(check(before, before, settings()))
+        val planned = assertNotNull(check(before, after, settings()))
+        assertEquals("第一次段考資訊更新", planned.title)
+        assertFalse(planned.body.any { it.isDigit() })
+        assertEquals(PocketLinks.GRADES, planned.link)
+        assertNull(check(before, after, settings(enabled = false)))
+        assertNull(check(before, after, settings(pause = true), now = at(23, 30)))
     }
 }

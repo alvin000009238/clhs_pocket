@@ -101,7 +101,8 @@ final class PocketPlatformCoordinator: NSObject {
 
         await notifications.syncCourseReminders(snapshotJSON: json, now: deviceNow, settings: shared, isCurrent: isCurrent)
         if !paused, isCurrent() {
-            await notifications.deliver(data.gradeNotification(at: deviceNow, settings: shared))
+            let gradeAlert = await data.gradeNotification(at: deviceNow, settings: shared)
+            if isCurrent() { await notifications.deliver(gradeAlert) }
             await notifications.checkAnnouncements(data.announcementHeadlines(at: scheduleNow), now: deviceNow, settings: shared)
         }
         // A sign-out during the awaits above already ran its own cleanup; run it
