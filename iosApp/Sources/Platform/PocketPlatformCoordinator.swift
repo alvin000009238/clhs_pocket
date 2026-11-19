@@ -24,8 +24,21 @@ final class PocketPlatformCoordinator: NSObject {
 
     private var pendingLink: PocketDeepLink?
 
-    /// The session flag persisted by `AppModel`; background launches have no model.
-    private var isSignedIn: Bool { defaults.string(forKey: "session") == "demo" }
+    /// Mirrors `AppModel.isSignedIn` for background launches, which have no
+    /// model. It is the coordinator's own key because `AppModel`'s `session`
+    /// default can be shadowed by a launch argument.
+    private(set) var isSignedIn: Bool {
+        get { defaults.bool(forKey: Self.signedInKey) }
+        set { defaults.set(newValue, forKey: Self.signedInKey) }
+    }
+
+    private static let signedInKey = "platform.sessionActive"
+
+    /// Called by the app shell whenever the session changes or the app becomes active.
+    func sessionChanged(signedIn: Bool) async {
+        isSignedIn = signedIn
+        await refresh()
+    }
 
     // MARK: Launch
 

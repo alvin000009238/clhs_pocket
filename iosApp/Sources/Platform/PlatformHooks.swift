@@ -24,7 +24,7 @@ private struct PocketPlatformHook: ViewModifier {
                     PocketPlatformCoordinator.shared.scheduleBackgroundRefresh()
                     return
                 }
-                await PocketPlatformCoordinator.shared.refresh()
+                await PocketPlatformCoordinator.shared.sessionChanged(signedIn: model.isSignedIn)
             }
     }
 

@@ -383,6 +383,11 @@ private struct LargeRow: View {
 private struct RectangularAccessoryView: View {
     let glance: ScheduleGlance
 
+    private func detail(for lesson: ScheduleSnapshot.Lesson) -> String {
+        let time = glance.state == .inClass ? "\(lesson.endText) 下課" : lesson.timeText
+        return [time, lesson.classroom].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(glance.headline)
@@ -392,18 +397,11 @@ private struct RectangularAccessoryView: View {
                 Text(lesson.subject)
                     .font(.headline)
                     .privacySensitive()
-                Group {
-                    if glance.state == .inClass, glance.date < lesson.end {
-                        ProgressView(timerInterval: lesson.start...lesson.end, countsDown: false) { EmptyView() } currentValueLabel: { EmptyView() }
-                            .progressViewStyle(.linear)
-                            .padding(.top, 3)
-                    } else {
-                        Text([lesson.timeText, lesson.classroom].filter { !$0.isEmpty }.joined(separator: " · "))
-                            .font(.caption)
-                            .monospacedDigit()
-                            .privacySensitive()
-                    }
-                }
+                // Vibrant rendering flattens a progress bar's fill and track, so the third line is text.
+                Text(detail(for: lesson))
+                    .font(.caption)
+                    .monospacedDigit()
+                    .privacySensitive()
             } else {
                 Text(glance.restText).font(.caption)
             }

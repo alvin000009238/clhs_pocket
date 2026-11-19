@@ -37,7 +37,7 @@ iosApp/Widgets/Extension（WidgetKit extension，不連結 Kotlin）
 | 小 | 狀態、科目、教室、進度條與倒數 |
 | 中 | 同上，加上「接下來」最多三堂 |
 | 大 | 當日（或下一個上課日）完整課表，標示目前與下一堂 |
-| 鎖定畫面矩形 | 狀態、科目、進度條或時間與教室 |
+| 鎖定畫面矩形 | 狀態、科目、下課時間（或上課時段）與教室 |
 | 鎖定畫面圓形 | 上課中為節次與進度環，其餘為下一堂開始時間 |
 | 鎖定畫面單行 | 一行摘要 |
 
@@ -67,6 +67,8 @@ App 在前景時依快照啟動或更新目前（或今天下一堂）課程的�
 - 登出時移除所有待送與已送達的通知、撤銷所有 capability、清除公告基準、結束即時動態並刪除快照。
 
 示範資料不會自行變動，所以段考更新與公告目前只能從「個人 › 通知與動態 › 傳送示範通知」觸發；它走的是相同的規劃與送出路徑。正式版需以 `GradeReportDiffer` 比對兩次抓取的成績，並實作 `PlatformDataProviding`。
+
+登入狀態由 App 外殼在每次變動與回到前景時告知 `PocketPlatformCoordinator`，並另存一份旗標供背景啟動使用（`AppModel` 的 `session` 預設值可能被啟動參數覆蓋，不能直接讀）。
 
 ## Deep Link
 
@@ -101,5 +103,5 @@ iOS 不保證背景更新會執行；使用者關閉「背景 App 重新整理�
 
 - 共用 Kotlin：`PlatformPlanningTest`（時間軸邊界、過期、隱私、提醒、安靜時段兩側邊界、公告基準）。
 - iOS 單元測試：`CLHSPocketTests`（Kotlin 產生的快照可由 Swift 解碼並驅動時間軸、儲存與清除、即時動態狀態、Deep Link、通知排程與權限、capability 一次性、登出清理、設定）。
-- Simulator（iPhone 17、iOS 26.5）實際操作：小、中、大小工具加入主畫面（淺色、深色、色調）；鎖定畫面矩形與圓形小工具；通知橫幅與鎖定畫面通知；點擊通知導向成績頁；`clhspocket://announcements`；即時動態的鎖定畫面、動態島 compact 與 expanded。
+- Simulator（iPhone 17、iOS 26.5）實際操作：小、中、大小工具加入主畫面（淺色、深色、色調）；鎖定畫面矩形與圓形小工具，並觀察到它們在下課與上課前 5 分鐘的邊界自行切換；通知權限詢問、通知橫幅與鎖定畫面通知；點擊通知導向成績頁；`clhspocket://announcements`；即時動態的鎖定畫面、動態島 compact 與 expanded，以及等待中的課程在上課時間自行變成「上課中」；登出後快照檔案、capability、公告基準與即時動態都被清除，小工具回到「尚無課表」。
 - 僅通過編譯、未實際執行：背景更新的處理函式（Simulator 不會排程 `BGAppRefreshTask`）、鎖定畫面單行小工具、動態島 minimal 版面、iOS 18 執行環境、iPad、實機。
