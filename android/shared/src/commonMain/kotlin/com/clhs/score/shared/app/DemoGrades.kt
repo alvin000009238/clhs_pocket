@@ -11,22 +11,24 @@ import kotlin.math.roundToInt
 
 /** Presents the shared synthetic reports through the shared grade analysis. */
 internal object DemoGrades {
-    val DEFAULT_EXAM: String get() = FakeData.CURRENT_EXAM_VALUE
+    val DEFAULT_EXAM: String get() = PocketData.current.currentExamValue
 
     val terms: List<PocketGradeTerm>
-        get() = FakeData.structure.reversed().map { term ->
+        get() = PocketData.current.structure.reversed().map { term ->
             PocketGradeTerm(term.text, term.value, term.exams.map { PocketExamOption(it.text, it.value) })
         }
 
     fun report(examValue: String): PocketGradeReport {
-        val term = FakeData.structure.firstOrNull { term -> term.exams.any { it.value == examValue } }
-            ?: FakeData.structure.first { it.value == FakeData.CURRENT_YEAR_VALUE }
-        val exam = term.exams.firstOrNull { it.value == examValue } ?: term.exams.last()
-        val report = FakeData.reportFor(term.value, exam.value)
+        val source = PocketData.current
+        val term = source.structure.firstOrNull { term -> term.exams.any { it.value == examValue } }
+            ?: source.structure.firstOrNull { it.value == source.currentYearValue }
+        val exam = term?.exams?.firstOrNull { it.value == examValue } ?: term?.exams?.lastOrNull()
+        val report = if (term != null && exam != null) source.report(term.value, exam.value) else null
+        if (term == null || exam == null || report == null) return unloaded(exam?.value ?: examValue, exam?.text.orEmpty(), term?.text.orEmpty())
         val previous = term.previousExamOf(exam.value)
         val analysis = buildGradeAnalysis(
             report = report,
-            comparisonReport = previous?.let { FakeData.reportFor(term.value, it.value) },
+            comparisonReport = previous?.let { source.report(term.value, it.value) },
             previousExamName = previous?.text,
         )
         val delta = analysis.comparison?.averageDelta?.let { (it * 100).roundToInt() }
@@ -50,13 +52,22 @@ internal object DemoGrades {
             strengths = analysis.strengths.map(::insight),
             weaknesses = analysis.weaknesses.map(::insight),
             subjects = report.subjects.map(::subjectRow),
-            trend = term.exams.map {
-                val average = FakeData.reportFor(term.value, it.value).weightedAverage()
-                PocketTrendPoint(it.text, average, hundredthsText((average * 100).roundToInt()))
+            trend = term.exams.mapNotNull { option ->
+                source.report(term.value, option.value)?.weightedAverage()?.let { average ->
+                    PocketTrendPoint(option.text, average, hundredthsText((average * 100).roundToInt()))
+                }
             },
             updatedAtText = report.studentInfo.updatedAt,
         )
     }
+
+    /** Placeholder while the live report for this exam has not been loaded. */
+    private fun unloaded(examValue: String, examTitle: String, termTitle: String) = PocketGradeReport(
+        examValue = examValue, examTitle = examTitle, termTitle = termTitle, averageText = "--", totalText = "--",
+        deltaText = "", deltaSign = 0, classRankText = "--", categoryRankText = "--", classTopText = "", categoryTopText = "",
+        strengths = emptyList(), weaknesses = emptyList(), subjects = emptyList(), trend = emptyList(), updatedAtText = "",
+        isLoaded = false,
+    )
 
     private fun PercentileInfo?.topText(): String = this?.let { "$count 人 · 前 $topPercent%" }.orEmpty()
 

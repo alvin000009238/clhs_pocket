@@ -1,6 +1,5 @@
 package com.clhs.score.shared.app
 
-import com.clhs.score.data.FakeData
 import com.clhs.score.data.GradeReport
 import com.clhs.score.data.SimulatorCredits
 import com.clhs.score.data.SubjectScore
@@ -82,34 +81,38 @@ data class PocketSimulation(
 
 /** Subject detail, analysis and summary text built from the shared grade analysis. */
 object PocketGrades {
-    private fun locate(examValue: String) = FakeData.structure
+    private val source get() = PocketData.current
+
+    /** Null when the exam is unknown or, in live mode, the structure has not been loaded. */
+    private fun locate(examValue: String) = source.structure
         .firstOrNull { term -> term.exams.any { it.value == examValue } }
-        .let { it ?: FakeData.structure.first { term -> term.value == FakeData.CURRENT_YEAR_VALUE } }
-        .let { term -> term to (term.exams.firstOrNull { it.value == examValue } ?: term.exams.last()) }
+        .let { it ?: source.structure.firstOrNull { term -> term.value == source.currentYearValue } }
+        ?.let { term -> (term.exams.firstOrNull { it.value == examValue } ?: term.exams.lastOrNull())?.let { term to it } }
 
-    internal fun report(examValue: String): GradeReport =
-        locate(examValue).let { (term, exam) -> FakeData.reportFor(term.value, exam.value) }
+    internal fun report(examValue: String): GradeReport? =
+        locate(examValue)?.let { (term, exam) -> source.report(term.value, exam.value) }
 
-    private fun analysis(examValue: String) = locate(examValue).let { (term, exam) ->
+    private fun analysisOf(examValue: String) = locate(examValue)?.let { (term, exam) ->
+        val report = source.report(term.value, exam.value) ?: return@let null
         val previous = term.previousExamOf(exam.value)
         buildGradeAnalysis(
-            report = FakeData.reportFor(term.value, exam.value),
-            comparisonReport = previous?.let { FakeData.reportFor(term.value, it.value) },
+            report = report,
+            comparisonReport = previous?.let { source.report(term.value, it.value) },
             previousExamName = previous?.text,
         )
     }
 
     fun subjectDetail(examValue: String, subjectName: String): PocketSubjectDetail? {
-        val (term, exam) = locate(examValue)
-        val item = analysis(examValue).subjects
+        val (term, exam) = locate(examValue) ?: return null
+        val item = (analysisOf(examValue) ?: return null).subjects
             .firstOrNull { cleanSubjectName(it.subject.subjectName) == subjectName } ?: return null
         val subject = item.subject
         val standard = item.standard
         val hasScore = !subject.absent && !subject.cheating
         val diff = (subject.diffValue * 10).roundToInt()
         val history = term.exams.mapNotNull { option ->
-            FakeData.reportFor(term.value, option.value).subjects
-                .firstOrNull { cleanSubjectName(it.subjectName) == subjectName }
+            source.report(term.value, option.value)?.subjects
+                ?.firstOrNull { cleanSubjectName(it.subjectName) == subjectName }
                 ?.let { option.text to it }
         }
         return PocketSubjectDetail(
@@ -156,7 +159,7 @@ object PocketGrades {
     }
 
     fun analysis(examValue: String, unused: Boolean = false): PocketAnalysis {
-        val analysis = analysis(examValue)
+        val analysis = analysisOf(examValue) ?: return PocketAnalysis("", emptyList(), emptyList(), emptyList())
         val comparison = analysis.comparison
         fun rows(positive: Boolean) = analysis.subjects
             .mapNotNull { item -> item.comparison?.let { item.subject to it.scoreDelta } }
@@ -186,9 +189,9 @@ object PocketGrades {
 
     /** Plain-text summary for the system share sheet; never includes the student number. */
     fun shareText(examValue: String): String {
-        val (term, exam) = locate(examValue)
-        val report = report(examValue)
-        val analysis = analysis(examValue)
+        val (term, exam) = locate(examValue) ?: return ""
+        val report = report(examValue) ?: return ""
+        val analysis = analysisOf(examValue) ?: return ""
         return buildString {
             appendLine("${term.text} ${exam.text} 成績摘要")
             report.examSummary?.let { appendLine("加權平均 ${it.averageScoreDisplay} · 總分 ${it.totalScoreDisplay}") }
@@ -203,7 +206,8 @@ object PocketGrades {
         }
     }
 
-    fun simulator(examValue: String): PocketSimulator = PocketSimulator(report(examValue))
+    /** Null while the report for this exam has not been loaded. */
+    fun simulator(examValue: String): PocketSimulator? = report(examValue)?.let(::PocketSimulator)
 
     private fun rank(rank: Int?, count: Int?) = if (rank == null || count == null) "--" else "$rank/$count"
 }

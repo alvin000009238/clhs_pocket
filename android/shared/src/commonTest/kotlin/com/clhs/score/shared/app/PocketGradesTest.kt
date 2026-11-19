@@ -21,7 +21,7 @@ class PocketGradesTest {
 
     @Test
     fun simulatorStartsFromOfficialAverageAndRespondsToEdits() {
-        val simulator = PocketGrades.simulator(exam)
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
         val initial = simulator.state()
         assertFalse(initial.hasChanges)
         assertEquals("", initial.deltaText)
@@ -40,7 +40,7 @@ class PocketGradesTest {
 
     @Test
     fun inferredCreditsVerifyAgainstTheOfficialSummary() {
-        val simulator = PocketGrades.simulator(exam)
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
         if (simulator.state().check == PocketCreditCheck.MATCHES) return
         simulator.inferCredits()
         val inferred = simulator.state()

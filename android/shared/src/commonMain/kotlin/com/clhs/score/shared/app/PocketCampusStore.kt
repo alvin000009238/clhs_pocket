@@ -64,6 +64,8 @@ data class PocketRecords(
     val summary: List<PocketRecordCount>,
     val rows: List<PocketRecordRow>,
     val emptyText: String,
+    /** False while this semester's records have not been loaded. */
+    val isLoaded: Boolean = true,
 )
 
 /** Public campus content plus the demo attendance and merit records. */
@@ -180,10 +182,13 @@ object PocketCampusStore {
     private val concerns = setOf("曠課", "遲到", "警告", "小過", "大過")
 
     fun attendance(semesterIndex: Int): PocketRecords {
-        val index = semesterIndex.coerceIn(0, FakeRecordData.semesters.lastIndex)
-        val record = FakeRecordData.attendance(FakeRecordData.semesters[index])
+        val semesters = PocketData.current.recordSemesters
+        if (semesters.isEmpty()) return PocketRecords(emptyList(), 0, emptyList(), emptyList(), "", isLoaded = false)
+        val index = semesterIndex.coerceIn(0, semesters.lastIndex)
+        val record = PocketData.current.attendance(semesters[index])
+            ?: return PocketRecords(semesters.map { it.label }, index, emptyList(), emptyList(), "", isLoaded = false)
         return PocketRecords(
-            semesters = FakeRecordData.semesters.map { it.label },
+            semesters = semesters.map { it.label },
             semesterIndex = index,
             summary = record.summary.map { PocketRecordCount(it.category, it.count, it.category in concerns && it.count > 0) },
             rows = record.details.mapIndexed { row, it ->
@@ -194,10 +199,13 @@ object PocketCampusStore {
     }
 
     fun merits(semesterIndex: Int): PocketRecords {
-        val index = semesterIndex.coerceIn(0, FakeRecordData.semesters.lastIndex)
-        val records = FakeRecordData.merits(FakeRecordData.semesters[index])
+        val semesters = PocketData.current.recordSemesters
+        if (semesters.isEmpty()) return PocketRecords(emptyList(), 0, emptyList(), emptyList(), "", isLoaded = false)
+        val index = semesterIndex.coerceIn(0, semesters.lastIndex)
+        val records = PocketData.current.merits(semesters[index])
+            ?: return PocketRecords(semesters.map { it.label }, index, emptyList(), emptyList(), "", isLoaded = false)
         return PocketRecords(
-            semesters = FakeRecordData.semesters.map { it.label },
+            semesters = semesters.map { it.label },
             semesterIndex = index,
             summary = records.groupBy { it.category }
                 .map { (category, items) -> PocketRecordCount(category, items.sumOf { it.count }, category in concerns) },

@@ -10,15 +10,15 @@ import com.clhs.score.domain.overview.OverviewWidgetConfig
  * the demo never goes stale.
  */
 internal class DemoPocketDataSource : PocketDataSource {
-    override val isDemo: Boolean = true
+    override val isDemo: Boolean get() = PocketData.isDemo
 
-    override fun profile(): PocketProfile = FakeData.latestReport().studentInfo.let {
+    override fun profile(): PocketProfile = PocketData.current.studentInfo.let {
         PocketProfile(
-            studentName = it.studentName,
-            className = it.className,
-            seatNo = it.seatNo,
-            studentNo = it.studentNo,
-            isDemo = true,
+            studentName = it?.studentName.orEmpty(),
+            className = it?.className.orEmpty(),
+            seatNo = it?.seatNo.orEmpty(),
+            studentNo = it?.studentNo.orEmpty(),
+            isDemo = PocketData.isDemo,
         )
     }
 

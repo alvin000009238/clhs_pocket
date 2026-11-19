@@ -194,6 +194,8 @@ data class PocketGradeReport(
     val subjects: List<PocketSubjectGrade>,
     val trend: List<PocketTrendPoint>,
     val updatedAtText: String,
+    /** False while the report for this exam has not been loaded. */
+    val isLoaded: Boolean = true,
 )
 
 data class PocketCampus(
