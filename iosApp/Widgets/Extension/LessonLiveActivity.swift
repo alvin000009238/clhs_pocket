@@ -5,12 +5,13 @@ import WidgetKit
 struct LessonLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: LessonActivityAttributes.self) { context in
-            LessonLockScreenView(state: context.state, isStale: context.isStale)
+            LessonLockScreenView(state: context.state, phase: context.state.phase(isStale: context.isStale))
                 .activityBackgroundTint(PocketColor.primaryContainer)
                 .activitySystemActionForegroundColor(PocketColor.onPrimaryContainer)
                 .widgetURL(PocketPlatformID.scheduleLink)
         } dynamicIsland: { context in
             let state = context.state
+            let phase = state.phase(isStale: context.isStale)
             let tint = PocketColor.subject(light: state.colorDark, dark: state.colorDark)
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
@@ -18,14 +19,14 @@ struct LessonLiveActivity: Widget {
                         .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    LessonCountdown(state: state, isStale: context.isStale)
+                    LessonCountdown(state: state, phase: phase)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(tint)
                         .padding(.trailing, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
                     VStack(spacing: 0) {
-                        Text(state.statusText(isStale: context.isStale))
+                        Text(state.statusText(phase))
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
                         Text(state.subject)
@@ -42,7 +43,7 @@ struct LessonLiveActivity: Widget {
                         HStack {
                             Label(state.placeText, systemImage: "mappin.and.ellipse")
                             Spacer(minLength: 8)
-                            if let next = state.nextText { Text(next) }
+                            if let next = state.nextText(phase) { Text(next) }
                         }
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -54,7 +55,7 @@ struct LessonLiveActivity: Widget {
             } compactLeading: {
                 PeriodBadge(period: state.period, tint: tint, compact: true)
             } compactTrailing: {
-                LessonCountdown(state: state, isStale: context.isStale)
+                LessonCountdown(state: state, phase: phase)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(tint)
                     .frame(maxWidth: 46)
@@ -72,34 +73,42 @@ struct LessonLiveActivity: Widget {
 }
 
 extension LessonActivityAttributes.ContentState {
-    func statusText(isStale: Bool) -> String {
-        if isStale { return "已下課 · 第 \(period) 節" }
-        return isInClass ? "上課中 · 第 \(period) 節" : "下一堂 · 第 \(period) 節"
+    func statusText(_ phase: LessonActivityPhase) -> String {
+        switch phase {
+        case .upcoming: "下一堂 · 第 \(period) 節"
+        case .inClass: "上課中 · 第 \(period) 節"
+        case .ended: "已下課 · 第 \(period) 節"
+        }
     }
 
     var placeText: String {
         [classroom, "\(startText)–\(endText)"].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    var nextText: String? {
+    func nextText(_ phase: LessonActivityPhase) -> String? {
         guard let nextSubject, let nextStartText else { return nil }
-        return "下一堂 \(nextSubject) \(nextStartText)"
+        // Before class the headline already says "下一堂" for the pinned lesson.
+        return "\(phase == .upcoming ? "接著" : "下一堂") \(nextSubject) \(nextStartText)"
     }
 }
 
 /// Counts down to the bell while in class, or to the start beforehand.
 private struct LessonCountdown: View {
     let state: LessonActivityAttributes.ContentState
-    let isStale: Bool
+    let phase: LessonActivityPhase
 
     var body: some View {
-        let target = state.isInClass ? state.end : state.start
-        if isStale || target <= .now {
-            Text(state.isInClass ? state.endText : state.startText).monospacedDigit()
-        } else {
-            Text(timerInterval: Date.now...target, countsDown: true)
+        switch phase {
+        case .upcoming:
+            Text(timerInterval: Date.now...state.start, countsDown: true)
                 .monospacedDigit()
                 .multilineTextAlignment(.trailing)
+        case .inClass:
+            Text(timerInterval: Date.now...state.end, countsDown: true)
+                .monospacedDigit()
+                .multilineTextAlignment(.trailing)
+        case .ended:
+            Text(state.endText).monospacedDigit()
         }
     }
 }
@@ -121,25 +130,25 @@ private struct PeriodBadge: View {
 
 private struct LessonLockScreenView: View {
     let state: LessonActivityAttributes.ContentState
-    let isStale: Bool
+    let phase: LessonActivityPhase
     @ScaledMetric(relativeTo: .subheadline) private var timerWidth: CGFloat = 46
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
                 HStack(spacing: 6) {
-                    if state.isInClass, !isStale {
+                    if phase == .inClass {
                         Circle().fill(PocketColor.primary).frame(width: 8, height: 8)
                     }
-                    Text(state.statusText(isStale: isStale))
+                    Text(state.statusText(phase))
                         .font(.subheadline.weight(.semibold))
                 }
                 .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
                 Spacer(minLength: 8)
                 HStack(spacing: 4) {
-                    if !isStale { Text(state.isInClass ? "剩" : "還有") }
+                    if phase != .ended { Text(phase == .inClass ? "剩" : "還有") }
                     // A timer text takes all offered width, so it gets a fixed slot.
-                    LessonCountdown(state: state, isStale: isStale)
+                    LessonCountdown(state: state, phase: phase)
                         .frame(width: timerWidth, alignment: .trailing)
                 }
                 .font(.subheadline.weight(.semibold))
@@ -158,7 +167,7 @@ private struct LessonLockScreenView: View {
             HStack {
                 Label(state.placeText, systemImage: "mappin.and.ellipse")
                 Spacer(minLength: 8)
-                if let next = state.nextText { Text(next) }
+                if let next = state.nextText(phase) { Text(next) }
             }
             .font(.footnote)
             .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))

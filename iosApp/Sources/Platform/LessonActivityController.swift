@@ -5,8 +5,8 @@ import Foundation
 ///
 /// There is no push channel, so the activity changes only while the app runs
 /// (foreground or a granted background refresh). Its timers and progress bar
-/// advance on their own; `staleDate` marks the bell so an untouched activity
-/// reads "已下課" instead of pretending to be current.
+/// advance on their own, and `staleDate` gives one unattended transition: a
+/// waiting lesson becomes "上課中" at its start, a running one "已下課" at the bell.
 @MainActor
 enum LessonActivityController {
     static func sync(glance: ScheduleGlance?, enabled: Bool) async {
@@ -15,7 +15,7 @@ enum LessonActivityController {
             await endAll()
             return
         }
-        let content = ActivityContent(state: state, staleDate: state.end)
+        let content = ActivityContent(state: state, staleDate: state.isInClass ? state.end : state.start)
         var current: Activity<LessonActivityAttributes>?
         for activity in Activity<LessonActivityAttributes>.activities {
             if current == nil, activity.attributes.epochDay == day, activity.activityState == .active || activity.activityState == .stale {

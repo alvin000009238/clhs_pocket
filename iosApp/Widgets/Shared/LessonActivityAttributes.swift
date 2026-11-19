@@ -55,3 +55,20 @@ extension LessonActivityAttributes.ContentState {
         )
     }
 }
+
+/// What the activity shows, derived from the state and the system's stale flag.
+///
+/// The app cannot push updates, so the stale date is the only moment the
+/// system re-renders on its own: for a waiting lesson it is the start (the
+/// activity turns into "上課中" by itself), for a running lesson the end.
+enum LessonActivityPhase {
+    case upcoming, inClass, ended
+}
+
+extension LessonActivityAttributes.ContentState {
+    func phase(isStale: Bool, now: Date = .now) -> LessonActivityPhase {
+        if now >= end { return .ended }
+        if isInClass { return isStale ? .ended : .inClass }
+        return isStale || now >= start ? .inClass : .upcoming
+    }
+}

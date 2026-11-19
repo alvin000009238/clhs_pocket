@@ -129,6 +129,20 @@ final class PlatformTests: XCTestCase {
         XCTAssertNil(LessonActivityAttributes.ContentState(glance: ScheduleGlance(state: .empty, date: evening)))
     }
 
+    func testLiveActivityChangesPhaseOnceWithoutTheApp() throws {
+        let snapshot = try XCTUnwrap(ScheduleSnapshot.decode(Data(demoJSON(at: lessonTime).utf8)))
+        let running = try XCTUnwrap(LessonActivityAttributes.ContentState(glance: snapshot.glance(at: lessonTime)))
+        XCTAssertEqual(running.phase(isStale: false, now: lessonTime), .inClass)
+        XCTAssertEqual(running.phase(isStale: true, now: running.end.addingTimeInterval(-1)), .ended)
+        XCTAssertEqual(running.phase(isStale: false, now: running.end), .ended)
+
+        let waiting = try XCTUnwrap(LessonActivityAttributes.ContentState(glance: snapshot.glance(at: running.end)))
+        XCTAssertEqual(waiting.phase(isStale: false, now: running.end), .upcoming)
+        // The stale date is the lesson start, so the system re-render reads "上課中".
+        XCTAssertEqual(waiting.phase(isStale: true, now: waiting.start), .inClass)
+        XCTAssertEqual(waiting.phase(isStale: true, now: waiting.end), .ended)
+    }
+
     // MARK: Deep links
 
     func testDeepLinksAcceptOnlyBareKnownDestinations() {
