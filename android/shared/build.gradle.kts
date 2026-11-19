@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     id("org.jetbrains.kotlin.multiplatform")
     id("com.android.kotlin.multiplatform.library")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 kotlin {
@@ -22,6 +23,9 @@ kotlin {
     }
 
     sourceSets {
+        commonMain.dependencies {
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
+        }
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
