@@ -43,17 +43,15 @@ struct DemoNotificationPermissionService: NotificationPermissionService {
 
 /// Stands in for the system authentication prompt in UI tests. Never used without `-lockAuth`.
 final class ScriptedAuthenticator: DeviceAuthenticating, @unchecked Sendable {
-    private var cancelNext: Bool
+    /// Prompts before this moment are answered as cancelled. The app asks by itself each time
+    /// the scene becomes active, which can happen more than once during launch.
+    private let cancelUntil: Date
 
-    init(cancelFirst: Bool) { cancelNext = cancelFirst }
+    init(cancelFirst: Bool) { cancelUntil = cancelFirst ? Date().addingTimeInterval(6) : .distantPast }
 
     func method() -> AppLockMethod { .faceID }
 
     func authenticate(reason: String) async -> AppLockOutcome {
-        if cancelNext {
-            cancelNext = false
-            return .cancelled
-        }
-        return .success
+        Date() < cancelUntil ? .cancelled : .success
     }
 }

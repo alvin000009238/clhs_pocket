@@ -19,15 +19,27 @@ struct PocketSectionHeader<Trailing: View>: View {
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title)
-                .font(PocketFont.sectionTitle)
-                .foregroundStyle(PocketColor.onSurface)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 12)
-            trailing
+        // Side by side when both fit on one line, otherwise the trailing item drops below the title.
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline) {
+                heading.lineLimit(1)
+                Spacer(minLength: 12)
+                trailing
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                heading
+                trailing
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 4)
+    }
+
+    private var heading: some View {
+        Text(title)
+            .font(PocketFont.sectionTitle)
+            .foregroundStyle(PocketColor.onSurface)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 

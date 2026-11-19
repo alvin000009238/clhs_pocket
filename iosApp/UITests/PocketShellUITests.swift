@@ -28,6 +28,9 @@ final class PocketShellUITests: XCTestCase {
         if let size = ProcessInfo.processInfo.environment["CONTENT_SIZE"], !size.isEmpty {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", size]
         }
+        // Xcode can pre-launch the app in the background with only the scheme's arguments;
+        // end that process so this launch really starts with the arguments above.
+        app.terminate()
         app.launch()
     }
 
@@ -404,6 +407,8 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(unlock.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["home-edit"].isHittable)
         capture("80-lock-screen")
+        // `-lockAuth manual` cancels every prompt during the first seconds after launch.
+        Thread.sleep(forTimeInterval: 6)
         unlock.tap()
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5) || app.buttons["home-edit"].waitForExistence(timeout: 5))
         XCTAssertFalse(unlock.exists)
