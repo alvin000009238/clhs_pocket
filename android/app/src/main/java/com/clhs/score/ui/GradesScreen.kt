@@ -651,7 +651,9 @@ private fun GradeSelectionHeader(
                             },
                             onClick = {
                                 close()
-                                if (year.value != state.selectedYearValue) onSelectYear(year.value)
+                                if (state.isLoadingGrades || year.value != state.selectedYearValue) {
+                                    onSelectYear(year.value)
+                                }
                             },
                         )
                     }
@@ -675,7 +677,9 @@ private fun GradeSelectionHeader(
                             },
                             onClick = {
                                 close()
-                                if (exam.value != state.selectedExamValue) onSelectExam(exam.value)
+                                if (state.isLoadingGrades || exam.value != state.selectedExamValue) {
+                                    onSelectExam(exam.value)
+                                }
                             },
                         )
                     }

@@ -47,6 +47,7 @@ import com.clhs.score.data.buildGradeTrend
 import com.clhs.score.data.cleanSubjectName
 import com.clhs.score.ui.theme.ScoreTheme
 import com.clhs.score.viewmodel.GradesUiState
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -199,6 +200,51 @@ class ScoreUiTest {
     }
 
     @Test
+    fun gradeSelectorsHonorReturningToCurrentOptionsWhileLoading() {
+        var loading by mutableStateOf(false)
+        val requestedExams = mutableListOf<String>()
+        val requestedYears = mutableListOf<String>()
+        val selected = SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)
+        composeRule.setContent {
+            ScoreTheme {
+                TestGradesScreen(
+                    isLoadingGrades = loading,
+                    onSelectYear = { requestedYears += it },
+                    onSelectExam = {
+                        requestedExams += it
+                        loading = true
+                    },
+                )
+            }
+        }
+        settleUi()
+
+        // Unchanged selections are no-ops while idle.
+        composeRule.onAllNodesWithContentDescription("選擇學期").onFirst().performClick()
+        composeRule.onNode(hasText("114學年度 上學期") and selected).performClick()
+        settleUi()
+        composeRule.onAllNodesWithContentDescription("選擇考試").onFirst().performClick()
+        composeRule.onNode(hasText("期末考") and selected).performClick()
+        settleUi()
+
+        // The displayed report remains E2 while E1 is loading; E2 must still dispatch.
+        composeRule.onAllNodesWithContentDescription("選擇考試").onFirst().performClick()
+        composeRule.onNode(hasText("期中考") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, false)).performClick()
+        settleUi()
+        composeRule.onAllNodesWithContentDescription("選擇考試").onFirst().performClick()
+        composeRule.onNode(hasText("期末考") and selected).performClick()
+        settleUi()
+        composeRule.onAllNodesWithContentDescription("選擇學期").onFirst().performClick()
+        composeRule.onNode(hasText("114學年度 上學期") and selected).performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(listOf("E1", "E2"), requestedExams)
+            assertEquals(listOf("114_1"), requestedYears)
+        }
+    }
+
+    @Test
     fun overviewRemainsReachableInSmallWindowWithLargeText() {
         composeRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f, 2f)) {
@@ -339,6 +385,9 @@ class ScoreUiTest {
         isLoadingTrend: Boolean = false,
         showTrend: Boolean = true,
         trendError: String? = null,
+        isLoadingGrades: Boolean = false,
+        onSelectYear: (String) -> Unit = {},
+        onSelectExam: (String) -> Unit = {},
     ) {
         val report = MockGradeSystem.generateReport(StudentScenario.NORMAL)
         val analysis = buildGradeAnalysis(report)
@@ -371,13 +420,14 @@ class ScoreUiTest {
                 report = report,
                 analysis = analysis,
                 isLoadingTrend = isLoadingTrend,
+                isLoadingGrades = isLoadingGrades,
                 trendError = trendError,
                 trend = trend,
                 expandedSubjectKeys = expanded,
             ),
             snackbarHost = {},
-            onSelectYear = {},
-            onSelectExam = {},
+            onSelectYear = onSelectYear,
+            onSelectExam = onSelectExam,
             onReload = {},
             onToggleSubject = { subjectName ->
                 val key = cleanSubjectName(subjectName)
