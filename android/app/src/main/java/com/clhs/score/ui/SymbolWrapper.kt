@@ -17,10 +17,13 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontSynthesis
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.clhs.score.R
 
 private val MaterialSymbolsRoundedOutline =
@@ -99,6 +102,9 @@ private fun MaterialSymbol(
             lineHeight = lineHeight,
             textAlign = TextAlign.Center,
             style = TextStyle(
+                fontWeight = FontWeight.Normal,
+                fontSynthesis = FontSynthesis.None,
+                letterSpacing = 0.sp,
                 fontFeatureSettings = "liga",
                 baselineShift = BaselineShift(-0.05f),
             ),
