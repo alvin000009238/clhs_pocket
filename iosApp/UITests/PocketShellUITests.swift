@@ -219,6 +219,28 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(issues.isEmpty, issues.joined(separator: "\n"))
     }
 
+    func testScheduleImageIsSavedToPhotos() {
+        launch(onboarded: true, session: "demo", extra: ["-initialTab", "schedule"])
+        let menu = app.buttons["schedule-menu"].firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 10))
+        menu.tap()
+        let save = app.buttons["schedule-save-photo"].firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        save.tap()
+        // First use asks for add-only access to Photos.
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for label in ["Allow", "允許", "OK", "好"] {
+            let button = springboard.alerts.buttons[label]
+            if button.waitForExistence(timeout: label == "Allow" ? 5 : 1) {
+                button.tap()
+                break
+            }
+        }
+        XCTAssertTrue(app.alerts.staticTexts["已儲存到照片。"].waitForExistence(timeout: 10))
+        capture("44-schedule-saved-to-photos")
+        app.alerts.buttons["好"].tap()
+    }
+
     func testGradeDetailAndSimulator() {
         launch(onboarded: true, session: "demo")
         tab("成績").tap()
@@ -478,6 +500,31 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertFalse(app.buttons["sign-out"].exists)
         XCTAssertFalse(app.navigationBars["個人"].exists)
         capture("84-lock-over-personal-sheet")
+    }
+
+    /// Production mode as a guest: the public widgets are fed by the live services. What they
+    /// show depends on the network, so this only records the screens.
+    func testProductionGuestHomeShowsPublicWidgets() {
+        launch(onboarded: true, session: "guest", dataMode: "live")
+        let edit = app.buttons["home-edit"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 6)
+        capture("85-live-guest-home")
+        reveal(edit)
+        edit.tap()
+        let add = app.buttons["add-widget-youbike"]
+        XCTAssertTrue(app.buttons["dashboard-done"].waitForExistence(timeout: 5))
+        if add.exists || { app.swipeUp(); return add.exists }() {
+            reveal(add)
+            add.tap()
+        }
+        for _ in 0..<3 where !app.buttons["dashboard-done"].isHittable { app.swipeDown() }
+        app.buttons["dashboard-done"].tap()
+        let bike = app.descendants(matching: .any)["widget-youbike"]
+        for _ in 0..<5 where !bike.exists { app.swipeUp() }
+        XCTAssertTrue(bike.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 6)
+        capture("86-live-guest-youbike")
     }
 
     /// Production mode: a guest sees real public data and the school's own sign-in page.

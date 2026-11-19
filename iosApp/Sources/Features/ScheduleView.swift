@@ -112,15 +112,14 @@ struct ScheduleView: View {
             photoMessage = "無法產生課表圖片。"
             return
         }
-        guard await PHPhotoLibrary.requestAuthorization(for: .addOnly) == .authorized else {
-            photoMessage = "尚未允許加入照片。請到「設定」›「壢中 Pocket」›「照片」開啟後再試一次。"
+        guard let data = image.pngData() else {
+            photoMessage = "無法產生課表圖片。"
             return
         }
-        do {
-            try await PHPhotoLibrary.shared().performChanges { PHAssetChangeRequest.creationRequestForAsset(from: image) }
-            photoMessage = "已儲存到照片。"
-        } catch {
-            photoMessage = "儲存失敗，請再試一次。"
+        switch await SchedulePhotoSaver.save(png: data) {
+        case .saved: photoMessage = "已儲存到照片。"
+        case .denied: photoMessage = "尚未允許加入照片。請到「設定」›「壢中 Pocket」›「照片」開啟後再試一次。"
+        case .failed: photoMessage = "儲存失敗，請再試一次。"
         }
     }
 
@@ -544,5 +543,22 @@ private struct ScheduleCellSheet: View {
         .padding(.horizontal, 12)
         .frame(minHeight: 48)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Photos calls its handlers on its own queues, so nothing here may be tied to the main actor.
+private enum SchedulePhotoSaver {
+    enum Outcome { case saved, denied, failed }
+
+    nonisolated static func save(png: Data) async -> Outcome {
+        guard await PHPhotoLibrary.requestAuthorization(for: .addOnly) == .authorized else { return .denied }
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: png, options: nil)
+            }
+            return .saved
+        } catch {
+            return .failed
+        }
     }
 }
