@@ -122,6 +122,7 @@ private struct PeriodBadge: View {
 private struct LessonLockScreenView: View {
     let state: LessonActivityAttributes.ContentState
     let isStale: Bool
+    @ScaledMetric(relativeTo: .subheadline) private var timerWidth: CGFloat = 46
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -137,7 +138,9 @@ private struct LessonLockScreenView: View {
                 Spacer(minLength: 8)
                 HStack(spacing: 4) {
                     if !isStale { Text(state.isInClass ? "剩" : "還有") }
+                    // A timer text takes all offered width, so it gets a fixed slot.
                     LessonCountdown(state: state, isStale: isStale)
+                        .frame(width: timerWidth, alignment: .trailing)
                 }
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(PocketColor.onPrimaryContainer)

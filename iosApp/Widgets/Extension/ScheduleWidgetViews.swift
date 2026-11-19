@@ -71,6 +71,24 @@ private struct StatusLine: View {
     }
 }
 
+/// A timer text takes all the width it is offered, so it gets a fixed slot
+/// that still grows with Dynamic Type.
+private struct Countdown: View {
+    let from: Date
+    let until: Date
+    @ScaledMetric(relativeTo: .caption) private var width: CGFloat = 38
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Text("剩")
+            Text(timerInterval: from...until, countsDown: true)
+                .monospacedDigit()
+                .frame(width: width, alignment: .leading)
+        }
+        .lineLimit(1)
+    }
+}
+
 /// Self-updating countdown; WidgetKit animates it without extra entries.
 private struct LessonClock: View {
     let glance: ScheduleGlance
@@ -78,13 +96,11 @@ private struct LessonClock: View {
     let ink: Ink
 
     var body: some View {
-        Group {
+        HStack(spacing: 4) {
             if glance.state == .inClass, glance.date < lesson.end {
-                HStack(spacing: 3) {
-                    Text("剩")
-                    Text(timerInterval: glance.date...lesson.end, countsDown: true)
-                        .monospacedDigit()
-                }
+                Countdown(from: glance.date, until: lesson.end)
+                Spacer(minLength: 0)
+                Text(lesson.endText).monospacedDigit()
             } else {
                 Text(lesson.timeText).monospacedDigit()
             }
@@ -267,7 +283,7 @@ private struct LargeScheduleView: View {
     let glance: ScheduleGlance
 
     private var title: String {
-        guard let focus = glance.focus else { return "課表" }
+        guard glance.focus != nil else { return "課表" }
         let today = glance.state == .inClass || glance.nextIsToday
         return today ? "今天的課表" : "\(glance.nextDayLabel)的課表"
     }
@@ -336,15 +352,9 @@ private struct LargeRow: View {
                 .privacySensitive()
             Spacer(minLength: 4)
             if isCurrent, glance.date < lesson.end {
-                HStack(spacing: 3) {
-                    Text("剩")
-                    Text(timerInterval: glance.date...lesson.end, countsDown: true)
-                        .monospacedDigit()
-                        .multilineTextAlignment(.trailing)
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(ink.strong)
-                .fixedSize()
+                Countdown(from: glance.date, until: lesson.end)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(ink.strong)
             } else if !lesson.classroom.isEmpty {
                 Text(lesson.classroom)
                     .font(.caption)
