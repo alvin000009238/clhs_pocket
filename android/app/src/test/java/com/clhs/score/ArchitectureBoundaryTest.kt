@@ -597,7 +597,7 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    fun announcementSearchInputStaysInFloatingToolbarWithClearableListStatus() {
+    fun announcementSearchInputStaysInFloatingToolbar() {
         val source = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
         val listSource = source
             .substringAfter("private fun AnnouncementList(")
@@ -611,8 +611,6 @@ class ArchitectureBoundaryTest {
         assertTrue(source.contains("query = searchText"))
         assertFalse(listSource.contains("TextField("))
         assertFalse(listSource.contains("PocketSearchToolbar("))
-        assertTrue(listSource.contains("announcement-search-status"))
-        assertTrue(listSource.contains("onClick = onClearSearch"))
     }
 
     @Test

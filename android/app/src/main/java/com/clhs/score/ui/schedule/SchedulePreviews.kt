@@ -42,6 +42,7 @@ class CustomizationStateProvider : androidx.compose.ui.tooling.preview.PreviewPa
 
 @Preview(name = "自訂科目 · 狀態", widthDp = 390, heightDp = 844)
 @Preview(name = "自訂科目 · 短視窗大字體", widthDp = 640, heightDp = 320, fontScale = 2f)
+@Preview(name = "自訂科目 · 窄短視窗大字體", widthDp = 320, heightDp = 400, fontScale = 2f)
 @Composable
 private fun ScheduleCustomizationStatePreview(
     @androidx.compose.ui.tooling.preview.PreviewParameter(CustomizationStateProvider::class)
