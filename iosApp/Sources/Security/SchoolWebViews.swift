@@ -95,6 +95,8 @@ struct SchoolWebPageState: Equatable {
     var title = ""
     var isLoading = true
     var progress = 0.0
+    /// The page could not be loaded (no connection, or the school system is down).
+    var loadFailed = false
 }
 
 /// School login in a web view, where the student types the account, password and captcha directly
@@ -265,8 +267,16 @@ final class SchoolWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, 
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
     }
 
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        // A navigation the policy refused, or one replaced by a newer one, is not a connection problem.
+        let code = (error as NSError).code
+        if code == NSURLErrorCancelled || code == 102 { return }
+        page.wrappedValue.loadFailed = true
+    }
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         loginHandled = false
+        page.wrappedValue.loadFailed = false
         if SchoolWebPolicy.isLoginPage(webView.url) {
             onAuthenticationExpired?()
         }
@@ -391,6 +401,9 @@ struct SchoolLoginScreen: View {
             ZStack(alignment: .top) {
                 SchoolLoginWebView(page: $page, reloadToken: reloadToken, onLogin: onLogin)
                     .ignoresSafeArea(.container, edges: .bottom)
+                if page.loadFailed {
+                    SchoolWebLoadFailure { reloadToken += 1 }
+                }
                 if page.isLoading || isVerifying {
                     ProgressView(value: isVerifying ? nil : page.progress)
                         .progressViewStyle(.linear)
@@ -435,6 +448,44 @@ struct SchoolLoginScreen: View {
                 .accessibilityIdentifier("login-error")
             }
         }
+    }
+}
+
+/// Shown over the web view when the school page cannot be reached.
+struct SchoolWebLoadFailure: View {
+    let onRetry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(PocketColor.onSecondaryContainer)
+                .frame(width: 72, height: 72)
+                .background(PocketColor.secondaryContainer, in: Circle())
+                .accessibilityHidden(true)
+            Text("無法連線到學校系統")
+                .font(PocketFont.sectionTitle)
+                .foregroundStyle(PocketColor.onSurface)
+            Text("請確認網路連線，或稍後再試。學校系統在維護時也會暫時無法登入。")
+                .font(.callout)
+                .foregroundStyle(PocketColor.onSurfaceVariant)
+                .multilineTextAlignment(.center)
+            Button(action: onRetry) {
+                Label("重新載入", systemImage: "arrow.clockwise")
+                    .font(.headline)
+                    .foregroundStyle(PocketColor.onPrimary)
+                    .padding(.horizontal, 28)
+                    .frame(minHeight: 52)
+                    .background(PocketColor.primary, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+            .accessibilityIdentifier("login-retry")
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: 420)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PocketColor.background)
     }
 }
 
