@@ -4,6 +4,7 @@ import SwiftUI
 
 struct GradesView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var examValue: String?
 
     var body: some View {
@@ -21,7 +22,10 @@ struct GradesView: View {
                         }
                         AnalysisCard(analysis: PocketGrades.shared.analysis(examValue: report.examValue, unused: false))
                         if !report.strengths.isEmpty || !report.weaknesses.isEmpty {
-                            HStack(alignment: .top, spacing: PocketMetrics.cardSpacing) {
+                            let layout = typeSize.isAccessibilitySize
+                                ? AnyLayout(VStackLayout(spacing: PocketMetrics.cardSpacing))
+                                : AnyLayout(HStackLayout(alignment: .top, spacing: PocketMetrics.cardSpacing))
+                            layout {
                                 InsightCard(title: "表現亮眼", systemImage: "arrow.up.right", tone: PocketColor.positive, items: report.strengths)
                                 InsightCard(title: "可以加強", systemImage: "arrow.down.right", tone: PocketColor.negative, items: report.weaknesses)
                             }
@@ -62,7 +66,10 @@ struct GradesView: View {
     }
 
     private func actions(report: PocketGradeReport) -> some View {
-        HStack(spacing: PocketMetrics.cardSpacing) {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: PocketMetrics.cardSpacing))
+            : AnyLayout(HStackLayout(spacing: PocketMetrics.cardSpacing))
+        return layout {
             NavigationLink(value: PocketRoute.simulator(exam: report.examValue)) {
                 actionLabel("成績模擬器", "slider.horizontal.3")
             }
@@ -242,7 +249,8 @@ private struct GradeTrendCard: View {
                     }
                 }
                 .frame(height: 132)
-                .accessibilityLabel("本學期平均走勢")
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                .accessibilityLabel("本學期平均走勢：" + report.trend.map { "\($0.examName) \($0.averageText)" }.joined(separator: "，"))
             }
         }
     }

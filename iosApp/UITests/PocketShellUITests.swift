@@ -143,7 +143,7 @@ final class PocketShellUITests: XCTestCase {
         capture("21-dashboard-add")
         for _ in 0..<3 where !app.buttons["dashboard-row-1"].isHittable { app.swipeDown() }
         app.buttons["dashboard-row-1"].tap()
-        XCTAssertTrue(app.buttons["widget-remove"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.segmentedControls["widget-size"].waitForExistence(timeout: 5))
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "choice-")).element(boundBy: 1).tap()
         capture("22-widget-settings-weather")
         app.navigationBars.buttons.firstMatch.tap()
@@ -156,6 +156,7 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         title.tap()
         title.typeText("畢業旅行\n")
+        reveal(app.buttons["countdown-apply"])
         app.buttons["countdown-apply"].tap()
         capture("23-widget-settings-countdown")
         app.navigationBars.buttons.firstMatch.tap()
@@ -356,7 +357,18 @@ final class PocketShellUITests: XCTestCase {
 
     /// Scrolls until the element can be tapped.
     private func reveal(_ element: XCUIElement) {
-        for _ in 0..<6 where !(element.exists && element.isHittable) { app.swipeUp() }
+        let screen = app.windows.firstMatch.frame
+        for _ in 0..<8 {
+            guard element.exists, element.isHittable else { app.swipeUp(); continue }
+            // Hittable rows can still sit under the navigation bar or the floating tab bar.
+            if element.frame.midY < screen.minY + 120 {
+                app.swipeDown(velocity: .slow)
+            } else if element.frame.midY > screen.maxY - 110 {
+                app.swipeUp(velocity: .slow)
+            } else {
+                return
+            }
+        }
     }
 
     private func toggle(_ identifier: String) {

@@ -3,6 +3,7 @@ import SwiftUI
 struct PersonalView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showingLogin = false
 
     var body: some View {
@@ -99,12 +100,22 @@ struct PersonalView: View {
                 Image(systemName: icon)
                     .foregroundStyle(PocketColor.primary)
                     .frame(width: 28)
-                Text(title).foregroundStyle(PocketColor.onSurface)
-                Spacer(minLength: 8)
-                Text(value)
-                    .monospacedDigit()
-                    .foregroundStyle(PocketColor.onSurfaceVariant)
-                    .multilineTextAlignment(.trailing)
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title).foregroundStyle(PocketColor.onSurface)
+                        if !value.isEmpty {
+                            Text(value).font(.subheadline).monospacedDigit().foregroundStyle(PocketColor.onSurfaceVariant)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                } else {
+                    Text(title).foregroundStyle(PocketColor.onSurface)
+                    Spacer(minLength: 8)
+                    Text(value)
+                        .monospacedDigit()
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                        .multilineTextAlignment(.trailing)
+                }
                 Image(systemName: "chevron.right")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(PocketColor.outline)
@@ -198,7 +209,7 @@ struct PersonalView: View {
     private func actionRow(_ icon: String, _ title: String, tint: Color) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon).frame(width: 28)
-            Text(title)
+            Text(title).multilineTextAlignment(.leading)
             Spacer()
         }
         .foregroundStyle(tint)

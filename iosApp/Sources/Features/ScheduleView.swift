@@ -98,6 +98,8 @@ struct ScheduleView: View {
                     .font(PocketFont.sectionTitle)
                     .monospacedDigit()
                     .foregroundStyle(PocketColor.onSurface)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
                     .accessibilityIdentifier("schedule-range")
                 Spacer(minLength: 8)
                 if !showsSemester {
@@ -114,7 +116,16 @@ struct ScheduleView: View {
                     .buttonBorderShape(.capsule)
                 }
             }
-            HStack(spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { subtitle(schedule) }
+                VStack(alignment: .leading, spacing: 6) { subtitle(schedule) }
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+
+    @ViewBuilder
+    private func subtitle(_ schedule: PocketSchedule) -> some View {
                 Text(showsSemester ? "\(schedule.className) · 固定課表" : schedule.className)
                     .font(.subheadline)
                     .foregroundStyle(PocketColor.onSurfaceVariant)
@@ -126,16 +137,12 @@ struct ScheduleView: View {
                         background: PocketColor.tertiaryContainer
                     )
                 }
-                Spacer(minLength: 8)
                 if !showsSemester, weekOffset != 0 {
                     Button("回到本週") { weekOffset = 0 }
                         .font(.subheadline.weight(.semibold))
                         .frame(minHeight: 32)
                         .accessibilityIdentifier("schedule-this-week")
                 }
-            }
-        }
-        .padding(.horizontal, 4)
     }
 }
 
@@ -164,6 +171,8 @@ private struct ScheduleGrid: View {
                             Text(day.dateText)
                                 .font(.caption2)
                                 .monospacedDigit()
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.5)
                         }
                     }
                     .foregroundStyle(day.isToday ? PocketColor.onPrimary : PocketColor.onSurfaceVariant)

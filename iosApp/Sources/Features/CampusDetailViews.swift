@@ -252,6 +252,8 @@ struct CalendarListView: View {
                     Text(data.title)
                         .font(PocketFont.cardTitle)
                         .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                         .foregroundStyle(PocketColor.onSurface)
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("calendar-title")
@@ -296,6 +298,9 @@ struct CalendarListView: View {
                 Text(day.dayText)
                     .font(.body.weight(day.isToday ? .bold : .regular))
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                     .foregroundStyle(
                         selected ? PocketColor.onPrimary
                             : day.isToday ? PocketColor.primary

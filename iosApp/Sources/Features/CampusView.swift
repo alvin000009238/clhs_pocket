@@ -201,6 +201,7 @@ struct EventRows: View {
                             .monospacedDigit()
                     }
                     .foregroundStyle(event.isOngoing ? PocketColor.onPrimary : PocketColor.onPrimaryContainer)
+                    .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                     .frame(width: 46, height: 46)
                     .background(
                         event.isOngoing ? PocketColor.primary : PocketColor.primaryContainer,

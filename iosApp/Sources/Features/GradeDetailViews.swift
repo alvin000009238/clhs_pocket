@@ -146,6 +146,7 @@ private struct SubjectTrendCard: View {
                     }
                 }
                 .frame(height: 150)
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .accessibilityLabel("本學期走勢：" + detail.trend.map { "\($0.examName) \($0.averageText) 分" }.joined(separator: "，"))
             }
         }
@@ -241,6 +242,7 @@ private struct DistributionCard: View {
                     }
                 }
                 .frame(height: 150)
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .accessibilityLabel("班級分數分布：" + detail.distribution.map { "\($0.label) 分 \($0.count) 人" }.joined(separator: "，"))
                 if !detail.distributionSummary.isEmpty {
                     Text(detail.distributionSummary)
