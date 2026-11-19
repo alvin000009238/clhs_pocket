@@ -14,11 +14,13 @@ class DemoPocketDataSourceTest {
     private fun wednesday(hour: Int, minute: Int) = PocketClock(2026, 11, 18, 3, hour * 60 + minute)
 
     @Test
-    fun civilDatesRoundTripAcrossMonthAndYearBoundaries() {
-        assertEquals(CivilDate(2026, 11, 18), civilDateOf(epochDayOf(2026, 11, 18)))
-        assertEquals(CivilDate(2027, 1, 1), civilDateOf(epochDayOf(2026, 12, 31) + 1))
-        assertEquals(CivilDate(2028, 2, 29), civilDateOf(epochDayOf(2028, 3, 1) - 1))
-        assertEquals(3, dayOfWeekOf(epochDayOf(2026, 11, 18)))
+    fun homeListsComeFromTheSharedOverviewSelection() {
+        val home = source.home(wednesday(10, 35))
+        // Unread first, then pinned: the shared announcement priority order.
+        assertEquals(listOf("45072", "45068", "45055"), home.announcements.map { it.id })
+        assertEquals(listOf("demo-e1", "demo-e2", "demo-e3"), home.events.map { it.id })
+        assertTrue(home.events.first().isOngoing)
+        assertEquals(listOf("8", "51"), home.countdowns.map { it.label })
     }
 
     @Test
@@ -35,6 +37,31 @@ class DemoPocketDataSourceTest {
         val fridayEvening = assertNotNull(source.home(PocketClock(2026, 11, 20, 5, 18 * 60)).hero)
         assertTrue(fridayEvening.courseName.startsWith("週一 "))
         assertNull(fridayEvening.nextLine)
+    }
+
+    @Test
+    fun cancelledLessonsAndBreaksInsideADoublePeriodAreNeverInProgress() {
+        // Monday period 4 (11:10-12:00) is cancelled this week.
+        val monday = source.schedule(PocketScheduleScope.CURRENT_WEEK, PocketClock(2026, 11, 16, 1, 11 * 60 + 30))
+        assertEquals(PocketCellStatus.NORMAL, monday.cells.first { it.id == "1-4" }.status)
+        assertTrue(monday.cells.none { it.status == PocketCellStatus.CURRENT })
+
+        // Tuesday periods 5-6 are one merged block with a break from 13:50 to 14:00.
+        fun tuesdayBlock(hour: Int, minute: Int) =
+            source.schedule(PocketScheduleScope.CURRENT_WEEK, PocketClock(2026, 11, 17, 2, hour * 60 + minute))
+                .cells.first { it.id == "2-5" }
+        assertEquals(2, tuesdayBlock(13, 30).span)
+        assertEquals(PocketCellStatus.CURRENT, tuesdayBlock(13, 30).status)
+        assertEquals(PocketCellStatus.NORMAL, tuesdayBlock(13, 55).status)
+        assertEquals(PocketCellStatus.CURRENT, tuesdayBlock(14, 0).status)
+        assertEquals(PocketCellStatus.ENDED, tuesdayBlock(14, 50).status)
+    }
+
+    @Test
+    fun heroNamesTheVeryNextPeriodEvenWhenItIsTheSameSubject() {
+        val hero = assertNotNull(source.home(PocketClock(2026, 11, 17, 2, 13 * 60 + 30)).hero)
+        assertEquals("現在上課 · 第 5 節", hero.headline)
+        assertEquals("下一堂 美術 · 14:00", hero.nextLine)
     }
 
     @Test

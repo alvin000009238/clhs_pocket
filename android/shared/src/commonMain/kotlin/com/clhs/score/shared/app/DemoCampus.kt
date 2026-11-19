@@ -1,41 +1,47 @@
 package com.clhs.score.shared.app
 
+import com.clhs.score.data.FakeData
+import com.clhs.score.data.OverviewPreferences
+import com.clhs.score.data.SchoolAnnouncement
+import com.clhs.score.data.SchoolCalendarEvent
+import com.clhs.score.domain.overview.OverviewDestination
+import com.clhs.score.domain.overview.OverviewItem
+import com.clhs.score.domain.overview.OverviewItemKind
+import com.clhs.score.domain.overview.OverviewPriority
+import com.clhs.score.domain.overview.OverviewState
+import com.clhs.score.domain.overview.OverviewWidgetConfig
+import com.clhs.score.domain.overview.importantAnnouncementsFrom
+import com.clhs.score.domain.overview.recentEvents
+import com.clhs.score.domain.overview.withPreferences
+import com.clhs.score.shared.time.LocalDate
+import com.clhs.score.shared.time.at
+import com.clhs.score.shared.time.compareTo
+import com.clhs.score.shared.time.datePart
+import com.clhs.score.shared.time.dayNumber
+import com.clhs.score.shared.time.daysUntil
+import com.clhs.score.shared.time.localTimeOf
+import com.clhs.score.shared.time.monthNumber
+import com.clhs.score.shared.time.shiftDays
+
+/**
+ * Synthetic public campus data expressed in the shared announcement, calendar and
+ * overview models, so selection, ordering and countdown text come from shared logic.
+ */
 internal object DemoCampus {
     private data class Notice(
-        val id: String,
-        val title: String,
-        val daysAgo: Int,
-        val unit: String,
-        val category: String,
+        val id: String, val title: String, val daysAgo: Int, val unit: String, val category: String,
         val pinned: Boolean = false,
-        val unread: Boolean = false,
     )
 
-    private val notices = listOf(
-        Notice("demo-45072", "圖書館閉館時間異動公告", 1, "讀者服務組", "公告", pinned = true, unread = true),
-        Notice("demo-45068", "中央研究院高中生命科學研究人才培育計畫", 1, "設備組", "最新消息", unread = true),
-        Notice("demo-45061", "第二次段考考場配置與應試注意事項", 2, "教學組", "考試"),
-        Notice("demo-45055", "校慶運動會各項競賽報名開始", 4, "體育組", "活動", unread = true),
-        Notice("demo-45049", "高一多元選修課程加退選說明", 6, "實研組", "課程"),
-        Notice("demo-45040", "獎助學金申請收件至月底截止", 9, "註冊組", "獎助學金"),
+    private val extraNotices = listOf(
+        Notice("45061", "第二次段考考場配置與應試注意事項", 2, "教學組", "考試"),
+        Notice("45055", "校慶運動會各項競賽報名開始", 4, "體育組", "活動"),
+        Notice("45049", "高一多元選修課程加退選說明", 6, "實研組", "課程"),
+        Notice("45040", "獎助學金申請收件至月底截止", 9, "註冊組", "獎助學金"),
     )
 
-    fun announcements(clock: PocketClock): List<PocketAnnouncement> {
-        val today = clock.epochDay()
-        return notices.map {
-            val date = civilDateOf(today - it.daysAgo)
-            PocketAnnouncement(
-                id = it.id,
-                title = it.title,
-                dateText = date.slashText(),
-                shortDateText = date.shortText(),
-                unit = it.unit,
-                category = it.category,
-                isPinned = it.pinned,
-                isUnread = it.unread,
-            )
-        }
-    }
+    /** Announcements a fresh install has not opened yet. */
+    val defaultUnreadIds: Set<String> = setOf("45072", "45068", "45055")
 
     private data class Event(val id: String, val title: String, val offset: Int, val length: Int = 1)
 
@@ -48,37 +54,107 @@ internal object DemoCampus {
         Event("demo-e6", "寒假開始", 58),
     )
 
-    fun events(clock: PocketClock): List<PocketEventRow> {
-        val today = clock.epochDay()
-        return calendar.map { event ->
-            val startDay = today + event.offset
-            val start = civilDateOf(startDay)
-            val end = civilDateOf(startDay + event.length - 1)
-            val ongoing = event.offset <= 0 && event.offset + event.length > 0
-            val range = if (event.length > 1) "${start.shortText()} – ${end.shortText()}" else
-                "${start.shortText()} 週${WEEKDAY_LABELS[dayOfWeekOf(startDay) - 1]}"
-            val relative = when {
-                ongoing -> "進行中"
-                event.offset == 1 -> "明天"
-                else -> "${event.offset} 天後"
-            }
-            PocketEventRow(
-                id = event.id,
-                monthText = "${start.month}月",
-                dayText = start.day.toString(),
-                title = event.title,
-                subtitle = "$range · $relative",
-                isOngoing = ongoing,
+    val defaultCountdownEventIds: Set<String> = setOf("demo-e3", "demo-e5")
+
+    fun sharedAnnouncements(clock: PocketClock): List<SchoolAnnouncement> {
+        val today = clock.date()
+        val seeded = FakeData.announcementPage.announcements.map {
+            it.copy(title = it.title.replace("八月", ""), date = today.shiftDays(-1).slashText())
+        }
+        return seeded + extraNotices.map {
+            SchoolAnnouncement(
+                id = it.id, title = it.title, date = today.shiftDays(-it.daysAgo.toLong()).slashText(),
+                category = it.category, unit = it.unit, issuer = it.unit, isPinned = it.pinned, contentType = "content",
             )
         }
     }
 
-    fun countdowns(clock: PocketClock): List<PocketCountdown> {
-        val today = clock.epochDay()
-        return listOf("demo-e3", "demo-e5").map { id ->
-            val event = calendar.first { it.id == id }
-            val date = civilDateOf(today + event.offset)
-            PocketCountdown(id, "${event.offset}", event.title, date.shortText())
+    fun sharedEvents(clock: PocketClock): List<SchoolCalendarEvent> {
+        val today = clock.date()
+        val midnight = localTimeOf(0, 0)
+        return calendar.map {
+            val start = today.shiftDays(it.offset.toLong())
+            SchoolCalendarEvent(it.id, it.title, start.at(midnight), start.shiftDays(it.length.toLong()).at(midnight), isAllDay = true)
         }
     }
+
+    /** The public half of the shared overview state for [clock]. */
+    fun overview(clock: PocketClock): OverviewState {
+        val now = clock.dateTime()
+        val events = sharedEvents(clock)
+        return OverviewState(
+            calendarEvents = events,
+            announcements = sharedAnnouncements(clock),
+            now = now,
+            isInitialLoading = false,
+            items = events.filter { it.endExclusive > now }.map {
+                OverviewItem(
+                    id = "event-${it.id}", priority = OverviewPriority.P2, kind = OverviewItemKind.CalendarEvent,
+                    title = it.title, supportingText = "", label = "行事曆", icon = "event",
+                    destination = OverviewDestination.CalendarEvent(it.id), eventTime = it.start,
+                    displayDate = it.start.datePart(),
+                )
+            },
+        )
+    }
+
+    fun announcementRow(item: SchoolAnnouncement, unreadIds: Set<String>): PocketAnnouncement = PocketAnnouncement(
+        id = item.id,
+        title = item.title,
+        dateText = item.date,
+        shortDateText = item.date.substringAfter('/').split('/').joinToString("/") { it.trimStart('0') },
+        unit = item.unit,
+        category = item.category,
+        isPinned = item.isPinned,
+        isUnread = item.id in unreadIds,
+    )
+
+    fun announcements(clock: PocketClock, unreadIds: Set<String> = defaultUnreadIds): List<PocketAnnouncement> =
+        sharedAnnouncements(clock).map { announcementRow(it, unreadIds) }
+
+    /** Home list: unread, pinned and bookmarked first, as selected by the shared overview logic. */
+    fun importantAnnouncements(
+        clock: PocketClock, limit: Int, unreadIds: Set<String> = defaultUnreadIds, bookmarkedIds: Set<String> = emptySet(),
+    ): List<PocketAnnouncement> {
+        val all = sharedAnnouncements(clock).associateBy { it.id }
+        return overview(clock)
+            .importantAnnouncementsFrom(OverviewWidgetConfig.ListItems(limit), unreadIds, all.values.filter { it.id in bookmarkedIds })
+            .mapNotNull { all[(it.destination as? OverviewDestination.Announcement)?.id] }
+            .map { announcementRow(it, unreadIds) }
+    }
+
+    fun eventRow(event: SchoolCalendarEvent, today: LocalDate): PocketEventRow {
+        val start = event.start.datePart()
+        val last = event.endExclusive.datePart().shiftDays(-1)
+        val offset = today.daysUntil(start)
+        val ongoing = offset <= 0 && today <= last
+        val range = if (start.daysUntil(last) > 0) "${start.shortText()} – ${last.shortText()}" else
+            "${start.shortText()} 週${start.weekdayLabel()}"
+        val relative = when {
+            ongoing -> "進行中"
+            offset < 0 -> "已結束"
+            offset == 1L -> "明天"
+            else -> "$offset 天後"
+        }
+        return PocketEventRow(
+            id = event.id,
+            monthText = "${start.monthNumber()}月",
+            dayText = start.dayNumber().toString(),
+            title = event.title,
+            subtitle = "$range · $relative",
+            isOngoing = ongoing,
+        )
+    }
+
+    fun events(clock: PocketClock, limit: Int = 20): List<PocketEventRow> {
+        val byId = sharedEvents(clock).associateBy { it.id }
+        return overview(clock).recentEvents(OverviewWidgetConfig.ListItems(limit))
+            .mapNotNull { byId[(it.destination as? OverviewDestination.CalendarEvent)?.id] }
+            .map { eventRow(it, clock.date()) }
+    }
+
+    fun countdowns(clock: PocketClock, eventIds: Set<String> = defaultCountdownEventIds): List<PocketCountdown> =
+        overview(clock).withPreferences(OverviewPreferences(countdownEventIds = eventIds)).countdowns.map {
+            PocketCountdown(it.id, it.label.removeSuffix(" 天"), it.title, it.supportingText.removeSuffix(" 開始"))
+        }
 }
