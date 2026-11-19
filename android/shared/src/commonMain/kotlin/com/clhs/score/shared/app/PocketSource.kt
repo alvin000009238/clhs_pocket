@@ -24,6 +24,9 @@ import com.clhs.score.data.parseYearTerm
 import com.clhs.score.data.parseYearTermOrNull
 import com.clhs.score.domain.overview.WeatherSnapshot
 import com.clhs.score.shared.time.LocalDate
+import com.clhs.score.shared.time.monthNumber
+import com.clhs.score.shared.time.shiftDays
+import com.clhs.score.shared.time.yearNumber
 
 /**
  * Raw data behind every Swift-facing facade in this package. The demo source is the
@@ -57,11 +60,30 @@ internal interface PocketSource {
 
 internal object DemoSource : PocketSource {
     override val isDemo = true
-    override val structure get() = FakeData.structure
+    /** Set from the app clock so the synthetic terms and timestamps agree with the date on screen. */
+    var today: LocalDate? = null
+
+    // The fixtures end in academic year 114; relabel them so the newest term is the clock's term.
+    private val yearShift: Int
+        get() = today?.let { date ->
+            val academicYear = date.yearNumber() - 1911 - if (date.monthNumber() < 8) 1 else 0
+            academicYear - (FakeData.structure.maxOfOrNull { parseYearTerm(it.value, "0", "0").first.toIntOrNull() ?: 0 } ?: academicYear)
+        } ?: 0
+
+    override val structure: List<YearTermOption>
+        get() = yearShift.let { shift ->
+            if (shift == 0) FakeData.structure else FakeData.structure.map { term ->
+                val year = parseYearTerm(term.value, "0", "0").first
+                term.copy(text = term.text.replaceFirst(year, ((year.toIntOrNull() ?: 0) + shift).toString()))
+            }
+        }
     override val currentYearValue get() = FakeData.CURRENT_YEAR_VALUE
     override val currentExamValue get() = FakeData.CURRENT_EXAM_VALUE
     override val studentInfo get() = FakeData.latestReport().studentInfo
-    override fun report(yearValue: String, examValue: String) = FakeData.reportFor(yearValue, examValue)
+    override fun report(yearValue: String, examValue: String): GradeReport = FakeData.reportFor(yearValue, examValue).let { report ->
+        val date = today ?: return@let report
+        report.copy(studentInfo = report.studentInfo.copy(updatedAt = date.shiftDays(-2).slashText().replace('/', '-')))
+    }
 
     override val scheduleClasses get() = FakeScheduleData.classes
     override fun schedule(scope: ScheduleScope, today: LocalDate, classValue: String): ScheduleReport {
@@ -213,6 +235,9 @@ object PocketData {
     val isDemo: Boolean get() = current.isDemo
 
     fun useDemo() { current = DemoSource }
+
+    /** The demo fixtures follow this date (academic year labels, "updated at"). */
+    fun setDemoDate(clock: PocketClock) { DemoSource.today = clock.date() }
     fun useLive() { current = PocketLive }
 }
 

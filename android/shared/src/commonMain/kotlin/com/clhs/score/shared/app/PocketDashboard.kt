@@ -109,7 +109,7 @@ object PocketDashboard {
         unreadIds: Set<String>, bookmarkedIds: Set<String>,
     ): List<PocketWidget> {
         val instances = decode(layout).filter { it.enabled && OverviewWidgetDefinitions[it.type] != null && it.type in symbols }
-        val placements = fillTrailingColumns(OverviewLayoutEngine.pack(instances, columns), columns).associateBy { it.id }
+        val placements = OverviewLayoutEngine.pack(instances, columns).associateBy { it.id }
         val overview = DemoCampus.overview(clock)
         return instances.mapNotNull { widget ->
             val place = placements[widget.id] ?: return@mapNotNull null
@@ -179,28 +179,6 @@ object PocketDashboard {
     private fun String.slashDate(): String = isoDate.replace(this) { match ->
         val (year, month, day) = match.destructured
         "$year/${month.toInt()}/${day.toInt()}"
-    }
-
-    /**
-     * On wide grids the shared reading-order packing leaves the columns to the right of a
-     * row's last widget empty. Rendering stretches that widget across them so tablets get
-     * full-width rows; stored sizes and the packing itself are unchanged.
-     */
-    internal fun fillTrailingColumns(placements: List<OverviewPlacement>, columns: Int): List<OverviewPlacement> {
-        if (columns <= 4) return placements
-        val occupied = placements.flatMap { place ->
-            (place.row until place.row + place.rows).flatMap { y -> (place.column until place.column + place.columns).map { x -> x to y } }
-        }.toMutableSet()
-        return placements.map { place ->
-            var width = place.columns
-            while (place.column + width < columns &&
-                (place.row until place.row + place.rows).none { y -> (place.column + width) to y in occupied }
-            ) {
-                for (y in place.row until place.row + place.rows) occupied += (place.column + width) to y
-                width++
-            }
-            place.copy(columns = width)
-        }
     }
 
     fun widgetTypes(layout: String): List<PocketWidgetType> {

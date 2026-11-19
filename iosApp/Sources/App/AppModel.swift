@@ -139,6 +139,7 @@ final class AppModel {
 
     private func syncSource() {
         if usesLiveData { PocketData.shared.useLive() } else { PocketData.shared.useDemo() }
+        PocketData.shared.setDemoDate(clock: storedClock)
     }
 
     /// Home widget layout in the shared `OverviewWidgetInstance` JSON format.
