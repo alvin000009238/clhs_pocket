@@ -37,6 +37,22 @@ targets:
           fi
           cd "$SRCROOT/../android"
           ./gradlew :shared:embedAndSignAppleFrameworkForXcode
+  CLHSPocketTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Tests
+    dependencies:
+      - target: CLHSPocket
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.clhs.pocket.ios.tests
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/CLHSPocket.app/CLHSPocket"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../android/shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
   CLHSPocketUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -57,9 +73,11 @@ schemes:
       targets:
         CLHSPocket: all
         CLHSPocketUITests: [test]
+        CLHSPocketTests: [test]
     run:
       config: Debug
     test:
       config: Debug
       targets:
+        - CLHSPocketTests
         - CLHSPocketUITests
