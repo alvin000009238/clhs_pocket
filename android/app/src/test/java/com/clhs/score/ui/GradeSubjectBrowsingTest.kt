@@ -8,10 +8,15 @@ import org.junit.Test
 class GradeSubjectBrowsingTest {
     private val baseSubject = MockGradeSystem.generateReport().subjects.first()
 
-    private fun subject(name: String, score: Double?, flunk: Boolean = false) = SubjectAnalysis(
+    private fun subject(
+        name: String,
+        score: Double?,
+        flunk: Boolean = false,
+        scoreDisplay: String = score?.toString() ?: "--",
+    ) = SubjectAnalysis(
         subject = baseSubject.copy(
             subjectName = name,
-            scoreDisplay = score?.toString() ?: "--",
+            scoreDisplay = scoreDisplay,
             score = score,
             flunk = flunk,
         ),
@@ -31,6 +36,21 @@ class GradeSubjectBrowsingTest {
         assertEquals(listOf("甲", "丙", "乙", "未公布"),
             gradeSubjectsForDisplay(subjects, GradeSubjectSort.ScoreDescending, false).map { it.subject.subjectName })
         assertEquals(listOf("未公布", "甲", "乙", "丙"), subjects.map { it.subject.subjectName })
+    }
+
+    @Test
+    fun unpublishedDisplaysStayLastEvenWithNumericRawScores() {
+        val subjects = listOf(
+            subject("待公布", 0.0, scoreDisplay = "未公布"),
+            subject("缺分", 100.0, scoreDisplay = "--"),
+            subject("低分", 40.0),
+            subject("高分", 80.0),
+        )
+
+        assertEquals(listOf("低分", "高分", "待公布", "缺分"),
+            gradeSubjectsForDisplay(subjects, GradeSubjectSort.ScoreAscending, false).map { it.subject.subjectName })
+        assertEquals(listOf("高分", "低分", "待公布", "缺分"),
+            gradeSubjectsForDisplay(subjects, GradeSubjectSort.ScoreDescending, false).map { it.subject.subjectName })
     }
 
     @Test

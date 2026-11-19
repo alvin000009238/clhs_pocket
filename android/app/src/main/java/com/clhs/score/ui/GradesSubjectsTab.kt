@@ -39,8 +39,8 @@ internal fun gradeSubjectsForDisplay(
 ): List<SubjectAnalysis> {
     val filtered = if (onlyFlunked) analyses.filter { it.subject.flunk } else analyses
     if (sort == GradeSubjectSort.SchoolOrder) return filtered
-    // Missing scores stay last in either direction; do not turn them into zeroes.
-    fun SubjectAnalysis.score() = subject.scoreDisplay.toDoubleOrNull() ?: subject.score
+    // The displayed result is authoritative: an unpublished score may still have a raw value.
+    fun SubjectAnalysis.score() = subject.scoreDisplay.toDoubleOrNull()
     return filtered.sortedWith(compareBy<SubjectAnalysis> { it.score() == null }.thenBy {
         val score = it.score() ?: 0.0
         if (sort == GradeSubjectSort.ScoreDescending) -score else score
