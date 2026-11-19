@@ -427,6 +427,8 @@ final class AppModel {
         unreadAnnouncementIds = PocketCampusStore.shared.defaultUnreadIds()
         bookmarkedAnnouncementIds = []
         weatherSource = "open-meteo"
+        lock.resetAfterDataDeletion()
+        appLockEnabled = false
         // Pending reminders, the widget snapshot and Live Activities go with the data, and the
         // notification preferences return to off so a later sign-in schedules nothing by itself.
         PlatformSettings.shared.reset()

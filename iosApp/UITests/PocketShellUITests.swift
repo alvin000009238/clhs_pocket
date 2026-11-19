@@ -11,16 +11,19 @@ final class PocketShellUITests: XCTestCase {
         app = XCUIApplication()
     }
 
-    private func launch(onboarded: Bool, session: String) {
+    private func launch(onboarded: Bool, session: String, dataMode: String = "demo", lockAuth: String = "succeed", extra: [String] = []) {
         app.launchArguments = [
             "-resetLocalState", "YES",
             "-hasCompletedOnboarding", onboarded ? "YES" : "NO",
             "-session", session,
             "-appearance", "system",
             "-demoClock", "2026-11-18T10:35",
-            "-dataMode", "demo",
-            "-lockAuth", "succeed",
-        ]
+            "-dataMode", dataMode,
+            "-lockAuth", lockAuth,
+            // A Live Activity outlives the app and makes the system relaunch it, which races the
+            // unit-test host that the same scheme starts afterwards.
+            "-platform.liveActivity", "NO",
+        ] + extra
         // Optional Dynamic Type pass, e.g. TEST_RUNNER_CONTENT_SIZE=UICTContentSizeCategoryAccessibilityXL.
         if let size = ProcessInfo.processInfo.environment["CONTENT_SIZE"], !size.isEmpty {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", size]
@@ -393,6 +396,35 @@ final class PocketShellUITests: XCTestCase {
         for _ in 0..<4 where !app.tabBars.buttons[title].exists { app.swipeDown() }
         let inTabBar = app.tabBars.buttons[title]
         return inTabBar.exists ? inTabBar : app.buttons[title].firstMatch
+    }
+
+    func testAppLockCoversTheAppUntilUnlocked() {
+        launch(onboarded: true, session: "student", lockAuth: "manual", extra: ["-appLockEnabled", "YES"])
+        let unlock = app.buttons["lock-unlock"]
+        XCTAssertTrue(unlock.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["home-edit"].isHittable)
+        capture("80-lock-screen")
+        unlock.tap()
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5) || app.buttons["home-edit"].waitForExistence(timeout: 5))
+        XCTAssertFalse(unlock.exists)
+        capture("81-unlocked-home")
+    }
+
+    /// Production mode: a guest sees real public data and the school's own sign-in page.
+    /// No credentials are entered; the page content depends on the network.
+    func testProductionGuestReachesTheSchoolLoginScreen() {
+        launch(onboarded: true, session: "guest", dataMode: "live", extra: ["-initialTab", "grades"])
+        let login = app.buttons["guest-gate-demo"]
+        XCTAssertTrue(login.waitForExistence(timeout: 10))
+        capture("82-live-guest-gate")
+        login.tap()
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 20) || app.buttons["login-retry"].waitForExistence(timeout: 5))
+        // Give the school's page time to render; the screenshot is taken either way.
+        let loading = app.staticTexts["正在載入…"]
+        let deadline = Date().addingTimeInterval(25)
+        while loading.exists, Date() < deadline { Thread.sleep(forTimeInterval: 1) }
+        Thread.sleep(forTimeInterval: 2)
+        capture("83-live-school-login")
     }
 
     private func capture(_ name: String) {

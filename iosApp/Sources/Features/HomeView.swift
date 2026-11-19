@@ -620,11 +620,16 @@ private struct YouBikeCard: View {
                     }
                     .padding(.top, 8)
                     Spacer(minLength: 12)
-                    Text("可還 \(station.docksText) · \(station.detailText)")
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(PocketColor.onSurfaceVariant)
-                        .lineLimit(2)
+                    // One fact per line so a narrow card never breaks in the middle of an item.
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("可還 \(station.docksText)")
+                        Text(station.detailText)
+                    }
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
             }

@@ -20,6 +20,7 @@ private struct SettingsForm<Content: View>: View {
     var body: some View {
         Form { content }
             .scrollContentBackground(.hidden)
+            .pocketScrollEdge()
             .background(PocketColor.background.ignoresSafeArea())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)

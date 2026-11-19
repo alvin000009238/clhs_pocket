@@ -77,6 +77,7 @@ struct PersonalView: View {
                 .frame(maxWidth: 640)
                 .pocketPage()
             }
+            .pocketScrollEdge()
             .background(PocketColor.background.ignoresSafeArea())
             .navigationTitle("個人")
             .navigationBarTitleDisplayMode(.inline)

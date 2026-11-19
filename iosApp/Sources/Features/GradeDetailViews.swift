@@ -395,13 +395,23 @@ private struct SimulatorRow: View {
     let row: PocketSimulatorRow
     let index: Int
     let edit: ((PocketSimulator) -> Void) -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            // At accessibility sizes the name gets its own line; beside the chip and score it
+            // would break after every character.
+            if typeSize.isAccessibilitySize {
                 Text(row.name)
                     .font(.body.weight(.medium))
                     .foregroundStyle(PocketColor.onSurface)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if !typeSize.isAccessibilitySize {
+                    Text(row.name)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(PocketColor.onSurface)
+                }
                 PocketChip(text: "\(row.credits) 學分")
                 Spacer(minLength: 4)
                 if row.isAdjusted {
@@ -474,10 +484,16 @@ private struct CreditsSheet: View {
                                 revision += 1
                             }
                         ), in: 1...4) {
-                            HStack {
-                                Text(row.name)
-                                Spacer()
-                                Text("\(row.credits)").monospacedDigit().foregroundStyle(PocketColor.onSurfaceVariant)
+                            ViewThatFits(in: .horizontal) {
+                                HStack {
+                                    Text(row.name).lineLimit(1)
+                                    Spacer()
+                                    Text("\(row.credits)").monospacedDigit().foregroundStyle(PocketColor.onSurfaceVariant)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(row.name)
+                                    Text("\(row.credits) 學分").monospacedDigit().foregroundStyle(PocketColor.onSurfaceVariant)
+                                }
                             }
                         }
                         .accessibilityValue("\(row.credits) 學分")

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct PocketCard<Content: View>: View {
     var fill: Color = PocketColor.surfaceLow
@@ -210,4 +211,47 @@ struct PocketPendingView: View {
         .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
         .accessibilityElement(children: .combine)
     }
+}
+
+/// Hides scrolled content behind the navigation bar: solid page colour under the bar, fading
+/// out just below it, so titles and floating bar buttons never sit on legible text. The system
+/// scroll-edge effect alone leaves text readable on iOS 26 and is absent with the iOS 18 fallback.
+private struct PocketScrollEdge: ViewModifier {
+    private static let fade: CGFloat = 14
+    /// Tallest collapsed bar; keeps the cover off the content while a large title is expanded.
+    private static let collapsedBar: CGFloat = 54
+
+    private static var statusBarHeight: CGFloat {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.first?.keyWindow?.safeAreaInsets.top ?? 0
+    }
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .top) {
+            GeometryReader { proxy in
+                let inset = proxy.safeAreaInsets.top
+                let bar = min(inset, Self.statusBarHeight + Self.collapsedBar)
+                let height = bar + Self.fade
+                PocketColor.background
+                    .mask(
+                        LinearGradient(
+                            stops: [
+                                .init(color: .black, location: 0),
+                                .init(color: .black.opacity(0.96), location: (bar - 6) / height),
+                                .init(color: .clear, location: 1),
+                            ],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+                    .frame(height: height)
+                    .offset(y: -inset)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
+extension View {
+    func pocketScrollEdge() -> some View { modifier(PocketScrollEdge()) }
 }

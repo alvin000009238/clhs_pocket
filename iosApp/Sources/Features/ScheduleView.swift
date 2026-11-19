@@ -6,6 +6,7 @@ struct ScheduleView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.colorScheme) private var colorScheme
     @State private var showsSemester = false
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var classValue = ""
     @State private var loadingClass = false
     @State private var weekOffset = 0
@@ -30,7 +31,7 @@ struct ScheduleView: View {
                 header(schedule)
 
                 if schedule.isAvailable {
-                    ScheduleGrid(schedule: schedule) { selectedCell = $0 }
+                    grid(schedule)
                         .padding(sizeClass == .regular ? 16 : 8)
                         .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
                 } else {
@@ -108,10 +109,41 @@ struct ScheduleView: View {
         return renderer.uiImage.map { Image(uiImage: $0) }
     }
 
+    /// With accessibility text five columns cannot hold a subject name, so the grid keeps a
+    /// readable column width and scrolls sideways instead.
+    @ViewBuilder
+    private func grid(_ schedule: PocketSchedule) -> some View {
+        if typeSize.isAccessibilitySize, sizeClass != .regular {
+            ScrollView(.horizontal) {
+                ScheduleGrid(schedule: schedule) { selectedCell = $0 }
+                    .frame(width: 44 + CGFloat(schedule.days.count) * 112)
+            }
+            .scrollIndicators(.visible)
+            .accessibilityIdentifier("schedule-grid-scroll")
+        } else {
+            ScheduleGrid(schedule: schedule) { selectedCell = $0 }
+        }
+    }
+
     private func header(_ schedule: PocketSchedule) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 12) {
-                Text(showsSemester ? schedule.termText : "\(schedule.rangeText) · \(schedule.weekText)")
+                Group {
+                    if showsSemester {
+                        Text(schedule.termText)
+                    } else if typeSize.isAccessibilitySize {
+                        // Range and week on their own lines; one string wraps into an orphan separator.
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(schedule.rangeText)
+                            Text(schedule.weekText)
+                                .font(.headline)
+                                .foregroundStyle(PocketColor.onSurfaceVariant)
+                        }
+                        .accessibilityElement(children: .combine)
+                    } else {
+                        Text("\(schedule.rangeText) · \(schedule.weekText)")
+                    }
+                }
                     .font(PocketFont.sectionTitle)
                     .monospacedDigit()
                     .foregroundStyle(PocketColor.onSurface)
@@ -280,6 +312,8 @@ private struct ScheduleCellView: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
                 .multilineTextAlignment(.center)
+                // The grid scrolls sideways at accessibility sizes; past this the row height cannot keep up.
+                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
             if sizeClass == .regular || cell.span > 1 {
                 Text(cell.classroom)
                     .font(.caption2)

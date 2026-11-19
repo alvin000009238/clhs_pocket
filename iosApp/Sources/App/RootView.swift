@@ -51,9 +51,11 @@ struct PocketShell: View {
                 Tab(tab.title, systemImage: tab.systemImage, value: tab) {
                     NavigationStack(path: model.path(for: tab)) {
                         root(for: tab)
+                            .pocketScrollEdge()
                             .background(PocketColor.background.ignoresSafeArea())
                             .navigationDestination(for: PocketRoute.self) { route in
                                 destination(for: route)
+                                    .pocketScrollEdge()
                                     .background(PocketColor.background.ignoresSafeArea())
                             }
                             .toolbar {

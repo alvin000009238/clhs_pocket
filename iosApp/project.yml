@@ -105,6 +105,10 @@ schemes:
       config: Debug
     test:
       config: Debug
+      # The unit-test host must not wait on a system passcode prompt or the network.
+      commandLineArguments:
+        "-dataMode demo": true
+        "-lockAuth succeed": true
       targets:
         - CLHSPocketTests
         - CLHSPocketUITests
