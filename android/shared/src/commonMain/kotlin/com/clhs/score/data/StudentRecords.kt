@@ -22,7 +22,7 @@ data class MeritRecord(
     val group: String = "",
 )
 
-internal object StudentRecordsParser {
+object StudentRecordsParser {
     private val historyFields = listOf("First", "Second", "Third", "Fourth", "Fifth")
         .flatMap { grade -> listOf("${grade}GradeFirstTerm", "${grade}GradeSecondTerm") }
 

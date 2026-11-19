@@ -1,7 +1,17 @@
 package com.clhs.score.data
 
-import java.math.BigDecimal
-import java.math.RoundingMode
+import com.clhs.score.shared.math.BigDecimal
+import com.clhs.score.shared.math.DECIMAL_ZERO
+import com.clhs.score.shared.math.RoundingMode
+import com.clhs.score.shared.math.decimalValueOf
+import com.clhs.score.shared.math.formatFixed
+import com.clhs.score.shared.math.formatLocalizedFixed
+import com.clhs.score.shared.math.minus
+import com.clhs.score.shared.math.plus
+import com.clhs.score.shared.math.times
+import com.clhs.score.shared.math.toDoubleValue
+import com.clhs.score.shared.math.toPlainDecimalOrNull
+
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -46,7 +56,7 @@ data class GradeTrendPoint(
 data class GradeTrend(
     val points: List<GradeTrendPoint>,
 ) {
-    val averageLine: String = points.joinToString(" → ") { "%.1f".format(it.weightedAverage) }
+    val averageLine: String = points.joinToString(" → ") { formatLocalizedFixed(it.weightedAverage, 1) }
 }
 
 data class HistoryExamRef(
@@ -274,7 +284,7 @@ fun deltaText(label: String, delta: Double, unit: String = ""): String {
         delta < -0.05 -> ""
         else -> ""
     }
-    return "$label $direction${"%.1f".format(delta)}$unit"
+    return "$label $direction${formatLocalizedFixed(delta, 1)}$unit"
 }
 
 fun rankDeltaText(label: String, delta: Int): String = when {
@@ -298,14 +308,14 @@ fun weightedAverageFor(
     adjustedScores: Map<String, Double> = emptyMap(),
     includedSubjects: Set<String>? = null,
     credits: Map<String, Int> = emptyMap(),
-): Double = simulatorCalculation(subjects, adjustedScores, includedSubjects, credits).weightedAverage?.toDouble() ?: 0.0
+): Double = simulatorCalculation(subjects, adjustedScores, includedSubjects, credits).weightedAverage?.toDoubleValue() ?: 0.0
 
 fun weightedTotalFor(
     subjects: List<SubjectScore>,
     adjustedScores: Map<String, Double> = emptyMap(),
     includedSubjects: Set<String>? = null,
     credits: Map<String, Int> = emptyMap(),
-): Double = simulatorCalculation(subjects, adjustedScores, includedSubjects, credits).weightedTotal?.toDouble() ?: 0.0
+): Double = simulatorCalculation(subjects, adjustedScores, includedSubjects, credits).weightedTotal?.toDoubleValue() ?: 0.0
 
 private fun simulatorCalculation(
     subjects: List<SubjectScore>,
@@ -320,7 +330,7 @@ private fun simulatorCalculation(
     return SimulatorCredits.calculate(
         active,
         credits.filterKeys { it in names },
-        includedScores.mapValues { BigDecimal.valueOf(it.value.coerceIn(0.0, 100.0)).setScale(8, RoundingMode.HALF_UP) },
+        includedScores.mapValues { decimalValueOf(it.value.coerceIn(0.0, 100.0)).setScale(8, RoundingMode.HALF_UP) },
     )
 }
 
@@ -359,7 +369,7 @@ private fun summaryText(
 ): String {
     val classRank = percentile(report.examSummary?.classRank, report.examSummary?.classCount)
     val rankPart = classRank?.let { "本次班排 ${it.rankLabel}" }
-        ?: "本次加權平均 ${"%.1f".format(report.weightedAverage())}"
+        ?: "本次加權平均 ${formatLocalizedFixed(report.weightedAverage(), 1)}"
     val levelPart = classRank?.let { "整體屬${performanceLevel(it.topPercent)}" }
     val strengthPart = strengths.takeIf { it.isNotEmpty() }?.let {
         "優勢科目為${subjectListText(it)}"
@@ -368,8 +378,8 @@ private fun summaryText(
         "待加強為${subjectListText(it)}"
     }
     val comparePart = comparison?.let {
-        if (it.averageDelta > 0.05) "較上一考進步 ${"%.1f".format(it.averageDelta)} 分"
-        else if (it.averageDelta < -0.05) "較上一考下降 ${"%.1f".format(abs(it.averageDelta))} 分"
+        if (it.averageDelta > 0.05) "較上一考進步 ${formatLocalizedFixed(it.averageDelta, 1)} 分"
+        else if (it.averageDelta < -0.05) "較上一考下降 ${formatLocalizedFixed(abs(it.averageDelta), 1)} 分"
         else "與上一考表現接近"
     }
     return listOfNotNull(rankPart, levelPart, strengthPart, weaknessPart, comparePart)
@@ -394,10 +404,10 @@ private fun standardDistance(score: Double, standard: GradeStandard): String {
     val back = standard.back
     return when {
         top != null && score >= top -> "已達頂標以上"
-        top != null && front != null && score >= front -> "距頂標 ${"%.1f".format(top - score)} 分"
-        front != null && score < front && average != null && score >= average -> "距前標 ${"%.1f".format(front - score)} 分"
-        average != null && score < average && back != null && score >= back -> "距均標 ${"%.1f".format(average - score)} 分"
-        back != null && score < back -> "低於後標 ${"%.1f".format(back - score)} 分"
+        top != null && front != null && score >= front -> "距頂標 ${formatLocalizedFixed(top - score, 1)} 分"
+        front != null && score < front && average != null && score >= average -> "距前標 ${formatLocalizedFixed(front - score, 1)} 分"
+        average != null && score < average && back != null && score >= back -> "距均標 ${formatLocalizedFixed(average - score, 1)} 分"
+        back != null && score < back -> "低於後標 ${formatLocalizedFixed(back - score, 1)} 分"
         else -> "落點資料不足"
     }
 }

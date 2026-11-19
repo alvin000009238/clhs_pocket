@@ -289,7 +289,7 @@ class OverviewCoordinator(
         reminderState.map {
             OverviewUpdate.Grades(
                 it.takeIf { state -> state.studentNo == studentNo &&
-                    (state.latestChangeSet == null || state.latestChangeSet.studentNo == studentNo) }
+                    (state.latestChangeSet?.let { changes -> changes.studentNo == studentNo } != false) }
                     ?: GradeReminderState(),
             )
         }
