@@ -399,7 +399,7 @@ final class PocketShellUITests: XCTestCase {
     }
 
     func testAppLockCoversTheAppUntilUnlocked() {
-        launch(onboarded: true, session: "student", lockAuth: "manual", extra: ["-appLockEnabled", "YES"])
+        launch(onboarded: true, session: "demo", lockAuth: "manual", extra: ["-appLockEnabled", "YES"])
         let unlock = app.buttons["lock-unlock"]
         XCTAssertTrue(unlock.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["home-edit"].isHittable)
@@ -421,7 +421,7 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 20) || app.buttons["login-retry"].waitForExistence(timeout: 5))
         // Give the school's page time to render; the screenshot is taken either way.
         let loading = app.staticTexts["正在載入…"]
-        let deadline = Date().addingTimeInterval(25)
+        let deadline = Date().addingTimeInterval(8)
         while loading.exists, Date() < deadline { Thread.sleep(forTimeInterval: 1) }
         Thread.sleep(forTimeInterval: 2)
         capture("83-live-school-login")

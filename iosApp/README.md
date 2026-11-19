@@ -59,7 +59,11 @@ xcodebuild -project CLHSPocket.xcodeproj -scheme CLHSPocket \
 | --- | --- |
 | `-demoClock 2026-11-18T10:35` | 固定示範時間，讓截圖與測試可重現 |
 | `-hasCompletedOnboarding NO` | 重新顯示歡迎畫面 |
-| `-session guest` / `demo` | 以訪客或示範帳號啟動 |
+| `-dataMode demo` | 使用示範資料；不加這個參數就是正式模式（訪客可看公開資料，登入走校務系統） |
+| `-session guest` / `demo` | 示範模式下以訪客或示範帳號啟動 |
+| `-lockAuth succeed` / `manual` | 以固定結果取代 Face ID／密碼驗證；`manual` 會停在鎖定畫面等待點按 |
+| `-appLockEnabled YES` | 啟動時開啟 App 鎖定 |
+| `-platform.liveActivity NO` | 不啟動即時動態 |
 | `-appearance system` / `light` / `dark` | 外觀 |
 | `-resetLocalState YES` | 啟動時清除本機偏好（UI 測試每次都從乾淨狀態開始） |
 | `-UIPreferredContentSizeCategoryName <類別>` | 系統參數，指定動態字級，例如 `UICTContentSizeCategoryAccessibilityXL` |
@@ -68,7 +72,7 @@ xcodebuild -project CLHSPocket.xcodeproj -scheme CLHSPocket \
 
 | 路徑 | 內容 |
 | --- | --- |
-| `Sources/App/` | `AppModel`（session、分頁、各分頁獨立導覽堆疊、本機偏好）、`RootView`、`PocketAppServices`（登入、通知、App 鎖定、資料轉移的協定與示範實作） |
+| `Sources/App/` | `AppModel`（session、分頁、各分頁獨立導覽堆疊、本機偏好）、`RootView`、`LiveData`（正式模式的資料載入與登入狀態）、`PocketAppServices`（示範模式的登入與通知權限、UI 測試用的固定驗證結果） |
 | `Sources/Theme/` | Pocket 色彩、字體、卡片與 Liquid Glass 後備 |
 | `Sources/Features/` | 歡迎與登入、首頁與小工具編輯、課表、成績（明細、模擬器）、校園（公告、行事曆、在校紀錄）、個人與設定 |
 | `Sources/Platform/` | 小工具快照發布、通知、即時動態、背景更新、Deep Link |
