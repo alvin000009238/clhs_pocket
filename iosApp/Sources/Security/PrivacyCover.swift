@@ -7,13 +7,17 @@ struct PrivacyCoverView: View {
         ZStack {
             PocketColor.background.ignoresSafeArea()
             VStack(spacing: 16) {
-                Image("PocketLogo")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 72, height: 72)
+                Image(systemName: "eye.slash.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(PocketColor.onPrimaryContainer)
+                    .frame(width: 80, height: 80)
+                    .background(PocketColor.primaryContainer, in: Circle())
                 Text("Pocket")
                     .font(PocketFont.hero)
                     .foregroundStyle(PocketColor.onSurface)
+                Text("內容已隱藏")
+                    .font(.callout)
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
             }
         }
         .accessibilityElement(children: .ignore)

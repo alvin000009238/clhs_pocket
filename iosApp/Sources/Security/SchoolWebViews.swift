@@ -506,7 +506,7 @@ struct SchoolWebHeader: View {
             }
             .accessibilityLabel("關閉")
             VStack(alignment: .leading, spacing: 2) {
-                Text(page.title.isEmpty ? "正在載入…" : page.title)
+                Text(page.title.isEmpty ? (page.isLoading ? "正在載入…" : "學校系統登入") : page.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(PocketColor.onSurface)
                     .lineLimit(1)
