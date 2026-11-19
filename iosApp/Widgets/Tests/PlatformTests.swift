@@ -387,6 +387,43 @@ final class PlatformTests: XCTestCase {
         XCTAssertTrue(grantedPassed)
     }
 
+    /// The settings screen and the scheduler read one store: switching notifications off in
+    /// 個人 › 設定 › 通知 must be what the coordinator plans from.
+    func testSettingsScreenTogglesAreThePlatformSettings() {
+        let platform = PlatformSettings.shared
+        let before = (platform.notificationsEnabled, platform.courseReminders, platform.pauseEnabled)
+        defer { (platform.notificationsEnabled, platform.courseReminders, platform.pauseEnabled) = before }
+        let model = AppModel()
+
+        platform.notificationsEnabled = true
+        XCTAssertTrue(model.notificationsEnabled)
+        model.notificationsEnabled = false
+        XCTAssertFalse(platform.notificationsEnabled)
+        XCTAssertFalse(platform.shared().notificationsEnabled)
+
+        model.notifyLessons = false
+        XCTAssertFalse(platform.courseReminders)
+        model.pauseEnabled = true
+        XCTAssertTrue(platform.pauseEnabled)
+    }
+
+    func testResetReturnsEveryPreferenceToItsFirstLaunchValue() {
+        let changed = PlatformSettings(defaults: defaults)
+        changed.notificationsEnabled = true
+        changed.courseReminders = false
+        changed.liveActivity = false
+        changed.pauseEnabled = true
+        changed.pauseStartMinute = 60
+        changed.reset()
+
+        let reloaded = PlatformSettings(defaults: defaults)
+        XCTAssertFalse(reloaded.notificationsEnabled)
+        XCTAssertTrue(reloaded.courseReminders)
+        XCTAssertTrue(reloaded.liveActivity)
+        XCTAssertFalse(reloaded.pauseEnabled)
+        XCTAssertEqual(reloaded.pauseStartMinute, 23 * 60)
+    }
+
     func testNothingIsScheduledWithoutPermission() async throws {
         let scheduler = FakeScheduler()
         await scheduler.setAuthorized(false)

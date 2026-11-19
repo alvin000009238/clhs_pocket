@@ -392,6 +392,10 @@ private struct ScheduleCellSheet: View {
         .presentationBackground(PocketColor.background)
     }
 
+    private static func clamped(_ text: String) -> String {
+        String(text.prefix(Int(PocketScheduleStore.shared.maxOverrideLength())))
+    }
+
     @ViewBuilder private var overrideSection: some View {
         if editing {
             VStack(alignment: .leading, spacing: 10) {
@@ -404,7 +408,10 @@ private struct ScheduleCellSheet: View {
                     TextField("教室（留空使用原本的）", text: $classroom)
                 }
                 .textFieldStyle(.roundedBorder)
-                Text("套用到這個科目的每一堂課，只存在這台裝置。")
+                .onChange(of: subject) { _, value in subject = Self.clamped(value) }
+                .onChange(of: teacher) { _, value in teacher = Self.clamped(value) }
+                .onChange(of: classroom) { _, value in classroom = Self.clamped(value) }
+                Text("套用到這個科目的每一堂課，只存在這台裝置。每欄最多 \(PocketScheduleStore.shared.maxOverrideLength()) 個字。")
                     .font(.footnote)
                     .foregroundStyle(PocketColor.onSurfaceVariant)
                 HStack(spacing: 12) {

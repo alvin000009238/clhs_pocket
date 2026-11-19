@@ -265,8 +265,8 @@ struct DataSettingsView: View {
                 .confirmationDialog("刪除這台裝置上的所有資料？", isPresented: $confirmingDelete, titleVisibility: .visible) {
                     Button("刪除資料", role: .destructive) {
                         Task {
-                            await model.deleteAllData()
-                            message = "已刪除資料並登出。"
+                            message = await model.deleteAllData()
+                                ? "已刪除資料並登出。" : "部分資料未能刪除，請再試一次。"
                         }
                     }
                     .accessibilityIdentifier("data-delete-confirm")

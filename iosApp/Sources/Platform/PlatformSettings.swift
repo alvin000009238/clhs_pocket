@@ -44,6 +44,18 @@ final class PlatformSettings {
         pauseEndMinute = defaults.object(forKey: Key.pauseEnd) as? Int ?? 7 * 60
     }
 
+    /// Back to first-launch values; used when the user deletes all data.
+    func reset() {
+        notificationsEnabled = false
+        courseReminders = true
+        gradeUpdates = true
+        announcements = true
+        liveActivity = true
+        pauseEnabled = false
+        pauseStartMinute = 23 * 60
+        pauseEndMinute = 7 * 60
+    }
+
     /// The quiet window follows the device's wall clock, as on Android.
     func shared(at date: Date = Date(), timeZone: TimeZone = .current) -> PlatformNotificationSettings {
         PlatformNotificationSettings(

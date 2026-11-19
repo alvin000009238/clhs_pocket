@@ -404,9 +404,20 @@ final class AppModel {
     }
 
     /// Signs out and restores every device-local preference to its default.
-    func deleteAllData() async {
-        if let live {
-            do { try await live.deleteAllData() } catch { accountError = Self.cleanupMessage(PocketError(error)) }
+    /// Returns false when part of the stored data could not be removed; the failure is also
+    /// surfaced through `accountError`. Preferences and scheduled alerts are reset either way.
+    @discardableResult
+    func deleteAllData() async -> Bool {
+        var succeeded = true
+        do {
+            if let live {
+                try await live.deleteAllData()
+            } else if let backend = transferBackend {
+                try await backend.deleteAllData()
+            }
+        } catch {
+            accountError = Self.cleanupMessage(PocketError(error))
+            succeeded = false
         }
         session = .guest
         paths = [:]
@@ -415,15 +426,13 @@ final class AppModel {
         scheduleOverrides = "[]"
         unreadAnnouncementIds = PocketCampusStore.shared.defaultUnreadIds()
         bookmarkedAnnouncementIds = []
-        notificationsEnabled = false
-        notifyLessons = true
-        notifyGrades = true
-        notifyAnnouncements = true
-        pauseEnabled = false
-        pauseStart = 23 * 60
-        pauseEnd = 7 * 60
-        Task { await PocketPlatformCoordinator.shared.refresh() }
         weatherSource = "open-meteo"
+        // Pending reminders, the widget snapshot and Live Activities go with the data, and the
+        // notification preferences return to off so a later sign-in schedules nothing by itself.
+        PlatformSettings.shared.reset()
+        await PocketPlatformCoordinator.shared.clearSessionData()
+        await PocketPlatformCoordinator.shared.refresh()
+        return succeeded
     }
 
     func replayOnboarding() {

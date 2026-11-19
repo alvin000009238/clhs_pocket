@@ -72,4 +72,18 @@ class PocketScheduleStoreTest {
         assertEquals("11/23", next.days.first().dateText)
         assertTrue(next.cells.none { it.status != PocketCellStatus.NORMAL } && next.days.none { it.isToday })
     }
+
+    @Test
+    fun overLongOverridesAreClampedOnSaveAndDroppedOnReadInsteadOfThrowing() {
+        val long = "課".repeat(200)
+        val saved = PocketScheduleStore.setOverride("[]", "國語文", long, long, long)
+        val entry = PocketScheduleStore.overrides(saved).single()
+        assertEquals(PocketScheduleStore.maxOverrideLength(), entry.subject.length)
+        assertEquals(PocketScheduleStore.maxOverrideLength(), entry.teacher.length)
+
+        // A backup written elsewhere with an over-long value must not crash the schedule.
+        val imported = """[{"originalSubjectName":"國語文","customSubjectName":"$long"},{"originalSubjectName":"數學","customSubjectName":"數甲"}]"""
+        assertEquals(listOf("數學"), PocketScheduleStore.overrides(imported).map { it.original })
+        PocketScheduleStore.schedule(PocketScheduleScope.CURRENT_WEEK, PocketClock(2026, 11, 18, 3, 635), "", 0, imported)
+    }
 }
