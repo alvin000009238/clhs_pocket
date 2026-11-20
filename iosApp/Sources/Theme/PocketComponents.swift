@@ -221,7 +221,8 @@ struct PocketPendingView: View {
         .padding(.vertical, 40)
         .padding(.horizontal, 24)
         .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
-        .accessibilityElement(children: .combine)
+        // Keep the retry button its own element instead of merging it into the message.
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -249,7 +250,8 @@ private struct PocketScrollEdge: ViewModifier {
                         LinearGradient(
                             stops: [
                                 .init(color: .black, location: 0),
-                                .init(color: .black.opacity(0.96), location: (bar - 6) / height),
+                                // Without a bar (e.g. a sheet) the stop would be negative.
+                                .init(color: .black.opacity(0.96), location: max(0, bar - 6) / height),
                                 .init(color: .clear, location: 1),
                             ],
                             startPoint: .top, endPoint: .bottom
