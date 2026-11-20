@@ -32,6 +32,16 @@ internal object DemoSchedule {
 
     private val periods = PERIOD_TIMES.mapIndexed { index, time -> PocketPeriod(index + 1, time.start, time.end) }
 
+    /** Periods 1–7 always show; period 8 and later periods only when a lesson or change uses them. */
+    private const val ALWAYS_SHOWN_PERIODS = 7
+
+    private fun period(number: Int): PocketPeriod = periods.getOrNull(number - 1) ?: PocketPeriod(number, "", "")
+
+    private fun visiblePeriods(cells: List<PocketScheduleCell>): List<PocketPeriod> {
+        val used = cells.flatMap { it.period until it.period + it.span }
+        return ((1..ALWAYS_SHOWN_PERIODS) + used).filter { it >= 1 }.distinct().sorted().map(::period)
+    }
+
     private data class Slot(
         val item: ScheduleItem, val change: PocketCellChange, val note: String, val original: String = item.subjectName,
     )
@@ -71,7 +81,7 @@ internal object DemoSchedule {
             .filter { it.type == ScheduleChangeType.REMOVED }
             .mapNotNull { change -> change.semesterItem?.let { Slot(it, PocketCellChange.CANCELLED, "本週停課") } }
         return (live + removed)
-            .filter { it.item.dayOfWeek <= SCHOOL_DAYS && it.item.period <= periods.size }
+            .filter { it.item.dayOfWeek <= SCHOOL_DAYS && it.item.period >= 1 }
             .map { it.copy(item = listOf(it.item).applySubjectOverrides(view.overrides).single()) }
     }
 
@@ -97,7 +107,7 @@ internal object DemoSchedule {
             rangeText = "${monday.shortText()} – ${monday.shiftDays(SCHOOL_DAYS - 1L).shortText()}",
             weekText = source?.weekNo?.let { "第 $it 週" }.orEmpty(),
             days = days,
-            periods = periods,
+            periods = visiblePeriods(cells),
             cells = cells,
             changeCount = source?.changes.orEmpty().size,
             isAvailable = source != null,
@@ -125,14 +135,15 @@ internal object DemoSchedule {
                     if (!contiguous || !sameBlock) break
                     span++
                 }
-                val start = periods[head.item.period - 1]
-                val end = periods[head.item.period + span - 2]
+                val start = period(head.item.period)
+                val end = period(head.item.period + span - 1)
                 val now = clock.minuteOfDay
-                val inLesson = (head.item.period until head.item.period + span).any {
-                    now >= minuteOfDay(periods[it - 1].start) && now < minuteOfDay(periods[it - 1].end)
+                val timed = start.start.isNotEmpty() && end.end.isNotEmpty()
+                val inLesson = timed && (head.item.period until head.item.period + span).any {
+                    now >= minuteOfDay(period(it).start) && now < minuteOfDay(period(it).end)
                 }
                 val status = when {
-                    !trackStatus || day != clock.dayOfWeek || head.change == PocketCellChange.CANCELLED -> PocketCellStatus.NORMAL
+                    !trackStatus || !timed || day != clock.dayOfWeek || head.change == PocketCellChange.CANCELLED -> PocketCellStatus.NORMAL
                     now >= minuteOfDay(end.end) -> PocketCellStatus.ENDED
                     inLesson -> PocketCellStatus.CURRENT
                     else -> PocketCellStatus.NORMAL
@@ -145,7 +156,7 @@ internal object DemoSchedule {
                     subject = head.item.subjectName,
                     teacher = head.item.teacherName,
                     classroom = head.item.classroom,
-                    timeText = "${start.start} – ${end.end}",
+                    timeText = if (timed) "${start.start} – ${end.end}" else "第 ${head.item.period} 節",
                     colorLight = light.getValue(head.item.subjectName),
                     colorDark = dark.getValue(head.item.subjectName),
                     status = status,
@@ -177,14 +188,14 @@ internal object DemoSchedule {
         val today = clock.date()
         val all = occurrences(clock)
         if (all.isEmpty()) return null
-        fun CourseOccurrence.minutes(): Pair<Int, Int> = periods[item.period - 1].let { minuteOfDay(it.start) to minuteOfDay(it.end) }
+        fun CourseOccurrence.minutes(): Pair<Int, Int> = period(item.period).let { minuteOfDay(it.start) to minuteOfDay(it.end) }
         fun CourseOccurrence.date() = schoolDateTimeAt(start.epochMillis()).datePart()
         val current = resolveCourses(report(ScheduleScope.CURRENT_WEEK, clock), now).current
         val next = all.firstOrNull { it.start > now }
 
         if (current != null) {
             val (start, end) = current.minutes()
-            val period = periods[current.item.period - 1]
+            val period = period(current.item.period)
             return PocketCourseHero(
                 headline = "現在上課 · 第 ${current.item.period} 節",
                 courseName = current.item.subjectName,
@@ -193,11 +204,11 @@ internal object DemoSchedule {
                 progress = (clock.minuteOfDay - start).toDouble() / (end - start),
                 timeText = "${period.start} – ${period.end} · 還有 ${end - clock.minuteOfDay} 分鐘下課",
                 nextLine = next?.takeIf { it.date().daysUntil(today) == 0L }
-                    ?.let { "下一堂 ${it.item.subjectName} · ${periods[it.item.period - 1].start}" },
+                    ?.let { "下一堂 ${it.item.subjectName} · ${period(it.item.period).start}" },
             )
         }
         val upcoming = all.firstOrNull { it.start > now } ?: return null
-        val period = periods[upcoming.item.period - 1]
+        val period = period(upcoming.item.period)
         val daysAhead = today.daysUntil(upcoming.date())
         if (daysAhead == 0L) {
             val minutes = upcoming.minutes().first - clock.minuteOfDay
@@ -212,7 +223,7 @@ internal object DemoSchedule {
                 isInClass = false,
                 progress = -1.0,
                 timeText = "${period.start} – ${period.end} · $wait",
-                nextLine = following?.let { "接著 ${it.item.subjectName} · ${periods[it.item.period - 1].start}" },
+                nextLine = following?.let { "接著 ${it.item.subjectName} · ${period(it.item.period).start}" },
             )
         }
         val label = if (daysAhead == 1L) "明天" else "週${upcoming.date().weekdayLabel()}"

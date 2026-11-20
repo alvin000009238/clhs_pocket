@@ -89,6 +89,11 @@ class DemoPocketDataSourceTest {
 
         val semester = source.schedule(PocketScheduleScope.SEMESTER, wednesday(10, 35))
         assertEquals(0, semester.changeCount)
+        // Thursday P6 is free: the grid keeps the period and later lessons stay in their own rows.
+        assertTrue(semester.cells.none { it.dayOfWeek == 4 && 6 in it.period until it.period + it.span })
+        assertEquals(7, semester.cells.single { it.dayOfWeek == 4 && it.subject == "社團" }.period)
+        // Only Friday has a period-8 lesson in the semester table, so period 8 stays visible.
+        assertEquals((1..8).toList(), semester.periods.map { it.number })
         assertTrue(semester.cells.all { it.change == PocketCellChange.NONE && it.status == PocketCellStatus.NORMAL })
     }
 
