@@ -97,11 +97,6 @@ fun LocalDateTime.durationUntil(other: LocalDateTime): Duration =
     datePart().daysUntil(other.datePart()).days +
         (other.timePart().nanoOfDayValue() - timePart().nanoOfDayValue()).nanoseconds
 
-/** Signed nanoseconds from this date-time to [other]; overflows beyond about 292 years. */
-fun LocalDateTime.nanosUntil(other: LocalDateTime): Long =
-    datePart().daysUntil(other.datePart()) * NANOS_PER_DAY +
-        (other.timePart().nanoOfDayValue() - timePart().nanoOfDayValue())
-
 const val NANOS_PER_MINUTE = 60_000_000_000L
 const val NANOS_PER_HOUR = 60 * NANOS_PER_MINUTE
 const val NANOS_PER_DAY = 24 * NANOS_PER_HOUR
