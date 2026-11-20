@@ -243,6 +243,9 @@ final class PocketNotificationCenter {
 
     /// Compares the public announcement list with the stored baseline.
     func checkAnnouncements(_ latest: [AnnouncementHeadline], now: Date, settings: PlatformNotificationSettings) async {
+        // An empty list is "not loaded yet", never a baseline: recording it would make every
+        // announcement that arrives a moment later count as new.
+        guard !latest.isEmpty else { return }
         let seen = defaults.stringArray(forKey: Self.seenAnnouncementsKey)
         let plan = PocketPlatform.shared.announcementPlan(
             seenIds: seen, latest: latest, nowMillis: now.epochMillis, settings: settings

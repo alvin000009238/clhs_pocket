@@ -89,6 +89,13 @@ final class PlatformTests: XCTestCase {
         XCTAssertEqual(snapshot.glance(at: dates[1]).state, .beforeClass)
 
         XCTAssertEqual(snapshot.timelineDates(from: lessonTime, limit: 500).last, snapshot.validUntil)
+        // Only a timeline cut short has more to load; one that reaches expiry, or an expired
+        // snapshot, must not ask WidgetKit to come straight back.
+        XCTAssertTrue(snapshot.timelineContinues(from: lessonTime, limit: 2))
+        XCTAssertFalse(snapshot.timelineContinues(from: lessonTime, limit: 500))
+        XCTAssertEqual(snapshot.timelineDates(from: snapshot.validUntil), [snapshot.validUntil])
+        XCTAssertFalse(snapshot.timelineContinues(from: snapshot.validUntil))
+        XCTAssertFalse(snapshot.timelineContinues(from: snapshot.validUntil.addingTimeInterval(3600)))
         XCTAssertEqual(snapshot.glance(at: snapshot.validUntil).state, .expired)
         XCTAssertNotEqual(snapshot.glance(at: snapshot.validUntil.addingTimeInterval(-1)).state, .expired)
     }
@@ -564,6 +571,9 @@ final class PlatformTests: XCTestCase {
         let old = AnnouncementHeadline(id: "a", title: "圖書館閉館時間異動公告")
         let new = AnnouncementHeadline(id: "b", title: "校慶運動會各項競賽報名開始")
 
+        // A check before the list has loaded records nothing, so the list that follows is the
+        // baseline and not a burst of "new" announcements.
+        await center.checkAnnouncements([], now: lessonTime, settings: settings())
         await center.checkAnnouncements([old], now: lessonTime, settings: settings())
         var pending = await scheduler.pending
         XCTAssertTrue(pending.isEmpty, "the first check only records a baseline")

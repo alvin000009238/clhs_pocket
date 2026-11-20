@@ -39,6 +39,8 @@ final class PocketPlatformCoordinator: NSObject {
 
     /// Bumped on every sign-in or sign-out so an in-flight refresh can tell it is stale.
     private var sessionGeneration = 0
+    /// The tail of the refresh queue.
+    private var queue: Task<Void, Never>?
 
     /// Asked before a notification tap reveals a protected destination. The
     /// shell installs it (see `AppLockRouteGate`); with no gate installed the
@@ -61,6 +63,8 @@ final class PocketPlatformCoordinator: NSObject {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: PocketPlatformID.refreshTask, using: nil) { task in
             guard let task = task as? BGAppRefreshTask else { return }
             let work = Task { @MainActor in
+                // Ask for the next run first: a refresh that runs out of time must not end the chain.
+                PocketPlatformCoordinator.shared.scheduleBackgroundRefresh()
                 await PocketPlatformCoordinator.shared.refresh()
                 task.setTaskCompleted(success: !Task.isCancelled)
             }
@@ -70,7 +74,9 @@ final class PocketPlatformCoordinator: NSObject {
 
     /// Asks iOS for another refresh. The system decides if and when it runs.
     func scheduleBackgroundRefresh() {
-        guard isSignedIn || settings.notificationsEnabled else {
+        // Every background job (reminders, widget, grade and announcement checks) belongs to a
+        // signed-in student; a guest would only be woken to do nothing.
+        guard isSignedIn else {
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: PocketPlatformID.refreshTask)
             return
         }
@@ -82,7 +88,26 @@ final class PocketPlatformCoordinator: NSObject {
     // MARK: Refresh
 
     /// Republishes the snapshot and reschedules everything derived from it.
+    ///
+    /// Passes run one after another, in the order they were asked for. Interleaved passes would
+    /// withdraw each other's reminders, and a pass still running for the previous account would
+    /// remove the ones just planned for the next.
     func refresh(deviceNow: Date = Date()) async {
+        await serialized { await self.performRefresh(deviceNow: deviceNow) }
+    }
+
+    private func serialized<T: Sendable>(_ work: @escaping @MainActor () async -> T) async -> T {
+        let previous = queue
+        // The caller's cancellation (a background task running out of time) reaches the work.
+        let task = Task { @MainActor in
+            await previous?.value
+            return await work()
+        }
+        queue = Task { _ = await task.value }
+        return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+    }
+
+    private func performRefresh(deviceNow: Date) async {
         guard isSignedIn else {
             try? await clearSessionData()
             return
@@ -113,10 +138,11 @@ final class PocketPlatformCoordinator: NSObject {
         if plansFromSnapshot {
             await notifications.syncCourseReminders(snapshotJSON: json, now: deviceNow, settings: shared, isCurrent: isCurrent)
         }
-        if !paused, isCurrent() {
+        // The checks below reach the network; a background task that ran out of time stops here.
+        if !paused, isCurrent(), !Task.isCancelled {
             let gradeAlert = await data.gradeNotification(at: deviceNow, settings: shared)
             if isCurrent() { await notifications.deliver(gradeAlert) }
-            if isCurrent(), let headlines = data.announcementHeadlines(at: scheduleNow) {
+            if isCurrent(), !Task.isCancelled, let headlines = data.announcementHeadlines(at: scheduleNow) {
                 await notifications.checkAnnouncements(headlines, now: deviceNow, settings: shared)
             }
         }
@@ -131,6 +157,11 @@ final class PocketPlatformCoordinator: NSObject {
             await LessonActivityController.sync(
                 glance: glance, enabled: settings.liveActivity && !notifications.isCoursePaused(at: deviceNow)
             )
+            // A sign-out or「暫停一日」while the activity was being started must not leave it running.
+            if !isCurrent() || !settings.liveActivity || notifications.isCoursePaused(at: Date()) {
+                await LessonActivityController.endAll()
+            }
+            guard isCurrent() else { return }
         }
         scheduleBackgroundRefresh()
     }
@@ -155,7 +186,10 @@ final class PocketPlatformCoordinator: NSObject {
     func endSessionAndClear() async throws {
         if isSignedIn { sessionGeneration += 1 }
         isSignedIn = false
-        try await clearSessionData()
+        let result: Result<Void, Error> = await serialized {
+            do { return .success(try await self.clearSessionData()) } catch { return .failure(error) }
+        }
+        try result.get()
     }
 
     // MARK: Permission
