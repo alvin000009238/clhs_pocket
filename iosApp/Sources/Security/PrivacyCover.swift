@@ -147,8 +147,8 @@ private struct PrivacyProtection: ViewModifier {
             .onChange(of: scenePhase, initial: true) { _, phase in
                 lock.scenePhaseChanged(to: phase)
                 shield.update(showsCover: showsCover, colorScheme: colorScheme)
-                if phase == .active, lock.isLocked {
-                    Task { await lock.unlock() }
+                if phase == .active {
+                    Task { await lock.sceneBecameActive() }
                 }
             }
             .onChange(of: lock.isLocked) { shield.update(showsCover: showsCover, colorScheme: colorScheme) }

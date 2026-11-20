@@ -92,6 +92,32 @@ final class AppLockSettingTests: XCTestCase {
 
 @MainActor
 final class AppLockControllerTests: XCTestCase {
+    /// The system prompt itself makes the scene inactive and then active again.
+    func testCancelledPromptIsNotRepeatedWhenTheSceneBecomesActiveAgain() async {
+        let authenticator = FakeAuthenticator()
+        authenticator.outcome = .cancelled
+        let lock = AppLockController(isEnabled: true, authenticator: authenticator)
+
+        await lock.sceneBecameActive()
+        lock.scenePhaseChanged(to: .inactive)
+        lock.scenePhaseChanged(to: .active)
+        await lock.sceneBecameActive()
+        XCTAssertEqual(authenticator.prompts, 1, "a cancelled prompt must leave the lock screen up, not ask again")
+        XCTAssertTrue(lock.isLocked)
+
+        authenticator.outcome = .failed
+        await lock.unlock()
+        await lock.sceneBecameActive()
+        XCTAssertEqual(authenticator.prompts, 2, "only the lock screen's button asks again")
+        XCTAssertNotNil(lock.message)
+
+        lock.scenePhaseChanged(to: .background)
+        authenticator.outcome = .success
+        await lock.sceneBecameActive()
+        XCTAssertEqual(authenticator.prompts, 3, "returning from the background asks once more")
+        XCTAssertFalse(lock.isLocked)
+    }
+
     func testEnabledLockStartsLockedAndOpensOnlyOnSuccessfulAuthentication() async {
         let authenticator = FakeAuthenticator()
         let lock = AppLockController(isEnabled: true, authenticator: authenticator)

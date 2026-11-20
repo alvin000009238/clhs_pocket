@@ -90,12 +90,25 @@ final class AppLockController {
     private(set) var method: AppLockMethod
 
     @ObservationIgnored private let authenticator: DeviceAuthenticating
+    /// The system prompt makes the scene inactive and active again, so prompting on every
+    /// activation would ask again the moment a prompt is cancelled or fails. The app asks by
+    /// itself once per lock (cold start, return from the background); after that the lock
+    /// screen's button asks.
+    @ObservationIgnored private var promptsOnActivation: Bool
 
     init(isEnabled: Bool, authenticator: DeviceAuthenticating = SystemDeviceAuthenticator()) {
         self.authenticator = authenticator
         self.isEnabled = isEnabled
         isLocked = isEnabled
+        promptsOnActivation = isEnabled
         method = authenticator.method()
+    }
+
+    /// Call when the scene becomes active. Prompts at most once for each time the app locked.
+    func sceneBecameActive() async {
+        guard isLocked, promptsOnActivation else { return }
+        promptsOnActivation = false
+        await unlock()
     }
 
     /// Asks for authentication and unlocks only on success. Safe to call repeatedly.
@@ -136,6 +149,7 @@ final class AppLockController {
     func scenePhaseChanged(to phase: ScenePhase) {
         if phase == .background, isEnabled {
             isLocked = true
+            promptsOnActivation = true
             message = nil
         }
     }
@@ -144,6 +158,7 @@ final class AppLockController {
     func lockNow() {
         guard isEnabled else { return }
         isLocked = true
+        promptsOnActivation = true
         message = nil
     }
 }
