@@ -13,6 +13,7 @@ struct ScheduleView: View {
     @State private var weekOffset = 0
     @State private var selectedCell: PocketScheduleCell?
     @State private var shareImage: Image?
+    @State private var overrideError: String?
 
     /// Empty for the student's own timetable; kept by `AppModel` across launches.
     private var classValue: String { model.scheduleClass }
@@ -112,6 +113,15 @@ struct ScheduleView: View {
                 }
                 .accessibilityIdentifier("schedule-menu")
             }
+        }
+        .onChange(of: model.live?.lastError) { _, error in
+            // The lesson sheet closes before the account save finishes, so a failure is shown here.
+            if let error, error.hasPrefix("自訂科目名稱未能儲存") { overrideError = error }
+        }
+        .alert("自訂科目名稱", isPresented: Binding(get: { overrideError != nil }, set: { if !$0 { overrideError = nil } })) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(overrideError ?? "")
         }
         .alert("課表圖片", isPresented: Binding(get: { photoMessage != nil }, set: { if !$0 { photoMessage = nil } })) {
             Button("好") { photoMessage = nil }
