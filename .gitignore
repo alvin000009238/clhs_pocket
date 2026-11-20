@@ -48,6 +48,7 @@ android/app/src/demoRelease/generated/baselineProfiles/
 !android/app/src/main/assets/weather_locations.json
 !android/app/google-services.json
 !android/app/schemas/**/*.json
+!iosApp/**/Contents.json
 *.md
 !README.md
 !README.en.md

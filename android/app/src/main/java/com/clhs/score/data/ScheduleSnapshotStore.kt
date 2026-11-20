@@ -149,11 +149,13 @@ internal class ScheduleSnapshotStore private constructor(
     }
 
     private fun reversedBase(report: ScheduleReport): ScheduleReport? {
-        if (report.scope != ScheduleScope.CURRENT_WEEK || report.changes == null) return null
+        val changes = report.changes
+        if (report.scope != ScheduleScope.CURRENT_WEEK || changes == null) return null
         val slots = report.items.associateBy { it.dayOfWeek to it.period }.toMutableMap()
-        report.changes.forEach { change ->
+        changes.forEach { change ->
             val slot = change.dayOfWeek to change.period
-            if (change.semesterItem == null) slots.remove(slot) else slots[slot] = change.semesterItem
+            val semesterItem = change.semesterItem
+            if (semesterItem == null) slots.remove(slot) else slots[slot] = semesterItem
         }
         return ScheduleReport(report.yearTermValue, report.classNo, ScheduleScope.SEMESTER, items = slots.values.toList())
     }

@@ -27,20 +27,6 @@ import java.util.concurrent.TimeUnit
 internal const val MAX_SCHOOL_RESPONSE_BYTES = 8L * 1024 * 1024
 internal const val MAX_CONCURRENT_SCHOOL_REQUESTS = 4
 
-open class SchoolException(
-    message: String,
-    cause: Throwable? = null,
-) : Exception(message, cause)
-
-class SchoolAuthenticationException(
-    message: String = "登入狀態已失效",
-) : SchoolException(message)
-
-class SchoolTransientException(
-    message: String,
-    cause: Throwable? = null,
-) : SchoolException(message, cause)
-
 class SchoolGradeClient(
     baseUrl: String = DEFAULT_BASE_URL,
     private val cookieJar: SchoolCookieJar = SchoolCookieJar(),

@@ -18,10 +18,10 @@ Paths below are relative to the repository root.
 | Versioned schedule storage, legacy import and retention | `android/app/src/main/java/com/clhs/score/data/ScheduleSnapshotStore.kt`, `GradeCacheStore.kt`; [storage contract](docs/architecture/schedule-storage-proposal.md) |
 | Schedule capture, MediaStore publication and bitmap ownership | `android/app/src/main/java/com/clhs/score/ui/schedule/ScheduleImageExport.kt` |
 | Overview aggregation | `android/app/src/main/java/com/clhs/score/domain/overview/` |
-| Attendance and merit records | `android/app/src/main/java/com/clhs/score/data/StudentRecords.kt`, `android/app/src/main/java/com/clhs/score/viewmodel/StudentRecordsStateOwner.kt`, `android/app/src/main/java/com/clhs/score/ui/StudentRecordsScreen.kt` |
+| Attendance and merit records | `android/shared/src/commonMain/kotlin/com/clhs/score/data/StudentRecords.kt`, `android/app/src/main/java/com/clhs/score/viewmodel/StudentRecordsStateOwner.kt`, `android/app/src/main/java/com/clhs/score/ui/StudentRecordsScreen.kt` |
 | Background work and Widget | `android/app/src/main/java/com/clhs/score/reminders/`, `android/app/src/main/java/com/clhs/score/widget/` |
 | Unit / framework tests | `android/app/src/test/`, `android/app/src/androidTest/` |
-| Preview data | `android/app/src/main/java/com/clhs/score/data/FakeData.kt`, `android/app/src/main/java/com/clhs/score/ui/ScorePreviews.kt` |
+| Preview data | `android/shared/src/commonMain/kotlin/com/clhs/score/data/FakeData.kt`, `android/app/src/main/java/com/clhs/score/ui/ScorePreviews.kt` |
 | Build / release automation | `android/`, `.github/workflows/` |
 
 ## Read only the relevant guide
