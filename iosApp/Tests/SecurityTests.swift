@@ -1,3 +1,4 @@
+@preconcurrency import PocketShared
 import SwiftUI
 import XCTest
 @testable import CLHSPocket
@@ -12,6 +13,80 @@ private final class FakeAuthenticator: DeviceAuthenticating, @unchecked Sendable
     func authenticate(reason: String) async -> AppLockOutcome {
         prompts += 1
         return outcome
+    }
+}
+
+private final class MemorySecureStore: NSObject, SecureStore, @unchecked Sendable {
+    nonisolated(unsafe) var values: [String: String] = [:]
+    nonisolated(unsafe) var failing = false
+
+    func read(key: String) -> StoreResult {
+        if failing { return .companion.failure(message: "locked") }
+        return values[key].map { .companion.value(text: $0, modifiedAtEpochMillis: 0) } ?? .companion.ok()
+    }
+
+    func write(key: String, value: String) -> StoreResult {
+        if failing { return .companion.failure(message: "locked") }
+        values[key] = value
+        return .companion.ok()
+    }
+
+    func delete(key: String) -> StoreResult {
+        values[key] = nil
+        return .companion.ok()
+    }
+}
+
+final class AppLockSettingTests: XCTestCase {
+    private let suite = "AppLockSettingTests"
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        defaults = UserDefaults(suiteName: suite)
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    func testLockStaysOnWhenThePreferencesAreClearedOrOverridden() {
+        let secure = MemorySecureStore()
+        let setting = AppLockSetting(defaults: defaults, secure: secure)
+        XCTAssertFalse(setting.isEnabled)
+        XCTAssertTrue(setting.set(true))
+        XCTAssertTrue(setting.isEnabled)
+
+        defaults.removePersistentDomain(forName: suite)
+        XCTAssertTrue(setting.isEnabled, "clearing the preferences must not switch the lock off")
+        defaults.set(false, forKey: AppLockSetting.defaultsKey)
+        XCTAssertTrue(setting.isEnabled, "a preference override must not switch the lock off")
+
+        XCTAssertTrue(setting.set(false))
+        XCTAssertFalse(setting.isEnabled)
+    }
+
+    func testUnreadableKeychainCountsAsLockedAndFailedWriteKeepsTheOldValue() {
+        let secure = MemorySecureStore()
+        let setting = AppLockSetting(defaults: defaults, secure: secure)
+        XCTAssertTrue(setting.set(true))
+        secure.failing = true
+        XCTAssertTrue(setting.isEnabled)
+        XCTAssertFalse(setting.set(false), "the lock cannot be switched off without updating the Keychain")
+        secure.failing = false
+        XCTAssertTrue(setting.isEnabled)
+    }
+
+    func testLaunchArgumentOverridesCanBeIgnored() {
+        let standard = UserDefaults.standard
+        let saved = standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        defer { standard.setVolatileDomain(saved, forName: UserDefaults.argumentDomain) }
+        standard.setVolatileDomain(["appLockEnabled": "NO", "lockAuth": "succeed"], forName: UserDefaults.argumentDomain)
+        XCTAssertEqual(standard.string(forKey: "lockAuth"), "succeed")
+
+        PocketLaunch.ignoreLaunchArguments(in: standard)
+        XCTAssertNil(standard.string(forKey: "lockAuth"))
+        XCTAssertNil(standard.volatileDomain(forName: UserDefaults.argumentDomain)["appLockEnabled"])
     }
 }
 

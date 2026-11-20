@@ -69,8 +69,6 @@ final class AppModel {
         static let onboarding = "hasCompletedOnboarding"
         static let appearance = "appearance"
         static let session = "session"
-        static let demoClock = "demoClock"
-        static let initialTab = "initialTab"
         static let notifications = "notificationsEnabled"
         static let dashboard = "dashboardLayout"
         static let overrides = "scheduleSubjectOverrides"
@@ -83,7 +81,6 @@ final class AppModel {
         static let pauseStart = "backgroundPauseStart"
         static let pauseEnd = "backgroundPauseEnd"
         static let weatherSource = "weatherSource"
-        static let appLock = "appLockEnabled"
     }
 
     private let source: PocketDataSource = PocketEnvironment.shared.demo()
@@ -215,14 +212,23 @@ final class AppModel {
     func platformSettingsChanged() {
         Task { await PocketPlatformCoordinator.shared.refresh() }
     }
-    var appLockEnabled: Bool { didSet { defaults.set(appLockEnabled, forKey: Key.appLock) } }
+    /// Stored in the Keychain and the preferences; see `AppLockSetting`.
+    var appLockEnabled: Bool {
+        didSet {
+            guard oldValue != appLockEnabled, !AppLockSetting().set(appLockEnabled) else { return }
+            appLockEnabled = oldValue
+        }
+    }
 
     var notificationsEnabled: Bool { get { platform.notificationsEnabled } set { platform.notificationsEnabled = newValue } }
 
     init() {
         // UI tests start every run from a clean install without touching launch-argument overrides.
-        if defaults.bool(forKey: "resetLocalState"), let domain = Bundle.main.bundleIdentifier {
+        PocketLaunch.seal()
+        let lockSetting = AppLockSetting()
+        if PocketLaunch.resetsLocalState, let domain = Bundle.main.bundleIdentifier {
             defaults.removePersistentDomain(forName: domain)
+            lockSetting.set(false)
         }
         hasCompletedOnboarding = defaults.bool(forKey: Key.onboarding)
         appearance = defaults.string(forKey: Key.appearance).flatMap(PocketAppearance.init) ?? .system
@@ -232,15 +238,16 @@ final class AppModel {
             ?? PocketCampusStore.shared.defaultUnreadIds()
         localScheduleOverrides = defaults.string(forKey: Key.overrides) ?? "[]"
         weatherSource = defaults.string(forKey: Key.weatherSource) ?? "open-meteo"
-        appLockEnabled = defaults.bool(forKey: Key.appLock)
+        let lockEnabled = lockSetting.isEnabled
+        appLockEnabled = lockEnabled
         bookmarkedAnnouncementIds = Set(defaults.stringArray(forKey: Key.bookmarks) ?? [])
-        selectedTab = defaults.string(forKey: Key.initialTab).flatMap(PocketTab.init) ?? .home
-        // `-demoClock 2026-11-18T10:35` pins time for previews, tests and screenshots.
-        fixedClock = defaults.string(forKey: Key.demoClock).flatMap(AppModel.parseClock)
+        selectedTab = PocketLaunch.initialTab.flatMap(PocketTab.init) ?? .home
+        // `-demoClock 2026-11-18T10:35` pins time for previews, tests and screenshots (Debug only).
+        fixedClock = PocketLaunch.demoClock.flatMap(AppModel.parseClock)
         storedClock = fixedClock ?? AppModel.systemClock()
-        lock = AppLockController(isEnabled: defaults.bool(forKey: Key.appLock), authenticator: AppModel.authenticator(defaults))
+        lock = AppLockController(isEnabled: lockEnabled, authenticator: PocketLaunch.authenticator())
         PocketPlatformCoordinator.shared.unlockGate = AppLockRouteGate(lock: lock).pass
-        live = defaults.string(forKey: "dataMode") == "demo" ? nil : (try? PocketBackend.live()).map(LiveDataController.init)
+        live = PocketLaunch.usesDemoData ? nil : (try? PocketBackend.live()).map(LiveDataController.init)
         syncSource()
         if defaults.string(forKey: Key.dashboard) == nil { dashboardLayout = PocketDashboard.shared.defaultLayout() }
         if usesLiveData { unreadAnnouncementIds = [] }
@@ -459,17 +466,6 @@ final class AppModel {
         paths = [:]
         selectedTab = .home
         hasCompletedOnboarding = false
-    }
-
-    /// `-lockAuth succeed|manual` replaces the system prompt in UI tests; `manual` dismisses the
-    /// automatic prompt once so the lock screen stays visible until its button is tapped.
-    private static func authenticator(_ defaults: UserDefaults) -> DeviceAuthenticating {
-        switch defaults.string(forKey: "lockAuth") {
-        case "succeed": ScriptedAuthenticator(.succeed)
-        case "manual": ScriptedAuthenticator(.manual)
-        case "relock": ScriptedAuthenticator(.relock)
-        default: SystemDeviceAuthenticator()
-        }
     }
 
     private static var calendar: Calendar {

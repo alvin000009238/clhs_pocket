@@ -268,6 +268,11 @@ private struct MainThreadCompletion: @unchecked Sendable {
 }
 
 final class PocketAppDelegate: NSObject, UIApplicationDelegate {
+    override init() {
+        PocketLaunch.seal()
+        super.init()
+    }
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil

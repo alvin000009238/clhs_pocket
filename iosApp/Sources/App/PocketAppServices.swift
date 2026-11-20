@@ -41,7 +41,8 @@ struct DemoNotificationPermissionService: NotificationPermissionService {
     func requestAuthorization() async -> Bool { true }
 }
 
-/// Stands in for the system authentication prompt in UI tests. Never used without `-lockAuth`.
+#if DEBUG
+/// Stands in for the system authentication prompt in UI tests. Debug builds only, with `-lockAuth`.
 final class ScriptedAuthenticator: DeviceAuthenticating, @unchecked Sendable {
     enum Script {
         /// Every prompt succeeds.
@@ -71,3 +72,4 @@ final class ScriptedAuthenticator: DeviceAuthenticating, @unchecked Sendable {
         }
     }
 }
+#endif

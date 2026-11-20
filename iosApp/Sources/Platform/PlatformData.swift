@@ -64,6 +64,9 @@ enum PlatformClock {
     /// With a pinned demo clock, time keeps flowing from the first launch that
     /// pinned it, so widgets and the Live Activity count down in real time.
     static func scheduleNow(deviceNow: Date, defaults: UserDefaults = .standard) -> Date {
+        #if !DEBUG
+        return deviceNow
+        #else
         guard let text = defaults.string(forKey: "demoClock"), let pinned = parseDemoClock(text) else {
             return deviceNow
         }
@@ -72,6 +75,7 @@ enum PlatformClock {
             defaults.set(deviceNow.timeIntervalSince(pinned), forKey: offsetKey)
         }
         return deviceNow.addingTimeInterval(-defaults.double(forKey: offsetKey))
+        #endif
     }
 
     static func pocketClock(at date: Date) -> PocketClock {
