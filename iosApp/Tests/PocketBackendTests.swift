@@ -134,6 +134,56 @@ final class PocketBackendTests: XCTestCase {
         _ = try await healthy.login(studentNo: "DEMO-002", cookies: ["ASP.NET_SessionId": "next"])
     }
 
+    func testExpiredSessionIsRemovedFromMemoryKeychainAndCache() async throws {
+        let controller = LiveDataController(backend: backend())
+        try await controller.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "web"])
+        XCTAssertNotNil(controller.session)
+        XCTAssertNotNil(KeychainStore(service: service).read(key: "school.session.v1").text)
+
+        StubURLProtocol.install { _ in StubURLProtocol.text("", status: 401) }
+        await controller.refreshPrivate(force: true)
+        XCTAssertNil(controller.session, "the school rejected the session")
+        // The cleanup is queued behind the request that failed; a logout waits for it.
+        try await controller.logout()
+        XCTAssertNil(KeychainStore(service: service).read(key: "school.session.v1").text)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("private").path))
+        let restored = try await self.backend().restoreSession()
+        XCTAssertNil(restored, "an expired session must not come back at the next launch")
+    }
+
+    func testLoginRightAfterLogoutKeepsTheNewAccountAndNothingOfTheOldOne() async throws {
+        let controller = LiveDataController(backend: backend())
+        try await controller.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "first"])
+        let first = try XCTUnwrap(controller.session)
+
+        // As the app does it: logout is started and not awaited, then the next student signs in.
+        let logout = Task { try? await controller.logout() }
+        await Task.yield()
+        XCTAssertNil(controller.session)
+        try await controller.login(studentNo: "DEMO-002", cookies: ["ASP.NET_SessionId": "second"])
+        await logout.value
+        XCTAssertEqual(controller.session?.studentNo, "DEMO-002")
+        let restored = try await self.backend().restoreSession()
+        XCTAssertEqual(restored?.studentNo, "DEMO-002", "the earlier logout must not delete the new session")
+
+        // Switching without logging out first is a full logout too.
+        try await controller.login(studentNo: "DEMO-003", cookies: ["ASP.NET_SessionId": "third"])
+        XCTAssertEqual(controller.session?.studentNo, "DEMO-003")
+
+        // A logout asked for while a login is still verifying wins: nothing is left signed in.
+        async let overtaken: Void? = try? controller.login(studentNo: "DEMO-004", cookies: ["ASP.NET_SessionId": "fourth"])
+        await Task.yield()
+        try await controller.logout()
+        _ = await overtaken
+        XCTAssertNil(controller.session)
+        let afterLogout = try await self.backend().restoreSession()
+        XCTAssertNil(afterLogout)
+        try await controller.login(studentNo: "DEMO-003", cookies: ["ASP.NET_SessionId": "third"])
+        XCTAssertNotEqual(controller.session?.authorizationId, first.authorizationId)
+        XCTAssertNil(controller.subjectOverrides.flatMap { $0 == "[]" ? nil : $0 }, "no overrides carried over")
+        try await controller.logout()
+    }
+
     func testSchoolRejectionExpiresTheSessionAndPublicFailuresStaySeparate() async throws {
         let backend = backend()
         let session = try await backend.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "web"])

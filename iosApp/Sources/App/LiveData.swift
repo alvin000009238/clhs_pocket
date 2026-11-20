@@ -26,6 +26,11 @@ final class LiveDataController {
     private static let gradeCheckInterval: TimeInterval = 15 * 60
     private(set) var isLoadingPublic = false
     private(set) var isLoadingPrivate = false
+    /// Whose data `refreshPrivate` is loading, so a new account never waits behind the previous one.
+    @ObservationIgnored private var loadingAuthorization: String?
+    @ObservationIgnored private var accountWork: Task<Void, Never>?
+    /// Bumped by every sign-in, sign-out and expiry, so a login can tell it was overtaken.
+    @ObservationIgnored private var accountEpoch = 0
     /// zh-TW message of the most recent failure, safe to show.
     var lastError: String?
 
@@ -90,10 +95,54 @@ final class LiveDataController {
     }
 
     /// Verifies the cookies captured by the school web view and stores the session.
+    /// Signing in over another account is a complete logout first: nothing of the previous
+    /// student stays in memory, in the Keychain or in the cache.
     func login(studentNo: String, cookies: [String: String]) async throws(PocketError) {
-        session = try await backend.login(studentNo: studentNo, cookies: cookies)
+        let switching = session != nil
+        if switching { endSessionInMemory() }
+        accountEpoch += 1
+        let epoch = accountEpoch
+        let result: Result<AuthenticatedSession, PocketError> = await serialized { [backend] in
+            do {
+                if switching { try await backend.logout() }
+                return .success(try await backend.login(studentNo: studentNo, cookies: cookies))
+            } catch {
+                return .failure(PocketError(error))
+            }
+        }
+        let established = try result.get()
+        // A logout or another login asked for while this one was verifying wins; its cleanup is
+        // already queued behind this login and removes what was just stored.
+        guard epoch == accountEpoch else { throw PocketError(kind: .cancelled, message: "登入已取消") }
+        session = established
         publish()
         await refreshPrivate()
+    }
+
+    /// Account storage work (logout, delete, the cleanup after an expired session, login) runs one
+    /// at a time in the order it was asked for. A login therefore waits for a logout that is still
+    /// deleting, which would otherwise remove the new session it had just stored.
+    private func serialized<T: Sendable>(_ work: @escaping @MainActor () async -> T) async -> T {
+        let previous = accountWork
+        let task = Task { @MainActor in
+            await previous?.value
+            return await work()
+        }
+        accountWork = Task { _ = await task.value }
+        return await task.value
+    }
+
+    /// Forgets the signed-in student everywhere in memory. Storage is cleaned by the caller.
+    private func endSessionInMemory() {
+        accountEpoch += 1
+        session = nil
+        subjectOverrides = nil
+        lastGradeCheck = nil
+        loadingAuthorization = nil
+        isLoadingPrivate = false
+        gradeBaseline.clear()
+        PocketLive.shared.clearPrivate()
+        publish()
     }
 
     /// Memory is revoked first; a `.cleanupIncomplete` failure is rethrown so the caller offers a retry.
@@ -105,7 +154,7 @@ final class LiveDataController {
         Task {
             do {
                 try await backend.call { try await $0.saveSubjectOverrides(session: session, overrides: models, token: $1) }
-            } catch { note(PocketError(error)) }
+            } catch { note(PocketError(error), for: session) }
         }
     }
 
@@ -116,44 +165,62 @@ final class LiveDataController {
             let overrides = try await backend.call { try await $0.subjectOverrides(session: session, token: $1) }
             guard self.session?.authorizationId == session.authorizationId else { return }
             subjectOverrides = PocketScheduleStore.shared.overridesJson(models: overrides)
-        } catch { note(error) }
+        } catch { note(error, for: session) }
     }
 
     func logout() async throws(PocketError) {
-        session = nil
-        gradeBaseline.clear()
-        subjectOverrides = nil
-        PocketLive.shared.clearPrivate()
-        publish()
-        try await backend.logout()
+        endSessionInMemory()
+        let result: Result<Void, PocketError> = await serialized { [backend] in
+            do { return .success(try await backend.logout()) } catch { return .failure(PocketError(error)) }
+        }
+        try result.get()
     }
 
     func deleteAllData() async throws(PocketError) {
-        session = nil
-        gradeBaseline.clear()
-        subjectOverrides = nil
+        endSessionInMemory()
         PocketLive.shared.clearAll()
+        announcementsLoaded = false
         publish()
-        try await backend.deleteAllData()
+        let result: Result<Void, PocketError> = await serialized { [backend] in
+            do { return .success(try await backend.deleteAllData()) } catch { return .failure(PocketError(error)) }
+        }
+        try result.get()
     }
 
-    /// An expired session ends here; everything else is only reported.
-    private func note(_ error: PocketError) {
+    /// Reports a failure. A session the school no longer accepts ends here: memory, Keychain and
+    /// the private cache are cleared exactly as on logout, so the next launch does not restore it.
+    /// `session` is the one the failed request was made for; a late failure of a previous account
+    /// must not sign out the student who is signed in now.
+    private func note(_ error: PocketError, for session: AuthenticatedSession? = nil) {
         guard error.kind != .cancelled else { return }
-        lastError = error.message
         if error.kind == .authenticationExpired {
-            session = nil
-            subjectOverrides = nil
-            PocketLive.shared.clearPrivate()
+            guard let session, session.authorizationId == self.session?.authorizationId else { return }
+            lastError = error.message
+            endSessionInMemory()
+            Task {
+                let failure: PocketError? = await serialized { [backend] in
+                    do { try await backend.logout(); return nil } catch { return PocketError(error) }
+                }
+                if let failure { lastError = failure.message }
+            }
+            return
         }
+        lastError = error.message
     }
 
     // MARK: Signed-in data
 
     func refreshPrivate(force: Bool = false) async {
-        guard let session, !isLoadingPrivate else { return }
+        guard let session, loadingAuthorization != session.authorizationId else { return }
+        loadingAuthorization = session.authorizationId
         isLoadingPrivate = true
-        defer { isLoadingPrivate = false; publish() }
+        defer {
+            if loadingAuthorization == session.authorizationId {
+                loadingAuthorization = nil
+                isLoadingPrivate = false
+            }
+            publish()
+        }
         let live = PocketLive.shared
         // Each write is skipped when the account changed while the request was in flight.
         func current() -> Bool { self.session?.authorizationId == session.authorizationId && self.session?.studentNo == session.studentNo }
@@ -178,7 +245,7 @@ final class LiveDataController {
             guard current() else { return }
             live.studentInfo = info
             publish()
-        } catch { note(error) }
+        } catch { note(error, for: session) }
 
         await loadSchedule(classValue: "")
 
@@ -187,7 +254,7 @@ final class LiveDataController {
             guard current() else { return }
             live.recordSemesters = semesters
             publish()
-        } catch { note(error) }
+        } catch { note(error, for: session) }
     }
 
     func loadReport(examValue: String, force: Bool = false) async {
@@ -201,7 +268,7 @@ final class LiveDataController {
             }
             guard self.session?.authorizationId == session.authorizationId else { return }
             PocketLive.shared.putReport(yearValue: year, examValue: code, report: report)
-        } catch { note(error) }
+        } catch { note(error, for: session) }
         publish()
     }
 
@@ -239,7 +306,7 @@ final class LiveDataController {
                 }
                 publish()
             }
-        } catch { note(error) }
+        } catch { note(error, for: session) }
         publish()
     }
 
@@ -268,7 +335,7 @@ final class LiveDataController {
             case let value as ScheduleFetchResultEmpty: live.putSchedule(classValue: classValue, report: value.report)
             default: lastError = "這一週的課表尚未公布。"
             }
-        } catch { note(error) }
+        } catch { note(error, for: session) }
         publish()
     }
 
@@ -323,7 +390,7 @@ final class LiveDataController {
             // A failed background check is not worth an error on screen and the next one retries,
             // but a session the school no longer accepts ends here as it does everywhere else.
             let error = PocketError(error)
-            if error.kind == .authenticationExpired { note(error) }
+            if error.kind == .authenticationExpired { note(error, for: session) }
             return nil
         }
     }
@@ -339,7 +406,7 @@ final class LiveDataController {
             guard self.session?.authorizationId == session.authorizationId else { return }
             PocketLive.shared.putAttendance(semester: semester, record: attendance)
             PocketLive.shared.putMerits(semester: semester, records: merits)
-        } catch { note(error) }
+        } catch { note(error, for: session) }
         publish()
     }
 
