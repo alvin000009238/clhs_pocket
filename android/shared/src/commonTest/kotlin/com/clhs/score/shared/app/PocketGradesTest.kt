@@ -39,6 +39,16 @@ class PocketGradesTest {
     }
 
     @Test
+    fun excludingEverySubjectShowsNoAverageAndNoDelta() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        simulator.state().rows.forEach { simulator.setIncluded(it.name, false) }
+        val empty = simulator.state()
+        assertEquals("--", empty.averageText)
+        assertEquals(0, empty.deltaSign)
+        assertEquals("", empty.deltaText)
+    }
+
+    @Test
     fun inferredCreditsVerifyAgainstTheOfficialSummary() {
         val simulator = assertNotNull(PocketGrades.simulator(exam))
         if (simulator.state().check == PocketCreditCheck.MATCHES) return
