@@ -387,4 +387,64 @@ class SessionAndSchoolRepositoryTest {
         secure.failDelete = false
         assertNull(SessionVault(secure, files).loadSession())
     }
+
+    // H10: schedule cache and private cache contract
+
+    @Test
+    fun semesterOrOtherClassTimetablesNeverReplaceTheLatestSchedule() = runTest {
+        val rig = rig { request -> if (request.method == "GET") response(tokenPage) else response(SchoolFixtures.scheduleJson) }
+        val session = rig.vault.establishSession(login)
+        rig.repository.activateSession(session)
+        rig.repository.fetchSchedule(session, "114_1", "114", "1", "", com.clhs.score.data.ScheduleScope.SEMESTER)
+        rig.repository.fetchSchedule(session, "114_1", "114", "1", "230", com.clhs.score.data.ScheduleScope.SEMESTER)
+        assertNull(rig.repository.loadLatestSchedule(session))
+        assertNotNull(rig.repository.loadCachedSchedule(session, "114_1", "230", com.clhs.score.data.ScheduleScope.SEMESTER, null))
+    }
+
+    @Test
+    fun unreadableSchoolCacheIsAMissButUnreadableUserSettingsAreErrors() = runTest {
+        val rig = rig()
+        val session = rig.vault.establishSession(login)
+        rig.repository.activateSession(session)
+        rig.repository.fetchGrades(session, "114_1", "期末考")
+        val requests = rig.transport.requests.size
+
+        files.failReads += "${FileStore.PRIVATE}/grades"
+        rig.repository.fetchGrades(session, "114_1", "期末考")
+        assertEquals(requests + 1, rig.transport.requests.size, "a failed cache read falls back to the network")
+        files.failWrites += "${FileStore.PRIVATE}/grades"
+        rig.repository.fetchGrades(session, "114_1", "期末考")
+        files.failReads.clear()
+        files.failWrites.clear()
+
+        rig.repository.saveSimulatorCredits(session, "114_1", "期末考", "{}")
+        assertEquals("{}", rig.repository.loadSimulatorCredits(session, "114_1", "期末考"))
+        val simulator = files.files.keys.single { it.startsWith("${FileStore.PRIVATE}/simulator/") }
+        files.files[simulator] = "{broken" to 0L
+        assertFailsWith<StorageException> { rig.repository.loadSimulatorCredits(session, "114_1", "期末考") }
+        files.failReads += simulator
+        assertFailsWith<StorageException> { rig.repository.loadSimulatorCredits(session, "114_1", "期末考") }
+        files.failReads.clear()
+
+        rig.repository.saveSubjectOverrides(session, listOf(ScheduleSubjectOverride("國語文", customSubjectName = "國文")))
+        files.failReads += "${FileStore.SETTINGS}/subject-overrides"
+        assertFailsWith<StorageException> { rig.repository.loadSubjectOverrides(session) }
+    }
+
+    @Test
+    fun writeThatPassedItsGuardCannotResurrectDataAfterLogout() = runTest {
+        val rig = rig()
+        val session = rig.vault.establishSession(login)
+        rig.repository.activateSession(session)
+        rig.transport.hold = true
+        val late = async { runCatching { rig.repository.fetchGrades(session, "114_1", "期末考") } }
+        runCurrent()
+        // Logout starts while the response is being written: its cache deletion runs after the write.
+        files.onWrite["${FileStore.PRIVATE}/grades"] = { rig.repository.revoke() }
+        rig.transport.pending.single().respond(response(SchoolFixtures.gradeJson))
+        runCurrent()
+        rig.repository.logout()
+        assertIs<CancellationException>(late.await().exceptionOrNull())
+        assertTrue(files.area(FileStore.PRIVATE).isEmpty())
+    }
 }

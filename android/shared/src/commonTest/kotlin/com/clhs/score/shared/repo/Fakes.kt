@@ -34,13 +34,18 @@ internal class FakeFileStore : FileStore {
     /** Paths starting with one of these prefixes fail the matching operation. */
     val failWrites = HashSet<String>()
     val failDeletes = HashSet<String>()
+    val failReads = HashSet<String>()
+    /** Runs inside the next write whose path starts with the key, before the file is stored. */
+    val onWrite = HashMap<String, () -> Unit>()
 
     private fun Set<String>.matches(path: String) = any { path.startsWith(it) }
 
     override fun read(path: String): StoreResult =
-        files[path]?.let { StoreResult.value(it.first, it.second) } ?: StoreResult.ok()
+        if (failReads.matches(path)) StoreResult.failure("read")
+        else files[path]?.let { StoreResult.value(it.first, it.second) } ?: StoreResult.ok()
 
     override fun write(path: String, text: String, modifiedAtEpochMillis: Long): StoreResult {
+        onWrite.keys.firstOrNull { path.startsWith(it) }?.let { onWrite.remove(it)?.invoke() }
         if (failWrites.matches(path)) return StoreResult.failure("write")
         files[path] = text to modifiedAtEpochMillis
         return StoreResult.ok()
