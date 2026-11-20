@@ -329,6 +329,14 @@ struct DataSettingsView: View {
     @State private var confirmingDelete = false
     @State private var message: String?
     @State private var pendingImport: PendingImport?
+    @State private var settingsDamaged = false
+
+    private static let damagedMessage = "設定檔已損壞，請重設設定後再試一次"
+
+    private func show(_ error: PocketError) {
+        message = error.message
+        settingsDamaged = error.message == Self.damagedMessage
+    }
 
     var body: some View {
         SettingsForm(title: "資料管理") {
@@ -339,7 +347,7 @@ struct DataSettingsView: View {
                             exported = PocketSettingsFile(text: try await model.exportSettings())
                             exporting = true
                         } catch {
-                            message = PocketError(error).message
+                            show(PocketError(error))
                         }
                     }
                 }
@@ -352,7 +360,23 @@ struct DataSettingsView: View {
                 Text("備份與 Android 版通用，包含外觀、首頁配置、通知偏好、安靜時段與登入後的自訂科目名稱，不包含帳號、密碼或成績。")
             }
             if let message {
-                Section { Text(message).font(.subheadline).accessibilityIdentifier("data-message") }
+                Section {
+                    Text(message).font(.subheadline).accessibilityIdentifier("data-message")
+                    if settingsDamaged {
+                        Button("重設設定", systemImage: "arrow.counterclockwise", role: .destructive) {
+                            Task {
+                                do {
+                                    try await model.resetDamagedSettings()
+                                    settingsDamaged = false
+                                    message = "已重設設定，可以再匯出或匯入。"
+                                } catch {
+                                    show(PocketError(error))
+                                }
+                            }
+                        }
+                        .accessibilityIdentifier("data-reset-settings")
+                    }
+                }
             }
             Section {
                 Button("刪除這台裝置上的資料", systemImage: "trash", role: .destructive) { confirmingDelete = true }
@@ -385,7 +409,8 @@ struct DataSettingsView: View {
                     pendingImport = PendingImport(text: file.text, document: document)
                 } catch {
                     let failure = PocketError(error)
-                    message = failure.kind == .invalidInput ? "這不是壢中 Pocket 的設定備份。" : failure.message
+                    show(failure)
+                    if failure.kind == .invalidInput { message = "這不是壢中 Pocket 的設定備份。" }
                 }
             }
         }
@@ -396,8 +421,9 @@ struct DataSettingsView: View {
                     do {
                         try await model.importSettings(pending.text, includeSubjects: includeSubjects)
                         message = "已匯入設定。"
+                        settingsDamaged = false
                     } catch {
-                        message = PocketError(error).message
+                        show(PocketError(error))
                     }
                 }
             }
