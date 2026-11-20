@@ -10,6 +10,8 @@ import com.clhs.score.data.RecordSemester
 import com.clhs.score.data.ScheduleClassOption
 import com.clhs.score.data.ScheduleFetchResult
 import com.clhs.score.data.ScheduleScope
+import com.clhs.score.shared.time.shiftDays
+import com.clhs.score.shared.time.schoolToday
 import com.clhs.score.data.ScheduleSubjectOverride
 import com.clhs.score.data.ScheduleWeekOption
 import com.clhs.score.data.ScheduleYearTermOption
@@ -105,6 +107,17 @@ class PocketApi(private val services: PocketServices) {
         session: AuthenticatedSession, yearValue: String, year: String, term: String, classNo: String,
         scope: ScheduleScope, token: CancelToken?,
     ): ScheduleFetchResult = pocketCall(token) { services.school.fetchSchedule(session, yearValue, year, term, classNo, scope) }
+
+    /** The weekly timetable [weekOffset] weeks from the current school week, as Android queries it by date. */
+    @Throws(Exception::class)
+    suspend fun fetchScheduleWeek(
+        session: AuthenticatedSession, yearValue: String, year: String, term: String, classNo: String,
+        weekOffset: Int, token: CancelToken?,
+    ): ScheduleFetchResult = pocketCall(token) {
+        services.school.fetchSchedule(
+            session, yearValue, year, term, classNo, ScheduleScope.CURRENT_WEEK, schoolToday().shiftDays(7L * weekOffset),
+        )
+    }
 
     @Throws(Exception::class)
     suspend fun latestSchedule(session: AuthenticatedSession, token: CancelToken?): CachedSchedule? =

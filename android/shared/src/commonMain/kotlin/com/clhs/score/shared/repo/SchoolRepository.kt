@@ -206,7 +206,9 @@ class SchoolRepository(
             else -> null
         }
         if (published != null) {
-            cache.saveSchedule(session.studentNo, scheduleCacheKey(published), published, latest = true) {
+            // Only this week's timetable is "the latest" the widget and reminders are built from;
+            // browsing another week must not replace it.
+            cache.saveSchedule(session.studentNo, scheduleCacheKey(published), published, latest = targetDate == schoolToday()) {
                 isCurrent(session, generation)
             }
         }

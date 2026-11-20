@@ -222,6 +222,35 @@ final class LiveDataController {
         publish()
     }
 
+    /// Another week of the weekly timetable, `weekOffset` weeks from the current one.
+    func loadScheduleWeek(classValue: String, weekOffset: Int) async {
+        guard let session, weekOffset != 0 else { return }
+        let live = PocketLive.shared
+        do {
+            let years = try await backend.call { try await $0.scheduleYears(session: session, token: $1) }
+            guard let yearValue = years.first?.value, let parts = live.yearTermParts(value: yearValue), parts.count == 2 else { return }
+            if live.scheduleClasses.isEmpty {
+                let classes = try await backend.call { try await $0.scheduleClasses(session: session, year: parts[0], term: parts[1], token: $1) }
+                guard self.session?.authorizationId == session.authorizationId else { return }
+                live.scheduleClasses = classes
+            }
+            guard let classNo = classValue.isEmpty ? live.scheduleClasses.first?.value : classValue else { return }
+            let result = try await backend.call {
+                try await $0.fetchScheduleWeek(
+                    session: session, yearValue: yearValue, year: parts[0], term: parts[1], classNo: classNo,
+                    weekOffset: Int32(weekOffset), token: $1
+                )
+            }
+            guard self.session?.authorizationId == session.authorizationId else { return }
+            switch result {
+            case let value as ScheduleFetchResultAvailable: live.putSchedule(classValue: classValue, report: value.report)
+            case let value as ScheduleFetchResultEmpty: live.putSchedule(classValue: classValue, report: value.report)
+            default: lastError = "這一週的課表尚未公布。"
+            }
+        } catch { note(error) }
+        publish()
+    }
+
     /// Fetches the newest exam again and compares it with the report the app already had.
     /// Returns the alert to show, or nil when nothing changed or the check could not run.
     func checkGradeUpdate(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification? {

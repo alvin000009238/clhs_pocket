@@ -145,11 +145,18 @@ object PocketLive : PocketSource {
     fun putReport(yearValue: String, examValue: String, report: GradeReport) { reports["$yearValue/$examValue"] = report }
     fun hasReport(yearValue: String, examValue: String): Boolean = "$yearValue/$examValue" in reports
 
-    private fun scheduleKey(scope: ScheduleScope, classValue: String) = "${scope.name}/$classValue"
-    override fun schedule(scope: ScheduleScope, today: LocalDate, classValue: String): ScheduleReport? =
-        (schedules[scheduleKey(scope, classValue)] ?: schedules[scheduleKey(scope, "")])?.takeIf { it.isValidOn(today) }
+    // One entry per class and week, so browsing another week keeps the current one.
+    private fun scheduleKey(scope: ScheduleScope, classValue: String) = "${scope.name}/$classValue/"
+    override fun schedule(scope: ScheduleScope, today: LocalDate, classValue: String): ScheduleReport? {
+        fun find(value: String) = scheduleKey(scope, value).let { prefix ->
+            schedules.entries.firstOrNull { it.key.startsWith(prefix) && it.value.isValidOn(today) }?.value
+        }
+        return find(classValue) ?: find("")
+    }
     /** [classValue] is empty for the signed-in student's own class. */
-    fun putSchedule(classValue: String, report: ScheduleReport) { schedules[scheduleKey(report.scope, classValue)] = report }
+    fun putSchedule(classValue: String, report: ScheduleReport) {
+        schedules[scheduleKey(report.scope, classValue) + report.weekStartDate.orEmpty()] = report
+    }
 
     override fun announcements(clock: PocketClock): List<SchoolAnnouncement> = announcementList
     fun putAnnouncements(items: List<SchoolAnnouncement>) { announcementList = items }

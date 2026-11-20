@@ -39,9 +39,13 @@ struct ScheduleView: View {
                 } else {
                     PocketPendingView(
                         isLoading: model.live?.isLoadingPrivate ?? false || loadingClass,
-                        title: weekOffset == 0 ? "課表尚未載入" : "只提供本週課表",
-                        message: weekOffset == 0 ? model.live?.lastError : "其他週次請改看學期課表。",
-                        retry: weekOffset == 0 ? { Task { await model.refreshLiveData(force: true) } } : nil
+                        title: weekOffset == 0 ? "課表尚未載入" : "這一週的課表尚未載入",
+                        message: model.live?.lastError,
+                        retry: {
+                            Task {
+                                if weekOffset == 0 { await model.refreshLiveData(force: true) } else { await loadWeek() }
+                            }
+                        }
                     )
                 }
 
@@ -59,6 +63,7 @@ struct ScheduleView: View {
             await live.loadSchedule(classValue: classValue)
             loadingClass = false
         }
+        .task(id: "\(classValue)|\(weekOffset)|\(showsSemester)") { await loadWeek() }
         .navigationTitle(PocketTab.schedule.title)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -142,6 +147,14 @@ struct ScheduleView: View {
         let renderer = ImageRenderer(content: content)
         renderer.scale = 2
         return renderer.uiImage
+    }
+
+    /// Other weeks are fetched on demand, as Android does, and kept while the app runs.
+    private func loadWeek() async {
+        guard weekOffset != 0, !showsSemester, let live = model.account else { return }
+        loadingClass = true
+        await live.loadScheduleWeek(classValue: classValue, weekOffset: weekOffset)
+        loadingClass = false
     }
 
     /// With accessibility text five columns cannot hold a subject name, so the grid keeps a
