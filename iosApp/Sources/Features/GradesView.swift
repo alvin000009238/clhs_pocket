@@ -74,7 +74,7 @@ struct GradesView: View {
         }
         .refreshable { await model.refreshLiveData(force: true) }
         .task(id: report.examValue + (report.isLoaded ? "" : "?")) {
-            guard !report.isLoaded, !report.examValue.isEmpty, let live = model.live else { return }
+            guard !report.isLoaded, !report.examValue.isEmpty, let live = model.account else { return }
             loadingExam = true
             await live.loadReport(examValue: report.examValue)
             loadingExam = false

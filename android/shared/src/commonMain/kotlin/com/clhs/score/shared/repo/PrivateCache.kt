@@ -86,12 +86,21 @@ class PrivateCache(private val files: FileStore, private val now: () -> Long) {
         if (latest) save(LATEST_SCHEDULE, studentNo, ScheduleReport.serializer(), report, shouldCommit)
     }
 
-    /** Subject overrides are the user's own edits; they stay through logout and go with delete-all. */
-    fun loadSubjectOverrides(studentNo: String): List<ScheduleSubjectOverride> =
-        load(OVERRIDES, studentNo, ListSerializer(ScheduleSubjectOverride.serializer()))?.first.orEmpty()
+    /**
+     * Subject overrides are the user's own edits; they stay through logout and go with delete-all.
+     * Each account has its own file, as Android keys them by student number, so signing in as
+     * someone else never replaces them. The single file older builds wrote is still read for its owner.
+     */
+    fun loadSubjectOverrides(studentNo: String): List<ScheduleSubjectOverride> {
+        val serializer = ListSerializer(ScheduleSubjectOverride.serializer())
+        return (load(overridesPath(studentNo), studentNo, serializer) ?: load(LEGACY_OVERRIDES, studentNo, serializer))?.first.orEmpty()
+    }
 
     fun saveSubjectOverrides(studentNo: String, overrides: List<ScheduleSubjectOverride>, shouldCommit: () -> Boolean) =
-        save(OVERRIDES, studentNo, ListSerializer(ScheduleSubjectOverride.serializer()), overrides.normalizedSubjectOverrides(), shouldCommit)
+        save(
+            overridesPath(studentNo), studentNo, ListSerializer(ScheduleSubjectOverride.serializer()),
+            overrides.normalizedSubjectOverrides(), shouldCommit,
+        )
 
     /** Removes all cached school data. Throws [StorageException] when anything could not be deleted. */
     fun clearSchoolData() {
@@ -99,14 +108,17 @@ class PrivateCache(private val files: FileStore, private val now: () -> Long) {
     }
 
     fun clearSubjectOverrides() {
-        files.delete(OVERRIDES).orThrow("Subject override delete")
+        files.deleteTree(OVERRIDES_DIRECTORY).orThrow("Subject override delete")
+        files.delete(LEGACY_OVERRIDES).orThrow("Subject override delete")
     }
 
     private companion object {
         const val STRUCTURE = "${FileStore.PRIVATE}/structure.json"
         const val STUDENT = "${FileStore.PRIVATE}/student.json"
         const val LATEST_SCHEDULE = "${FileStore.PRIVATE}/schedule-latest.json"
-        const val OVERRIDES = "${FileStore.SETTINGS}/subject-overrides.json"
+        const val LEGACY_OVERRIDES = "${FileStore.SETTINGS}/subject-overrides.json"
+        const val OVERRIDES_DIRECTORY = "${FileStore.SETTINGS}/subject-overrides"
+        fun overridesPath(studentNo: String) = "$OVERRIDES_DIRECTORY/${fileKey(studentNo)}.json"
         fun gradePath(year: String, exam: String) = "${FileStore.PRIVATE}/grades/${fileKey("$year|$exam")}.json"
         fun simulatorPath(year: String, exam: String) = "${FileStore.PRIVATE}/simulator/${fileKey("$year|$exam")}.json"
         fun schedulePath(key: String) = "${FileStore.PRIVATE}/schedule/${fileKey(key)}.json"

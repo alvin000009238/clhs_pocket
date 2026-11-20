@@ -102,6 +102,10 @@ final class AppModel {
 
     /// True while the screens show real data rather than the synthetic fixtures.
     var usesLiveData: Bool { live != nil && session != .demo }
+    /// The school account's data, or nil while the demo is showing. The demo can be entered from
+    /// the welcome screen with a real session still stored; it must never read or write that
+    /// account's store, so account-scoped state goes through this instead of `live`.
+    var account: LiveDataController? { usesLiveData ? live : nil }
     let services = PocketAppServices()
     private let defaults = UserDefaults.standard
     private let fixedClock: PocketClock?
@@ -133,7 +137,8 @@ final class AppModel {
             syncingUnread = true
             unreadAnnouncementIds = session == .demo ? PocketCampusStore.shared.defaultUnreadIds() : []
             syncingUnread = false
-            if session != .demo { Task { await syncUnread() } }
+            // Leaving the demo: pick the school account's data up again.
+            if session != .demo { Task { await refreshLiveData() } }
         }
     }
 
@@ -151,9 +156,9 @@ final class AppModel {
     /// Custom subject names. Signed in, they belong to the account (and its settings backup);
     /// otherwise they are a device preference.
     var scheduleOverrides: String {
-        get { live?.subjectOverrides ?? localScheduleOverrides }
+        get { account?.subjectOverrides ?? localScheduleOverrides }
         set {
-            if let live, live.session != nil { live.setSubjectOverrides(newValue) } else { localScheduleOverrides = newValue }
+            if let account, account.session != nil { account.setSubjectOverrides(newValue) } else { localScheduleOverrides = newValue }
         }
     }
 
@@ -236,17 +241,20 @@ final class AppModel {
         lock = AppLockController(isEnabled: defaults.bool(forKey: Key.appLock), authenticator: AppModel.authenticator(defaults))
         PocketPlatformCoordinator.shared.unlockGate = AppLockRouteGate(lock: lock).pass
         live = defaults.string(forKey: "dataMode") == "demo" ? nil : (try? PocketBackend.live()).map(LiveDataController.init)
-        if let live { PocketPlatformCoordinator.shared.data = LivePlatformData(live: live) }
         syncSource()
         if defaults.string(forKey: Key.dashboard) == nil { dashboardLayout = PocketDashboard.shared.defaultLayout() }
         if usesLiveData { unreadAnnouncementIds = [] }
+        if let live {
+            PocketPlatformCoordinator.shared.data = LivePlatformData(live: live) { [weak self] in self?.usesLiveData ?? false }
+        }
     }
 
     var sharedWeatherSource: WeatherSource { weatherSource == "cwa" ? .cwa : .openMeteo }
 
     /// Launch and every return to the foreground: restore the session once, then refresh.
     func refreshLiveData(force: Bool = false) async {
-        guard let live else { return }
+        // Nothing is fetched for the school account while the demo is showing.
+        guard usesLiveData, let live else { return }
         if !restored {
             restored = true
             await live.restore()
@@ -396,7 +404,7 @@ final class AppModel {
         _ = try await backend.call { try await $0.inspectSettingsJson(text: text, token: $1) }
         let session = usesLiveData ? live?.session : nil
         try await backend.call { try await $0.restoreSettingsJson(text: text, includeSubjects: session != nil, session: session, token: $1) }
-        await live?.reloadSubjectOverrides()
+        await account?.reloadSubjectOverrides()
         let restored = try await backend.call { try await $0.loadSettings(token: $1) }
         appearance = switch restored.themeMode {
         case .light: .light

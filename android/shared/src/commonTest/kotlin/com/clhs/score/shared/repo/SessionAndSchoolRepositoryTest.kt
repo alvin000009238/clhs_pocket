@@ -205,6 +205,14 @@ class SessionAndSchoolRepositoryTest {
         assertEquals(listOf(override), rig.cache.loadSubjectOverrides("DEMO-001"))
         assertTrue(rig.cache.loadSubjectOverrides("DEMO-002").isEmpty())
         assertFailsWith<CancellationException> { rig.repository.saveSubjectOverrides(session, emptyList()) }
+
+        // Another account saving its own list must not replace the first account's.
+        val other = ScheduleSubjectOverride("數學", customSubjectName = "數甲")
+        rig.cache.saveSubjectOverrides("DEMO-002", listOf(other)) { true }
+        assertEquals(listOf(other), rig.cache.loadSubjectOverrides("DEMO-002"))
+        assertEquals(listOf(override), rig.cache.loadSubjectOverrides("DEMO-001"))
+        rig.cache.clearSubjectOverrides()
+        assertTrue(rig.cache.loadSubjectOverrides("DEMO-001").isEmpty() && rig.cache.loadSubjectOverrides("DEMO-002").isEmpty())
     }
 
     // Logout and deletion

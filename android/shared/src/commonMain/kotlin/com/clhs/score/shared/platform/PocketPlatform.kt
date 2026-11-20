@@ -4,6 +4,7 @@ import com.clhs.score.data.BackgroundPause
 import com.clhs.score.data.GradeChange
 import com.clhs.score.data.GradeChangeField
 import com.clhs.score.data.GradeChangeSet
+import com.clhs.score.data.GradeReminderSnapshot
 import com.clhs.score.data.GradeReportDiffer
 import com.clhs.score.data.GradeReport
 import com.clhs.score.shared.app.PocketClock
@@ -55,11 +56,13 @@ object PocketPlatform {
 
     /**
      * Production check, as in Android's `GradeReminderWorker`: [before] is the report the app
-     * already had, [after] the one just fetched. Null when nothing changed, alerts are off or the
-     * quiet window is active. The alert names what changed, never a score or a rank.
+     * already had, [after] the one just fetched. A null [before] means the exam was not in the
+     * catalogue at the previous check, so whatever it already publishes counts as new. Null result
+     * when nothing changed, alerts are off or the quiet window is active. The alert names what
+     * changed, never a score or a rank.
      */
     fun gradeChangeNotification(
-        before: GradeReport,
+        before: GradeReport?,
         after: GradeReport,
         studentNo: String,
         yearValue: String,
@@ -69,7 +72,7 @@ object PocketPlatform {
         settings: PlatformNotificationSettings,
     ): PlannedNotification? = planGradeNotification(
         changeSet = GradeReportDiffer.diff(
-            before = GradeReportDiffer.snapshot(before),
+            before = before?.let(GradeReportDiffer::snapshot) ?: GradeReminderSnapshot(summary = null, subjects = emptyList(), standards = emptyList()),
             after = GradeReportDiffer.snapshot(after),
             studentNo = studentNo,
             yearValue = yearValue,

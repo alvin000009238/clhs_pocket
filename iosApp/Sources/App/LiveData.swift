@@ -229,12 +229,21 @@ final class LiveDataController {
         if let lastGradeCheck, date.timeIntervalSince(lastGradeCheck) < Self.gradeCheckInterval { return nil }
         if session == nil { await restore() }
         let live = PocketLive.shared
-        guard let session, let key = live.currentTermExamValues().last,
-              let year = live.yearValueOf(examValue: key), let code = live.examCodeOf(examValue: key) else { return nil }
+        guard let session else { return nil }
         lastGradeCheck = date
         do {
-            // The cached report is the baseline; nothing extra is stored for the comparison.
-            let before = try await backend.call {
+            // Android watches one exam the student picked; here the newest exam is watched
+            // automatically, so the exam list is refetched first or a new exam would go unnoticed.
+            let known = Set(live.currentTermExamValues())
+            let structure = try await backend.call { try await $0.loadStructure(session: session, forceRefresh: true, token: $1) }
+            guard self.session?.authorizationId == session.authorizationId else { return nil }
+            live.putStructure(items: structure)
+            guard let key = live.currentTermExamValues().last,
+                  let year = live.yearValueOf(examValue: key), let code = live.examCodeOf(examValue: key) else { return nil }
+            // The cached report is the baseline; nothing extra is stored for the comparison. An exam
+            // that was not listed before has no baseline, unless this is the very first check.
+            let isNewExam = !known.isEmpty && !known.contains(key)
+            let before: GradeReport? = isNewExam ? nil : try await backend.call {
                 try await $0.fetchGrades(session: session, yearValue: year, examValue: code, forceRefresh: false, token: $1)
             }
             let after = try await backend.call {
@@ -280,6 +289,8 @@ final class LiveDataController {
 /// Production data for widgets, reminders and background refresh.
 struct LivePlatformData: PlatformDataProviding {
     let live: LiveDataController
+    /// False while the demo is showing; the school account is then left alone.
+    let isActive: @MainActor () -> Bool
     private let shared = DemoPlatformData()
 
     func scheduleSnapshotJSON(scheduleNow: Date, deviceNow: Date) -> String? {
@@ -291,6 +302,7 @@ struct LivePlatformData: PlatformDataProviding {
     }
 
     func gradeNotification(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification? {
-        await live.checkGradeUpdate(at: date, settings: settings)
+        guard isActive() else { return nil }
+        return await live.checkGradeUpdate(at: date, settings: settings)
     }
 }

@@ -195,7 +195,7 @@ class PublicRepositoriesAndSettingsTest {
         val rig = backup()
         rig.settings.save(PocketSettings(appLockEnabled = true, hasCompletedOnboarding = true))
         rig.service.restoreJson(androidBackup, includeSubjects = false, expectedSession = null)
-        assertTrue(files.files.keys.none { it.endsWith("subject-overrides.json") })
+        assertTrue(files.files.keys.none { "subject-overrides" in it })
         assertTrue(rig.settings.load().appLockEnabled && rig.settings.load().hasCompletedOnboarding)
 
         assertFailsWith<IllegalArgumentException> { rig.service.restoreJson(androidBackup, includeSubjects = true, expectedSession = null) }

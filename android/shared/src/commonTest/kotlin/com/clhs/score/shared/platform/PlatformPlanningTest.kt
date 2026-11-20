@@ -185,7 +185,7 @@ class PlatformPlanningTest {
         val after = before.copy(subjects = before.subjects.mapIndexed { index, subject ->
             if (index == 0) subject.copy(scoreDisplay = "1.0", score = 1.0) else subject
         })
-        fun check(old: GradeReport, new: GradeReport, settings: PlatformNotificationSettings, now: Long = at(12, 0)) =
+        fun check(old: GradeReport?, new: GradeReport, settings: PlatformNotificationSettings, now: Long = at(12, 0)) =
             PocketPlatform.gradeChangeNotification(old, new, "DEMO-000", "114_1", "114_1_E1", "第一次段考", now, settings)
 
         // The first check has the same report on both sides: it only establishes the baseline.
@@ -194,6 +194,9 @@ class PlatformPlanningTest {
         assertEquals("第一次段考資訊更新", planned.title)
         assertFalse(planned.body.any { it.isDigit() })
         assertEquals(PocketLinks.GRADES, planned.link)
+        // An exam that was not listed at the previous check: its published grades are news.
+        assertNotNull(check(null, before, settings()))
+        assertNull(check(null, before.copy(examSummary = null, subjects = emptyList(), standards = emptyList()), settings()))
         assertNull(check(before, after, settings(enabled = false)))
         assertNull(check(before, after, settings(pause = true), now = at(23, 30)))
     }
