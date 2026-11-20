@@ -8,12 +8,14 @@ struct ScheduleView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var showsSemester = false
     @Environment(\.dynamicTypeSize) private var typeSize
-    @State private var classValue = ""
     @State private var loadingClass = false
     @State private var photoMessage: String?
     @State private var weekOffset = 0
     @State private var selectedCell: PocketScheduleCell?
     @State private var shareImage: Image?
+
+    /// Empty for the student's own timetable; kept by `AppModel` across launches.
+    private var classValue: String { model.scheduleClass }
 
     var body: some View {
         let store = PocketScheduleStore.shared
@@ -86,7 +88,7 @@ struct ScheduleView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Picker("班級", selection: $classValue) {
+                    Picker("班級", selection: Binding(get: { model.scheduleClass }, set: { model.scheduleClass = $0 })) {
                         ForEach(store.classes()) { item in
                             Text(item.title).tag(item.id == store.classes().first?.id ? "" : item.id)
                         }
