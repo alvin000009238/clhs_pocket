@@ -201,7 +201,7 @@ struct AnnouncementDetailView: View {
                             .accessibilityIdentifier("announcement-body")
                     } else {
                         VStack(alignment: .leading, spacing: 14) {
-                            ForEach(detail.paragraphs, id: \.self) { paragraph in
+                            ForEach(Array(detail.paragraphs.enumerated()), id: \.offset) { _, paragraph in
                                 Text(paragraph)
                                     .font(.body)
                                     .lineSpacing(5)
@@ -210,7 +210,7 @@ struct AnnouncementDetailView: View {
                             }
                         }
                     }
-                    ForEach(detail.images, id: \.url) { image in
+                    ForEach(Array(detail.images.enumerated()), id: \.offset) { _, image in
                         AnnouncementImageView(image: image)
                     }
                     if !detail.attachments.isEmpty {
@@ -218,7 +218,7 @@ struct AnnouncementDetailView: View {
                             PocketSectionHeader(title: "附件") { EmptyView() }
                             PocketCard(padding: 8) {
                                 VStack(spacing: 0) {
-                                    ForEach(Array(detail.attachments.enumerated()), id: \.element.name) { index, file in
+                                    ForEach(Array(detail.attachments.enumerated()), id: \.offset) { index, file in
                                         if index > 0 { PocketRowDivider().padding(.leading, 60) }
                                         Button {
                                             if let url = URL(string: file.url), url.scheme == "https" || url.scheme == "http" {
@@ -274,10 +274,11 @@ struct AnnouncementDetailView: View {
             }
         }
         .task { await loadDetail() }
-        .alert("示範附件", isPresented: $attachmentNotice) {
+        .alert(model.usesLiveData ? "無法開啟附件" : "示範附件", isPresented: $attachmentNotice) {
             Button("好") {}
         } message: {
-            Text("示範資料不含實際檔案；使用真實資料時會開啟學校網站上的附件。")
+            Text(model.usesLiveData ? "這個附件沒有有效的網址，請到學校網站查看這則公告。"
+                : "示範資料不含實際檔案；使用真實資料時會開啟學校網站上的附件。")
         }
         .background(PocketColor.background.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
