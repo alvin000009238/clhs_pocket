@@ -1,3 +1,4 @@
+import PocketShared
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -122,6 +123,7 @@ struct NotificationSettingsView: View {
 
 struct BackgroundPauseView: View {
     @Environment(AppModel.self) private var model
+    @State private var sameTimeRejected = false
 
     private func binding(_ keyPath: ReferenceWritableKeyPath<AppModel, Int>) -> Binding<Date> {
         Binding(
@@ -133,7 +135,11 @@ struct BackgroundPauseView: View {
                 let minute = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
                 let other = keyPath == \AppModel.pauseStart ? model.pauseEnd : model.pauseStart
                 // The shared window rejects a zero-length range.
-                guard minute != other else { return }
+                guard minute != other else {
+                    sameTimeRejected = true
+                    return
+                }
+                sameTimeRejected = false
                 model[keyPath: keyPath] = minute
                 model.platformSettingsChanged()
             }
@@ -160,7 +166,12 @@ struct BackgroundPauseView: View {
                     DatePicker("開始", selection: binding(\.pauseStart), displayedComponents: .hourAndMinute)
                     DatePicker("結束", selection: binding(\.pauseEnd), displayedComponents: .hourAndMinute)
                 } footer: {
-                    Text(model.pauseEnd <= model.pauseStart ? "結束時間早於開始時間，視為跨到隔天。" : "")
+                    Text(
+                        sameTimeRejected ? "開始與結束不能是同一時間，已保留原本的設定。"
+                            : model.pauseEnd <= model.pauseStart ? "結束時間早於開始時間，視為跨到隔天。" : ""
+                    )
+                    .foregroundStyle(sameTimeRejected ? PocketColor.negative : PocketColor.onSurfaceVariant)
+                    .accessibilityIdentifier("pause-message")
                 }
             }
         }
@@ -194,12 +205,90 @@ struct WeatherSourceView: View {
             } footer: {
                 Text(model.usesLiveData ? "切換後會立即重新取得天氣。中央氣象署需要你自己的授權碼，尚未設定時會沿用上次的資料。" : "示範資料的天氣數值固定；使用真實資料時切換會立即重新取得天氣。")
             }
+            if model.weatherSource == "cwa" {
+                CwaKeySection()
+            }
+        }
+    }
+}
+
+/// The user's own CWA open-data key. It is checked against the API before it is kept in the Keychain
+/// and is never shown again once saved.
+private struct CwaKeySection: View {
+    @Environment(AppModel.self) private var model
+    @State private var hasKey: Bool?
+    @State private var key = ""
+    @State private var saving = false
+    @State private var message: String?
+
+    var body: some View {
+        Section {
+            if hasKey == true {
+                LabeledContent("授權碼", value: "已設定")
+                Button("移除授權碼", role: .destructive) {
+                    Task {
+                        do {
+                            try await model.clearCwaKey()
+                            hasKey = false
+                            message = "已移除授權碼。"
+                        } catch {
+                            message = PocketError(error).message
+                        }
+                    }
+                }
+                .accessibilityIdentifier("cwa-key-clear")
+            } else {
+                SecureField("CWA-XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX", text: $key)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .textContentType(.password)
+                    .accessibilityLabel("中央氣象署授權碼")
+                    .accessibilityIdentifier("cwa-key-field")
+                Button {
+                    Task { await save() }
+                } label: {
+                    if saving {
+                        HStack { ProgressView(); Text("正在驗證…") }
+                    } else {
+                        Text("驗證並儲存")
+                    }
+                }
+                .disabled(saving || key.trimmingCharacters(in: .whitespaces).isEmpty)
+                .accessibilityIdentifier("cwa-key-save")
+            }
+            if let message {
+                Text(message).font(.footnote).accessibilityIdentifier("cwa-key-message")
+            }
+        } header: {
+            Text("中央氣象署授權碼")
+        } footer: {
+            Text("到中央氣象署開放資料平臺登入會員後取得。授權碼只保存在這台裝置的鑰匙圈，不會包含在設定備份中。")
+        }
+        .task { hasKey = await model.hasCwaKey() }
+    }
+
+    private func save() async {
+        saving = true
+        defer { saving = false }
+        do {
+            switch try await model.saveCwaKey(key) {
+            case .valid:
+                key = ""
+                hasKey = true
+                message = "授權碼有效，已儲存並重新取得天氣。"
+            case .invalidFormat: message = "授權碼格式不正確，請確認後再試一次。"
+            case .invalidAuthorization, .apiRejected: message = "中央氣象署不接受這組授權碼。"
+            default: message = "目前無法連線到中央氣象署，請稍後再試。"
+            }
+        } catch {
+            message = PocketError(error).message
         }
     }
 }
 
 struct AppLockSettingsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     @State private var failed = false
 
     var body: some View {
@@ -225,6 +314,10 @@ struct AppLockSettingsView: View {
                 )
             }
         }
+        // The user may have set a passcode in Settings while away.
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            if phase == .active { model.lock.refreshMethod() }
+        }
     }
 }
 
@@ -235,6 +328,7 @@ struct DataSettingsView: View {
     @State private var exported: PocketSettingsFile?
     @State private var confirmingDelete = false
     @State private var message: String?
+    @State private var pendingImport: PendingImport?
 
     var body: some View {
         SettingsForm(title: "資料管理") {
@@ -287,11 +381,24 @@ struct DataSettingsView: View {
             }
             Task {
                 do {
-                    try await model.importSettings(file.text)
-                    message = "已匯入設定。"
+                    let document = try await model.inspectSettings(file.text)
+                    pendingImport = PendingImport(text: file.text, document: document)
                 } catch {
                     let failure = PocketError(error)
                     message = failure.kind == .invalidInput ? "這不是壢中 Pocket 的設定備份。" : failure.message
+                }
+            }
+        }
+        .sheet(item: $pendingImport) { pending in
+            ImportPreviewView(pending: pending) { includeSubjects in
+                pendingImport = nil
+                Task {
+                    do {
+                        try await model.importSettings(pending.text, includeSubjects: includeSubjects)
+                        message = "已匯入設定。"
+                    } catch {
+                        message = PocketError(error).message
+                    }
                 }
             }
         }
@@ -300,6 +407,109 @@ struct DataSettingsView: View {
         ) { result in
             if case .success = result { message = "已匯出設定。" }
         }
+    }
+}
+
+struct PendingImport: Identifiable {
+    let id = UUID()
+    let text: String
+    let document: SettingsBackupDocument
+}
+
+/// What a backup will change, confirmed before anything is overwritten.
+private struct ImportPreviewView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let pending: PendingImport
+    let onConfirm: (Bool) -> Void
+    @State private var includeSubjects = true
+
+    private var subjectCount: Int? { pending.document.subjects.map(\.count) }
+
+    var body: some View {
+        let settings = pending.document.settings
+        NavigationStack {
+            Form {
+                Section("將套用的設定") {
+                    LabeledContent("主題", value: settings.themeMode == .light ? "淺色" : settings.themeMode == .dark ? "深色" : "跟隨系統")
+                    LabeledContent("天氣來源", value: settings.weatherSource == .cwa ? "中央氣象署" : "Open-Meteo")
+                    LabeledContent("首頁元件", value: "\(pending.document.overview.count) 個")
+                    LabeledContent("安靜時段", value: settings.backgroundPauseEnabled
+                        ? "\(SettingsFormat.time(Int(settings.backgroundPauseStartMinute))) – \(SettingsFormat.time(Int(settings.backgroundPauseEndMinute)))"
+                        : "未啟用")
+                    LabeledContent("上課前提醒", value: pending.document.remindBeforeClass ? "開啟" : "關閉")
+                }
+                Section {
+                    Toggle("套用自訂科目名稱", isOn: $includeSubjects)
+                        .disabled(!canApplySubjects)
+                        .accessibilityIdentifier("import-subjects")
+                } footer: {
+                    Text(subjectFooter)
+                }
+            }
+            .navigationTitle("匯入設定")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("匯入") { onConfirm(includeSubjects && canApplySubjects) }
+                        .accessibilityIdentifier("import-confirm")
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var canApplySubjects: Bool { model.canImportSubjects && subjectCount != nil }
+
+    private var subjectFooter: String {
+        guard let subjectCount else { return "這份備份沒有自訂科目名稱，目前帳號的科目名稱不會變更。" }
+        guard model.canImportSubjects else { return "備份含 \(subjectCount) 筆自訂科目名稱；登入校務帳號後才能套用。" }
+        return "備份含 \(subjectCount) 筆自訂科目名稱，開啟後會取代目前帳號的設定。"
+    }
+}
+
+/// SIL Open Font License texts for the fonts bundled with the app (DESIGN.md).
+struct FontLicensesView: View {
+    private static let fonts = [("Huninn 粉圓", "Huninn-OFL"), ("Outfit", "Outfit-OFL")]
+
+    var body: some View {
+        SettingsForm(title: "開放原始碼授權") {
+            ForEach(Self.fonts, id: \.1) { name, file in
+                Section {
+                    NavigationLink(name) { FontLicenseText(title: name, resource: file) }
+                        .accessibilityIdentifier("license-\(file)")
+                } footer: {
+                    Text("以 SIL Open Font License 1.1 授權並隨 App 封裝。")
+                }
+            }
+        }
+    }
+}
+
+private struct FontLicenseText: View {
+    let title: String
+    let resource: String
+
+    var body: some View {
+        ScrollView {
+            Text(Self.text(resource))
+                .font(.footnote.monospaced())
+                .foregroundStyle(PocketColor.onSurface)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+        }
+        .background(PocketColor.background)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    static func text(_ resource: String) -> String {
+        Bundle.main.url(forResource: resource, withExtension: "txt")
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "找不到授權文字。"
     }
 }
 
@@ -320,6 +530,8 @@ struct AboutView: View {
             Section {
                 LabeledContent("版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
                 LabeledContent("資料來源", value: model.dataSource.isDemo ? "示範資料" : "校務系統")
+                NavigationLink("開放原始碼授權") { FontLicensesView() }
+                    .accessibilityIdentifier("about-licenses")
             } footer: {
                 Text(model.live != nil ? "非學校官方 App。登入資訊只保存在這台裝置的鑰匙圈，登出後會一併清除。" : "非學校官方 App。示範模式僅提供虛構資料，不會連線到校務系統，也不會儲存任何帳號資訊。")
             }
