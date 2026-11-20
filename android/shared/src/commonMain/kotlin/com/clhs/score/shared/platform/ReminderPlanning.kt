@@ -138,7 +138,8 @@ fun planAnnouncementNotification(
     if (fresh.isEmpty()) return AnnouncementPlan(seenIds, null)
     if (!notificationsEnabled || pause.containsInstant(nowMillis, utcOffsetSeconds)) return AnnouncementPlan(seenIds, null)
     return AnnouncementPlan(
-        seenIds = (seenIds + fresh.map { it.id }).takeLast(MAX_SEEN_ANNOUNCEMENTS),
+        // The current list always stays in the baseline, so a long-pinned item is never evicted and re-announced.
+        seenIds = (ids + seenIds.filter { it !in ids }).take(MAX_SEEN_ANNOUNCEMENTS),
         notification = PlannedNotification(
             identifier = ANNOUNCEMENT_NOTIFICATION_ID,
             fireAtMillis = null,

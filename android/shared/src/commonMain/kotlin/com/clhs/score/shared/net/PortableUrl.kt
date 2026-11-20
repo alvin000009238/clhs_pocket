@@ -31,7 +31,7 @@ class PortableUrl private constructor(
         }
         return PortableUrl(
             scheme, host, port, normalizePath(path),
-            if (pathPart.isEmpty() && query == null) encodedQuery else query, hasUserInfo = false,
+            if (pathPart.isEmpty() && query == null) encodedQuery else query?.let(::encodeUnsafe), hasUserInfo = false,
         )
     }
 
@@ -39,6 +39,16 @@ class PortableUrl private constructor(
         scheme, host, port,
         normalizePath(encodedPath.trimEnd('/') + "/" + path.trimStart('/').split('/').joinToString("/") { encodeComponent(it) }),
         query.takeIf { it.isNotEmpty() }?.joinToString("&") { (name, value) -> "${encodeComponent(name)}=${encodeComponent(value)}" },
+        hasUserInfo = false,
+    )
+
+    /** Appends [segments] as literal path segments: `/`, `?`, `%` and dot segments inside them are escaped. */
+    fun withPathSegments(vararg segments: String): PortableUrl = PortableUrl(
+        scheme, host, port,
+        encodedPath.trimEnd('/') + segments.joinToString("") { segment ->
+            "/" + encodeComponent(segment).let { if (it == "." || it == "..") it.replace(".", "%2E") else it }
+        },
+        null,
         hasUserInfo = false,
     )
 
@@ -62,7 +72,7 @@ class PortableUrl private constructor(
             } else if (scheme == "https") 443 else 80
             val tail = rest.substring(authorityEnd)
             val path = tail.substringBefore('?').ifEmpty { "/" }
-            val query = if ('?' in tail) tail.substringAfter('?') else null
+            val query = if ('?' in tail) encodeUnsafe(tail.substringAfter('?')) else null
             return PortableUrl(scheme, host, port, normalizePath(path), query, hasUserInfo)
         }
 
@@ -95,7 +105,7 @@ class PortableUrl private constructor(
             }
         }
 
-        /** Leaves an already encoded path segment alone and escapes only characters that are illegal on the wire. */
+        /** Leaves an already encoded path segment or query alone and escapes only characters that are illegal on the wire. */
         private fun encodeUnsafe(segment: String): String = buildString {
             for (byte in segment.encodeToByteArray()) {
                 val code = byte.toInt() and 0xFF

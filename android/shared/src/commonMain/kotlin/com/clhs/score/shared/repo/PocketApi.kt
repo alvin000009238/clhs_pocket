@@ -42,6 +42,11 @@ class PocketApi(private val services: PocketServices) {
     suspend fun loginWithCookies(studentNo: String, cookies: Map<String, String>, token: CancelToken?): AuthenticatedSession =
         pocketCall(token) { services.school.loginWithCookies(studentNo, cookies) }
 
+    /** Complete logout of the current account followed by [loginWithCookies], serialized as one step. */
+    @Throws(Exception::class)
+    suspend fun switchAccount(studentNo: String, cookies: Map<String, String>, token: CancelToken?): AuthenticatedSession =
+        pocketCall(token) { services.account.switchAccount(studentNo, cookies) }
+
     @Throws(Exception::class)
     suspend fun logout(token: CancelToken?) = pocketCall(token) { services.account.logout() }
 
@@ -204,6 +209,10 @@ class PocketApi(private val services: PocketServices) {
 
     @Throws(Exception::class)
     suspend fun loadSettings(token: CancelToken?): PocketSettings = pocketCall(token) { services.settings.load() }
+
+    /** Deletes an unreadable settings file so the next [loadSettings] starts from defaults. */
+    @Throws(Exception::class)
+    suspend fun resetSettings(token: CancelToken?) = pocketCall(token) { services.settings.clear() }
 
     @Throws(Exception::class)
     suspend fun saveSettings(settings: PocketSettings, token: CancelToken?) = pocketCall(token) { services.settings.save(settings) }

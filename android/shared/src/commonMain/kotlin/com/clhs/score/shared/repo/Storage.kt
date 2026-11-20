@@ -45,7 +45,10 @@ interface FileStore {
     }
 }
 
-class StorageException(message: String) : Exception(message)
+open class StorageException(message: String) : Exception(message)
+
+/** The settings file exists but cannot be decoded or holds values no screen can produce. */
+class SettingsUnreadableException : StorageException("Settings are unreadable")
 
 internal class StoredText(val text: String, val modifiedAtEpochMillis: Long)
 
@@ -64,4 +67,18 @@ internal fun fileKey(value: String): String {
     val bytes = value.encodeToByteArray()
     require(bytes.size in 1..96) { "Cache key is too long" }
     return bytes.joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+}
+
+/** Fixed-length, path-safe name for keys of any length: two independent 64-bit FNV-1a hashes in hex. */
+internal fun hashedFileKey(value: String): String {
+    val bytes = value.encodeToByteArray()
+    fun fnv(seed: ULong): String {
+        var hash = seed
+        for (byte in bytes) {
+            hash = hash xor (byte.toUByte().toULong())
+            hash *= 0x100000001b3UL
+        }
+        return hash.toString(16).padStart(16, '0')
+    }
+    return fnv(0xcbf29ce484222325UL) + fnv(0x84222325cbf29ce4UL)
 }

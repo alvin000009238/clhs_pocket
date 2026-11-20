@@ -21,6 +21,12 @@ import com.clhs.score.shared.net.PortableSchoolClient
 import com.clhs.score.shared.time.LocalDate
 import com.clhs.score.shared.time.schoolToday
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
@@ -40,6 +46,10 @@ class SchoolRepository(
     private class Active(val session: AuthenticatedSession?, val generation: Long)
 
     private val active = AtomicReference(Active(null, 0L))
+
+    /** Serializes login against logout so their storage steps never interleave. */
+    private val lifecycle = Mutex()
+    private val pendingLogin = AtomicReference<Job?>(null)
 
     private fun setActive(session: AuthenticatedSession?): Long {
         while (true) {
@@ -61,39 +71,73 @@ class SchoolRepository(
         setActive(session)
     }
 
-    /** Verifies cookies from the login web view, stores the session and makes it the active one. */
+    /**
+     * Verifies cookies from the login web view, stores the session and makes it the active one.
+     *
+     * Any previous session is revoked first, so its in-flight requests can neither read the new
+     * cookies nor write into the new account's cache. A [logout] that starts meanwhile cancels the
+     * login, and the new session is never stored once it has been revoked.
+     */
     suspend fun loginWithCookies(studentNo: String, cookies: Map<String, String>): AuthenticatedSession {
+        vault.revoke()
         setActive(null)
         val generation = vault.requestGeneration()
-        cache.clearSchoolData()
-        val verified = client.loginWithCookies(studentNo, cookies)
-        val session = vault.establishSession(verified, generation)
-        // The client holds the verified session without its authorization id; align both.
-        client.restoreSession(session)
-        setActive(session)
-        return session
+        return lifecycle.withLock {
+            coroutineScope {
+                val job = coroutineContext[Job]
+                pendingLogin.store(job)
+                try {
+                    // A logout or another login that started after this one wins.
+                    if (vault.requestGeneration() != generation) throw CancellationException("Session revoked")
+                    client.clearSession()
+                    cache.clearSchoolData()
+                    val verified = client.loginWithCookies(studentNo, cookies)
+                    val session = vault.establishSession(verified, generation)
+                    // The client holds the verified session without its authorization id; align both.
+                    client.restoreSession(session)
+                    setActive(session)
+                    if (!vault.isAuthorized(session)) throw CancellationException("Session revoked")
+                    session
+                } finally {
+                    pendingLogin.compareAndSet(job, null)
+                }
+            }
+        }
+    }
+
+    /** Ends the session in memory at once and cancels a login in progress; storage is left to [logout]. */
+    fun revoke() {
+        vault.revoke()
+        setActive(null)
+        pendingLogin.load()?.cancel(CancellationException("Session revoked"))
     }
 
     /**
      * Revokes the session first, then removes stored credentials, cookies and cached school data.
-     * Throws [SessionCleanupException] naming everything that could not be removed.
+     * Cleanup runs to the end even when the caller is cancelled. Throws [SessionCleanupException]
+     * naming everything that could not be removed.
      */
     suspend fun logout() {
-        vault.revoke()
-        setActive(null)
-        val failures = LinkedHashSet<SessionCleanupFailure>()
-        try {
-            vault.clear()
-        } catch (_: StorageException) {
-            failures += SessionCleanupFailure.SESSION_DELETE_FAILED
+        revoke()
+        withContext(NonCancellable) {
+            lifecycle.withLock {
+                vault.revoke()
+                setActive(null)
+                val failures = LinkedHashSet<SessionCleanupFailure>()
+                try {
+                    vault.clear()
+                } catch (_: StorageException) {
+                    failures += SessionCleanupFailure.SESSION_DELETE_FAILED
+                }
+                client.clearSession()
+                try {
+                    cache.clearSchoolData()
+                } catch (_: StorageException) {
+                    failures += SessionCleanupFailure.PRIVATE_CACHE_DELETE_FAILED
+                }
+                if (failures.isNotEmpty()) throw SessionCleanupException(failures)
+            }
         }
-        client.clearSession()
-        try {
-            cache.clearSchoolData()
-        } catch (_: StorageException) {
-            failures += SessionCleanupFailure.PRIVATE_CACHE_DELETE_FAILED
-        }
-        if (failures.isNotEmpty()) throw SessionCleanupException(failures)
     }
 
     suspend fun loadStructure(session: AuthenticatedSession, forceRefresh: Boolean = false): List<YearTermOption> {
@@ -110,7 +154,7 @@ class SchoolRepository(
         return structure
     }
 
-    fun loadCachedStudentInfo(session: AuthenticatedSession): StudentInfo? {
+    suspend fun loadCachedStudentInfo(session: AuthenticatedSession): StudentInfo? {
         val generation = capture(session)
         return cache.loadStudentInfo(session.studentNo).also { requireCurrent(session, generation) }
     }
@@ -142,12 +186,12 @@ class SchoolRepository(
         return report
     }
 
-    fun loadSimulatorCredits(session: AuthenticatedSession, yearValue: String, examValue: String): String? {
+    suspend fun loadSimulatorCredits(session: AuthenticatedSession, yearValue: String, examValue: String): String? {
         val generation = capture(session)
         return cache.loadSimulatorCredits(session.studentNo, yearValue, examValue).also { requireCurrent(session, generation) }
     }
 
-    fun saveSimulatorCredits(session: AuthenticatedSession, yearValue: String, examValue: String, settingsJson: String?) {
+    suspend fun saveSimulatorCredits(session: AuthenticatedSession, yearValue: String, examValue: String, settingsJson: String?) {
         val generation = capture(session)
         cache.saveSimulatorCredits(session.studentNo, yearValue, examValue, settingsJson) { isCurrent(session, generation) }
         requireCurrent(session, generation)
@@ -206,9 +250,10 @@ class SchoolRepository(
             else -> null
         }
         if (published != null) {
-            // Only this week's timetable is "the latest" the widget and reminders are built from;
-            // browsing another week must not replace it.
-            cache.saveSchedule(session.studentNo, scheduleCacheKey(published), published, latest = targetDate == schoolToday()) {
+            // Only the student's own timetable for this week is "the latest" the widget and reminders
+            // are built from; the semester table, another class or another week must not replace it.
+            val latest = published.scope == ScheduleScope.CURRENT_WEEK && classNo.isBlank() && targetDate == schoolToday()
+            cache.saveSchedule(session.studentNo, scheduleCacheKey(published), published, latest) {
                 isCurrent(session, generation)
             }
         }
@@ -216,33 +261,45 @@ class SchoolRepository(
         return decorated
     }
 
-    fun loadCachedSchedule(session: AuthenticatedSession, yearValue: String, classNo: String, scope: ScheduleScope): CachedSchedule? {
+    /** [weekStartDate] selects the week of a [ScheduleScope.CURRENT_WEEK] table and is ignored for the semester. */
+    suspend fun loadCachedSchedule(
+        session: AuthenticatedSession,
+        yearValue: String,
+        classNo: String,
+        scope: ScheduleScope,
+        weekStartDate: String?,
+    ): CachedSchedule? {
         val generation = capture(session)
-        val key = "$yearValue|$classNo|${scope.name}"
+        val key = scheduleCacheKey(yearValue, classNo, scope, weekStartDate)
         return cache.loadSchedule(session.studentNo, key)?.withOverrides(session).also { requireCurrent(session, generation) }
     }
 
     /** The most recently fetched published timetable, for a cache-first start. */
-    fun loadLatestSchedule(session: AuthenticatedSession): CachedSchedule? {
+    suspend fun loadLatestSchedule(session: AuthenticatedSession): CachedSchedule? {
         val generation = capture(session)
         return cache.loadLatestSchedule(session.studentNo)?.withOverrides(session).also { requireCurrent(session, generation) }
     }
 
-    fun loadSubjectOverrides(session: AuthenticatedSession): List<ScheduleSubjectOverride> {
+    suspend fun loadSubjectOverrides(session: AuthenticatedSession): List<ScheduleSubjectOverride> {
         val generation = capture(session)
         return cache.loadSubjectOverrides(session.studentNo).also { requireCurrent(session, generation) }
     }
 
-    fun saveSubjectOverrides(session: AuthenticatedSession, overrides: List<ScheduleSubjectOverride>) {
+    suspend fun saveSubjectOverrides(session: AuthenticatedSession, overrides: List<ScheduleSubjectOverride>) {
         val generation = capture(session)
         cache.saveSubjectOverrides(session.studentNo, overrides) { isCurrent(session, generation) }
         requireCurrent(session, generation)
     }
 
-    private fun CachedSchedule.withOverrides(session: AuthenticatedSession) =
+    private suspend fun CachedSchedule.withOverrides(session: AuthenticatedSession) =
         CachedSchedule(report.copy(subjectOverrides = cache.loadSubjectOverrides(session.studentNo)), capturedAtEpochMillis)
 
-    private fun scheduleCacheKey(report: ScheduleReport) = "${report.yearTermValue}|${report.classNo}|${report.scope.name}"
+    private fun scheduleCacheKey(report: ScheduleReport) =
+        scheduleCacheKey(report.yearTermValue, report.classNo, report.scope, report.weekStartDate)
+
+    private fun scheduleCacheKey(yearValue: String, classNo: String, scope: ScheduleScope, weekStartDate: String?) =
+        if (scope == ScheduleScope.CURRENT_WEEK) "$yearValue|$classNo|${scope.name}|${weekStartDate.orEmpty()}"
+        else "$yearValue|$classNo|${scope.name}"
 
     private suspend fun <T> guarded(session: AuthenticatedSession, request: suspend () -> T): T {
         val generation = capture(session)
