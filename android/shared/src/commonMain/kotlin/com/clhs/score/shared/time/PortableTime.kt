@@ -1,5 +1,7 @@
 package com.clhs.score.shared.time
 
+import kotlin.math.abs
+
 /**
  * Minimal ISO calendar types for platforms without `java.time`.
  * They mirror only the operations shared school logic needs; Android keeps the real `java.time` types.
@@ -30,26 +32,42 @@ class PortableLocalDate private constructor(val epochDay: Long) : Comparable<Por
     fun plusDays(days: Long): PortableLocalDate = ofEpochDay(epochDay + days)
 
     fun plusMonths(months: Long): PortableLocalDate {
+        // Validate the year as a Long before narrowing so huge offsets cannot wrap back into range.
+        require(months in -MAX_MONTH_SHIFT..MAX_MONTH_SHIFT) { "Date out of range" }
         val total = year * 12L + (monthValue - 1) + months
-        val newYear = total.floorDiv(12L).toInt()
+        val newYear = total.floorDiv(12L)
+        require(newYear in MIN_YEAR..MAX_YEAR) { "Date out of range" }
         val newMonth = (total.mod(12L) + 1).toInt()
-        return of(newYear, newMonth, minOf(dayOfMonth, lengthOfMonth(newYear, newMonth)))
+        return of(newYear.toInt(), newMonth, minOf(dayOfMonth, lengthOfMonth(newYear.toInt(), newMonth)))
     }
 
     override fun compareTo(other: PortableLocalDate): Int = epochDay.compareTo(other.epochDay)
     override fun equals(other: Any?): Boolean = other is PortableLocalDate && epochDay == other.epochDay
     override fun hashCode(): Int = epochDay.hashCode()
-    override fun toString(): String =
-        "${year.toString().padStart(4, '0')}-${monthValue.pad2()}-${dayOfMonth.pad2()}"
+    /** ISO form like `LocalDate.toString`: `-0001-12-31`, `0999-01-01`, `+10000-01-01`. */
+    override fun toString(): String {
+        val absYear = abs(year)
+        val yearText = when {
+            absYear < 1000 -> (if (year < 0) "-" else "") + absYear.toString().padStart(4, '0')
+            year > 9999 -> "+$year"
+            else -> year.toString()
+        }
+        return "$yearText-${monthValue.pad2()}-${dayOfMonth.pad2()}"
+    }
 
     companion object {
+        /** `java.time.Year.MIN_VALUE..MAX_VALUE`, matching the [ofEpochDay] bounds. */
+        const val MIN_YEAR = -999_999_999L
+        const val MAX_YEAR = 999_999_999L
+        private const val MAX_MONTH_SHIFT = (MAX_YEAR - MIN_YEAR + 1) * 12
+
         fun ofEpochDay(epochDay: Long): PortableLocalDate {
             require(epochDay in -365_243_219_162L..365_241_780_471L) { "Date out of range" }
             return PortableLocalDate(epochDay)
         }
 
         fun of(year: Int, month: Int, day: Int): PortableLocalDate {
-            require(year in 0..9999 && month in 1..12 && day in 1..lengthOfMonth(year, month)) {
+            require(year in MIN_YEAR..MAX_YEAR && month in 1..12 && day in 1..lengthOfMonth(year, month)) {
                 "Invalid date"
             }
             val y = (if (month <= 2) year - 1 else year).toLong()

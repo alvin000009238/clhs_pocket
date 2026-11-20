@@ -1,26 +1,18 @@
 package com.clhs.score.domain.overview
 
+import kotlin.time.Duration
 import com.clhs.score.shared.time.LOCAL_DATE_TIME_ORDER
 import com.clhs.score.shared.time.Instant
 import com.clhs.score.shared.time.LocalDate
 import com.clhs.score.shared.time.LocalDateTime
-import com.clhs.score.shared.time.NANOS_PER_DAY
-import com.clhs.score.shared.time.NANOS_PER_HOUR
-import com.clhs.score.shared.time.NANOS_PER_MINUTE
 import com.clhs.score.shared.time.at
 import com.clhs.score.shared.time.compareTo
 import com.clhs.score.shared.time.datePart
 import com.clhs.score.shared.time.dayNumber
 import com.clhs.score.shared.time.daysUntil
-import com.clhs.score.shared.time.epochDay
 import com.clhs.score.shared.time.hourMinuteText
-import com.clhs.score.shared.time.isValidTimeZoneId
 import com.clhs.score.shared.time.monthNumber
-import com.clhs.score.shared.time.nanosUntil
-import com.clhs.score.shared.time.parseLocalDate
-import com.clhs.score.shared.time.parseLocalDateOrNull
-import com.clhs.score.shared.time.parseLocalTime
-import com.clhs.score.shared.time.randomUuidString
+import com.clhs.score.shared.time.durationUntil
 import com.clhs.score.shared.time.schoolNow
 import com.clhs.score.shared.time.shiftNanos
 import com.clhs.score.shared.time.timePart
@@ -171,7 +163,7 @@ fun OverviewState.withPreferences(value: OverviewPreferences): OverviewState {
                 it.isAllDay -> now.datePart().daysUntil(displayTarget.datePart()).let { days ->
                     if (days == 0L) "今天" else "$days 天"
                 }
-                else -> remainingLabel(now.nanosUntil(target))
+                else -> remainingLabel(now.durationUntil(target))
             }
             OverviewItem(
                 id = "countdown-${it.id}", priority = OverviewPriority.P1,
@@ -192,10 +184,10 @@ fun OverviewState.withPreferences(value: OverviewPreferences): OverviewState {
 }
 
 /** Positive remaining time as whole days, else whole hours, else at least one minute. */
-fun remainingLabel(remainingNanos: Long): String = when {
-    remainingNanos / NANOS_PER_DAY > 0 -> "${remainingNanos / NANOS_PER_DAY} 天"
-    remainingNanos / NANOS_PER_HOUR > 0 -> "${remainingNanos / NANOS_PER_HOUR} 小時"
-    else -> "${(remainingNanos / NANOS_PER_MINUTE).coerceAtLeast(1)} 分鐘"
+fun remainingLabel(remaining: Duration): String = when {
+    remaining.inWholeDays > 0 -> "${remaining.inWholeDays} 天"
+    remaining.inWholeHours > 0 -> "${remaining.inWholeHours} 小時"
+    else -> "${remaining.inWholeMinutes.coerceAtLeast(1)} 分鐘"
 }
 
 /** `M/d`, optionally prefixed with the year and followed by ` HH:mm`. */

@@ -5,6 +5,7 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /** The iOS calendar types must agree with the `java.time` types Android keeps using. */
 class PortableTimeParityTest {
@@ -49,6 +50,31 @@ class PortableTimeParityTest {
             val shift = random.nextLong(-400_000_000_000_000L, 400_000_000_000_000L)
             val shifted = portable.plusNanos(shift)
             assertEquals(javaDateTime.plusNanos(shift).toString().take(19), "${shifted.date}T${shifted.time}:00".take(19))
+        }
+    }
+
+    @Test
+    fun monthShiftsAndExtremeYearsMatchJavaTime() {
+        val random = Random(44)
+        val dates = listOf(
+            java.time.LocalDate.of(0, 1, 31), java.time.LocalDate.of(-1, 12, 31), java.time.LocalDate.of(999, 2, 28),
+            java.time.LocalDate.of(9999, 12, 31), java.time.LocalDate.of(10_000, 1, 1), java.time.LocalDate.MIN,
+            java.time.LocalDate.MAX, java.time.LocalDate.of(2024, 2, 29),
+        )
+        val shifts = listOf(0L, 1L, -1L, 12L, -12L, 11_999L * 12, Int.MAX_VALUE.toLong(), Int.MIN_VALUE.toLong(),
+            Int.MAX_VALUE * 12L + 5, 1L shl 40, -(1L shl 40), Long.MAX_VALUE, Long.MIN_VALUE)
+        for (date in dates) {
+            val portable = PortableLocalDate.ofEpochDay(date.toEpochDay())
+            assertEquals(date.toString(), portable.toString())
+            for (months in shifts + List(20) { random.nextLong(-24_000_000_000L, 24_000_000_000L) }) {
+                val expected = runCatching { date.plusMonths(months).toString() }.getOrNull()
+                val actual = runCatching { portable.plusMonths(months).toString() }
+                if (expected == null) {
+                    assertTrue(actual.exceptionOrNull() is IllegalArgumentException, "$date + $months months")
+                } else {
+                    assertEquals(expected, actual.getOrThrow(), "$date + $months months")
+                }
+            }
         }
     }
 
