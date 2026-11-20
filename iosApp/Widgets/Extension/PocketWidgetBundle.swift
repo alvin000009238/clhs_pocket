@@ -68,6 +68,6 @@ struct ScheduleTimelineProvider: TimelineProvider {
             return
         }
         let entries = snapshot.timelineDates(from: now).map { ScheduleEntry(date: $0, glance: snapshot.glance(at: $0)) }
-        completion(Timeline(entries: entries, policy: .atEnd))
+        completion(Timeline(entries: entries, policy: snapshot.timelineContinues(from: now) ? .atEnd : .never))
     }
 }

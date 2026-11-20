@@ -161,6 +161,14 @@ extension ScheduleSnapshot {
         let reachesExpiry = upcoming.count < limit
         return [now] + upcoming + (reachesExpiry ? [validUntil] : [])
     }
+
+    /// Whether WidgetKit should ask again once the dates from `timelineDates` are used up. Only a
+    /// timeline cut short by `limit` has more to show. One that ends at expiry, or starts after it,
+    /// would be rebuilt identically straight away, over and over, until the day's budget is gone;
+    /// the app reloads the timelines when it publishes a new snapshot.
+    func timelineContinues(from now: Date, limit: Int = 48) -> Bool {
+        now < validUntil && timelineDates(from: now, limit: limit).last != validUntil
+    }
 }
 
 /// The dedicated App Group file. It is the only data shared with the
