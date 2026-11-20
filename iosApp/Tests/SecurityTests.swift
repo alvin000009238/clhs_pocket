@@ -1,5 +1,6 @@
 @preconcurrency import PocketShared
 import SwiftUI
+import WebKit
 import XCTest
 @testable import CLHSPocket
 
@@ -247,12 +248,32 @@ final class SchoolWebPolicyTests: XCTestCase {
         XCTAssertFalse(SchoolWebPolicy.isLoginPage(URL(string: "https://evil.example/CLHSTYC/Auth/Auth/CloudLogin")))
     }
 
+    @MainActor
+    func testADialogIsAnsweredOnlyOnce() {
+        var answers: [Bool] = []
+        let reply = DialogReply { answers.append($0) }
+        reply.answer(true)
+        reply.answer(false)
+        XCTAssertEqual(answers, [true])
+    }
+
+    @MainActor
+    func testContentRulesCompile() async throws {
+        let list = try await WKContentRuleListStore.default().compileContentRuleList(
+            forIdentifier: "school-web-test", encodedContentRuleList: SchoolWebPolicy.contentRules
+        )
+        XCTAssertNotNil(list)
+    }
+
     func testTopLevelNavigationStaysOnTheSchoolSiteAndFramesStayOnHttps() {
         let other = URL(string: "https://example.org/page")
         XCTAssertTrue(SchoolWebPolicy.allowsNavigation(to: SchoolWebPolicy.homeURL, isMainFrame: true))
         XCTAssertFalse(SchoolWebPolicy.allowsNavigation(to: other, isMainFrame: true))
         XCTAssertFalse(SchoolWebPolicy.allowsNavigation(to: URL(string: "about:blank"), isMainFrame: true))
-        XCTAssertTrue(SchoolWebPolicy.allowsNavigation(to: other, isMainFrame: false))
+        XCTAssertFalse(SchoolWebPolicy.allowsNavigation(to: other, isMainFrame: false), "frames are held to the school host too")
+        XCTAssertTrue(SchoolWebPolicy.allowsNavigation(to: SchoolWebPolicy.homeURL, isMainFrame: false))
+        XCTAssertTrue(SchoolWebPolicy.allowsNavigation(to: URL(string: "about:blank"), isMainFrame: false))
+        XCTAssertFalse(SchoolWebPolicy.allowsNavigation(to: URL(string: "about:srcdoc"), isMainFrame: false))
         XCTAssertFalse(SchoolWebPolicy.allowsNavigation(to: URL(string: "http://example.org/"), isMainFrame: false))
         XCTAssertFalse(SchoolWebPolicy.allowsNavigation(to: URL(string: "file:///etc/hosts"), isMainFrame: false))
         XCTAssertFalse(SchoolWebPolicy.allowsNavigation(to: nil, isMainFrame: false))

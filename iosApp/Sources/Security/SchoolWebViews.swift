@@ -21,12 +21,21 @@ enum SchoolWebPolicy {
         return url.path.contains("/CLHSTYC/Auth/Auth/CloudLogin")
     }
 
-    /// The top-level page must be a school page. Frames inside it may load HTTPS content only.
+    /// Every page must be a school page. A frame may also be the empty `about:blank` document
+    /// the school pages create before filling it; `about:srcdoc` and other hosts are refused.
     static func allowsNavigation(to url: URL?, isMainFrame: Bool) -> Bool {
-        if isMainFrame { return isTrusted(url) }
-        guard let scheme = url?.scheme?.lowercased() else { return false }
-        return scheme == "https" || scheme == "about"
+        if isTrusted(url) { return true }
+        return !isMainFrame && url?.absoluteString.lowercased() == "about:blank"
     }
+
+    /// Content rules for both web views: nothing loads over plain HTTP, and requests to other
+    /// sites carry no cookies.
+    static let contentRules = """
+    [
+      {"trigger": {"url-filter": "^http://"}, "action": {"type": "block"}},
+      {"trigger": {"url-filter": ".*", "load-type": ["third-party"]}, "action": {"type": "block-cookies"}}
+    ]
+    """
 
     /// Cookies handed to the shared core: only those the school host would receive over HTTPS.
     static func schoolCookies(from cookies: [HTTPCookie]) -> [String: String] {
@@ -110,6 +119,9 @@ struct SchoolLoginWebView: UIViewRepresentable {
     @Binding var page: SchoolWebPageState
     /// Incremented by the parent to reload the page.
     var reloadToken = 0
+    /// Incremented by the parent when verifying a reported login failed, so the student can sign
+    /// in again on the same page.
+    var loginResetToken = 0
     let onLogin: @MainActor (_ studentNo: String, _ cookies: [String: String]) -> Void
 
     func makeCoordinator() -> SchoolWebCoordinator {
@@ -117,13 +129,18 @@ struct SchoolLoginWebView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = context.coordinator.makeWebView(installLoginHook: true)
-        webView.load(URLRequest(url: SchoolWebPolicy.loginURL, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData))
+        let coordinator = context.coordinator
+        let webView = coordinator.makeWebView(installLoginHook: true)
+        coordinator.loadTask = Task { @MainActor in
+            guard await coordinator.installContentRules(in: webView), !Task.isCancelled else { return }
+            webView.load(URLRequest(url: SchoolWebPolicy.loginURL, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData))
+        }
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.reloadIfNeeded(webView, token: reloadToken)
+        context.coordinator.loginAttemptEnded(token: loginResetToken)
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: SchoolWebCoordinator) {
@@ -151,10 +168,14 @@ struct SchoolSiteWebView: UIViewRepresentable {
                 .name: name, .value: value, .domain: SchoolWebPolicy.host, .path: "/", .secure: "TRUE",
             ])
         }
-        Task { @MainActor in
+        let coordinator = context.coordinator
+        coordinator.loadTask = Task { @MainActor in
+            guard await coordinator.installContentRules(in: webView) else { return }
             for cookie in cookies {
                 await store.setCookie(cookie)
             }
+            // The view may have been torn down while the cookies were being stored.
+            guard !Task.isCancelled else { return }
             webView.load(URLRequest(url: SchoolWebPolicy.homeURL, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData))
         }
         return webView
@@ -178,6 +199,12 @@ final class SchoolWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, 
     private let onAuthenticationExpired: (@MainActor () -> Void)?
     private var observations: [NSKeyValueObservation] = []
     private var loginHandled = false
+    private var loginResetToken = 0
+    private var rulesInstalled = false
+    /// JavaScript dialogs WebKit is still waiting on.
+    private var pendingDialogs: [DialogReply] = []
+    /// Loads the first page once its cookies are in place; cancelled when the view goes away.
+    var loadTask: Task<Void, Never>?
     private var reloadToken = 0
 
     init(
@@ -221,9 +248,39 @@ final class SchoolWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, 
         return webView
     }
 
+    /// Compiles and attaches `SchoolWebPolicy.contentRules`. No page is loaded without them.
+    func installContentRules(in webView: WKWebView) async -> Bool {
+        let list = try? await WKContentRuleListStore.default().compileContentRuleList(
+            forIdentifier: "school-web", encodedContentRuleList: SchoolWebPolicy.contentRules
+        )
+        guard let list else {
+            page.wrappedValue.loadFailed = true
+            return false
+        }
+        webView.configuration.userContentController.add(list)
+        rulesInstalled = true
+        return true
+    }
+
+    /// The parent reports that the last login could not be verified.
+    func loginAttemptEnded(token: Int) {
+        guard token != loginResetToken else { return }
+        loginResetToken = token
+        loginHandled = false
+    }
+
     func reloadIfNeeded(_ webView: WKWebView, token: Int) {
         guard token != reloadToken else { return }
         reloadToken = token
+        guard rulesInstalled else {
+            page.wrappedValue.loadFailed = false
+            loadTask?.cancel()
+            loadTask = Task { @MainActor in
+                guard await installContentRules(in: webView), !Task.isCancelled else { return }
+                webView.load(URLRequest(url: onLogin == nil ? SchoolWebPolicy.homeURL : SchoolWebPolicy.loginURL))
+            }
+            return
+        }
         if webView.url == nil {
             webView.load(URLRequest(url: onLogin == nil ? SchoolWebPolicy.homeURL : SchoolWebPolicy.loginURL))
         } else {
@@ -234,11 +291,17 @@ final class SchoolWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, 
     /// Stops the page and removes everything the school site stored in this web view.
     func tearDown(_ webView: WKWebView) {
         observations = []
+        // WebKit raises an exception when a dialog's completion handler is never called.
+        pendingDialogs.forEach { $0.answer(false) }
+        pendingDialogs = []
+        loadTask?.cancel()
+        loadTask = nil
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         webView.configuration.userContentController.removeAllScriptMessageHandlers()
         webView.configuration.userContentController.removeAllUserScripts()
+        webView.configuration.userContentController.removeAllContentRuleLists()
         let store = webView.configuration.websiteDataStore
         store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {}
     }
@@ -298,10 +361,15 @@ final class SchoolWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, 
               let webView = message.webView, SchoolWebPolicy.isLoginPage(webView.url),
               let studentNo = SchoolWebPolicy.studentNumber(fromMessage: message.body)
         else { return }
+        // One report per attempt: the page can fire the same success twice in a row. The school's
+        // check is an XHR, so no navigation would ever allow a second attempt after a failed
+        // verification; the parent's `loginResetToken` or the short window below does.
         loginHandled = true
-        webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+        webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
             Task { @MainActor in
                 onLogin(studentNo, SchoolWebPolicy.schoolCookies(from: cookies))
+                try? await Task.sleep(for: .seconds(2))
+                self?.loginHandled = false
             }
         }
     }
@@ -334,19 +402,46 @@ final class SchoolWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, 
     private func present(
         on webView: WKWebView, message: String, actions: [(String, Bool)], completion: @escaping @MainActor (Bool) -> Void
     ) {
+        let reply = DialogReply(completion)
         var presenter = webView.window?.rootViewController
-        while let presented = presenter?.presentedViewController {
+        while let presented = presenter?.presentedViewController, !presented.isBeingDismissed {
             presenter = presented
         }
-        guard let presenter else {
-            completion(false)
+        // A presenter that is leaving or not on screen would drop the alert without ever answering.
+        guard let presenter, !presenter.isBeingDismissed, presenter.viewIfLoaded?.window != nil else {
+            reply.answer(false)
             return
         }
+        pendingDialogs.append(reply)
         let alert = UIAlertController(title: nil, message: String(message.prefix(500)), preferredStyle: .alert)
         for (title, value) in actions {
-            alert.addAction(UIAlertAction(title: title, style: value ? .default : .cancel) { _ in completion(value) })
+            alert.addAction(UIAlertAction(title: title, style: value ? .default : .cancel) { [weak self] _ in
+                reply.answer(value)
+                self?.pendingDialogs.removeAll { $0 === reply }
+            })
         }
-        presenter.present(alert, animated: true)
+        presenter.present(alert, animated: true) { [weak self, weak alert] in
+            // UIKit can refuse the presentation without telling anyone.
+            guard alert?.presentingViewController == nil else { return }
+            reply.answer(false)
+            self?.pendingDialogs.removeAll { $0 === reply }
+        }
+    }
+}
+
+/// Answers a WebKit dialog exactly once, however many paths try.
+@MainActor
+final class DialogReply {
+    private var completion: (@MainActor (Bool) -> Void)?
+
+    init(_ completion: @escaping @MainActor (Bool) -> Void) {
+        self.completion = completion
+    }
+
+    func answer(_ value: Bool) {
+        let completion = completion
+        self.completion = nil
+        completion?(value)
     }
 }
 
