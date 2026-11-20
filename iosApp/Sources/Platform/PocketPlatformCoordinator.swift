@@ -14,7 +14,7 @@ final class PocketPlatformCoordinator: NSObject {
     var data: PlatformDataProviding = UnavailablePlatformData()
     let settings = PlatformSettings.shared
     let notifications = PocketNotificationCenter()
-    let store = ScheduleSnapshotStore.shared
+    var store = ScheduleSnapshotStore.shared
     private let defaults = UserDefaults.standard
 
     /// Set by the app shell; taps that arrive before it exists are held here.
@@ -84,7 +84,7 @@ final class PocketPlatformCoordinator: NSObject {
     /// Republishes the snapshot and reschedules everything derived from it.
     func refresh(deviceNow: Date = Date()) async {
         guard isSignedIn else {
-            await clearSessionData()
+            try? await clearSessionData()
             return
         }
         let generation = sessionGeneration
@@ -123,7 +123,7 @@ final class PocketPlatformCoordinator: NSObject {
         // A sign-out during the awaits above already ran its own cleanup; run it
         // again so nothing this pass scheduled or published survives.
         guard isCurrent() else {
-            if !isSignedIn { await clearSessionData() }
+            if !isSignedIn { try? await clearSessionData() }
             return
         }
         if plansFromSnapshot {
@@ -137,13 +137,25 @@ final class PocketPlatformCoordinator: NSObject {
 
     /// Sign-out, revocation and account switches. A failed snapshot deletion
     /// is retried on the next refresh because `isSignedIn` stays false.
-    func clearSessionData() async {
-        try? store.clear()
+    ///
+    /// Everything else is still removed when the snapshot cannot be deleted, and that failure is
+    /// thrown: privacy cleanup is never reported as done when the widget file is still there.
+    func clearSessionData() async throws {
+        let snapshot = Result { try store.clear() }
         WidgetCenter.shared.reloadAllTimelines()
         await notifications.removeEverything()
         await LessonActivityController.endAll()
         pendingLink = nil
         scheduleBackgroundRefresh()
+        try snapshot.get()
+    }
+
+    /// Delete-all: the session ends for the platform first, so nothing is republished, no
+    /// background refresh is requested and no baseline is written back after the cleanup.
+    func endSessionAndClear() async throws {
+        if isSignedIn { sessionGeneration += 1 }
+        isSignedIn = false
+        try await clearSessionData()
     }
 
     // MARK: Permission

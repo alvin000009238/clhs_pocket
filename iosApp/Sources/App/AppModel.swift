@@ -135,7 +135,7 @@ final class AppModel {
             unreadAnnouncementIds = session == .demo ? PocketCampusStore.shared.defaultUnreadIds() : []
             syncingUnread = false
             // Leaving the demo: pick the school account's data up again.
-            if session != .demo { Task { await refreshLiveData() } }
+            if session != .demo, !resettingPreferences { Task { await refreshLiveData() } }
         }
     }
 
@@ -193,7 +193,8 @@ final class AppModel {
     var weatherSource: String {
         didSet {
             defaults.set(weatherSource, forKey: Key.weatherSource)
-            guard oldValue != weatherSource, let live else { return }
+            // Nothing is fetched while the demo shows or while delete-all resets the preferences.
+            guard oldValue != weatherSource, !resettingPreferences, usesLiveData, let live else { return }
             Task { await live.refreshPublic(weatherSource: sharedWeatherSource, force: true) }
         }
     }
@@ -302,6 +303,8 @@ final class AppModel {
     var profile: PocketProfile { dataSource.profile() }
     var isSignedIn: Bool { session == .demo || live?.session != nil }
     @ObservationIgnored private var restored = false
+    /// True while delete-all puts the preferences back; their side effects stay off.
+    @ObservationIgnored private var resettingPreferences = false
 
     func refreshClock() {
         let next = fixedClock ?? AppModel.systemClock()
@@ -469,19 +472,31 @@ final class AppModel {
             accountError = Self.cleanupMessage(PocketError(error))
             succeeded = false
         }
+        // Returning the preferences to their defaults must not write anything back: no read-state
+        // file, no refetched public data, no republished widget.
+        resettingPreferences = true
         session = .guest
+        syncingUnread = true
         paths = [:]
         appearance = .system
         dashboardLayout = PocketDashboard.shared.defaultLayout()
         localScheduleOverrides = "[]"
-        unreadAnnouncementIds = PocketCampusStore.shared.defaultUnreadIds()
+        defaults.removeObject(forKey: "scheduleClass")
+        // The demo's unread markers belong to the demo's own announcements only.
+        unreadAnnouncementIds = live == nil ? PocketCampusStore.shared.defaultUnreadIds() : []
         bookmarkedAnnouncementIds = []
         weatherSource = "open-meteo"
+        syncingUnread = false
+        resettingPreferences = false
         // Pending reminders, the widget snapshot and Live Activities go with the data, and the
         // notification preferences return to off so a later sign-in schedules nothing by itself.
         PlatformSettings.shared.reset()
-        await PocketPlatformCoordinator.shared.clearSessionData()
-        await PocketPlatformCoordinator.shared.refresh()
+        do {
+            try await PocketPlatformCoordinator.shared.endSessionAndClear()
+        } catch {
+            accountError = "小工具的課表資料未能刪除。請再試一次。"
+            succeeded = false
+        }
         return succeeded
     }
 

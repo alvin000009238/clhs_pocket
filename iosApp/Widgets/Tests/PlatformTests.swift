@@ -235,6 +235,36 @@ final class PlatformTests: XCTestCase {
         XCTAssertNil(fallback.announcementHeadlines(at: lessonTime))
     }
 
+    func testDeleteAllEndsThePlatformSessionAndReportsASnapshotThatCouldNotBeDeleted() async throws {
+        let coordinator = PocketPlatformCoordinator.shared
+        let savedStore = coordinator.store
+        let wasSignedIn = coordinator.isSignedIn
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+            coordinator.store = savedStore
+        }
+        coordinator.store = ScheduleSnapshotStore(directory: directory)
+        try coordinator.store.save(json: demoJSON(at: lessonTime))
+        await coordinator.sessionChanged(signedIn: true)
+
+        // A read-only directory stands for a snapshot file the system refuses to remove.
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        do {
+            try await coordinator.endSessionAndClear()
+            XCTFail("a snapshot that is still on disk must be reported")
+        } catch {}
+        XCTAssertFalse(coordinator.isSignedIn, "the session ends even when the cleanup is incomplete")
+        XCTAssertNotNil(coordinator.store.loadData())
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        try await coordinator.endSessionAndClear()
+        XCTAssertNil(coordinator.store.loadData())
+        if wasSignedIn { await coordinator.sessionChanged(signedIn: true) }
+    }
+
     // MARK: Notifications
 
     private func center(_ scheduler: FakeScheduler) -> PocketNotificationCenter {
@@ -399,7 +429,7 @@ final class PlatformTests: XCTestCase {
         // Sign-out revokes the token, so a notification left on screen can no longer pause.
         let stale = center.capabilities.issue(for: "pause-test-2", link: .schedule)
         await coordinator.sessionChanged(signedIn: false)
-        await coordinator.clearSessionData()
+        try await coordinator.clearSessionData()
         await coordinator.pauseCourseRemindersForToday(capability: stale, now: lessonTime)
         XCTAssertEqual(center.coursePausedUntilMillis, 0)
         await coordinator.sessionChanged(signedIn: wasSignedIn)
