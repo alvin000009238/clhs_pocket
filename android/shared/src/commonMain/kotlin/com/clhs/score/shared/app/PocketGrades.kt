@@ -209,6 +209,9 @@ object PocketGrades {
     private fun rank(rank: Int?, count: Int?) = if (rank == null || count == null) "--" else "$rank/$count"
 }
 
+/** A finished credit search for one exam, applied with [PocketSimulator.applyInference]. */
+class PocketCreditInference internal constructor(internal val value: SimulatorCredits.Inference)
+
 /**
  * Editable what-if state for one exam. Credits are the shared [SimulatorCredits]
  * integers from 1 to 4; exclusions are a subject selection, never a zero credit.
@@ -249,7 +252,15 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
     }
 
     /** Searches for credits that reproduce the official summary; call only after a mismatch. */
-    fun inferCredits() { inferred = SimulatorCredits.infer(subjects, report.examSummary) }
+    fun inferCredits() { applyInference(computeInference()) }
+
+    /**
+     * The search alone. It reads only the immutable report, never the editable state, so a caller
+     * may run it off the main thread and drop the result if the user cancels or edits meanwhile.
+     */
+    fun computeInference(): PocketCreditInference = PocketCreditInference(SimulatorCredits.infer(subjects, report.examSummary))
+
+    fun applyInference(result: PocketCreditInference) { inferred = result.value }
 
     fun applyCandidate(index: Int) {
         inferred?.candidates?.getOrNull(index)?.let { credits = defaults + it }

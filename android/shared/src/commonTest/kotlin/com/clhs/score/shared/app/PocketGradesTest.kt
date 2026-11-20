@@ -50,6 +50,18 @@ class PocketGradesTest {
     }
 
     @Test
+    fun computedInferenceChangesNothingUntilApplied() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        val before = simulator.state()
+        val result = simulator.computeInference()
+        assertEquals(before, simulator.state(), "a cancelled search must leave the simulator untouched")
+        simulator.applyInference(result)
+        assertTrue(simulator.state().inferenceText.isNotEmpty())
+        val direct = assertNotNull(PocketGrades.simulator(exam)).apply { inferCredits() }.state()
+        assertEquals(direct, simulator.state())
+    }
+
+    @Test
     fun shareTextOmitsTheStudentNumber() {
         val text = PocketGrades.shareText(exam)
         assertTrue("加權平均" in text)
