@@ -21,6 +21,23 @@ class PocketDashboardTabletTest {
         }
     }
 
+    /** Live mode before the calendar has loaded has no upcoming events; adding a countdown must still work. */
+    @Test
+    fun addingACountdownWithoutUpcomingEventsCreatesACustomCountdown() {
+        PocketData.useLive()
+        try {
+            val base = PocketDashboard.defaultLayout()
+            val added = PocketDashboard.add(base, "countdown", clock)
+            val before = PocketDashboard.instances(base).map { it.id }.toSet()
+            val widget = PocketDashboard.instances(added).single { it.id !in before }
+            assertEquals("countdown", widget.type)
+            assertTrue(widget.config() is com.clhs.score.domain.overview.OverviewWidgetConfig.CustomCountdown)
+            PocketDashboard.widgets(added, 4, clock, signedIn = false, unreadIds = emptySet(), bookmarkedIds = emptySet())
+        } finally {
+            PocketData.useDemo()
+        }
+    }
+
     /** iPad, portrait and landscape, signed in and guest: the grid has no holes and nothing overlaps. */
     @Test
     fun wideGridsHaveNoHoles() {

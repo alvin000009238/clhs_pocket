@@ -272,8 +272,12 @@ object PocketDashboard {
             "youbike" -> OverviewWidgetConfig.YouBike()
             "countdown" -> {
                 val used = widgets.mapNotNull { (it.config() as? OverviewWidgetConfig.SchoolEvent)?.eventId }.toSet()
-                val event = DemoCampus.upcomingEvents(clock).let { events -> events.firstOrNull { it.id !in used } ?: events.first() }
-                OverviewWidgetConfig.SchoolEvent(event.id, event.title)
+                val events = DemoCampus.upcomingEvents(clock)
+                val event = events.firstOrNull { it.id !in used } ?: events.firstOrNull()
+                // The calendar may not be loaded yet (offline, first launch) or hold nothing upcoming:
+                // the widget then starts as a custom countdown the student can edit.
+                if (event != null) OverviewWidgetConfig.SchoolEvent(event.id, event.title)
+                else OverviewWidgetConfig.CustomCountdown("倒數日", clock.date().toString())
             }
             "calendar" -> OverviewWidgetConfig.ListItems(3)
             "announcements" -> OverviewWidgetConfig.ListItems(2)
