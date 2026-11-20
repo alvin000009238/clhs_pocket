@@ -7,8 +7,12 @@
 
 | 分支 | 用途 |
 | --- | --- |
-| `feat/kmp-ios-native-migration` | 整合分支：Android、`android/shared` 共用邏輯、文件 |
-| `feat/kmp-ios-native-app` | macOS 上的原生 SwiftUI App（`iosApp/**`、`android/shared/src/iosMain/**`），完成後合併回整合分支 |
+| `feat/kmp-ios-native-migration` | 整合分支（PR #250）：Android、`android/shared` 共用邏輯、`iosApp/`、文件 |
+| `feat/kmp-ios-native-app` | macOS 上的原生 SwiftUI App 與整合；每個里程碑合併回整合分支 |
+| `feat/kmp-ios-data-security` | iOS 連線、登入、Keychain、App 鎖定、備份格式（已合併） |
+| `feat/kmp-ios-widgets-notifications` | WidgetKit、Live Activity、通知、背景更新、Deep Link（已合併） |
+
+iOS 端的細節與驗證見 [ios-status.md](ios-status.md)、[ios-data-security.md](ios-data-security.md)、[ios-widgets-notifications.md](ios-widgets-notifications.md)。
 
 Linux 無法執行 Xcode 與 iOS Simulator；iOS 建置、測試與畫面檢查一律在 macOS 進行。
 Linux 可以編譯 iOS klib（`:shared:compileKotlinIosX64`、`:shared:compileTestKotlinIosX64`），但不能連結或執行 iOS 測試。
@@ -71,9 +75,8 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 
 ## 尚未搬移
 
-- 公告、行事曆、天氣、YouBike 的解析（目前與 OkHttp、Jsoup、biweekly 寫在同一個檔案，且使用 `java.time.Instant`／`Duration`）。
-- `domain/overview/OverviewCoordinator.kt` 的彙整邏輯、`SettingsTransfer.kt`。
-- 給 iOS 使用的 transport 介面與 repository。
+- Android 的公告、行事曆、天氣、YouBike 解析仍在 `app`（與 OkHttp、Jsoup、biweekly 寫在同一個檔案）。iOS 使用 `com.clhs.score.shared.net`／`shared.repo` 內另一份可攜實作；兩邊尚未合併成單一實作，修改解析規則時需要同時檢查兩處。
+- `domain/overview/OverviewCoordinator.kt` 的彙整與排程、Android 的 `SettingsTransfer.kt` 仍是 Android 專用；iOS 以共用的備份格式讀寫相容檔案。
 
 ## 目前驗證結果（Linux）
 
@@ -88,4 +91,6 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 | 完整 Android gate（`801c1a4`：`:shared:allTests`、demo 測試、production `FlavorConfigurationTest`、`lintDemoDebug`、兩個 flavor 的 assemble、`--warning-mode all`） | 原始碼變動後的第一次執行 FAIL（3 次皆同），緊接著重跑 PASS。詳見下方「未解決的問題」。重跑時編譯工作為 UP-TO-DATE，所以這次 PASS 沒有重新檢查 Kotlin 編譯警告。 |
 | Android 模擬器啟動檢查（API 35 x86_64 模擬器、`demoDebug`、`6d613fe`） | PASS：導覽頁 4 步、範例帳號登入、首頁／課表／成績／校園／個人頁，淺色與深色皆正常顯示範例資料，沒有當機。 |
 | Android 搬移前後畫面逐一比對 | NOT_RUN（搬移前沒有先截基準圖，只能確認搬移後畫面正常） |
-| iOS 建置、Simulator、畫面檢查 | NOT_RUN（由 macOS session 進行） |
+| 完整 Android gate（`4dbec4f`，iOS 里程碑 4 合併後） | 第一次執行 FAIL：`OverviewWidgetCoordinatorTest.weatherRetryBypassesFreshCacheWithoutRefreshingOtherPublicSources`（預期 0、實際 2）；該測試單獨重跑 3 次與完整 gate 重跑皆 PASS。里程碑 4 沒有修改該測試涉及的程式；是否在 `main` 也會偶發，NOT_RUN。`7a44153`、`3a8cf15`、`5221a1f` 合併後的完整 gate 皆第一次執行即 PASS。 |
+| Android demo 版實機操作回歸（API 35 模擬器、範例資料，`6e44022` 之前的共用邏輯搬移） | 結果與錄影見 PR #250 留言：功能項目 PASS；浮動導覽列在部分捲動位置覆蓋底部內容（未與 `main` 比對，來源未判定）；全新安裝的訪客狀態 BLOCKED（demo 版自動登入範例學生，`main` 亦同）。 |
+| iOS 建置、測試、Simulator 畫面 | 見 [ios-status.md](ios-status.md) 的驗證表（macOS session 執行）。 |
