@@ -108,6 +108,39 @@ class PublicClientsTest {
         assertEquals("<a>x</a>", html("<a href=\"https://user:pw@evil.example/\">x</a>"))
         assertEquals("前後", html("前<iframe src=\"https://x.example\"><p>inner</p></iframe><style>p{}</style>後"))
         assertEquals("<p>未關閉</p>", html("<p>未關閉"))
+        assertEquals("前後", html("前<script/>alert(1)</script>後"))
+        assertEquals("前", html("前<iframe/><p>inner</p>"))
+        assertEquals("<p>“引號”—破折號…&nbsp;&amp;ldquo 中文©</p>", html("<p>&ldquo;引號&rdquo;&mdash;破折號&hellip;&nbsp;&amp;ldquo &#20013;&#x6587;&copy;</p>"))
+    }
+
+    @Test
+    fun imagesInsideRemovedTablesAreStillListed() {
+        val detail = PublicAnnouncementParser.parseDetail(
+            "[{\"rcode\":200,\"newsId\":\"1\",\"content\":\"" + PortableUrl.encodeComponent(
+                "<p>說明</p><table><tr><td><img src=\"/ischool/a.jpg\" alt=\"海報\"></td></tr></table>",
+            ) + "\"}]",
+            "1",
+        )
+        assertTrue(detail.htmlContent.startsWith("<p>說明</p>"))
+        assertEquals(listOf("https://www.clhs.tyc.edu.tw/ischool/a.jpg"), detail.images.map { it.url })
+        assertEquals("海報", detail.images.single().description)
+    }
+
+    @Test
+    fun attachmentNamesAreEncodedAsOneSegment() {
+        val detail = PublicAnnouncementParser.parseDetail(
+            "[{\"rcode\":200,\"newsId\":\"45072\",\"content\":\"\",\"attachedfile\":" +
+                "\"[[\\\"o\\\",1,\\\"../a/b?.pdf\\\"],[\\\"o\\\",1,\\\"..\\\"],[\\\"o\\\",1,\\\"100%#.pdf\\\"]]\"}]",
+            "45072",
+        )
+        assertEquals(
+            listOf(
+                "https://www.clhs.tyc.edu.tw/ischool/news/attached/45072/..%2Fa%2Fb%3F.pdf",
+                "https://www.clhs.tyc.edu.tw/ischool/news/attached/45072/%2E%2E",
+                "https://www.clhs.tyc.edu.tw/ischool/news/attached/45072/100%25%23.pdf",
+            ),
+            detail.attachments.map { it.url },
+        )
     }
 
     @Test

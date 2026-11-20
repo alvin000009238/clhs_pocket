@@ -97,7 +97,8 @@ internal fun tokenizeHtml(source: String): List<HtmlToken> {
                 }
                 index = minOf(cursor + 1, source.length)
                 tokens.add(HtmlToken.Start(name, attributes, selfClosing))
-                if (name in RAW_TEXT_TAGS && !selfClosing) {
+                // HTML ignores `/>` on non-void elements: `<script/>` still starts raw script text.
+                if (name in RAW_TEXT_TAGS) {
                     val close = source.indexOf("</$name", index, ignoreCase = true)
                     val rawEnd = if (close < 0) source.length else close
                     if (rawEnd > index) tokens.add(HtmlToken.Text(source.substring(index, rawEnd)))
@@ -116,8 +117,26 @@ internal fun tokenizeHtml(source: String): List<HtmlToken> {
 
 private val NAMED_ENTITIES = mapOf(
     "amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'", "nbsp" to "\u00A0",
+    "ensp" to "\u2002", "emsp" to "\u2003", "thinsp" to "\u2009", "zwnj" to "\u200C", "zwj" to "\u200D",
+    "ndash" to "\u2013", "mdash" to "\u2014", "lsquo" to "\u2018", "rsquo" to "\u2019", "sbquo" to "\u201A",
+    "ldquo" to "\u201C", "rdquo" to "\u201D", "bdquo" to "\u201E", "dagger" to "\u2020", "Dagger" to "\u2021",
+    "bull" to "\u2022", "hellip" to "\u2026", "permil" to "\u2030", "prime" to "\u2032", "Prime" to "\u2033",
+    "lsaquo" to "\u2039", "rsaquo" to "\u203A", "oline" to "\u203E", "euro" to "\u20AC", "trade" to "\u2122",
+    "larr" to "\u2190", "uarr" to "\u2191", "rarr" to "\u2192", "darr" to "\u2193", "harr" to "\u2194",
+    "lArr" to "\u21D0", "rArr" to "\u21D2", "hArr" to "\u21D4", "minus" to "\u2212", "lowast" to "\u2217",
+    "radic" to "\u221A", "infin" to "\u221E", "ne" to "\u2260", "equiv" to "\u2261", "le" to "\u2264",
+    "ge" to "\u2265", "loz" to "\u25CA", "spades" to "\u2660", "clubs" to "\u2663", "hearts" to "\u2665",
+    "diams" to "\u2666", "iexcl" to "\u00A1", "cent" to "\u00A2", "pound" to "\u00A3", "curren" to "\u00A4",
+    "yen" to "\u00A5", "brvbar" to "\u00A6", "sect" to "\u00A7", "uml" to "\u00A8", "copy" to "\u00A9",
+    "ordf" to "\u00AA", "laquo" to "\u00AB", "not" to "\u00AC", "shy" to "\u00AD", "reg" to "\u00AE",
+    "macr" to "\u00AF", "deg" to "\u00B0", "plusmn" to "\u00B1", "sup2" to "\u00B2", "sup3" to "\u00B3",
+    "acute" to "\u00B4", "micro" to "\u00B5", "para" to "\u00B6", "middot" to "\u00B7", "cedil" to "\u00B8",
+    "sup1" to "\u00B9", "ordm" to "\u00BA", "raquo" to "\u00BB", "frac14" to "\u00BC", "frac12" to "\u00BD",
+    "frac34" to "\u00BE", "iquest" to "\u00BF", "times" to "\u00D7", "divide" to "\u00F7", "circ" to "\u02C6",
+    "tilde" to "\u02DC", "alpha" to "\u03B1", "beta" to "\u03B2", "gamma" to "\u03B3", "delta" to "\u03B4",
+    "pi" to "\u03C0", "sigma" to "\u03C3", "omega" to "\u03C9", "Delta" to "\u0394", "Omega" to "\u03A9",
 )
-private val ENTITY = Regex("&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z]{2,8});")
+private val ENTITY = Regex("&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,7});")
 
 internal fun decodeHtmlEntities(value: String): String {
     if ('&' !in value) return value

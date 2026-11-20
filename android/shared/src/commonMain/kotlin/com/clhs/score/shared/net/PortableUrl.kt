@@ -42,6 +42,16 @@ class PortableUrl private constructor(
         hasUserInfo = false,
     )
 
+    /** Appends [segments] as literal path segments: `/`, `?`, `%` and dot segments inside them are escaped. */
+    fun withPathSegments(vararg segments: String): PortableUrl = PortableUrl(
+        scheme, host, port,
+        encodedPath.trimEnd('/') + segments.joinToString("") { segment ->
+            "/" + encodeComponent(segment).let { if (it == "." || it == "..") it.replace(".", "%2E") else it }
+        },
+        null,
+        hasUserInfo = false,
+    )
+
     companion object {
         private val SCHEME = Regex("[A-Za-z][A-Za-z0-9+.-]*:")
 
