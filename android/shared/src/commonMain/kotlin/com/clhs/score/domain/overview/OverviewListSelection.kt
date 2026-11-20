@@ -1,5 +1,6 @@
 package com.clhs.score.domain.overview
 
+import kotlin.time.Duration.Companion.days
 import com.clhs.score.shared.time.LOCAL_DATE_TIME_ORDER
 import com.clhs.score.shared.time.Instant
 import com.clhs.score.shared.time.LocalDate
@@ -16,7 +17,7 @@ import com.clhs.score.shared.time.epochDay
 import com.clhs.score.shared.time.hourMinuteText
 import com.clhs.score.shared.time.isValidTimeZoneId
 import com.clhs.score.shared.time.monthNumber
-import com.clhs.score.shared.time.nanosUntil
+import com.clhs.score.shared.time.durationUntil
 import com.clhs.score.shared.time.parseLocalDate
 import com.clhs.score.shared.time.parseLocalDateOrNull
 import com.clhs.score.shared.time.parseLocalTime
@@ -53,8 +54,7 @@ fun OverviewState.recentEvents(config: OverviewWidgetConfig.ListItems): List<Ove
         .filter { item ->
             val maximum = config.maxEventDurationDays ?: return@filter true
             val event = eventsById[(item.destination as? OverviewDestination.CalendarEvent)?.id] ?: return@filter true
-            // Limits beyond the Long nanosecond range (about 106751 days) cannot exclude any representable event.
-            maximum > Long.MAX_VALUE / NANOS_PER_DAY || event.start.nanosUntil(event.endExclusive) <= maximum * NANOS_PER_DAY
+            event.start.durationUntil(event.endExclusive) <= maximum.days
         }.sortedWith(compareBy(nullsFirst(LOCAL_DATE_TIME_ORDER)) { it.eventTime }).take(config.limit).toList()
 }
 
