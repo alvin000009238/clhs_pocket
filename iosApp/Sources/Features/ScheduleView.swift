@@ -13,6 +13,7 @@ struct ScheduleView: View {
     @State private var photoMessage: String?
     @State private var weekOffset = 0
     @State private var selectedCell: PocketScheduleCell?
+    @State private var shareImage: Image?
 
     var body: some View {
         let store = PocketScheduleStore.shared
@@ -56,12 +57,29 @@ struct ScheduleView: View {
             }
             .pocketPage()
         }
-        .refreshable { await model.refreshLiveData(force: true) }
+        .refreshable {
+            await model.refreshLiveData(force: true)
+            // The shared refresh only covers the student's own class and this week.
+            if !classValue.isEmpty, let live = model.live, model.usesLiveData {
+                await live.loadSchedule(classValue: classValue)
+            }
+            await loadWeek()
+        }
         .task(id: classValue) {
+            // Each class switch cancels the previous load; only the current one may clear the flag.
+            loadingClass = false
             guard !classValue.isEmpty, let live = model.live, model.usesLiveData else { return }
             loadingClass = true
             await live.loadSchedule(classValue: classValue)
-            loadingClass = false
+            if !Task.isCancelled { loadingClass = false }
+        }
+        // Rasterising the whole table is expensive, so it happens once per content change, off the
+        // body pass, and only for a schedule that actually has lessons.
+        .task(id: "\(schedule.hashValue)|\(colorScheme)") {
+            guard schedule.isAvailable else { shareImage = nil; return }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            shareImage = exportImage(schedule)
         }
         .task(id: "\(classValue)|\(weekOffset)|\(showsSemester)") { await loadWeek() }
         .navigationTitle(PocketTab.schedule.title)
@@ -73,7 +91,7 @@ struct ScheduleView: View {
                             Text(item.title).tag(item.id == store.classes().first?.id ? "" : item.id)
                         }
                     }
-                    if let image = exportImage(schedule) {
+                    if schedule.isAvailable, let image = shareImage {
                         ShareLink(
                             item: image,
                             preview: SharePreview("\(schedule.className) \(schedule.scopeLabel)", image: image)
@@ -284,62 +302,116 @@ private struct ScheduleGrid: View {
 
             HStack(alignment: .top, spacing: gap) {
                 VStack(spacing: 0) {
-                    ForEach(schedule.periods, id: \.number) { period in
+                    ForEach(Array(schedule.periods.enumerated()), id: \.element.number) { index, period in
                         VStack(spacing: 1) {
                             Text("\(period.number)")
                                 .font(.footnote.weight(.semibold))
                                 .foregroundStyle(PocketColor.onSurface)
-                            Text(period.start)
-                                .font(.system(size: 9))
-                                .monospacedDigit()
-                                .foregroundStyle(PocketColor.onSurfaceVariant)
-                                .fixedSize()
+                            if !period.start.isEmpty {
+                                Text(period.start)
+                                    .font(.system(size: 9))
+                                    .monospacedDigit()
+                                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                                    .fixedSize()
+                            }
                         }
                         .frame(width: timeColumnWidth, height: rowHeight)
-                        .padding(.bottom, bottomGap(afterPeriod: Int(period.number)))
+                        .padding(.bottom, bottomGap(afterRow: index))
                         .accessibilityHidden(true)
                     }
                 }
                 ForEach(schedule.days, id: \.dayOfWeek) { day in
                     VStack(spacing: 0) {
-                        ForEach(schedule.cells.filter { $0.dayOfWeek == day.dayOfWeek }) { cell in
-                            let span = CGFloat(cell.span)
-                            Button {
-                                onSelect(cell)
-                            } label: {
-                                ScheduleCellView(cell: cell)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: rowHeight * span + gap * (span - 1))
+                        ForEach(slots(day: day.dayOfWeek)) { slot in
+                            Group {
+                                if let cell = slot.cell {
+                                    Button {
+                                        onSelect(cell)
+                                    } label: {
+                                        ScheduleCellView(cell: cell)
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    Color.clear.accessibilityHidden(true)
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .padding(.bottom, bottomGap(afterPeriod: Int(cell.period + cell.span) - 1))
+                            .frame(height: height(rows: slot.rows))
+                            .padding(.bottom, bottomGap(afterRow: slot.rows.upperBound - 1))
                         }
                     }
                     .frame(maxWidth: .infinity)
                 }
             }
             .overlay(alignment: .top) {
-                HStack(spacing: 8) {
-                    line
-                    Text("午休")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(PocketColor.onSurfaceVariant)
-                    line
+                if let lunchRow {
+                    HStack(spacing: 8) {
+                        line
+                        Text("午休")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(PocketColor.onSurfaceVariant)
+                        line
+                    }
+                    .frame(height: lunchGap)
+                    .offset(y: offset(ofRow: lunchRow + 1) - lunchGap)
+                    .accessibilityHidden(true)
                 }
-                .frame(height: lunchGap)
-                .offset(y: CGFloat(lastMorningPeriod) * rowHeight + CGFloat(lastMorningPeriod - 1) * gap)
-                .accessibilityHidden(true)
             }
         }
+    }
+
+    private struct Slot: Identifiable {
+        let id: String
+        let rows: Range<Int>
+        let cell: PocketScheduleCell?
+    }
+
+    /// One slot per row, by period number: a lesson spans its rows and an empty period keeps its
+    /// place, so a free period never pulls later lessons into the wrong row.
+    private func slots(day: Int32) -> [Slot] {
+        let rowOf = Dictionary(schedule.periods.enumerated().map { ($1.number, $0) }, uniquingKeysWith: { first, _ in first })
+        var starts: [Int: PocketScheduleCell] = [:]
+        for cell in schedule.cells where cell.dayOfWeek == day {
+            if let row = rowOf[cell.period], starts[row] == nil { starts[row] = cell }
+        }
+        var result: [Slot] = []
+        var row = 0
+        while row < schedule.periods.count {
+            if let cell = starts[row] {
+                let end = min(row + max(Int(cell.span), 1), schedule.periods.count)
+                result.append(Slot(id: "cell-\(cell.id)", rows: row..<end, cell: cell))
+                row = end
+            } else {
+                result.append(Slot(id: "empty-\(day)-\(schedule.periods[row].number)", rows: row..<(row + 1), cell: nil))
+                row += 1
+            }
+        }
+        return result
+    }
+
+    private var lunchRow: Int? {
+        guard let index = schedule.periods.firstIndex(where: { $0.number == Int32(lastMorningPeriod) }),
+              index < schedule.periods.count - 1 else { return nil }
+        return index
+    }
+
+    private func height(rows: Range<Int>) -> CGFloat {
+        var total = CGFloat(rows.count) * rowHeight
+        for row in rows.dropLast() { total += bottomGap(afterRow: row) }
+        return total
+    }
+
+    private func offset(ofRow target: Int) -> CGFloat {
+        (0..<target).reduce(0) { $0 + rowHeight + bottomGap(afterRow: $1) }
     }
 
     private var line: some View {
         Rectangle().fill(PocketColor.outline.opacity(0.5)).frame(height: 1)
     }
 
-    private func bottomGap(afterPeriod period: Int) -> CGFloat {
-        if period == lastMorningPeriod { return lunchGap }
-        return period == schedule.periods.count ? 0 : gap
+    private func bottomGap(afterRow row: Int) -> CGFloat {
+        if row >= schedule.periods.count - 1 { return 0 }
+        return row == lunchRow ? lunchGap : gap
     }
 }
 
