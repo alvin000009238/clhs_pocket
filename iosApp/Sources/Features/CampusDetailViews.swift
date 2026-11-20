@@ -94,12 +94,121 @@ struct AnnouncementListView: View {
     }
 }
 
+/// The announcement body with its formatting (bold, lists, links), as Android shows it. The HTML
+/// arrives already reduced to formatting by the shared code, so importing it loads nothing.
+@MainActor
+enum AnnouncementBody {
+    static func attributed(html: String) -> AttributedString? {
+        // SwiftUI text has no list layout, so each item becomes its own bulleted line.
+        let html = html
+            .replacingOccurrences(of: "<li[^>]*>", with: "<p>• ", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: "</li>", with: "</p>", options: .caseInsensitive)
+            .replacingOccurrences(of: "</?[uo]l[^>]*>", with: "", options: [.regularExpression, .caseInsensitive])
+        guard !html.isEmpty, let data = html.data(using: .utf8),
+              let imported = try? NSMutableAttributedString(
+                  data: data,
+                  options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue],
+                  documentAttributes: nil
+              ) else { return nil }
+        while imported.string.hasSuffix("\n") {
+            imported.deleteCharacters(in: NSRange(location: imported.length - 1, length: 1))
+        }
+        guard imported.length > 0 else { return nil }
+        // Paragraph styles are dropped below, so paragraphs are separated by a blank line instead;
+        // consecutive list items stay together.
+        let text = imported.string as NSString
+        var breaks: [Int] = []
+        text.enumerateSubstrings(in: NSRange(location: 0, length: text.length), options: .byParagraphs) { line, range, enclosing, _ in
+            let next = enclosing.location + enclosing.length
+            guard next < text.length, enclosing.length > range.length else { return }
+            let following = text.substring(from: next)
+            if (line ?? "").hasPrefix("•"), following.hasPrefix("•") { return }
+            breaks.append(next)
+        }
+        for index in breaks.reversed() {
+            imported.insert(NSAttributedString(string: "\n"), at: index)
+        }
+        let whole = NSRange(location: 0, length: imported.length)
+        // Keep bold/italic, drop the page's own fonts, sizes and colours for the app's.
+        imported.enumerateAttribute(.font, in: whole) { value, range, _ in
+            let traits = (value as? UIFont)?.fontDescriptor.symbolicTraits.intersection([.traitBold, .traitItalic]) ?? []
+            let base = UIFont.preferredFont(forTextStyle: .body)
+            let font = base.fontDescriptor.withSymbolicTraits(traits).map { UIFont(descriptor: $0, size: 0) } ?? base
+            imported.addAttribute(.font, value: font, range: range)
+        }
+        for key in [NSAttributedString.Key.foregroundColor, .backgroundColor, .paragraphStyle, .kern, .strokeColor, .strokeWidth] {
+            imported.removeAttribute(key, range: whole)
+        }
+        imported.enumerateAttribute(.link, in: whole) { value, range, _ in
+            let url = (value as? URL) ?? (value as? String).flatMap(URL.init(string:))
+            if url?.scheme != "https", url?.scheme != "http" { imported.removeAttribute(.link, range: range) }
+        }
+        var result = AttributedString(imported)
+        result.foregroundColor = PocketColor.onSurface
+        for run in result.runs where run.link != nil {
+            result[run.range].foregroundColor = PocketColor.primary
+            result[run.range].underlineStyle = .single
+        }
+        return result
+    }
+}
+
+private struct AnnouncementImageView: View {
+    @Environment(\.openURL) private var openURL
+    let image: PocketAnnouncementImage
+
+    private var url: URL? {
+        URL(string: image.url).flatMap { $0.scheme == "https" ? $0 : nil }
+    }
+
+    var body: some View {
+        PocketCard(padding: 0) {
+            if let url, image.canPreview {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case let .success(loaded):
+                        Button { openURL(url) } label: {
+                            loaded.resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 480)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(image.description.isEmpty ? "公告圖片" : image.description)
+                        .accessibilityHint("開啟原圖")
+                    case .failure:
+                        note("圖片暫時無法載入")
+                    default:
+                        ProgressView().frame(maxWidth: .infinity, minHeight: 120)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    note("外部圖片未自動載入")
+                    if let link = URL(string: image.url), link.scheme == "https" || link.scheme == "http" {
+                        Button("開啟圖片") { openURL(link) }
+                            .buttonStyle(.bordered)
+                            .padding([.horizontal, .bottom], 20)
+                    }
+                }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(PocketColor.onSurfaceVariant)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+    }
+}
+
 struct AnnouncementDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
     let id: String
     @State private var loadingDetail = true
     @State private var attachmentNotice = false
+    @State private var richBody: AttributedString?
 
     private func loadDetail() async {
         guard model.usesLiveData, let live = model.live else { return }
@@ -110,6 +219,14 @@ struct AnnouncementDetailView: View {
 
     var body: some View {
         let detail = PocketCampusStore.shared.announcementDetail(clock: model.clock, id: id)
+        content(detail)
+            .task(id: detail?.html ?? "") {
+                richBody = detail.flatMap { AnnouncementBody.attributed(html: $0.html) }
+            }
+    }
+
+    @ViewBuilder
+    private func content(_ detail: PocketAnnouncementDetail?) -> some View {
         ScrollView {
             if let detail {
                 VStack(alignment: .leading, spacing: 20) {
@@ -130,14 +247,26 @@ struct AnnouncementDetailView: View {
                             .monospacedDigit()
                             .foregroundStyle(PocketColor.onSurfaceVariant)
                     }
-                    VStack(alignment: .leading, spacing: 14) {
-                        ForEach(detail.paragraphs, id: \.self) { paragraph in
-                            Text(paragraph)
-                                .font(.body)
-                                .lineSpacing(5)
-                                .foregroundStyle(PocketColor.onSurface)
-                                .fixedSize(horizontal: false, vertical: true)
+                    if let rich = richBody {
+                        Text(rich)
+                            .lineSpacing(5)
+                            .tint(PocketColor.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("announcement-body")
+                    } else {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(detail.paragraphs, id: \.self) { paragraph in
+                                Text(paragraph)
+                                    .font(.body)
+                                    .lineSpacing(5)
+                                    .foregroundStyle(PocketColor.onSurface)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
+                    }
+                    ForEach(detail.images, id: \.url) { image in
+                        AnnouncementImageView(image: image)
                     }
                     if !detail.attachments.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {

@@ -188,4 +188,17 @@ class DemoPocketDataSourceTest {
             PocketData.useDemo()
         }
     }
+
+    @Test
+    fun announcementBodyKeepsFormattingAndDropsAnythingThatRunsOrLoads() {
+        val html = PocketCampusStore.formattingHtml(
+            "<style>p{color:red}</style><script>alert(1)</script><p style=\"color:red\" onclick=\"x()\">請<b>注意</b></p>" +
+                "<img src=\"https://example.com/a.png\"><iframe src=\"https://example.com\"></iframe>" +
+                "<a href=\"https://www.clhs.tyc.edu.tw/a\">連結</a><a href=\"javascript:alert(1)\">壞</a><!-- note -->",
+        )
+        assertEquals(
+            "<p>請<b>注意</b></p><a href=\"https://www.clhs.tyc.edu.tw/a\">連結</a><a>壞</a>",
+            html,
+        )
+    }
 }

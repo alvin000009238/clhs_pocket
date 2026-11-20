@@ -26,7 +26,13 @@ data class PocketAnnouncementDetail(
     val paragraphs: List<String>,
     val attachments: List<PocketAttachment>,
     val officialUrl: String,
+    /** The body as formatting-only HTML (no scripts, styles, images or embeds); empty when there is none. */
+    val html: String = "",
+    val images: List<PocketAnnouncementImage> = emptyList(),
 )
+
+/** [canPreview] is false for images outside the school site, which are opened on request only, as on Android. */
+data class PocketAnnouncementImage(val url: String, val description: String, val canPreview: Boolean)
 
 data class PocketCalendarDay(
     val key: String,
@@ -119,6 +125,8 @@ object PocketCampusStore {
                     PocketAttachment(file.name, file.sizeBytes?.let { bytes -> if (bytes >= 1_048_576) "${bytes / 1_048_576} MB" else "${(bytes + 1023) / 1024} KB" }.orEmpty(), file.url)
                 },
                 officialUrl = live.officialUrl,
+                html = formattingHtml(live.htmlContent),
+                images = live.images.map { PocketAnnouncementImage(it.url, it.description, it.canPreview) },
             )
         }
         return PocketAnnouncementDetail(
@@ -137,8 +145,32 @@ object PocketCampusStore {
                 listOf(PocketAttachment("實施計畫.pdf", "248 KB"), PocketAttachment("報名表.docx", "36 KB"))
             } else emptyList(),
             officialUrl = "https://www.clhs.tyc.edu.tw/ischool/public/news_view/show.php?nid=${item.id}",
+            html = "<p>各位同學好：</p>" +
+                "<p>「${item.title}」相關事項已公告，請同學留意時程並<b>依規定辦理</b>。</p>" +
+                "<ul><li>請於期限內完成，<u>逾期不受理</u>。</li><li>若有疑問，請於上班時間洽${item.unit}。</li></ul>" +
+                "<p>詳細說明請見<a href=\"https://www.clhs.tyc.edu.tw/\">學校網站</a>。</p>" +
+                "<p>此為示範資料，內容為虛構，僅用於展示公告內文的排版。</p>",
         )
     }
+
+    private val droppedBlocks = Regex(
+        "(?is)<(script|style|iframe|object|embed|svg|form|head|noscript)\\b.*?</\\1\\s*>|<!--.*?-->",
+    )
+    private val droppedTags = Regex(
+        "(?is)</?(script|style|iframe|object|embed|svg|form|head|noscript|img|picture|source|video|audio|link|meta|base|input|button)\\b[^>]*>",
+    )
+    private val riskyAttributes = Regex("(?is)\\s(on\\w+|style|src|srcset|background|class|id)\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s>]+)")
+    private val unsafeLink = Regex("(?is)\\shref\\s*=\\s*(\"(?!https?://)[^\"]*\"|'(?!https?://)[^']*'|(?!https?://|[\"'])[^\\s>]+)")
+
+    /**
+     * Announcement HTML reduced to what the native renderer may show: text formatting, lists,
+     * tables and http(s) links. Nothing that runs or loads a resource survives, so rendering the
+     * body never contacts another server; images are listed separately.
+     */
+    internal fun formattingHtml(html: String): String = html
+        .replace(droppedBlocks, "").replace(droppedTags, "")
+        .replace(riskyAttributes, "").replace(unsafeLink, "")
+        .trim()
 
     private val blockBreak = Regex("(?i)<br\\s*/?>|</p>|</div>|</li>|</tr>|</h[1-6]>")
     private val anyTag = Regex("<[^>]*>")
