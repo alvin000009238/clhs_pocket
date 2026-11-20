@@ -34,6 +34,7 @@ internal object DemoSchedule {
 
     private data class Slot(
         val item: ScheduleItem, val change: PocketCellChange, val note: String, val original: String = item.subjectName,
+        val overridden: Boolean = false,
     )
 
     /** What the schedule screen is looking at; the home hero always uses the defaults. */
@@ -72,7 +73,11 @@ internal object DemoSchedule {
             .mapNotNull { change -> change.semesterItem?.let { Slot(it, PocketCellChange.CANCELLED, "本週停課") } }
         return (live + removed)
             .filter { it.item.dayOfWeek <= SCHOOL_DAYS && it.item.period <= periods.size }
-            .map { it.copy(item = listOf(it.item).applySubjectOverrides(view.overrides).single()) }
+            .map {
+                val edited = listOf(it.item).applySubjectOverrides(view.overrides).single()
+                // A custom teacher or room alone is an edit too, and can be restored.
+                it.copy(item = edited, overridden = edited != it.item)
+            }
     }
 
     fun schedule(scope: PocketScheduleScope, clock: PocketClock, view: View = View()): PocketSchedule {
@@ -155,7 +160,7 @@ internal object DemoSchedule {
                     change = head.change,
                     changeNote = head.note,
                     originalSubject = head.original,
-                    isOverridden = head.original != head.item.subjectName,
+                    isOverridden = head.overridden || head.original != head.item.subjectName,
                 )
                 index += span
             }
