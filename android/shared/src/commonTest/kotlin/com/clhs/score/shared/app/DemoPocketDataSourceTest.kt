@@ -1,5 +1,8 @@
 package com.clhs.score.shared.app
 
+import com.clhs.score.shared.time.shiftDays
+import com.clhs.score.data.ScheduleScope
+import com.clhs.score.data.FakeScheduleData
 import kotlin.test.assertFalse
 import com.clhs.score.data.YearTermOption
 import com.clhs.score.data.ExamOption
@@ -161,6 +164,28 @@ class DemoPocketDataSourceTest {
             assertFalse(PocketLive.noteExamListChecked(emptyList(), "114_1|1"))
         } finally {
             PocketLive.clearAll()
+        }
+    }
+
+    /** Browsing another week in production keeps the current week and finds each by its dates. */
+    @Test
+    fun liveTimetableKeepsOneReportPerWeek() {
+        val clock = PocketClock(2026, 11, 18, 3, 635)
+        val today = clock.date()
+        PocketData.useLive()
+        try {
+            PocketLive.clearAll()
+            PocketLive.putSchedule("", FakeScheduleData.report("115_1", "230", ScheduleScope.CURRENT_WEEK, today))
+            PocketLive.putSchedule("", FakeScheduleData.report("115_1", "230", ScheduleScope.CURRENT_WEEK, today.shiftDays(7)))
+            fun week(offset: Int) = PocketScheduleStore.schedule(PocketScheduleScope.CURRENT_WEEK, clock, "", offset, "[]")
+            assertTrue(week(0).isAvailable)
+            assertTrue(week(1).isAvailable)
+            assertEquals("11/23", week(1).days.first().dateText)
+            assertFalse(week(2).isAvailable)
+            assertFalse(week(-1).isAvailable)
+        } finally {
+            PocketLive.clearAll()
+            PocketData.useDemo()
         }
     }
 }
