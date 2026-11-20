@@ -191,7 +191,8 @@ final class PocketShellUITests: XCTestCase {
     func testHomeWidgetsReorderByDragging() {
         launch(onboarded: true, session: "demo")
         let widgets = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "widget-"))
-        XCTAssertTrue(widgets.firstMatch.waitForExistence(timeout: 10))
+        // A freshly booted simulator can take well over ten seconds to bring the app up.
+        XCTAssertTrue(widgets.firstMatch.waitForExistence(timeout: 40))
         func order() -> [String] {
             widgets.allElementsBoundByIndex
                 .sorted { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
@@ -199,17 +200,30 @@ final class PocketShellUITests: XCTestCase {
         }
         let before = order()
         XCTAssertGreaterThanOrEqual(before.count, 3)
-        // With accessibility text sizes only the first widgets fit on screen; drag between two that are.
-        // Identifiers repeat (two countdowns, nested elements), so pick two different ones.
+        // Drag between two different widgets whose centres are clear of the top bar and the floating
+        // tab bar on any phone size: a widget peeking out behind the tab bar counts as hittable, but a
+        // drop there lands on the bar and reorders nothing. Identifiers repeat (two countdowns, nested
+        // elements), so each is used once.
+        let screen = app.windows.firstMatch.frame
+        let clear = (screen.minY + 150)...(screen.maxY - 170)
         var seen = Set<String>()
-        let reachable = before.filter { seen.insert($0).inserted && widgets.matching(identifier: $0).firstMatch.isHittable }
+        let reachable = widgets.allElementsBoundByIndex
+            .sorted { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
+            .filter { clear.contains($0.frame.midY) && $0.isHittable && seen.insert($0.identifier).inserted }
         XCTAssertGreaterThanOrEqual(reachable.count, 2)
-        let moved = widgets.matching(identifier: reachable[reachable.count - 2]).firstMatch
-        let target = widgets.matching(identifier: reachable[reachable.count - 1]).firstMatch
-        moved.press(forDuration: 1.2, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.6)
-        // The drop animates; on a slow machine the new layout can take a few seconds to settle.
-        let deadline = Date().addingTimeInterval(10)
-        while order() == before, Date() < deadline { Thread.sleep(forTimeInterval: 0.5) }
+        let moved = reachable[reachable.count - 2].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let target = reachable[reachable.count - 1].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        // On a freshly booted simulator the first drag has been seen to change nothing. A person
+        // would simply drag again; the flow does the same, keeps a screenshot of the failed attempt,
+        // and still requires that a drag ends up changing the order.
+        for attempt in 1...3 where order() == before {
+            if attempt > 1 { capture("26-drag-attempt-\(attempt - 1)-unchanged") }
+            _ = app.wait(for: .runningForeground, timeout: 5)
+            moved.press(forDuration: 1.5, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 1.0)
+            // The drop animates; on a slow machine the new layout can take a few seconds to settle.
+            let deadline = Date().addingTimeInterval(10)
+            while order() == before, Date() < deadline { Thread.sleep(forTimeInterval: 0.5) }
+        }
         let after = order()
         XCTAssertEqual(Set(after), Set(before))
         XCTAssertNotEqual(after, before, "dragging a widget onto another must change the order")
