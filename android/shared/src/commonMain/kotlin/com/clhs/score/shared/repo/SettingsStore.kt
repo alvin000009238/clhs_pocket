@@ -8,6 +8,8 @@ import com.clhs.score.data.ThemeMode
 import com.clhs.score.data.WeatherSource
 import com.clhs.score.domain.overview.OverviewWidgetInstance
 import com.clhs.score.domain.overview.defaultOverviewWidgets
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -64,26 +66,37 @@ internal fun normalizeAnnouncementUnitIds(unitIds: Set<String>): Set<String> {
     }
 }
 
-/** Preferences in one protected file. Unknown or damaged content falls back to defaults on read. */
+/**
+ * Preferences in one protected file. A missing file means defaults; an unreadable or invalid file
+ * throws [SettingsUnreadableException] instead of silently turning off the app lock. [clear] resets it.
+ */
 class SettingsStore(private val files: FileStore, private val now: () -> Long) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val lock = Mutex()
 
     fun load(): PocketSettings {
         val stored = files.readOrNull(PATH) ?: return PocketSettings()
-        return runCatching { json.decodeFromString(PocketSettings.serializer(), stored.text).also(PocketSettings::validate) }
-            .getOrDefault(PocketSettings())
+        return try {
+            json.decodeFromString(PocketSettings.serializer(), stored.text).also(PocketSettings::validate)
+        } catch (_: IllegalArgumentException) {
+            throw SettingsUnreadableException()
+        }
     }
 
     /** Throws [StorageException] when the file could not be written; nothing is kept in memory only. */
-    fun save(settings: PocketSettings) {
-        settings.validate()
-        files.write(PATH, json.encodeToString(PocketSettings.serializer(), settings), now()).orThrow("Settings write")
-    }
+    suspend fun save(settings: PocketSettings) = lock.withLock { write(settings) }
 
-    fun update(transform: (PocketSettings) -> PocketSettings): PocketSettings = transform(load()).also(::save)
+    /** Read-modify-write under one lock, so concurrent updates never drop each other's changes. */
+    suspend fun update(transform: (PocketSettings) -> PocketSettings): PocketSettings =
+        lock.withLock { transform(load()).also(::write) }
 
     fun clear() {
         files.delete(PATH).orThrow("Settings delete")
+    }
+
+    private fun write(settings: PocketSettings) {
+        settings.validate()
+        files.write(PATH, json.encodeToString(PocketSettings.serializer(), settings), now()).orThrow("Settings write")
     }
 
     private companion object {

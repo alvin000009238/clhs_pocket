@@ -56,6 +56,7 @@ class PocketFailure(
             is PublicDataException -> PocketFailure(PocketFailureKind.PUBLIC_DATA, "資料暫時無法取得")
             is SessionCleanupException -> PocketFailure(PocketFailureKind.CLEANUP_INCOMPLETE, "部分資料無法清除，請再試一次", error.failures)
             is SessionStorageUnavailableException -> PocketFailure(PocketFailureKind.STORAGE, "上次登出尚未完成清除，請再試一次")
+            is SettingsUnreadableException -> PocketFailure(PocketFailureKind.STORAGE, "設定檔已損壞，請重設設定後再試一次")
             is StorageException -> PocketFailure(PocketFailureKind.STORAGE, "無法存取裝置上的資料")
             is SettingsRestoreException -> PocketFailure(
                 if (error.cause is StorageException) PocketFailureKind.STORAGE else PocketFailureKind.INVALID_INPUT,

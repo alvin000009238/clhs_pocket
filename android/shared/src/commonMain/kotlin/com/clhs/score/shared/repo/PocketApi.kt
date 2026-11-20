@@ -210,6 +210,10 @@ class PocketApi(private val services: PocketServices) {
     @Throws(Exception::class)
     suspend fun loadSettings(token: CancelToken?): PocketSettings = pocketCall(token) { services.settings.load() }
 
+    /** Deletes an unreadable settings file so the next [loadSettings] starts from defaults. */
+    @Throws(Exception::class)
+    suspend fun resetSettings(token: CancelToken?) = pocketCall(token) { services.settings.clear() }
+
     @Throws(Exception::class)
     suspend fun saveSettings(settings: PocketSettings, token: CancelToken?) = pocketCall(token) { services.settings.save(settings) }
 
