@@ -114,6 +114,9 @@ enum AnnouncementMarkup {
         mutating func nodes(until closing: String?, depth: Int = 0) -> [AnnouncementNode] {
             var result: [AnnouncementNode] = []
             var text = ""
+            // Tags opened past the depth limit, by name, so their closing tags are consumed here
+            // instead of ending the enclosing element early.
+            var skipped: [String: Int] = [:]
             func flushText() {
                 let collapsed = text.replacingOccurrences(of: "[ \\t\\r\\n\\u{00A0}]+", with: " ", options: .regularExpression)
                 if !collapsed.isEmpty { result.append(.text(Entities.decode(collapsed))) }
@@ -126,7 +129,11 @@ enum AnnouncementMarkup {
                     continue
                 }
                 if tag.isClosing {
-                    if tag.name == closing || closing == nil { flushText(); return result }
+                    if let count = skipped[tag.name], count > 0 {
+                        skipped[tag.name] = count - 1
+                        continue
+                    }
+                    if tag.name == closing { flushText(); return result }
                     if Self.blocks.contains(tag.name) || tag.name == "li" {
                         // An unmatched closing block tag ends the current inline run.
                         flushText()
@@ -139,7 +146,11 @@ enum AnnouncementMarkup {
                     continue
                 }
                 if tag.name == "br" { result.append(.lineBreak); continue }
-                if Self.voids.contains(tag.name) || tag.isSelfClosing || depth >= Self.maxDepth { continue }
+                if Self.voids.contains(tag.name) || tag.isSelfClosing { continue }
+                if depth >= Self.maxDepth {
+                    skipped[tag.name, default: 0] += 1
+                    continue
+                }
                 let children = nodes(until: tag.name, depth: depth + 1)
                 switch tag.name {
                 case "li": result.append(.listItem(children))

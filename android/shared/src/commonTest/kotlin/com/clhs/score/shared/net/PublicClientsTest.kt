@@ -112,6 +112,18 @@ class PublicClientsTest {
         val deep = html("<div>".repeat(5000) + "<b>".repeat(5000) + "深層" + "</b>".repeat(5000) + "</div>".repeat(5000))
         assertTrue(deep.contains("深層"))
         assertTrue(deep.split("<b>").size - 1 <= 32, "nesting must be capped")
+        // A table or heading inside the deepest level adds its own markup without passing the cap,
+        // and the text after the deep section is kept.
+        val tail = html("<b>".repeat(40) + "<table><tr><td>格</td></tr></table><h2>標題</h2>" + "</b>".repeat(40) + "<p>後面</p>")
+        assertTrue(tail.endsWith("<p>後面</p>"), tail)
+        var level = 0
+        var deepest = 0
+        Regex("<(/?)([a-z0-9]+)[^>]*>").findAll(tail).forEach {
+            if (it.groupValues[2] == "br" || it.groupValues[2] == "hr") return@forEach
+            level += if (it.groupValues[1].isEmpty()) 1 else -1
+            deepest = maxOf(deepest, level)
+        }
+        assertTrue(deepest <= 32, "sanitized markup nests $deepest levels")
         assertEquals("前後", html("前<script/>alert(1)</script>後"))
         assertEquals("前", html("前<iframe/><p>inner</p>"))
         assertEquals("<p>“引號”—破折號…&nbsp;&amp;ldquo 中文©</p>", html("<p>&ldquo;引號&rdquo;&mdash;破折號&hellip;&nbsp;&amp;ldquo &#20013;&#x6587;&copy;</p>"))

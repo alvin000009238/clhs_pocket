@@ -40,6 +40,13 @@ final class AnnouncementMarkupTests: XCTestCase {
         XCTAssertEqual(String(body.characters), "深層")
     }
 
+    func testTextAfterADeepSectionStillRenders() throws {
+        let deep = String(repeating: "<b>", count: 40) + "深<table><tr><td>格</td></tr></table>" + String(repeating: "</b>", count: 40)
+        let body = try XCTUnwrap(AnnouncementMarkup.attributed(html: deep + "<p>後面的段落</p>"))
+        XCTAssertTrue(String(body.characters).hasSuffix("後面的段落"), String(body.characters))
+        XCTAssertTrue(String(body.characters).contains("格"))
+    }
+
     func testUnclosedAndMalformedMarkupDoesNotLoseText() throws {
         let body = try XCTUnwrap(AnnouncementMarkup.attributed(html: "<p>a < b and <b>c"))
         XCTAssertEqual(String(body.characters), "a < b and c")
