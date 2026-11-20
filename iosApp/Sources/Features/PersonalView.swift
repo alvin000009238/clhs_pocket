@@ -5,6 +5,7 @@ struct PersonalView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showingLogin = false
+    @State private var confirmingSignOut = false
 
     var body: some View {
         @Bindable var model = model
@@ -47,11 +48,21 @@ struct PersonalView: View {
                         VStack(spacing: 0) {
                             if model.isSignedIn {
                                 Button {
-                                    model.signOut()
+                                    confirmingSignOut = true
                                 } label: {
                                     actionRow("rectangle.portrait.and.arrow.right", model.session == .demo ? "登出示範帳號" : "登出", tint: PocketColor.negative)
                                 }
                                 .accessibilityIdentifier("sign-out")
+                                .confirmationDialog(
+                                    model.session == .demo ? "登出示範帳號？" : "登出校務帳號？",
+                                    isPresented: $confirmingSignOut, titleVisibility: .visible
+                                ) {
+                                    Button("登出", role: .destructive) { model.signOut() }
+                                        .accessibilityIdentifier("sign-out-confirm")
+                                    Button("取消", role: .cancel) {}
+                                } message: {
+                                    Text(model.session == .demo ? "示範資料會清除，可以隨時再進入示範。" : "這台裝置上的成績、課表與快取會一併清除。")
+                                }
                             } else {
                                 Button {
                                     showingLogin = true
@@ -90,6 +101,12 @@ struct PersonalView: View {
         .preferredColorScheme(model.appearance.colorScheme)
         .sheet(isPresented: $showingLogin) {
             LoginView()
+        }
+        // The root view's alert cannot show over this sheet, so a failed sign-out cleanup is shown here.
+        .alert("帳號資料", isPresented: Binding(get: { model.accountError != nil }, set: { if !$0 { model.accountError = nil } })) {
+            Button("好") { model.accountError = nil }
+        } message: {
+            Text(model.accountError ?? "")
         }
     }
 
@@ -138,25 +155,32 @@ struct PersonalView: View {
             let profile = model.profile
             PocketCard(fill: PocketColor.primaryContainer, padding: 24) {
                 HStack(spacing: 16) {
-                    Text(String(profile.studentName.prefix(1)))
-                        .font(PocketFont.display(28, relativeTo: .title))
-                        .foregroundStyle(PocketColor.onPrimary)
-                        .frame(width: 64, height: 64)
-                        .background(PocketColor.primary, in: .circle)
-                        .accessibilityHidden(true)
+                    Group {
+                        if let initial = profile.studentName.first {
+                            Text(String(initial)).font(PocketFont.display(28, relativeTo: .title))
+                        } else {
+                            Image(systemName: "person.fill").font(.title)
+                        }
+                    }
+                    .foregroundStyle(PocketColor.onPrimary)
+                    .frame(width: 64, height: 64)
+                    .background(PocketColor.primary, in: .circle)
+                    .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(profile.studentName)
+                        Text(profile.studentName.isEmpty ? "已登入" : profile.studentName)
                             .font(PocketFont.display(26, relativeTo: .title))
                             .foregroundStyle(PocketColor.onPrimaryContainer)
-                        Text("\(profile.className) · \(profile.seatNo) 號")
+                        Text(Self.classLine(profile))
                             .font(.subheadline)
                             .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
-                        PocketChip(
-                            text: "示範帳號 \(profile.studentNo)",
-                            foreground: PocketColor.onPrimaryContainer,
-                            background: PocketColor.background.opacity(0.6)
-                        )
-                        .padding(.top, 4)
+                        if profile.isDemo || !profile.studentNo.isEmpty {
+                            PocketChip(
+                                text: profile.isDemo ? "示範帳號 \(profile.studentNo)" : "學號 \(profile.studentNo)",
+                                foreground: PocketColor.onPrimaryContainer,
+                                background: PocketColor.background.opacity(0.6)
+                            )
+                            .padding(.top, 4)
+                        }
                     }
                 }
             }
@@ -184,6 +208,12 @@ struct PersonalView: View {
                 }
             }
         }
+    }
+
+    /// "高二 30 班 · 12 號", or a loading note before the school has sent the student's details.
+    static func classLine(_ profile: PocketProfile) -> String {
+        let parts = [profile.className, profile.seatNo.isEmpty ? "" : "\(profile.seatNo) 號"].filter { !$0.isEmpty }
+        return parts.isEmpty ? "正在載入學生資料…" : parts.joined(separator: " · ")
     }
 
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
