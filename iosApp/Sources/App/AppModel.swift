@@ -249,15 +249,28 @@ final class AppModel {
         lock = AppLockController(isEnabled: lockEnabled, authenticator: PocketLaunch.authenticator())
         PocketPlatformCoordinator.shared.unlockGate = AppLockRouteGate(lock: lock).pass
         PocketPlatformCoordinator.shared.isLocked = { [lock] in lock.isLocked }
-        live = PocketLaunch.usesDemoData ? nil : (try? PocketBackend.live()).map(LiveDataController.init)
+        var storageFailure: String?
+        if PocketLaunch.usesDemoData {
+            live = nil
+        } else {
+            do {
+                live = LiveDataController(backend: try PocketBackend.live())
+            } catch {
+                // Not a reason to show the demo as if it were the student's data without a word.
+                live = nil
+                storageFailure = "無法開啟 App 的儲存空間，目前只能顯示示範資料。請重新啟動 App；若仍發生，請確認裝置儲存空間。"
+            }
+        }
         syncSource()
         if defaults.string(forKey: Key.dashboard) == nil { dashboardLayout = PocketDashboard.shared.defaultLayout() }
         if usesLiveData { unreadAnnouncementIds = [] }
         if let live {
             PocketPlatformCoordinator.shared.data = LivePlatformData(live: live) { [weak self] in self?.usesLiveData ?? false }
-        } else {
+        } else if storageFailure == nil {
             PocketPlatformCoordinator.shared.data = DemoPlatformData()
         }
+        // With storage unavailable the widget and reminders keep what they have; no demo lessons.
+        accountError = storageFailure
     }
 
     var sharedWeatherSource: WeatherSource { weatherSource == "cwa" ? .cwa : .openMeteo }
@@ -270,7 +283,8 @@ final class AppModel {
             await live.refreshPrivate(force: force)
         } else {
             await live.restoreOnce()
-            restored = true
+            // Not yet readable (device locked, storage error): the next refresh restores again.
+            restored = live.restoreSettled
         }
         await live.refreshPublic(weatherSource: sharedWeatherSource, force: force)
         await syncUnread()

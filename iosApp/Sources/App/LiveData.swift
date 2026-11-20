@@ -80,12 +80,18 @@ final class LiveDataController {
         let task = Task { await restore() }
         restoring = task
         await task.value
+        // A restore that failed (storage busy, Keychain error) is tried again by the next caller.
+        if !restoreSettled { restoring = nil }
     }
+
+    /// The stored session has been read: either restored, or known to be absent.
+    private(set) var restoreSettled = false
 
     /// Restores a stored session at launch. A failure leaves the app in guest mode.
     private func restore() async {
         do {
             session = try await backend.restoreSession()
+            restoreSettled = true
         } catch {
             session = nil
             if error.kind != .cancelled { lastError = error.message }
@@ -151,14 +157,36 @@ final class LiveDataController {
     /// Shows the change at once and writes it to the account store.
     func setSubjectOverrides(_ json: String) {
         guard let session else { return }
+        let previous = subjectOverrides
         subjectOverrides = json
         let models = PocketScheduleStore.shared.overrideModels(overrides: json)
-        Task {
+        // Writes are stored in the order they were made, so a slow earlier save cannot land on
+        // top of a later one.
+        let earlier = overrideSave
+        overrideSave = Task {
+            await earlier?.value
             do {
                 try await backend.call { try await $0.saveSubjectOverrides(session: session, overrides: models, token: $1) }
-            } catch { note(PocketError(error), for: session) }
+            } catch {
+                let error = PocketError(error)
+                // What is on screen must be what is stored: go back, unless a newer edit or
+                // another account has taken over since.
+                if subjectOverrides == json, self.session?.authorizationId == session.authorizationId {
+                    subjectOverrides = previous
+                    publish()
+                }
+                note(error, for: session)
+                if error.kind != .authenticationExpired, error.kind != .cancelled {
+                    lastError = "自訂科目名稱未能儲存：\(error.message)"
+                }
+            }
         }
     }
+
+    @ObservationIgnored private var overrideSave: Task<Void, Never>?
+
+    /// Waits until every subject override written so far is stored or rolled back.
+    func subjectOverridesSettled() async { await overrideSave?.value }
 
     /// After a backup was restored into the account store.
     func reloadSubjectOverrides() async {

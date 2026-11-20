@@ -207,6 +207,38 @@ final class PocketBackendTests: XCTestCase {
         try await controller.logout()
     }
 
+    func testSubjectOverridesAreStoredInOrderAndRolledBackWhenTheyCannotBeSaved() async throws {
+        let controller = LiveDataController(backend: backend())
+        try await controller.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "web"])
+        let session = try XCTUnwrap(controller.session)
+        func stored() async throws -> [String] {
+            try await controller.backend.call { try await $0.subjectOverrides(session: session, token: $1) }.compactMap(\.customSubjectName)
+        }
+        func json(_ name: String) -> String {
+            PocketScheduleStore.shared.overridesJson(models: [ScheduleSubjectOverride(
+                originalSubjectName: "數學", customSubjectName: name, customTeacherName: nil, customClassroom: nil
+            )])
+        }
+        controller.setSubjectOverrides(json("一"))
+        controller.setSubjectOverrides(json("二"))
+        controller.setSubjectOverrides(json("三"))
+        await controller.subjectOverridesSettled()
+        let inOrder = try await stored()
+        XCTAssertEqual(inOrder, ["三"], "the last edit is the one that stays")
+
+        // The account store can no longer be written.
+        var isDirectory: ObjCBool = false
+        let paths = ([root.path] + (FileManager.default.subpaths(atPath: root.path) ?? []).map { root.appendingPathComponent($0).path })
+            .filter { FileManager.default.fileExists(atPath: $0, isDirectory: &isDirectory) && isDirectory.boolValue }
+        for path in paths { try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: path) }
+        defer { for path in paths { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path) } }
+        let before = controller.subjectOverrides
+        controller.setSubjectOverrides(json("四"))
+        await controller.subjectOverridesSettled()
+        XCTAssertEqual(controller.subjectOverrides, before, "an edit that was not stored is taken back")
+        XCTAssertNotNil(controller.lastError)
+    }
+
     func testLoginRightAfterLogoutKeepsTheNewAccountAndNothingOfTheOldOne() async throws {
         let controller = LiveDataController(backend: backend())
         try await controller.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "first"])
