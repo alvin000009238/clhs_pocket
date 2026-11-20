@@ -299,11 +299,15 @@ final class LiveDataController {
         let semesters = PocketLive.shared.recordSemesters
         guard semesters.indices.contains(semesterIndex) else { return }
         let semester = semesters[semesterIndex]
+        // Attendance and merits are independent: one failing must not discard the other.
         do {
             let attendance = try await backend.call { try await $0.attendance(session: session, semester: semester, token: $1) }
-            let merits = try await backend.call { try await $0.merits(session: session, semester: semester, token: $1) }
             guard self.session?.authorizationId == session.authorizationId else { return }
             PocketLive.shared.putAttendance(semester: semester, record: attendance)
+        } catch { note(error) }
+        do {
+            let merits = try await backend.call { try await $0.merits(session: session, semester: semester, token: $1) }
+            guard self.session?.authorizationId == session.authorizationId else { return }
             PocketLive.shared.putMerits(semester: semester, records: merits)
         } catch { note(error) }
         publish()
