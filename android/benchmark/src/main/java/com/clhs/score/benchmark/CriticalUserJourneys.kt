@@ -50,7 +50,7 @@ internal fun MacrobenchmarkScope.openDemoDestination(
 }
 
 internal fun MacrobenchmarkScope.scrollContent() {
-    device.findObject(By.text("時間"))?.setGestureMargin(device.displayWidth / 5)
+    device.findObject(By.text("國語文"))?.setGestureMargin(device.displayWidth / 5)
     device.swipe(
         device.displayWidth / 2,
         device.displayHeight * 4 / 5,
