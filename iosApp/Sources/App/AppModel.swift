@@ -373,6 +373,13 @@ final class AppModel {
         error.kind == .cleanupIncomplete ? "\(error.message)。請再試一次，完成前無法重新登入。" : error.message
     }
 
+    /// Deletes a settings file that can no longer be read (「設定檔已損壞，請重設設定後再試一次」),
+    /// so settings and backups work again with the defaults.
+    func resetDamagedSettings() async throws(PocketError) {
+        guard let backend = transferBackend else { throw PocketError(kind: .storage, message: "無法存取設定儲存空間") }
+        try await backend.call { try await $0.resetSettings(token: $1) }
+    }
+
     /// The shared core that reads and writes backups. Demo mode has no live controller but still
     /// uses the same protected settings file, so a backup is Android-compatible in both modes.
     @ObservationIgnored private lazy var transferBackend: PocketBackend? = live?.backend ?? (try? PocketBackend.live())

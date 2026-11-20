@@ -103,8 +103,7 @@ final class PocketBackend {
 
     /// Switching accounts is a complete logout followed by a new login; nothing is carried over.
     func switchAccount(studentNo: String, cookies: [String: String]) async throws(PocketError) -> AuthenticatedSession {
-        try await logout()
-        return try await login(studentNo: studentNo, cookies: cookies)
+        try await call { try await $0.switchAccount(studentNo: studentNo, cookies: cookies, token: $1) }
     }
 
     func deleteAllData() async throws(PocketError) {

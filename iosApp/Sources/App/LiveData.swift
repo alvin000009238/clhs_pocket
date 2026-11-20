@@ -104,8 +104,10 @@ final class LiveDataController {
         let epoch = accountEpoch
         let result: Result<AuthenticatedSession, PocketError> = await serialized { [backend] in
             do {
-                if switching { try await backend.logout() }
-                return .success(try await backend.login(studentNo: studentNo, cookies: cookies))
+                // The shared core signs out and signs in as one locked step.
+                return .success(try await switching
+                    ? backend.switchAccount(studentNo: studentNo, cookies: cookies)
+                    : backend.login(studentNo: studentNo, cookies: cookies))
             } catch {
                 return .failure(PocketError(error))
             }
