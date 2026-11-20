@@ -104,12 +104,54 @@ object PocketDashboard {
     fun columns(widthPoints: Double, fontScale: Double): Int =
         OverviewLayoutEngine.columns(widthPoints.toFloat(), fontScale.toFloat())
 
+    private val listTypes = setOf("alerts", "calendar", "announcements")
+
+    /**
+     * Phone-width grids use Android's packing unchanged. On wider grids (iPad) the widgets flow in
+     * reading order into rows that are always filled: each row's widgets widen to share the full
+     * width, and list widgets take half the grid so two sit side by side, or the whole row when alone.
+     * Stored sizes are untouched, so the same layout still packs the Android way on a phone.
+     */
+    internal fun place(instances: List<OverviewWidgetInstance>, columns: Int): List<OverviewPlacement> {
+        val packed = OverviewLayoutEngine.pack(instances, columns)
+        if (columns <= 4) return packed
+        val types = instances.associate { it.id to it.type }
+        val ownRow = instances.filter { it.ownRow }.map { it.id }.toSet()
+        fun isList(item: OverviewPlacement) = types[item.id] in listTypes
+        val lines = mutableListOf<MutableList<OverviewPlacement>>()
+        var used = columns
+        for (item in packed) {
+            val width = if (isList(item)) columns / 2 else item.columns
+            val alone = item.id in ownRow
+            val mixes = lines.lastOrNull()?.let { line -> line.any { isList(it) != isList(item) || it.id in ownRow } } ?: true
+            if (alone || mixes || used + width > columns) { lines.add(mutableListOf()); used = 0 }
+            lines.last().add(item.copy(columns = width))
+            used += width
+        }
+        val result = mutableListOf<OverviewPlacement>()
+        var row = 0
+        for (line in lines) {
+            val widths = line.map { it.columns }.toMutableList()
+            var spare = columns - widths.sum()
+            var index = 0
+            while (spare > 0) { widths[index % widths.size]++; spare--; index++ }
+            val height = line.maxOf { it.rows }
+            var column = 0
+            line.forEachIndexed { i, item ->
+                result += item.copy(column = column, row = row, columns = widths[i], rows = if (isList(item)) height else item.rows)
+                column += widths[i]
+            }
+            row += height
+        }
+        return result
+    }
+
     fun widgets(
         layout: String, columns: Int, clock: PocketClock, signedIn: Boolean,
         unreadIds: Set<String>, bookmarkedIds: Set<String>,
     ): List<PocketWidget> {
         val instances = decode(layout).filter { it.enabled && OverviewWidgetDefinitions[it.type] != null && it.type in symbols }
-        val placements = OverviewLayoutEngine.pack(instances, columns).associateBy { it.id }
+        val placements = place(instances, columns).associateBy { it.id }
         val overview = DemoCampus.overview(clock)
         return instances.mapNotNull { widget ->
             val place = placements[widget.id] ?: return@mapNotNull null
