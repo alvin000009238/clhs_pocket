@@ -32,9 +32,11 @@ Linux 可以編譯 iOS klib（`:shared:compileKotlinIosX64`、`:shared:compileTe
 
 Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為了不改變 Android 行為：
 
-- `com.clhs.score.shared.math`：`expect class BigDecimal`／`RoundingMode`。Android 以 `actual typealias` 指向 `java.math`；iOS 指向純 Kotlin 的 `PortableDecimal`（以 `Long` 保存，溢位時丟出 `ArithmeticException`）。
+- `com.clhs.score.shared.math`：`expect class BigDecimal`／`RoundingMode`。Android 以 `actual typealias` 指向 `java.math`；iOS 指向純 Kotlin 的 `PortableDecimal`（以 `Long` 保存未縮放值，scale 限制在 ±10000，溢位時丟出 `ArithmeticException`）。跨 scale 比較、`formatFixed`（直接以 `Double` 的最短十進位字串進位）、`Long.MIN_VALUE`、負零與帶尾端 0 的除數都不會溢位或誤判。
 - `com.clhs.score.shared.time`：`expect class LocalDate`／`LocalTime`／`LocalDateTime`／`DayOfWeek`／`Instant`。Android 指向 `java.time`；iOS 指向 `PortableLocalDate` 等純 Kotlin 實作。`java.time` 的靜態工廠與存取子改為頂層函式（例如 `parseLocalDate`、`LocalDate.shiftDays`）。
 - 學校時區固定為 `Asia/Taipei`（UTC+8，無日光節約時間）。
+- 兩個日期時間的間隔以 `LocalDateTime.durationUntil`（`kotlin.time.Duration`）計算，對應 Android 原本的 `java.time.Duration.between`；舊的 `nanosUntil`（以 `Long` 奈秒相乘，約 292 年後溢位）已移除。
+- `PortableLocalDate` 的年份範圍與 `java.time` 相同（±999,999,999），`plusMonths` 先以 `Long` 檢查年份再縮成 `Int`，`toString` 依 ISO 格式輸出負年份與五位數年份。`SchoolTimeTest`（`commonTest`）在 Android 以 `java.time`、在 iOS 以 `Portable*` 執行同一份比較、間隔、月份位移、`Instant` 與學校時區斷言。
 - `Portable*` 實作放在 `commonMain`，由 `androidHostTest` 的 `PortableDecimalParityTest`、`PortableTimeParityTest` 以隨機資料和 `java.math`／`java.time` 逐一比對，因此可以在 Linux 驗證 iOS 會用到的實作。
 - 搬到 `commonMain` 的檔案保留原本的 package（`com.clhs.score.data`），Android 呼叫端不需要改 import。跨模組後 `internal` 宣告改為 public，兩處跨模組 smart cast 改為區域變數。
 
@@ -77,6 +79,21 @@ Android 的公開 API 大量使用 `java.math.BigDecimal` 與 `java.time`。為�
 
 - Android 的公告、行事曆、天氣、YouBike 解析仍在 `app`（與 OkHttp、Jsoup、biweekly 寫在同一個檔案）。iOS 使用 `com.clhs.score.shared.net`／`shared.repo` 內另一份可攜實作；兩邊尚未合併成單一實作，修改解析規則時需要同時檢查兩處。
 - `domain/overview/OverviewCoordinator.kt` 的彙整與排程、Android 的 `SettingsTransfer.kt` 仍是 Android 專用；iOS 以共用的備份格式讀寫相容檔案。
+
+## PR #250 審查修正：共用數值、時間與 CI（Linux）
+
+- `android-ci.yml`、`android-release.yml` 的 gate 加入 `:shared:testAndroidHostTest`，`PortableDecimalParityTest`／`PortableTimeParityTest` 會在 CI 執行。
+- `kmp-ios.yml` 的 actions 固定到 commit SHA，加入 `concurrency`（取消同一 ref 的舊執行），`paths` 加入 `android/gradle/wrapper/**`、`android/gradle/libs.versions.toml`、`android/gradle.properties`、`android/gradlew`。
+- `android/shared/build.gradle.kts` 改用版本目錄（新增 `kotlinx-coroutines-core`）並設定 `jvmToolchain(25)`。
+- `productionRelease`（本機臨時簽章）：APK 12,505,534 bytes，`origin/dev`（`clhs-dev` 工作目錄）12,489,150 bytes，多 16,384 bytes。R8 的 `mapping.txt` 沒有保留任何 `com.clhs.score.shared.net`／`shared.repo`／`shared.app` 類別，`usage.txt` 列出 315 筆被移除的項目。
+
+| 檢查（`devin/review250-shared-core`） | 結果 |
+| --- | --- |
+| `:shared:allTests`、`:shared:testAndroidHostTest` | PASS |
+| `:shared:compileKotlinIosX64` | PASS |
+| `:shared:iosSimulatorArm64Test`、`:shared:iosX64Test` | BLOCKED（Linux 上被 Gradle 停用；由 `kmp-ios.yml` 在 macOS 執行） |
+| 完整 Android gate（`--warning-mode all`） | PASS（888 個 JVM 測試，0 失敗；lint 只有既有的相依版本提示） |
+| `:app:assembleProductionRelease --warning-mode all` | PASS（臨時簽章；正式簽章 NOT_RUN） |
 
 ## 目前驗證結果（Linux）
 
