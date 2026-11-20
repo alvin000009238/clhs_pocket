@@ -245,7 +245,8 @@ final class LiveDataController {
             switch result {
             case let value as ScheduleFetchResultAvailable: live.putSchedule(classValue: classValue, report: value.report)
             case let value as ScheduleFetchResultEmpty: live.putSchedule(classValue: classValue, report: value.report)
-            default: lastError = "這一週的課表尚未公布。"
+            case is ScheduleFetchResultUnpublished: lastError = "學校尚未提供這一週的課表。"
+            default: lastError = "無法更新這一週的課表，請稍後再試。"
             }
         } catch { note(error) }
         publish()
