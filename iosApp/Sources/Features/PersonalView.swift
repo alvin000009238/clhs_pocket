@@ -1,3 +1,4 @@
+import PocketShared
 import SwiftUI
 
 struct PersonalView: View {
