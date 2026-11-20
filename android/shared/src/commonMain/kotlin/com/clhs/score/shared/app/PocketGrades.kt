@@ -14,6 +14,8 @@ import com.clhs.score.data.standardFor
 import com.clhs.score.data.weightedAverageFor
 import com.clhs.score.data.weightedTotalFor
 import kotlin.math.roundToInt
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 data class PocketStandardMark(val label: String, val valueText: String, val value: Double)
 
@@ -77,7 +79,25 @@ data class PocketSimulation(
     val inferenceText: String,
     val candidates: List<PocketCreditCandidate>,
     val hasChanges: Boolean,
+    /** Where the credits in use come from and whether they are stored, e.g. 「推算・待確認」. */
+    val creditSourceText: String = "",
+    /** Credits were edited or inferred but not yet confirmed and stored: show the red dot. */
+    val creditsPending: Boolean = false,
 )
+
+/** The stored credit choice for one exam; the same JSON as Android's `SavedSimulatorCredits`. */
+@Serializable
+private data class StoredCredits(
+    val subjectNames: List<String>,
+    val credits: Map<String, Int>,
+    val source: String,
+    val version: Int = 1,
+)
+
+private const val SOURCE_DEFAULT = "default"
+private const val SOURCE_MANUAL = "manual"
+private const val SOURCE_INFERRED = "inferred"
+private val creditJson = Json { ignoreUnknownKeys = true }
 
 /** Subject detail, analysis and summary text built from the shared grade analysis. */
 object PocketGrades {
@@ -229,11 +249,46 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
     private var adjusted: Map<String, Double> = emptyMap()
     private var included: Set<String> = simulatable
     private var inferred: SimulatorCredits.Inference? = null
+    private var source = SOURCE_DEFAULT
+    private var confirmed = false
 
     fun setCredits(name: String, value: Int) {
-        if (name in defaults) credits = credits + (name to value.coerceIn(1, SimulatorCredits.MAX_CREDITS))
+        if (name in defaults) {
+            val next = credits + (name to value.coerceIn(1, SimulatorCredits.MAX_CREDITS))
+            if (next != credits) {
+                credits = next
+                source = SOURCE_MANUAL
+                confirmed = false
+            }
+        }
         inferred = null
     }
+
+    /**
+     * Applies the credits stored for this exam and account. Returns false, changing nothing, when
+     * the text is missing, damaged, or was saved for a different set of subjects.
+     */
+    fun restoreCredits(json: String?): Boolean {
+        val saved = json?.let { runCatching { creditJson.decodeFromString<StoredCredits>(it) }.getOrNull() } ?: return false
+        val valid = saved.version == 1 && saved.source in setOf(SOURCE_DEFAULT, SOURCE_MANUAL, SOURCE_INFERRED) &&
+            saved.subjectNames == defaults.keys.sorted() && saved.credits.keys == defaults.keys &&
+            saved.credits.values.all { it in 1..SimulatorCredits.MAX_CREDITS }
+        if (!valid) return false
+        credits = saved.credits
+        source = saved.source
+        confirmed = true
+        inferred = null
+        return true
+    }
+
+    /** The credits in use, to store when the student confirms them; null when there are none. */
+    fun creditsJson(): String? {
+        if (defaults.isEmpty() || defaults.size > 64) return null
+        return creditJson.encodeToString(StoredCredits.serializer(), StoredCredits(defaults.keys.sorted(), credits, source))
+    }
+
+    /** Call once [creditsJson] has been stored. */
+    fun markCreditsSaved() { confirmed = true }
 
     fun setScore(name: String, value: Double) {
         if (name !in simulatable || !value.isFinite()) return
@@ -247,6 +302,8 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
     }
 
     fun reset() {
+        source = SOURCE_DEFAULT
+        confirmed = false
         credits = defaults
         adjusted = emptyMap()
         included = simulatable
@@ -262,10 +319,24 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
      */
     fun computeInference(): PocketCreditInference = PocketCreditInference(SimulatorCredits.infer(subjects, report.examSummary))
 
-    fun applyInference(result: PocketCreditInference) { inferred = result.value }
+    fun applyInference(result: PocketCreditInference) {
+        inferred = result.value
+        // As on Android: one possible answer replaces untouched defaults, pending confirmation.
+        val single = result.value.candidates.singleOrNull()
+        if (single != null && result.value.status == SimulatorCredits.InferenceStatus.UNIQUE_UNDER_BOUNDS &&
+            source == SOURCE_DEFAULT && !confirmed
+        ) {
+            credits = defaults + single
+            source = SOURCE_INFERRED
+        }
+    }
 
     fun applyCandidate(index: Int) {
-        inferred?.candidates?.getOrNull(index)?.let { credits = defaults + it }
+        inferred?.candidates?.getOrNull(index)?.let {
+            credits = defaults + it
+            source = SOURCE_INFERRED
+            confirmed = false
+        }
     }
 
     fun state(): PocketSimulation {
@@ -332,6 +403,15 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
                 )
             },
             hasChanges = changed || credits != defaults,
+            creditSourceText = when {
+                confirmed && source == SOURCE_INFERRED -> "推算・已確認"
+                confirmed && source == SOURCE_DEFAULT -> "預設・已儲存"
+                confirmed -> "自訂・已儲存"
+                source == SOURCE_INFERRED -> "推算・待確認"
+                source == SOURCE_MANUAL -> "自訂・未儲存"
+                else -> "預設"
+            },
+            creditsPending = !confirmed && source != SOURCE_DEFAULT,
         )
     }
 }

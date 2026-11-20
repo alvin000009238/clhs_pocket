@@ -136,6 +136,16 @@ class PocketApi(private val services: PocketServices) {
     suspend fun saveSubjectOverrides(session: AuthenticatedSession, overrides: List<ScheduleSubjectOverride>, token: CancelToken?) =
         pocketCall(token) { services.school.saveSubjectOverrides(session, overrides) }
 
+    /** The simulator credits the student confirmed for one exam; null when none are stored. */
+    @Throws(Exception::class)
+    suspend fun simulatorCredits(session: AuthenticatedSession, yearValue: String, examValue: String, token: CancelToken?): String? =
+        pocketCall(token) { services.school.loadSimulatorCredits(session, yearValue, examValue) }
+
+    @Throws(Exception::class)
+    suspend fun saveSimulatorCredits(
+        session: AuthenticatedSession, yearValue: String, examValue: String, settingsJson: String?, token: CancelToken?,
+    ) = pocketCall(token) { services.school.saveSimulatorCredits(session, yearValue, examValue, settingsJson) }
+
     // Public data
 
     @Throws(Exception::class)

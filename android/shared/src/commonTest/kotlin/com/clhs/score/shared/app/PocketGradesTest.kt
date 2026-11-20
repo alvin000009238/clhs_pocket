@@ -20,6 +20,42 @@ class PocketGradesTest {
     }
 
     @Test
+    fun simulatorCreditsArePendingUntilStoredAndComeBackForTheSameSubjects() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        assertEquals(false, simulator.state().creditsPending)
+        val row = simulator.state().rows.first()
+        val changed = if (row.credits == 4) 3 else row.credits + 1
+
+        simulator.setCredits(row.name, row.credits)
+        assertEquals(false, simulator.state().creditsPending, "setting the same value is not an edit")
+        simulator.setCredits(row.name, changed)
+        assertEquals(true, simulator.state().creditsPending)
+        assertEquals("自訂・未儲存", simulator.state().creditSourceText)
+
+        val stored = assertNotNull(simulator.creditsJson())
+        simulator.markCreditsSaved()
+        assertEquals(false, simulator.state().creditsPending)
+        assertEquals("自訂・已儲存", simulator.state().creditSourceText)
+
+        // A new simulator for the same exam picks the stored credits up.
+        val reopened = assertNotNull(PocketGrades.simulator(exam))
+        assertEquals(true, reopened.restoreCredits(stored))
+        assertEquals(changed, reopened.state().rows.first().credits)
+        assertEquals(false, reopened.state().creditsPending)
+
+        // Damaged text, or credits saved for other subjects or out of range, change nothing.
+        val fresh = assertNotNull(PocketGrades.simulator(exam))
+        assertEquals(false, fresh.restoreCredits(null))
+        assertEquals(false, fresh.restoreCredits("{"))
+        assertEquals(false, fresh.restoreCredits(stored.replace(row.name, row.name + "X")))
+        assertEquals(false, fresh.restoreCredits(stored.replace("\"${row.name}\":$changed", "\"${row.name}\":9")))
+        assertEquals(row.credits, fresh.state().rows.first().credits)
+
+        reopened.reset()
+        assertEquals("預設", reopened.state().creditSourceText)
+    }
+
+    @Test
     fun simulatorStartsFromOfficialAverageAndRespondsToEdits() {
         val simulator = assertNotNull(PocketGrades.simulator(exam))
         val initial = simulator.state()

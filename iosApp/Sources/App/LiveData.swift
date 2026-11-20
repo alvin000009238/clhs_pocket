@@ -319,6 +319,33 @@ final class LiveDataController {
         } catch { note(error, for: session) }
     }
 
+    /// The simulator credits stored for this exam and account, for `PocketSimulator.restoreCredits`.
+    func simulatorCredits(examValue: String) async -> String? {
+        guard let session, let year = PocketLive.shared.yearValueOf(examValue: examValue),
+              let code = PocketLive.shared.examCodeOf(examValue: examValue) else { return nil }
+        return try? await backend.call {
+            try await $0.simulatorCredits(session: session, yearValue: year, examValue: code, token: $1)
+        }
+    }
+
+    /// Stores `PocketSimulator.creditsJson()`; nil removes the stored credits. Throws when the
+    /// credits were not stored, so the caller does not mark them as confirmed.
+    func saveSimulatorCredits(examValue: String, json: String?) async throws(PocketError) {
+        guard let session, let year = PocketLive.shared.yearValueOf(examValue: examValue),
+              let code = PocketLive.shared.examCodeOf(examValue: examValue) else {
+            throw PocketError(kind: .storage, message: "尚未登入，無法儲存學分")
+        }
+        do {
+            try await backend.call {
+                try await $0.saveSimulatorCredits(session: session, yearValue: year, examValue: code, settingsJson: json, token: $1)
+            }
+        } catch {
+            let error = PocketError(error)
+            note(error, for: session)
+            throw error
+        }
+    }
+
     func loadReport(examValue: String, force: Bool = false) async {
         // `examValue` is the term + exam key the grade screens use; the school wants the two parts.
         guard let session, let year = PocketLive.shared.yearValueOf(examValue: examValue),
