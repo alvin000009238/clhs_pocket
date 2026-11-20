@@ -94,65 +94,6 @@ struct AnnouncementListView: View {
     }
 }
 
-/// The announcement body with its formatting (bold, lists, links), as Android shows it. The HTML
-/// arrives already reduced to formatting by the shared code, so importing it loads nothing.
-@MainActor
-enum AnnouncementBody {
-    static func attributed(html: String) -> AttributedString? {
-        // SwiftUI text has no list layout, so each item becomes its own bulleted line.
-        let html = html
-            .replacingOccurrences(of: "<li[^>]*>", with: "<p>• ", options: [.regularExpression, .caseInsensitive])
-            .replacingOccurrences(of: "</li>", with: "</p>", options: .caseInsensitive)
-            .replacingOccurrences(of: "</?[uo]l[^>]*>", with: "", options: [.regularExpression, .caseInsensitive])
-        guard !html.isEmpty, let data = html.data(using: .utf8),
-              let imported = try? NSMutableAttributedString(
-                  data: data,
-                  options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue],
-                  documentAttributes: nil
-              ) else { return nil }
-        while imported.string.hasSuffix("\n") {
-            imported.deleteCharacters(in: NSRange(location: imported.length - 1, length: 1))
-        }
-        guard imported.length > 0 else { return nil }
-        // Paragraph styles are dropped below, so paragraphs are separated by a blank line instead;
-        // consecutive list items stay together.
-        let text = imported.string as NSString
-        var breaks: [Int] = []
-        text.enumerateSubstrings(in: NSRange(location: 0, length: text.length), options: .byParagraphs) { line, range, enclosing, _ in
-            let next = enclosing.location + enclosing.length
-            guard next < text.length, enclosing.length > range.length else { return }
-            let following = text.substring(from: next)
-            if (line ?? "").hasPrefix("•"), following.hasPrefix("•") { return }
-            breaks.append(next)
-        }
-        for index in breaks.reversed() {
-            imported.insert(NSAttributedString(string: "\n"), at: index)
-        }
-        let whole = NSRange(location: 0, length: imported.length)
-        // Keep bold/italic, drop the page's own fonts, sizes and colours for the app's.
-        imported.enumerateAttribute(.font, in: whole) { value, range, _ in
-            let traits = (value as? UIFont)?.fontDescriptor.symbolicTraits.intersection([.traitBold, .traitItalic]) ?? []
-            let base = UIFont.preferredFont(forTextStyle: .body)
-            let font = base.fontDescriptor.withSymbolicTraits(traits).map { UIFont(descriptor: $0, size: 0) } ?? base
-            imported.addAttribute(.font, value: font, range: range)
-        }
-        for key in [NSAttributedString.Key.foregroundColor, .backgroundColor, .paragraphStyle, .kern, .strokeColor, .strokeWidth] {
-            imported.removeAttribute(key, range: whole)
-        }
-        imported.enumerateAttribute(.link, in: whole) { value, range, _ in
-            let url = (value as? URL) ?? (value as? String).flatMap(URL.init(string:))
-            if url?.scheme != "https", url?.scheme != "http" { imported.removeAttribute(.link, range: range) }
-        }
-        var result = AttributedString(imported)
-        result.foregroundColor = PocketColor.onSurface
-        for run in result.runs where run.link != nil {
-            result[run.range].foregroundColor = PocketColor.primary
-            result[run.range].underlineStyle = .single
-        }
-        return result
-    }
-}
-
 private struct AnnouncementImageView: View {
     @Environment(\.openURL) private var openURL
     let image: PocketAnnouncementImage
@@ -221,7 +162,11 @@ struct AnnouncementDetailView: View {
         let detail = PocketCampusStore.shared.announcementDetail(clock: model.clock, id: id)
         content(detail)
             .task(id: detail?.html ?? "") {
-                richBody = detail.flatMap { AnnouncementBody.attributed(html: $0.html) }
+                richBody = detail.flatMap { AnnouncementMarkup.attributed(html: $0.html) }
+            }
+            // Only a body the user can actually read counts as read; a failed live load keeps it unread.
+            .onChange(of: detail != nil, initial: true) { _, loaded in
+                if loaded { model.unreadAnnouncementIds.remove(id) }
             }
     }
 
@@ -256,7 +201,7 @@ struct AnnouncementDetailView: View {
                             .accessibilityIdentifier("announcement-body")
                     } else {
                         VStack(alignment: .leading, spacing: 14) {
-                            ForEach(detail.paragraphs, id: \.self) { paragraph in
+                            ForEach(Array(detail.paragraphs.enumerated()), id: \.offset) { _, paragraph in
                                 Text(paragraph)
                                     .font(.body)
                                     .lineSpacing(5)
@@ -265,7 +210,7 @@ struct AnnouncementDetailView: View {
                             }
                         }
                     }
-                    ForEach(detail.images, id: \.url) { image in
+                    ForEach(Array(detail.images.enumerated()), id: \.offset) { _, image in
                         AnnouncementImageView(image: image)
                     }
                     if !detail.attachments.isEmpty {
@@ -273,7 +218,7 @@ struct AnnouncementDetailView: View {
                             PocketSectionHeader(title: "附件") { EmptyView() }
                             PocketCard(padding: 8) {
                                 VStack(spacing: 0) {
-                                    ForEach(Array(detail.attachments.enumerated()), id: \.element.name) { index, file in
+                                    ForEach(Array(detail.attachments.enumerated()), id: \.offset) { index, file in
                                         if index > 0 { PocketRowDivider().padding(.leading, 60) }
                                         Button {
                                             if let url = URL(string: file.url), url.scheme == "https" || url.scheme == "http" {
@@ -329,10 +274,11 @@ struct AnnouncementDetailView: View {
             }
         }
         .task { await loadDetail() }
-        .alert("示範附件", isPresented: $attachmentNotice) {
+        .alert(model.usesLiveData ? "無法開啟附件" : "示範附件", isPresented: $attachmentNotice) {
             Button("好") {}
         } message: {
-            Text("示範資料不含實際檔案；使用真實資料時會開啟學校網站上的附件。")
+            Text(model.usesLiveData ? "這個附件沒有有效的網址，請到學校網站查看這則公告。"
+                : "示範資料不含實際檔案；使用真實資料時會開啟學校網站上的附件。")
         }
         .background(PocketColor.background.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
@@ -352,7 +298,6 @@ struct AnnouncementDetailView: View {
                 }
             }
         }
-        .onAppear { model.unreadAnnouncementIds.remove(id) }
     }
 }
 
@@ -639,7 +584,10 @@ struct StudentRecordsView: View {
             .pocketPage()
             }
         }
-        .refreshable { await model.refreshLiveData(force: true) }
+        .refreshable {
+            await model.refreshLiveData(force: true)
+            await loadRecords()
+        }
         .task(id: "\(semester)-\(records.semesters.count)") { await loadRecords() }
     }
 

@@ -167,6 +167,8 @@ private struct SubjectTrendCard: View {
 
 private struct StandardsCard: View {
     let detail: PocketSubjectDetail
+    /// Absent or unpublished subjects have no position among the standards.
+    private var hasScore: Bool { Double(detail.scoreText) != nil }
 
     var body: some View {
         PocketCard {
@@ -184,11 +186,13 @@ private struct StandardsCard: View {
                                 .frame(width: 2, height: 14)
                                 .offset(x: proxy.size.width * mark.value / 100 - 1)
                         }
+                        if hasScore {
                         Circle()
                             .fill(PocketColor.primary)
                             .stroke(PocketColor.surfaceLow, lineWidth: 3)
                             .frame(width: 18, height: 18)
                             .offset(x: min(max(proxy.size.width * detail.score / 100 - 9, 0), proxy.size.width - 18))
+                        }
                     }
                     .frame(maxHeight: .infinity)
                 }
@@ -200,7 +204,7 @@ private struct StandardsCard: View {
                         HStack {
                             Text(mark.label).font(.subheadline).foregroundStyle(PocketColor.onSurface)
                             Spacer()
-                            if detail.score >= mark.value, index == detail.standards.firstIndex(where: { detail.score >= $0.value }) {
+                            if hasScore, detail.score >= mark.value, index == detail.standards.firstIndex(where: { detail.score >= $0.value }) {
                                 PocketChip(text: "你在這裡", foreground: PocketColor.onPrimaryContainer, background: PocketColor.primaryContainer)
                             }
                             Text(mark.valueText)
@@ -345,7 +349,7 @@ private struct GradeSimulatorContent: View {
                         .minimumScaleFactor(0.6)
                         .contentTransition(.numericText())
                         .accessibilityIdentifier("simulator-average")
-                    if state.deltaSign != 0 {
+                    if state.deltaSign != 0, state.averageText != "--" {
                         Text(state.deltaText)
                             .font(.subheadline.weight(.bold))
                             .monospacedDigit()
@@ -361,6 +365,11 @@ private struct GradeSimulatorContent: View {
                     .font(.subheadline)
                     .monospacedDigit()
                     .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
+                Text("* 非官方試算，結果不會改變成績單")
+                    .font(.caption)
+                    .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.75))
+                    .padding(.top, 4)
+                    .accessibilityIdentifier("simulator-unofficial")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -463,6 +472,25 @@ private struct CreditsSheet: View {
     @Environment(\.dismiss) private var dismiss
     let simulator: PocketSimulator
     @Binding var revision: Int
+    @State private var inferring: Task<Void, Never>?
+
+    /// The search can take a while on a long report card, so it runs off the main actor; only
+    /// applying the finished result touches the simulator, and a cancelled search is dropped.
+    private func startInference() {
+        let search = CreditSearch(simulator: simulator)
+        inferring = Task {
+            let result = await Task.detached(priority: .userInitiated) { search.run() }.value
+            guard !Task.isCancelled else { return }
+            simulator.applyInference(result: result.value)
+            revision += 1
+            inferring = nil
+        }
+    }
+
+    private func cancelInference() {
+        inferring?.cancel()
+        inferring = nil
+    }
 
     var body: some View {
         let state = simulator.state()
@@ -480,6 +508,8 @@ private struct CreditsSheet: View {
                         Stepper(value: Binding(
                             get: { Int(row.credits) },
                             set: { value in
+                                // A manual edit supersedes a search still running for the old credits.
+                                cancelInference()
                                 simulator.setCredits(name: row.name, value: Int32(value))
                                 revision += 1
                             }
@@ -501,11 +531,20 @@ private struct CreditsSheet: View {
                     }
                 }
                 Section {
-                    Button("依校方總分推算學分", systemImage: "wand.and.stars") {
-                        simulator.inferCredits()
-                        revision += 1
+                    if inferring != nil {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text("正在推算學分…").foregroundStyle(PocketColor.onSurfaceVariant)
+                            Spacer()
+                            Button("取消") { cancelInference() }
+                                .accessibilityIdentifier("credits-infer-cancel")
+                        }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("credits-inferring")
+                    } else {
+                        Button("依校方總分推算學分", systemImage: "wand.and.stars") { startInference() }
+                            .accessibilityIdentifier("credits-infer")
                     }
-                    .accessibilityIdentifier("credits-infer")
                     if !state.inferenceText.isEmpty {
                         Text(state.inferenceText).font(.footnote).foregroundStyle(PocketColor.onSurfaceVariant)
                     }
@@ -531,6 +570,7 @@ private struct CreditsSheet: View {
             .background(PocketColor.background.ignoresSafeArea())
             .navigationTitle("學分")
             .navigationBarTitleDisplayMode(.inline)
+            .onDisappear { cancelInference() }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }.accessibilityIdentifier("credits-done")
@@ -538,4 +578,14 @@ private struct CreditsSheet: View {
             }
         }
     }
+}
+
+/// Carries the simulator to the search thread. `computeInference` reads only the immutable report,
+/// so the editable state is never touched off the main actor.
+private struct CreditSearch: @unchecked Sendable {
+    let simulator: PocketSimulator
+
+    struct Result: @unchecked Sendable { let value: PocketCreditInference }
+
+    func run() -> Result { Result(value: simulator.computeInference()) }
 }

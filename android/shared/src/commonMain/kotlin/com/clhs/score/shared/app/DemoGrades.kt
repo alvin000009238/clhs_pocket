@@ -56,7 +56,8 @@ internal object DemoGrades {
             weaknesses = analysis.weaknesses.map(::insight),
             subjects = report.subjects.map(::subjectRow),
             trend = term.exams.mapNotNull { option ->
-                source.report(term.value, option.value)?.weightedAverage()?.let { average ->
+                // An exam whose official average is not published yet has no point, not a 0.00 one.
+                source.report(term.value, option.value)?.examSummary?.averageScoreDisplay?.toDoubleOrNull()?.let { average ->
                     PocketTrendPoint(option.text, average, hundredthsText((average * 100).roundToInt()))
                 }
             },

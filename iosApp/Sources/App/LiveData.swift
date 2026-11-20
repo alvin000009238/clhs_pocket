@@ -399,7 +399,8 @@ final class LiveDataController {
             switch result {
             case let value as ScheduleFetchResultAvailable: live.putSchedule(classValue: classValue, report: value.report)
             case let value as ScheduleFetchResultEmpty: live.putSchedule(classValue: classValue, report: value.report)
-            default: lastError = "這一週的課表尚未公布。"
+            case is ScheduleFetchResultUnpublished: lastError = "學校尚未提供這一週的課表。"
+            default: lastError = "無法更新這一週的課表，請稍後再試。"
             }
         } catch { note(error, for: session) }
         publish()
@@ -466,11 +467,15 @@ final class LiveDataController {
         let semesters = PocketLive.shared.recordSemesters
         guard semesters.indices.contains(semesterIndex) else { return }
         let semester = semesters[semesterIndex]
+        // Attendance and merits are independent: one failing must not discard the other.
         do {
             let attendance = try await backend.call { try await $0.attendance(session: session, semester: semester, token: $1) }
-            let merits = try await backend.call { try await $0.merits(session: session, semester: semester, token: $1) }
             guard self.session?.authorizationId == session.authorizationId else { return }
             PocketLive.shared.putAttendance(semester: semester, record: attendance)
+        } catch { note(error) }
+        do {
+            let merits = try await backend.call { try await $0.merits(session: session, semester: semester, token: $1) }
+            guard self.session?.authorizationId == session.authorizationId else { return }
             PocketLive.shared.putMerits(semester: semester, records: merits)
         } catch { note(error, for: session) }
         publish()

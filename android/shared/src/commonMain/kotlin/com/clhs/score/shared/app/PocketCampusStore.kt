@@ -194,7 +194,7 @@ object PocketCampusStore {
         val today = clock.date()
         val events = DemoCampus.sharedEvents(clock)
         fun count(date: com.clhs.score.shared.time.LocalDate) =
-            events.count { it.start.datePart() <= date && date < it.endExclusive.datePart() }
+            events.count { DemoCampus.covers(it, date) }
         var cursor = first.shiftDays(-(first.weekday().isoNumber - 1).toLong())
         val days = mutableListOf<PocketCalendarDay>()
         while (days.size % 7 != 0 || cursor.monthNumber() == month || days.isEmpty() || cursor < first) {
@@ -220,15 +220,15 @@ object PocketCampusStore {
             weekdays = WEEKDAY_LABELS,
             days = days,
             events = events
-                .filter { it.endExclusive.datePart() > first && it.start.datePart() < last && overlapsMonth(it, year, month) }
+                .filter { DemoCampus.lastDay(it) >= first && it.start.datePart() < last && overlapsMonth(it, year, month) }
                 .sortedBy { it.start.datePart().epochDay() }
-                .map { DemoCampus.eventRow(it, today) },
+                .map { DemoCampus.eventRow(it, today, clock.dateTime()) },
         )
     }
 
     private fun overlapsMonth(event: com.clhs.score.data.SchoolCalendarEvent, year: Int, month: Int): Boolean {
         val next = if (month == 12) localDateOf(year + 1, 1, 1) else localDateOf(year, month + 1, 1)
-        return event.start.datePart() < next && event.endExclusive.datePart() > localDateOf(year, month, 1)
+        return event.start.datePart() < next && DemoCampus.lastDay(event) >= localDateOf(year, month, 1)
     }
 
     fun eventsOn(clock: PocketClock, dayKey: String): List<PocketEventRow> {
@@ -236,8 +236,8 @@ object PocketCampusStore {
         if (parts.size != 3) return emptyList()
         val date = localDateOf(parts[0], parts[1], parts[2])
         return DemoCampus.sharedEvents(clock)
-            .filter { it.start.datePart() <= date && date < it.endExclusive.datePart() }
-            .map { DemoCampus.eventRow(it, clock.date()) }
+            .filter { DemoCampus.covers(it, date) }
+            .map { DemoCampus.eventRow(it, clock.date(), clock.dateTime()) }
     }
 
     private val concerns = setOf("曠課", "遲到", "警告", "小過", "大過")

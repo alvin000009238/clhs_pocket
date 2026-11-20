@@ -106,6 +106,9 @@ final class AppLockController {
         method = authenticator.method()
     }
 
+    /// Re-reads the available method, e.g. after the user set a passcode in Settings.
+    func refreshMethod() { method = authenticator.method() }
+
     /// Call when the scene becomes active. Prompts at most once for each time the app locked.
     func sceneBecameActive() async {
         guard isLocked, promptsOnActivation else { return }

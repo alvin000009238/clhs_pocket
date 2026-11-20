@@ -85,7 +85,6 @@ object FakeScheduleData {
                 ScheduleItem(dayOfWeek = 4, period = 3, subjectName = "國語文", teacherName = "張三", classroom = "高二30"),
                 ScheduleItem(dayOfWeek = 4, period = 4, subjectName = "數學", teacherName = "李四", classroom = "高二30"),
                 ScheduleItem(dayOfWeek = 4, period = 5, subjectName = "英語文", teacherName = "王五", classroom = "高二30"),
-                ScheduleItem(dayOfWeek = 4, period = 6, subjectName = "地科", teacherName = "何四", classroom = "高二30"),
                 ScheduleItem(dayOfWeek = 4, period = 7, subjectName = "社團", teacherName = "各社團指導", classroom = "各處"),
 
                 ScheduleItem(dayOfWeek = 5, period = 1, subjectName = "物理", teacherName = "孫七", classroom = "高二30"),

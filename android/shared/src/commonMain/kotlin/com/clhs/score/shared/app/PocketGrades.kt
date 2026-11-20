@@ -209,6 +209,11 @@ object PocketGrades {
     private fun rank(rank: Int?, count: Int?) = if (rank == null || count == null) "--" else "$rank/$count"
 }
 
+private const val MAX_CANDIDATES = 6
+
+/** A finished credit search for one exam, applied with [PocketSimulator.applyInference]. */
+class PocketCreditInference internal constructor(internal val value: SimulatorCredits.Inference)
+
 /**
  * Editable what-if state for one exam. Credits are the shared [SimulatorCredits]
  * integers from 1 to 4; exclusions are a subject selection, never a zero credit.
@@ -249,7 +254,15 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
     }
 
     /** Searches for credits that reproduce the official summary; call only after a mismatch. */
-    fun inferCredits() { inferred = SimulatorCredits.infer(subjects, report.examSummary) }
+    fun inferCredits() { applyInference(computeInference()) }
+
+    /**
+     * The search alone. It reads only the immutable report, never the editable state, so a caller
+     * may run it off the main thread and drop the result if the user cancels or edits meanwhile.
+     */
+    fun computeInference(): PocketCreditInference = PocketCreditInference(SimulatorCredits.infer(subjects, report.examSummary))
+
+    fun applyInference(result: PocketCreditInference) { inferred = result.value }
 
     fun applyCandidate(index: Int) {
         inferred?.candidates?.getOrNull(index)?.let { credits = defaults + it }
@@ -287,8 +300,8 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
             averageText = if (included.isEmpty()) "--" else hundredthsText((average * 100).roundToInt()),
             totalText = if (included.isEmpty()) "--" else tenthsText((total * 10).roundToInt()),
             officialAverageText = display.averageText,
-            deltaText = if (!changed || delta == 0) "" else (if (delta > 0) "+" else "") + hundredthsText(delta),
-            deltaSign = if (!changed || delta == 0) 0 else if (delta > 0) 1 else -1,
+            deltaText = if (!changed || delta == 0 || included.isEmpty()) "" else (if (delta > 0) "+" else "") + hundredthsText(delta),
+            deltaSign = if (!changed || delta == 0 || included.isEmpty()) 0 else if (delta > 0) 1 else -1,
             totalCredits = names.filter { it in included }.sumOf { credits[it] ?: 1 },
             check = check,
             checkTitle = when (check) {
@@ -304,12 +317,14 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
             inferenceText = when (inference?.status) {
                 null -> ""
                 SimulatorCredits.InferenceStatus.UNIQUE_UNDER_BOUNDS -> "在 1 到 4 學分內只有一組符合，並非校方公布的學分。"
-                SimulatorCredits.InferenceStatus.AMBIGUOUS -> "有 ${inference.candidates.size} 組學分都符合，請選擇與課程相符的一組。"
+                SimulatorCredits.InferenceStatus.AMBIGUOUS -> "有 ${inference.candidates.size} 組學分都符合" +
+                    (if (inference.candidates.size > MAX_CANDIDATES) "，以下列出前 $MAX_CANDIDATES 組" else "") +
+                    "，請選擇與課程相符的一組。"
                 SimulatorCredits.InferenceStatus.SEARCH_LIMITED -> "組合太多，僅列出部分結果。"
                 SimulatorCredits.InferenceStatus.NO_SOLUTIONS -> "找不到符合校方總分的學分組合。"
                 SimulatorCredits.InferenceStatus.UNAVAILABLE -> "這次考試無法推算學分。"
             },
-            candidates = inference?.candidates.orEmpty().take(6).mapIndexed { index, candidate ->
+            candidates = inference?.candidates.orEmpty().take(MAX_CANDIDATES).mapIndexed { index, candidate ->
                 PocketCreditCandidate(
                     index = index,
                     totalCredits = candidate.values.sum(),

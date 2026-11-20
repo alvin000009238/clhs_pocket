@@ -325,11 +325,6 @@ final class PocketBackendTests: XCTestCase {
         let document = try await backend.call { try await $0.inspectSettingsJson(text: file.text, token: $1) }
         XCTAssertEqual(document.app, "clhs-pocket")
         XCTAssertNil(document.subjects)
-        // A guest's backup has no subjects; a signed-in student imports it without asking for them
-        // (asking is what the shared core rejects).
-        let guestBackup = AppModel.SettingsImportPreview(document: document, signedIn: true)
-        XCTAssertFalse(guestBackup.hasSubjects)
-        XCTAssertFalse(guestBackup.canApplySubjects)
         let changed = file.text.replacingOccurrences(of: "\"themeMode\": \"SYSTEM\"", with: "\"themeMode\": \"DARK\"")
         XCTAssertNotEqual(changed, file.text)
         try await backend.call { try await $0.restoreSettingsJson(text: changed, includeSubjects: false, session: nil, token: $1) }

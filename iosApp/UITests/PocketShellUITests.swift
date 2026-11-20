@@ -16,7 +16,8 @@ final class PocketShellUITests: XCTestCase {
             "-resetLocalState", "YES",
             "-hasCompletedOnboarding", onboarded ? "YES" : "NO",
             "-session", session,
-            "-appearance", "system",
+            // TEST_RUNNER_APPEARANCE=dark reruns the flows for the dark-mode screenshots.
+            "-appearance", ProcessInfo.processInfo.environment["APPEARANCE"] ?? "system",
             "-demoClock", "2026-11-18T10:35",
             "-dataMode", dataMode,
             "-lockAuth", lockAuth,
@@ -37,11 +38,12 @@ final class PocketShellUITests: XCTestCase {
     /// iPad only: the same screen on the wider landscape grid, then back to portrait.
     private func captureLandscapeOnPad(_ name: String) {
         guard UIDevice.current.userInterfaceIdiom == .pad else { return }
+        let window = app.windows.firstMatch
         XCUIDevice.shared.orientation = .landscapeLeft
-        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertTrue(waitUntil { window.frame.width > window.frame.height }, "the window never rotated to landscape")
         capture(name)
         XCUIDevice.shared.orientation = .portrait
-        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertTrue(waitUntil { window.frame.height > window.frame.width }, "the window never rotated back to portrait")
     }
 
     func testGuestFirstShellAndFourIndependentStacks() {
@@ -143,6 +145,11 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["示範帳號 DEMO-000"].waitForExistence(timeout: 5))
         capture("18-personal")
         app.buttons["sign-out"].tap()
+        let confirm = app.buttons["sign-out-confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "signing out must ask for confirmation first")
+        XCTAssertTrue(app.staticTexts["示範帳號 DEMO-000"].exists, "the account is still signed in until confirmed")
+        capture("18b-sign-out-confirm")
+        confirm.tap()
         XCTAssertTrue(app.staticTexts["訪客模式"].waitForExistence(timeout: 5))
         capture("19-personal-guest")
     }
@@ -221,8 +228,7 @@ final class PocketShellUITests: XCTestCase {
             _ = app.wait(for: .runningForeground, timeout: 5)
             moved.press(forDuration: 1.5, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 1.0)
             // The drop animates; on a slow machine the new layout can take a few seconds to settle.
-            let deadline = Date().addingTimeInterval(10)
-            while order() == before, Date() < deadline { Thread.sleep(forTimeInterval: 0.5) }
+            _ = waitUntil(timeout: 10) { order() != before }
         }
         let after = order()
         XCTAssertEqual(Set(after), Set(before))
@@ -238,7 +244,8 @@ final class PocketShellUITests: XCTestCase {
         var issues: [String] = []
         for (index, tab) in ["首頁", "課表", "成績", "校園"].enumerated() {
             if index > 0 { self.tab(tab).tap() }
-            Thread.sleep(forTimeInterval: 1)
+            let selected = self.tab(tab)
+            XCTAssertTrue(waitUntil { selected.isSelected }, "\(tab) tab never became selected")
             try app.performAccessibilityAudit(for: [.sufficientElementDescription, .hitRegion]) { issue in
                 let element = issue.element
                 issues.append("\(tab): \(issue.compactDescription) [\(element?.identifier ?? "") | \(element?.label ?? "") | \(element?.elementType.rawValue ?? 0) | \(element?.frame.debugDescription ?? "")]")
@@ -438,6 +445,16 @@ final class PocketShellUITests: XCTestCase {
 
         open("settings-關於")
         capture("66-settings-about")
+        app.buttons["about-licenses"].tap()
+        let huninn = app.buttons["license-Huninn-OFL"]
+        XCTAssertTrue(huninn.waitForExistence(timeout: 5))
+        capture("66b-settings-licenses")
+        huninn.tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "SIL Open Font License")).firstMatch.waitForExistence(timeout: 5),
+                      "the bundled licence text must load")
+        capture("66c-settings-license-huninn")
+        app.navigationBars.buttons.firstMatch.tap()
+        app.navigationBars.buttons.firstMatch.tap()
         app.navigationBars.buttons.firstMatch.tap()
 
         open("settings-資料管理")
@@ -496,7 +513,8 @@ final class PocketShellUITests: XCTestCase {
 
     private func tab(_ title: String) -> XCUIElement {
         // The iOS 26 tab bar minimises while scrolled down; scroll back to restore it.
-        for _ in 0..<4 where !app.tabBars.buttons[title].exists { app.swipeDown() }
+        // A pull-to-refresh at the top can briefly delay it, so wait before swiping again.
+        for _ in 0..<4 where !app.tabBars.buttons[title].waitForExistence(timeout: 2) { app.swipeDown() }
         let inTabBar = app.tabBars.buttons[title]
         return inTabBar.exists ? inTabBar : app.buttons[title].firstMatch
     }
@@ -507,9 +525,12 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(unlock.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["home-edit"].isHittable)
         capture("80-lock-screen")
-        // `-lockAuth manual` cancels every prompt during the first seconds after launch.
-        Thread.sleep(forTimeInterval: 6)
-        unlock.tap()
+        // `-lockAuth manual` cancels every prompt during the first seconds after launch, so keep
+        // asking until a prompt succeeds and the lock screen goes away.
+        XCTAssertTrue(waitUntil(timeout: 20) {
+            if unlock.exists, unlock.isHittable { unlock.tap() }
+            return !unlock.exists
+        }, "the lock screen never unlocked")
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5) || app.buttons["home-edit"].waitForExistence(timeout: 5))
         XCTAssertFalse(unlock.exists)
         capture("81-unlocked-home")
@@ -524,13 +545,17 @@ final class PocketShellUITests: XCTestCase {
         personal.tap()
         let name = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "DEMO-000")).firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 5))
-        Thread.sleep(forTimeInterval: 6)
 
-        XCUIDevice.shared.press(.home)
-        Thread.sleep(forTimeInterval: 1)
-        app.activate()
-
-        XCTAssertTrue(app.buttons["lock-unlock"].waitForExistence(timeout: 10))
+        // `relock` still lets prompts succeed during launch, so return from the background until
+        // the app actually locks instead of guessing when that window ends.
+        let unlock = app.buttons["lock-unlock"]
+        XCTAssertTrue(waitUntil(timeout: 30) {
+            XCUIDevice.shared.press(.home)
+            _ = self.app.wait(for: .runningBackground, timeout: 5)
+            self.app.activate()
+            _ = self.app.wait(for: .runningForeground, timeout: 5)
+            return unlock.waitForExistence(timeout: 3)
+        }, "returning from the background never locked the app")
         XCTAssertFalse(name.exists, "personal data is still exposed to accessibility while locked")
         XCTAssertFalse(app.buttons["sign-out"].exists)
         XCTAssertFalse(app.navigationBars["個人"].exists)
@@ -544,7 +569,8 @@ final class PocketShellUITests: XCTestCase {
         launch(onboarded: true, session: "guest", dataMode: "live")
         let edit = app.buttons["home-edit"]
         XCTAssertTrue(edit.waitForExistence(timeout: 10))
-        Thread.sleep(forTimeInterval: 6)
+        let loading = app.activityIndicators.firstMatch
+        _ = waitUntil(timeout: 15) { !loading.exists }
         capture("85-live-guest-home")
         reveal(edit)
         edit.tap()
@@ -559,7 +585,7 @@ final class PocketShellUITests: XCTestCase {
         let bike = app.descendants(matching: .any)["widget-youbike"]
         for _ in 0..<5 where !bike.exists { app.swipeUp() }
         XCTAssertTrue(bike.waitForExistence(timeout: 5))
-        Thread.sleep(forTimeInterval: 6)
+        _ = waitUntil(timeout: 15) { !bike.activityIndicators.firstMatch.exists }
         capture("86-live-guest-youbike")
     }
 
@@ -575,9 +601,7 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 20) || app.buttons["login-retry"].waitForExistence(timeout: 5))
         // Give the school's page time to render; the screenshot is taken either way.
         let loading = app.staticTexts["正在載入…"]
-        let deadline = Date().addingTimeInterval(8)
-        while loading.exists, Date() < deadline { Thread.sleep(forTimeInterval: 1) }
-        Thread.sleep(forTimeInterval: 2)
+        _ = waitUntil(timeout: 10) { !loading.exists }
         capture("83-live-school-login")
     }
 
@@ -590,9 +614,17 @@ final class PocketShellUITests: XCTestCase {
         )
     }
 
+    /// Polls a condition until it holds or the timeout passes; returns whether it held.
+    @discardableResult
+    private func waitUntil(timeout: TimeInterval = 10, _ condition: @escaping () -> Bool) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
     private func capture(_ name: String) {
-        // Let scroll indicators and transitions settle before the frame is taken.
-        Thread.sleep(forTimeInterval: 0.8)
+        // Queries wait for the app to go idle, so transitions have settled before the frame is taken.
+        _ = app.wait(for: .runningForeground, timeout: 5)
+        _ = app.windows.firstMatch.exists
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name

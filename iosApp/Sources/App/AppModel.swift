@@ -420,6 +420,24 @@ final class AppModel {
     /// uses the same protected settings file, so a backup is Android-compatible in both modes.
     @ObservationIgnored private lazy var transferBackend: PocketBackend? = live?.backend ?? (try? PocketBackend.live())
 
+    func hasCwaKey() async -> Bool {
+        guard let backend = transferBackend else { return false }
+        return (try? await backend.call { try await $0.hasCwaKey(token: $1) })?.boolValue ?? false
+    }
+
+    /// Checks the key against the live API; only a valid key is stored, then weather reloads.
+    func saveCwaKey(_ key: String) async throws(PocketError) -> CwaKeyValidation {
+        guard let backend = transferBackend else { throw PocketError(kind: .storage, message: "無法存取設定儲存空間") }
+        let result = try await backend.call { try await $0.saveCwaKey(rawKey: key, token: $1) }
+        if result == .valid, let live { await live.refreshPublic(weatherSource: sharedWeatherSource, force: true) }
+        return result
+    }
+
+    func clearCwaKey() async throws(PocketError) {
+        guard let backend = transferBackend else { throw PocketError(kind: .storage, message: "無法存取設定儲存空間") }
+        try await backend.call { try await $0.clearCwaKey(token: $1) }
+    }
+
     /// Copies this device's preferences into the shared settings, keeping fields iOS has no screen for.
     private func storeSharedSettings(_ backend: PocketBackend) async throws(PocketError) {
         let stored = try await backend.call { try await $0.loadSettings(token: $1) }
@@ -451,36 +469,23 @@ final class AppModel {
         return try await backend.call { try await $0.exportSettingsJson(session: session, token: $1) }
     }
 
-    /// What a backup contains, for the confirmation shown before it replaces the settings.
-    struct SettingsImportPreview: Equatable {
-        /// The backup carries custom subject names (it was exported by a signed-in student).
-        let hasSubjects: Bool
-        /// They can be applied: the backup has them and a student is signed in to receive them.
-        let canApplySubjects: Bool
-
-        init(document: SettingsBackupDocument, signedIn: Bool) {
-            hasSubjects = document.subjects != nil
-            canApplySubjects = signedIn && document.subjects != nil
-        }
+    /// Validates and applies a backup. The app lock and notification permission are never turned on by an import.
+    /// Validates a backup without applying it, for the import confirmation.
+    func inspectSettings(_ text: String) async throws(PocketError) -> SettingsBackupDocument {
+        guard let backend = transferBackend else { throw PocketError(kind: .storage, message: "無法存取設定儲存空間") }
+        return try await backend.call { try await $0.inspectSettingsJson(text: text, token: $1) }
     }
 
-    /// Validates a backup without applying anything.
-    func inspectSettings(_ text: String) async throws(PocketError) -> SettingsImportPreview {
+    /// Custom subject names can only be restored into a signed-in school account.
+    var canImportSubjects: Bool { usesLiveData && live?.session != nil }
+
+    func importSettings(_ text: String, includeSubjects: Bool) async throws(PocketError) {
         guard let backend = transferBackend else { throw PocketError(kind: .storage, message: "無法存取設定儲存空間") }
         let document = try await backend.call { try await $0.inspectSettingsJson(text: text, token: $1) }
-        let signedIn = usesLiveData && live?.session != nil
-        return SettingsImportPreview(document: document, signedIn: signedIn)
-    }
-
-    /// Validates and applies a backup. The app lock and notification permission are never turned on by an import.
-    /// Custom subject names are applied only when the backup has them, a student is signed in and
-    /// `applySubjects` allows it, so a guest's backup imports cleanly into a signed-in app.
-    func importSettings(_ text: String, applySubjects: Bool = true) async throws(PocketError) {
-        guard let backend = transferBackend else { throw PocketError(kind: .storage, message: "無法存取設定儲存空間") }
-        let preview = try await inspectSettings(text)
         let session = usesLiveData ? live?.session : nil
-        let includeSubjects = applySubjects && preview.canApplySubjects
-        try await backend.call { try await $0.restoreSettingsJson(text: text, includeSubjects: includeSubjects, session: session, token: $1) }
+        // A guest backup has no subject list; restoring it into an account keeps the account's names.
+        let subjects = includeSubjects && session != nil && document.subjects != nil
+        try await backend.call { try await $0.restoreSettingsJson(text: text, includeSubjects: subjects, session: session, token: $1) }
         await account?.reloadSubjectOverrides()
         let restored = try await backend.call { try await $0.loadSettings(token: $1) }
         appearance = switch restored.themeMode {

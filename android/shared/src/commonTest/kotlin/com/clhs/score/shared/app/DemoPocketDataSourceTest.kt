@@ -24,7 +24,8 @@ class DemoPocketDataSourceTest {
         val home = source.home(wednesday(10, 35))
         // Unread first, then pinned: the shared announcement priority order.
         assertEquals(listOf("45072", "45068", "45055"), home.announcements.map { it.id })
-        assertEquals(listOf("demo-e1", "demo-e2", "demo-e3"), home.events.map { it.id })
+        // demo-e7 is today's timed event (18:30), so it now sits between the ongoing trip and demo-e2.
+        assertEquals(listOf("demo-e1", "demo-e7", "demo-e2"), home.events.map { it.id })
         assertTrue(home.events.first().isOngoing)
         assertEquals(listOf("8", "51"), home.countdowns.map { it.label })
     }
@@ -89,6 +90,11 @@ class DemoPocketDataSourceTest {
 
         val semester = source.schedule(PocketScheduleScope.SEMESTER, wednesday(10, 35))
         assertEquals(0, semester.changeCount)
+        // Thursday P6 is free: the grid keeps the period and later lessons stay in their own rows.
+        assertTrue(semester.cells.none { it.dayOfWeek == 4 && 6 in it.period until it.period + it.span })
+        assertEquals(7, semester.cells.single { it.dayOfWeek == 4 && it.subject == "社團" }.period)
+        // Only Friday has a period-8 lesson in the semester table, so period 8 stays visible.
+        assertEquals((1..8).toList(), semester.periods.map { it.number })
         assertTrue(semester.cells.all { it.change == PocketCellChange.NONE && it.status == PocketCellStatus.NORMAL })
     }
 

@@ -39,6 +39,16 @@ class PocketGradesTest {
     }
 
     @Test
+    fun excludingEverySubjectShowsNoAverageAndNoDelta() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        simulator.state().rows.forEach { simulator.setIncluded(it.name, false) }
+        val empty = simulator.state()
+        assertEquals("--", empty.averageText)
+        assertEquals(0, empty.deltaSign)
+        assertEquals("", empty.deltaText)
+    }
+
+    @Test
     fun inferredCreditsVerifyAgainstTheOfficialSummary() {
         val simulator = assertNotNull(PocketGrades.simulator(exam))
         if (simulator.state().check == PocketCreditCheck.MATCHES) return
@@ -47,6 +57,18 @@ class PocketGradesTest {
         if (inferred.candidates.isEmpty()) return
         simulator.applyCandidate(0)
         assertEquals(PocketCreditCheck.MATCHES, simulator.state().check)
+    }
+
+    @Test
+    fun computedInferenceChangesNothingUntilApplied() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        val before = simulator.state()
+        val result = simulator.computeInference()
+        assertEquals(before, simulator.state(), "a cancelled search must leave the simulator untouched")
+        simulator.applyInference(result)
+        assertTrue(simulator.state().inferenceText.isNotEmpty())
+        val direct = assertNotNull(PocketGrades.simulator(exam)).apply { inferCredits() }.state()
+        assertEquals(direct, simulator.state())
     }
 
     @Test
