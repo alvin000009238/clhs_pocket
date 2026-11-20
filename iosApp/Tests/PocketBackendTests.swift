@@ -151,6 +151,62 @@ final class PocketBackendTests: XCTestCase {
         XCTAssertNil(restored, "an expired session must not come back at the next launch")
     }
 
+    func testOwnTimetableIsRequestedForTheStudentAndRestoredOffline() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Taipei")!
+        let weekStart = calendar.date(byAdding: .day, value: 1 - calendar.component(.weekday, from: .now), to: .now)!
+        let format = DateFormatter()
+        format.calendar = calendar
+        format.timeZone = calendar.timeZone
+        format.dateFormat = "yyyy-MM-dd"
+        let start = format.string(from: weekStart)
+        let end = format.string(from: calendar.date(byAdding: .day, value: 6, to: weekStart)!)
+        let weeks = """
+        [{"DisplayText":"第4週 (\(start)~\(end))","Value":"4","Selected":true,
+          "Item":{"WeekNo":"4","StartDateDisplay":"\(start)","EndDateDisplay":"\(end)","IsSelected":true}}]
+        """
+        let timetable = """
+        {"payload":{"weeks":[{"items":[
+          {"SubjectName":"數學","WeekDay":"1","SectionSeq":"2","TeacherNameDisplay":"範例教師","ClassroomName":"示範教室"}
+        ]}]}}
+        """
+        let controller = LiveDataController(backend: backend())
+        try await controller.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "web"])
+        let session = try XCTUnwrap(controller.session)
+        let tokenPage = Self.tokenPage
+        StubURLProtocol.install { request in
+            guard request.url.host == "shcloud2.k12ea.gov.tw" else { return .failure(.notConnectedToInternet) }
+            if request.method == "GET" { return StubURLProtocol.text(tokenPage) }
+            switch request.url.lastPathComponent {
+            case "GetYearTermList": return StubURLProtocol.text(#"[{"Text":"115 上","Value":"115_1"}]"#)
+            // The whole school's classes; the first one is not the student's.
+            case "GetClassNoList": return StubURLProtocol.text(#"[{"Text":"一年 1 班","Value":"101"},{"Text":"二年 30 班","Value":"230"}]"#)
+            case "GetWeekNoList": return StubURLProtocol.text(weeks)
+            case "GetTimeTable": return StubURLProtocol.text(timetable)
+            default: return StubURLProtocol.text("[]")
+            }
+        }
+        await controller.loadSchedule(classValue: "")
+
+        let posts = StubURLProtocol.requests.filter { $0.url.lastPathComponent == "GetTimeTable" }
+        XCTAssertFalse(posts.isEmpty)
+        for post in posts {
+            XCTAssertTrue(post.body.contains("TimetableType=Student"), post.body)
+            XCTAssertTrue(post.body.contains("StudentNo=DEMO-001"), post.body)
+            XCTAssertFalse(post.body.contains("ClassNo=101"), "never the first class the school lists")
+        }
+
+        // Offline at the next launch: the student's timetable comes back from the cache.
+        StubURLProtocol.install { _ in .failure(.notConnectedToInternet) }
+        let relaunched = self.backend()
+        let restoredSession = try await relaunched.restoreSession()
+        let restored = try XCTUnwrap(restoredSession)
+        XCTAssertEqual(restored.studentNo, session.studentNo)
+        let latest = try await relaunched.call { try await $0.latestSchedule(session: restored, token: $1) }
+        XCTAssertEqual(latest?.report.items.first?.subjectName, "數學")
+        try await controller.logout()
+    }
+
     func testLoginRightAfterLogoutKeepsTheNewAccountAndNothingOfTheOldOne() async throws {
         let controller = LiveDataController(backend: backend())
         try await controller.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "first"])
