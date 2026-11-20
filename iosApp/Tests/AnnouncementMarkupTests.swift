@@ -34,6 +34,12 @@ final class AnnouncementMarkupTests: XCTestCase {
         XCTAssertEqual(String(body.characters), "注意事項：\n\n• 攜帶學生證\n• 穿著制服\n\n第二行\n第三行")
     }
 
+    func testThousandsOfNestedTagsAreFlattenedWithoutOverflowingTheStack() throws {
+        let html = String(repeating: "<b><i>", count: 5000) + "深層" + String(repeating: "</i></b>", count: 5000)
+        let body = try XCTUnwrap(AnnouncementMarkup.attributed(html: html))
+        XCTAssertEqual(String(body.characters), "深層")
+    }
+
     func testUnclosedAndMalformedMarkupDoesNotLoseText() throws {
         let body = try XCTUnwrap(AnnouncementMarkup.attributed(html: "<p>a < b and <b>c"))
         XCTAssertEqual(String(body.characters), "a < b and c")

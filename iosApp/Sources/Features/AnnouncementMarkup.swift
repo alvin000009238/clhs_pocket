@@ -108,7 +108,10 @@ enum AnnouncementMarkup {
         private static let blocks: Set<String> = ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "table", "tr"]
         private static let voids: Set<String> = ["br", "img", "hr", "input", "meta", "link", "wbr", "col", "source"]
 
-        mutating func nodes(until closing: String?) -> [AnnouncementNode] {
+        /// Deeper tags are flattened into their parent, so hostile nesting cannot overflow the stack.
+        static let maxDepth = 32
+
+        mutating func nodes(until closing: String?, depth: Int = 0) -> [AnnouncementNode] {
             var result: [AnnouncementNode] = []
             var text = ""
             func flushText() {
@@ -136,8 +139,8 @@ enum AnnouncementMarkup {
                     continue
                 }
                 if tag.name == "br" { result.append(.lineBreak); continue }
-                if Self.voids.contains(tag.name) || tag.isSelfClosing { continue }
-                let children = nodes(until: tag.name)
+                if Self.voids.contains(tag.name) || tag.isSelfClosing || depth >= Self.maxDepth { continue }
+                let children = nodes(until: tag.name, depth: depth + 1)
                 switch tag.name {
                 case "li": result.append(.listItem(children))
                 case _ where Self.blocks.contains(tag.name): result.append(.paragraph(children))
