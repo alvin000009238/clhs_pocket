@@ -268,7 +268,9 @@ object PublicAnnouncementParser {
                     when {
                         // Deeper elements keep their text but lose their tags, so renderers never see
                         // more than MAX_NESTING levels (a hostile page could otherwise overflow them).
-                        open.size >= MAX_NESTING && name !in removedWithContent && name != "img" &&
+                        // Two levels stay free for the markup this sanitizer adds itself: TABLE_NOTICE
+                        // and a heading's <p><strong>.
+                        open.size >= MAX_NESTING - 2 && name !in removedWithContent && name != "img" &&
                             name != "br" && name != "hr" && name !in VOID_HTML_TAGS && !token.selfClosing ->
                             open.add(OpenElement(name, emitted = false, headingStart = -1))
                         name in removedWithContent -> {
