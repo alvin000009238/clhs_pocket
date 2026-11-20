@@ -20,7 +20,7 @@ struct GradesView: View {
                     PocketPendingView(
                         isLoading: model.live?.isLoadingPrivate ?? false || loadingExam,
                         title: "成績尚未載入", message: model.live?.lastError
-                    ) { Task { await model.refreshLiveData(force: true) } }
+                    ) { Task { await reload(report) } }
                 } else {
                 PocketColumns {
                     VStack(spacing: PocketMetrics.cardSpacing) {
@@ -72,7 +72,7 @@ struct GradesView: View {
             }
             .pocketPage()
         }
-        .refreshable { await model.refreshLiveData(force: true) }
+        .refreshable { await reload(report) }
         .task(id: report.examValue + (report.isLoaded ? "" : "?")) {
             guard !report.isLoaded, !report.examValue.isEmpty, let live = model.account else { return }
             loadingExam = true
@@ -80,6 +80,16 @@ struct GradesView: View {
             loadingExam = false
         }
         .navigationTitle(PocketTab.grades.title)
+    }
+
+    /// The shared refresh only reloads the newest exam, so an older selected exam is fetched again too.
+    private func reload(_ report: PocketGradeReport) async {
+        await model.refreshLiveData(force: true)
+        guard !report.examValue.isEmpty, report.examValue != model.dataSource.defaultExamValue(),
+              let live = model.account else { return }
+        loadingExam = true
+        await live.loadReport(examValue: report.examValue)
+        loadingExam = false
     }
 
     private func actions(report: PocketGradeReport) -> some View {
