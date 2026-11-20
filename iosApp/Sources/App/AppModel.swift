@@ -289,6 +289,7 @@ final class AppModel {
     func signIn(studentNo: String, cookies: [String: String]) async -> String? {
         guard let live else { return "示範模式無法登入校務系統" }
         do {
+            defaults.removeObject(forKey: "scheduleClass")
             try await live.login(studentNo: studentNo, cookies: cookies)
             session = .guest
             hasCompletedOnboarding = true
@@ -361,6 +362,7 @@ final class AppModel {
 
     func signOut() {
         let wasDemo = session == .demo
+        defaults.removeObject(forKey: "scheduleClass")
         session = .guest
         paths = [:]
         guard !wasDemo, let live else { return }
@@ -371,6 +373,18 @@ final class AppModel {
 
     private static func cleanupMessage(_ error: PocketError) -> String {
         error.kind == .cleanupIncomplete ? "\(error.message)。請再試一次，完成前無法重新登入。" : error.message
+    }
+
+    /// The class the timetable screen shows: empty for the student's own timetable. Kept across
+    /// launches; signing out or switching account returns to the student's own.
+    var scheduleClass: String {
+        get {
+            access(keyPath: \.scheduleClass)
+            return usesLiveData && live?.session != nil ? defaults.string(forKey: "scheduleClass") ?? "" : ""
+        }
+        set {
+            withMutation(keyPath: \.scheduleClass) { defaults.set(newValue, forKey: "scheduleClass") }
+        }
     }
 
     /// Deletes a settings file that can no longer be read (「設定檔已損壞，請重設設定後再試一次」),

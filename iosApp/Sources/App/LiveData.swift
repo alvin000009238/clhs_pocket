@@ -274,7 +274,7 @@ final class LiveDataController {
         publish()
     }
 
-    /// `classValue` is empty for the student's own class (the first the school lists).
+    /// `classValue` is empty for the student's own timetable.
     func loadSchedule(classValue: String) async {
         guard let session else { return }
         let live = PocketLive.shared
@@ -286,7 +286,9 @@ final class LiveDataController {
                 guard self.session?.authorizationId == session.authorizationId else { return }
                 live.scheduleClasses = classes
             }
-            guard let classNo = classValue.isEmpty ? live.scheduleClasses.first?.value : classValue else { return }
+            // An empty class number asks the school for the signed-in student's own timetable. The
+            // class list covers the whole school, so its first entry is somebody else's class.
+            let classNo = classValue
             for scope in [ScheduleScope.currentWeek, .semester] {
                 let result = try await backend.call {
                     try await $0.fetchSchedule(
@@ -324,7 +326,9 @@ final class LiveDataController {
                 guard self.session?.authorizationId == session.authorizationId else { return }
                 live.scheduleClasses = classes
             }
-            guard let classNo = classValue.isEmpty ? live.scheduleClasses.first?.value : classValue else { return }
+            // An empty class number asks the school for the signed-in student's own timetable. The
+            // class list covers the whole school, so its first entry is somebody else's class.
+            let classNo = classValue
             let result = try await backend.call {
                 try await $0.fetchScheduleWeek(
                     session: session, yearValue: yearValue, year: parts[0], term: parts[1], classNo: classNo,
