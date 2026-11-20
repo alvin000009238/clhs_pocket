@@ -88,7 +88,8 @@ struct GradesView: View {
         guard !report.examValue.isEmpty, report.examValue != model.dataSource.defaultExamValue(),
               let live = model.account else { return }
         loadingExam = true
-        await live.loadReport(examValue: report.examValue)
+        // Already-loaded reports are skipped unless forced, and the school does correct old grades.
+        await live.loadReport(examValue: report.examValue, force: true)
         loadingExam = false
     }
 

@@ -204,6 +204,8 @@ object PublicAnnouncementParser {
         return url.toString()
     }
 
+    private const val MAX_NESTING = 32
+
     private class OpenElement(val name: String, val emitted: Boolean, val headingStart: Int)
 
     /**
@@ -264,6 +266,11 @@ object PublicAnnouncementParser {
                     val name = token.name
                     val insideHeading = open.any { it.headingStart >= 0 }
                     when {
+                        // Deeper elements keep their text but lose their tags, so renderers never see
+                        // more than MAX_NESTING levels (a hostile page could otherwise overflow them).
+                        open.size >= MAX_NESTING && name !in removedWithContent && name != "img" &&
+                            name != "br" && name != "hr" && name !in VOID_HTML_TAGS && !token.selfClosing ->
+                            open.add(OpenElement(name, emitted = false, headingStart = -1))
                         name in removedWithContent -> {
                             if (name == "table" && !tableNoticeWritten) {
                                 output.append(TABLE_NOTICE)

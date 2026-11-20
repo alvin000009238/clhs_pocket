@@ -108,6 +108,10 @@ class PublicClientsTest {
         assertEquals("<a>x</a>", html("<a href=\"https://user:pw@evil.example/\">x</a>"))
         assertEquals("前後", html("前<iframe src=\"https://x.example\"><p>inner</p></iframe><style>p{}</style>後"))
         assertEquals("<p>未關閉</p>", html("<p>未關閉"))
+        // Hostile nesting is capped at 32 emitted levels; the text survives.
+        val deep = html("<div>".repeat(5000) + "<b>".repeat(5000) + "深層" + "</b>".repeat(5000) + "</div>".repeat(5000))
+        assertTrue(deep.contains("深層"))
+        assertTrue(deep.split("<b>").size - 1 <= 32, "nesting must be capped")
         assertEquals("前後", html("前<script/>alert(1)</script>後"))
         assertEquals("前", html("前<iframe/><p>inner</p>"))
         assertEquals("<p>“引號”—破折號…&nbsp;&amp;ldquo 中文©</p>", html("<p>&ldquo;引號&rdquo;&mdash;破折號&hellip;&nbsp;&amp;ldquo &#20013;&#x6587;&copy;</p>"))
