@@ -148,6 +148,19 @@ final class PlatformTests: XCTestCase {
         XCTAssertNil(LessonActivityAttributes.ContentState(glance: ScheduleGlance(state: .empty, date: evening)))
     }
 
+    /// The countdown can be redrawn after its phase was computed, past the lesson's start or end.
+    func testLiveActivityCountdownRangeNeverRunsBackwards() throws {
+        let snapshot = try XCTUnwrap(ScheduleSnapshot.decode(Data(demoJSON(at: lessonTime).utf8)))
+        let state = try XCTUnwrap(LessonActivityAttributes.ContentState(glance: snapshot.glance(at: lessonTime)))
+        let running = try XCTUnwrap(state.countdownRange(.inClass, now: lessonTime))
+        XCTAssertEqual(running.upperBound, state.end)
+        XCTAssertNil(state.countdownRange(.inClass, now: state.end.addingTimeInterval(1)))
+        XCTAssertNil(state.countdownRange(.upcoming, now: state.start.addingTimeInterval(1)))
+        XCTAssertNil(state.countdownRange(.upcoming, now: state.start))
+        XCTAssertNotNil(state.countdownRange(.upcoming, now: state.start.addingTimeInterval(-60)))
+        XCTAssertNil(state.countdownRange(.ended, now: lessonTime))
+    }
+
     func testLiveActivityChangesPhaseOnceWithoutTheApp() throws {
         let snapshot = try XCTUnwrap(ScheduleSnapshot.decode(Data(demoJSON(at: lessonTime).utf8)))
         let running = try XCTUnwrap(LessonActivityAttributes.ContentState(glance: snapshot.glance(at: lessonTime)))

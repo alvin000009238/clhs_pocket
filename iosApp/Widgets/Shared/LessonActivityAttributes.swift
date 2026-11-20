@@ -66,6 +66,17 @@ enum LessonActivityPhase {
 }
 
 extension LessonActivityAttributes.ContentState {
+    /// The interval a countdown timer runs over, or nil when there is nothing left to count.
+    /// The view can be drawn again later than its phase was computed (for example when the
+    /// Lock Screen dims), so the bounds are checked here: a range must never run backwards.
+    func countdownRange(_ phase: LessonActivityPhase, now: Date = .now) -> ClosedRange<Date>? {
+        switch phase {
+        case .upcoming: now < start ? now...start : nil
+        case .inClass: now < end ? min(now, start)...end : nil
+        case .ended: nil
+        }
+    }
+
     func phase(isStale: Bool, now: Date = .now) -> LessonActivityPhase {
         if now >= end { return .ended }
         if isInClass { return isStale ? .ended : .inClass }

@@ -110,17 +110,12 @@ private struct LessonCountdown: View {
 
     @ViewBuilder
     private var timer: some View {
-        switch phase {
-        case .upcoming:
-            Text(timerInterval: Date.now...state.start, countsDown: true)
+        if let range = state.countdownRange(phase) {
+            Text(timerInterval: range, countsDown: true)
                 .monospacedDigit()
                 .multilineTextAlignment(.trailing)
-        case .inClass:
-            Text(timerInterval: Date.now...state.end, countsDown: true)
-                .monospacedDigit()
-                .multilineTextAlignment(.trailing)
-        case .ended:
-            Text(state.endText).monospacedDigit()
+        } else {
+            Text(phase == .upcoming ? state.startText : state.endText).monospacedDigit()
         }
     }
 }
