@@ -195,7 +195,9 @@ final class PocketShellUITests: XCTestCase {
         let moved = widgets.matching(identifier: reachable[reachable.count - 2]).firstMatch
         let target = widgets.matching(identifier: reachable[reachable.count - 1]).firstMatch
         moved.press(forDuration: 1.2, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.6)
-        Thread.sleep(forTimeInterval: 1)
+        // The drop animates; on a slow machine the new layout can take a few seconds to settle.
+        let deadline = Date().addingTimeInterval(10)
+        while order() == before, Date() < deadline { Thread.sleep(forTimeInterval: 0.5) }
         let after = order()
         XCTAssertEqual(Set(after), Set(before))
         XCTAssertNotEqual(after, before, "dragging a widget onto another must change the order")
@@ -511,7 +513,8 @@ final class PocketShellUITests: XCTestCase {
 
     /// Production mode as a guest: the public widgets are fed by the live services. What they
     /// show depends on the network, so this only records the screens.
-    func testProductionGuestHomeShowsPublicWidgets() {
+    func testProductionGuestHomeShowsPublicWidgets() throws {
+        try requireLiveNetwork()
         launch(onboarded: true, session: "guest", dataMode: "live")
         let edit = app.buttons["home-edit"]
         XCTAssertTrue(edit.waitForExistence(timeout: 10))
@@ -536,7 +539,8 @@ final class PocketShellUITests: XCTestCase {
 
     /// Production mode: a guest sees real public data and the school's own sign-in page.
     /// No credentials are entered; the page content depends on the network.
-    func testProductionGuestReachesTheSchoolLoginScreen() {
+    func testProductionGuestReachesTheSchoolLoginScreen() throws {
+        try requireLiveNetwork()
         launch(onboarded: true, session: "guest", dataMode: "live", extra: ["-initialTab", "grades"])
         let login = app.buttons["guest-gate-demo"]
         XCTAssertTrue(login.waitForExistence(timeout: 10))
@@ -549,6 +553,15 @@ final class PocketShellUITests: XCTestCase {
         while loading.exists, Date() < deadline { Thread.sleep(forTimeInterval: 1) }
         Thread.sleep(forTimeInterval: 2)
         capture("83-live-school-login")
+    }
+
+    /// Flows that talk to the school, weather and YouBike servers are opt-in, so a CI gate never
+    /// depends on someone else's service: run them with `TEST_RUNNER_LIVE_NETWORK=1`.
+    private func requireLiveNetwork() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["LIVE_NETWORK"] == "1",
+            "Live-network flow; set TEST_RUNNER_LIVE_NETWORK=1 to run it"
+        )
     }
 
     private func capture(_ name: String) {

@@ -346,9 +346,18 @@ private struct WidgetView: View {
                     GuestHeroCard(compact: isShort)
                 }
             case "weather":
-                if let weather = widget.weather { WeatherCard(weather: weather, wide: isWide, short: isShort) }
+                if let weather = widget.weather {
+                    WeatherCard(weather: weather, wide: isWide, short: isShort)
+                } else {
+                    // Offline or not loaded yet: keep the widget's place instead of leaving a hole.
+                    ListCard(title: widget.title, symbol: widget.symbol) { EmptyLine(text: "暫時無法取得天氣") } trailing: { EmptyView() }
+                }
             case "youbike":
-                if let station = widget.youBike { YouBikeCard(station: station, wide: isWide, short: isShort) }
+                if let station = widget.youBike {
+                    YouBikeCard(station: station, wide: isWide, short: isShort)
+                } else {
+                    ListCard(title: widget.title, symbol: widget.symbol) { EmptyLine(text: "暫時無法取得車位資訊") } trailing: { EmptyView() }
+                }
             case "countdown":
                 CountdownCard(countdown: widget.countdown, wide: isWide, short: isShort)
             case "alerts":

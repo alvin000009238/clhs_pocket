@@ -36,6 +36,8 @@ cd iosApp && TEST_RUNNER_SHOT_DIR=/tmp/pocket-shots xcodebuild \
 
 加上 `TEST_RUNNER_CONTENT_SIZE=UICTContentSizeCategoryAccessibilityXL` 可用輔助使用字級跑同一組流程。
 
+兩個正式模式的流程（訪客首頁的公開小工具、開啟校務登入頁）會連到學校、天氣與 YouBike 的伺服器，預設略過；加上 `TEST_RUNNER_LIVE_NETWORK=1` 才執行。CI 不執行這兩個流程。
+
 測試不要加 `CODE_SIGNING_ALLOWED=NO`（Keychain 單元測試需要簽署的測試主程式）；只跑 UI 流程可加 `-only-testing:CLHSPocketUITests`。
 
 單元測試與 UI 流程建議分兩次執行（`-only-testing:CLHSPocketTests`、`-only-testing:CLHSPocketUITests`）：同一次執行時，單元測試的宿主 App 偶爾會在連上測試執行器之前停住。CI 也是分兩次跑。
