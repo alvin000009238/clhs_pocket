@@ -167,6 +167,8 @@ private struct SubjectTrendCard: View {
 
 private struct StandardsCard: View {
     let detail: PocketSubjectDetail
+    /// Absent or unpublished subjects have no position among the standards.
+    private var hasScore: Bool { Double(detail.scoreText) != nil }
 
     var body: some View {
         PocketCard {
@@ -184,11 +186,13 @@ private struct StandardsCard: View {
                                 .frame(width: 2, height: 14)
                                 .offset(x: proxy.size.width * mark.value / 100 - 1)
                         }
+                        if hasScore {
                         Circle()
                             .fill(PocketColor.primary)
                             .stroke(PocketColor.surfaceLow, lineWidth: 3)
                             .frame(width: 18, height: 18)
                             .offset(x: min(max(proxy.size.width * detail.score / 100 - 9, 0), proxy.size.width - 18))
+                        }
                     }
                     .frame(maxHeight: .infinity)
                 }
@@ -200,7 +204,7 @@ private struct StandardsCard: View {
                         HStack {
                             Text(mark.label).font(.subheadline).foregroundStyle(PocketColor.onSurface)
                             Spacer()
-                            if detail.score >= mark.value, index == detail.standards.firstIndex(where: { detail.score >= $0.value }) {
+                            if hasScore, detail.score >= mark.value, index == detail.standards.firstIndex(where: { detail.score >= $0.value }) {
                                 PocketChip(text: "你在這裡", foreground: PocketColor.onPrimaryContainer, background: PocketColor.primaryContainer)
                             }
                             Text(mark.valueText)
@@ -345,7 +349,7 @@ private struct GradeSimulatorContent: View {
                         .minimumScaleFactor(0.6)
                         .contentTransition(.numericText())
                         .accessibilityIdentifier("simulator-average")
-                    if state.deltaSign != 0 {
+                    if state.deltaSign != 0, state.averageText != "--" {
                         Text(state.deltaText)
                             .font(.subheadline.weight(.bold))
                             .monospacedDigit()
@@ -361,6 +365,11 @@ private struct GradeSimulatorContent: View {
                     .font(.subheadline)
                     .monospacedDigit()
                     .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
+                Text("* 非官方試算，結果不會改變成績單")
+                    .font(.caption)
+                    .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.75))
+                    .padding(.top, 4)
+                    .accessibilityIdentifier("simulator-unofficial")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

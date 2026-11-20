@@ -349,6 +349,7 @@ private struct SubjectGradeRow: View {
                     .foregroundStyle(subject.isFlunk ? PocketColor.negative : PocketColor.onSurface)
                     .frame(minWidth: 40, alignment: .trailing)
             }
+            if subject.fraction >= 0 {
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule().fill(PocketColor.surfaceHigh)
@@ -364,6 +365,7 @@ private struct SubjectGradeRow: View {
                 .frame(maxHeight: .infinity)
             }
             .frame(height: 12)
+            }
             HStack {
                 Text("班平均 \(subject.classAverageText)")
                 Spacer()
@@ -379,7 +381,7 @@ private struct SubjectGradeRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("查看班級統計與走勢")
-        .accessibilityLabel("\(subject.name) \(subject.scoreText) 分，班平均 \(subject.classAverageText)，班排 \(subject.classRankText)\(subject.isFlunk ? "，不及格" : "")")
+        .accessibilityLabel("\(subject.name) \(subject.fraction >= 0 ? "\(subject.scoreText) 分" : subject.scoreText)，班平均 \(subject.classAverageText)，班排 \(subject.classRankText)\(subject.isFlunk ? "，不及格" : "")")
     }
 }
 
