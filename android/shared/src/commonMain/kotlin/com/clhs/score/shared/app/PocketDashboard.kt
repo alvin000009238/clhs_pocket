@@ -328,7 +328,7 @@ object PocketDashboard {
     fun youBikeStations(): List<PocketChoice> = PocketData.current.youBikeStations.map { PocketChoice(it.id, it.name, it.district + it.address) }
 
     fun countdownEvents(clock: PocketClock): List<PocketChoice> = DemoCampus.upcomingEvents(clock).map {
-        val row = DemoCampus.eventRow(it, clock.date())
+        val row = DemoCampus.eventRow(it, clock.date(), clock.dateTime())
         PocketChoice(it.id, it.title, row.subtitle)
     }
 

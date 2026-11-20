@@ -14,14 +14,19 @@ import com.clhs.score.domain.overview.importantAnnouncementsFrom
 import com.clhs.score.domain.overview.recentEvents
 import com.clhs.score.domain.overview.withPreferences
 import com.clhs.score.shared.time.LocalDate
+import com.clhs.score.shared.time.LocalDateTime
 import com.clhs.score.shared.time.at
 import com.clhs.score.shared.time.compareTo
 import com.clhs.score.shared.time.datePart
 import com.clhs.score.shared.time.dayNumber
 import com.clhs.score.shared.time.daysUntil
+import com.clhs.score.shared.time.hourMinuteText
+import com.clhs.score.shared.time.hourNumber
 import com.clhs.score.shared.time.localTimeOf
+import com.clhs.score.shared.time.minuteNumber
 import com.clhs.score.shared.time.monthNumber
 import com.clhs.score.shared.time.shiftDays
+import com.clhs.score.shared.time.timePart
 
 /**
  * Synthetic public campus data expressed in the shared announcement, calendar and
@@ -43,11 +48,17 @@ internal object DemoCampus {
     /** Announcements a fresh install has not opened yet. */
     val defaultUnreadIds: Set<String> = setOf("45072", "45068", "45055")
 
-    private data class Event(val id: String, val title: String, val offset: Int, val length: Int = 1)
+    /** All-day by default; [startMinute]/[endMinute] make a same-day timed event. */
+    private data class Event(
+        val id: String, val title: String, val offset: Int, val length: Int = 1,
+        val startMinute: Int? = null, val endMinute: Int? = null,
+    )
 
     private val calendar = listOf(
         Event("demo-e1", "高二校外教學", -1, 3),
+        Event("demo-e7", "高二家長座談會", 0, startMinute = 18 * 60 + 30, endMinute = 20 * 60 + 30),
         Event("demo-e2", "社團成果發表", 3),
+        Event("demo-e8", "防災疏散演練", 4, startMinute = 10 * 60 + 10, endMinute = 11 * 60),
         Event("demo-e3", "第二次段考", 8, 2),
         Event("demo-e4", "校慶運動會", 16, 2),
         Event("demo-e5", "期末考", 51, 3),
@@ -78,7 +89,16 @@ internal object DemoCampus {
         val midnight = localTimeOf(0, 0)
         return calendar.map {
             val start = today.shiftDays(it.offset.toLong())
-            SchoolCalendarEvent(it.id, it.title, start.at(midnight), start.shiftDays(it.length.toLong()).at(midnight), isAllDay = true)
+            if (it.startMinute != null && it.endMinute != null) {
+                SchoolCalendarEvent(
+                    it.id, it.title,
+                    start.at(localTimeOf(it.startMinute / 60, it.startMinute % 60)),
+                    start.at(localTimeOf(it.endMinute / 60, it.endMinute % 60)),
+                    isAllDay = false,
+                )
+            } else {
+                SchoolCalendarEvent(it.id, it.title, start.at(midnight), start.shiftDays(it.length.toLong()).at(midnight), isAllDay = true)
+            }
         }
     }
 
@@ -131,16 +151,38 @@ internal object DemoCampus {
             .map { announcementRow(it, unreadIds) }
     }
 
-    fun eventRow(event: SchoolCalendarEvent, today: LocalDate): PocketEventRow {
+    /**
+     * The last calendar day an event covers. An end exactly at midnight belongs to the day before,
+     * so a same-day timed event (start and end on one date) still covers that date.
+     */
+    internal fun lastDay(event: SchoolCalendarEvent): LocalDate {
+        val end = event.endExclusive.datePart()
+        val time = event.endExclusive.timePart()
+        val last = if (time.hourNumber() == 0 && time.minuteNumber() == 0) end.shiftDays(-1) else end
+        return if (last < event.start.datePart()) event.start.datePart() else last
+    }
+
+    internal fun covers(event: SchoolCalendarEvent, date: LocalDate): Boolean =
+        event.start.datePart() <= date && date <= lastDay(event)
+
+    /** [now] refines today's timed events into upcoming, ongoing and finished. */
+    fun eventRow(event: SchoolCalendarEvent, today: LocalDate, now: LocalDateTime? = null): PocketEventRow {
         val start = event.start.datePart()
-        val last = event.endExclusive.datePart().shiftDays(-1)
+        val last = lastDay(event)
         val offset = today.daysUntil(start)
-        val ongoing = offset <= 0 && today <= last
-        val range = if (start.daysUntil(last) > 0) "${start.shortText()} – ${last.shortText()}" else
+        val timed = !event.isAllDay
+        val clockKnown = timed && now != null && now.datePart() == today
+        val ongoing = if (now != null && clockKnown) event.start <= now && now < event.endExclusive else offset <= 0 && today <= last
+        val ended = if (now != null && clockKnown) now >= event.endExclusive else today > last
+        val day = if (start.daysUntil(last) > 0) "${start.shortText()} – ${last.shortText()}" else
             "${start.shortText()} 週${start.weekdayLabel()}"
+        val range = if (timed && start == last) {
+            "$day ${event.start.timePart().hourMinuteText()}–${event.endExclusive.timePart().hourMinuteText()}"
+        } else day
         val relative = when {
             ongoing -> "進行中"
-            offset < 0 -> "已結束"
+            ended -> "已結束"
+            offset == 0L -> "今天"
             offset == 1L -> "明天"
             else -> "$offset 天後"
         }
@@ -165,7 +207,7 @@ internal object DemoCampus {
         val byId = sharedEvents(clock).associateBy { it.id }
         return overview(clock).recentEvents(config.copy(limit = shown.coerceIn(1, 20)))
             .mapNotNull { byId[(it.destination as? OverviewDestination.CalendarEvent)?.id] }
-            .map { eventRow(it, clock.date()) }
+            .map { eventRow(it, clock.date(), clock.dateTime()) }
     }
 
     fun countdowns(clock: PocketClock, eventIds: Set<String> = defaultCountdownEventIds): List<PocketCountdown> =

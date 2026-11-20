@@ -2,6 +2,7 @@ package com.clhs.score.shared.app
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PocketCampusStoreTest {
@@ -36,6 +37,38 @@ class PocketCampusStoreTest {
         assertEquals("18", month.days.single { it.isToday }.dayText)
         assertTrue(PocketCampusStore.eventsOn(clock, "2026-11-18").isNotEmpty())
         assertEquals(31, PocketCampusStore.month(clock, 2026, 12).days.count { it.inMonth })
+    }
+
+    @Test
+    fun sameDayTimedEventsShowInTheMonthGridDayListAndAsToday() {
+        // demo-e7 is today 18:30–20:30, demo-e8 is in four days 10:10–11:00.
+        val month = PocketCampusStore.month(clock, 2026, 11)
+        val today = month.days.single { it.isToday }
+        val todays = PocketCampusStore.eventsOn(clock, today.key)
+        assertTrue(todays.any { it.id == "demo-e7" }, "a timed event ending the same day is missing from its day")
+        assertEquals(todays.size, today.eventCount)
+        assertEquals(1, PocketCampusStore.eventsOn(clock, "2026-11-22").count { it.id == "demo-e8" })
+        assertEquals(1, month.days.single { it.key == "2026-11-22" }.eventCount)
+        assertTrue(PocketCampusStore.eventsOn(clock, "2026-11-23").none { it.id == "demo-e8" })
+        assertEquals(1, month.events.count { it.id == "demo-e8" })
+
+        val before = todays.single { it.id == "demo-e7" }
+        assertEquals("11/18 週三 18:30–20:30 · 今天", before.subtitle)
+        assertFalse(before.isOngoing)
+        fun at(hour: Int, minute: Int) = PocketCampusStore.eventsOn(PocketClock(2026, 11, 18, 3, hour * 60 + minute), "2026-11-18")
+            .single { it.id == "demo-e7" }
+        assertTrue(at(18, 30).isOngoing)
+        assertEquals("11/18 週三 18:30–20:30 · 進行中", at(20, 29).subtitle)
+        assertEquals("11/18 週三 18:30–20:30 · 已結束", at(20, 30).subtitle)
+        assertFalse(at(20, 30).isOngoing)
+    }
+
+    @Test
+    fun allDayEventsEndingAtMidnightDoNotSpillIntoTheNextDay() {
+        // demo-e2 is the all-day event three days from today.
+        assertEquals(1, PocketCampusStore.eventsOn(clock, "2026-11-21").count { it.id == "demo-e2" })
+        assertTrue(PocketCampusStore.eventsOn(clock, "2026-11-22").none { it.id == "demo-e2" })
+        assertEquals("11/21 週六 · 3 天後", PocketCampusStore.eventsOn(clock, "2026-11-21").single { it.id == "demo-e2" }.subtitle)
     }
 
     @Test
