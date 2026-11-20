@@ -10,7 +10,10 @@ private actor FakeScheduler: NotificationScheduling {
     func setAuthorized(_ value: Bool) { authorized = value }
     func isAuthorized() async -> Bool { authorized }
     func requestAuthorization() async -> Bool { authorized }
+    var failsAdd = false
+    func setFailsAdd(_ value: Bool) { failsAdd = value }
     func add(_ request: PocketNotificationRequest) async throws {
+        if failsAdd { throw CocoaError(.featureUnsupported) }
         pending.removeAll { $0.identifier == request.identifier }
         pending.append(request)
         await afterAdd?()
@@ -280,6 +283,31 @@ final class PlatformTests: XCTestCase {
             capabilities: NotificationCapabilityStore(defaults: defaults),
             defaults: defaults
         )
+    }
+
+    func testCapabilitiesExpireAndAreNotKeptForNotificationsThatWereNeverScheduled() async {
+        let store = NotificationCapabilityStore(defaults: defaults)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let fire = start.addingTimeInterval(3600)
+        let token = store.issue(for: "a", link: .grades, fireDate: fire, now: start)
+        let late = fire.addingTimeInterval(NotificationCapabilityStore.lifetime + 1)
+        XCTAssertEqual(store.link(for: token), .grades)
+        // A swiped-away notification's token is dropped the next time one is issued...
+        _ = store.issue(for: "b", link: .announcements, now: late)
+        XCTAssertEqual(store.count, 1)
+        // ...and is worthless even before that.
+        let stale = store.issue(for: "c", link: .grades, now: start)
+        XCTAssertNil(store.consume(stale, now: late))
+        store.revokeAll()
+
+        let scheduler = FakeScheduler()
+        let center = center(scheduler)
+        await scheduler.setFailsAdd(true)
+        let delivered = await center.deliver(PlannedNotification(
+            identifier: "grade-x", fireAtMillis: nil, title: "t", body: "b", link: "clhspocket://grades"
+        ))
+        XCTAssertFalse(delivered)
+        XCTAssertEqual(center.capabilities.count, 0, "no notification carries the token, so it is not kept")
     }
 
     func testCourseRemindersAreReplacedNotAccumulated() async throws {

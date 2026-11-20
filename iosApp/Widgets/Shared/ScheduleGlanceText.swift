@@ -10,7 +10,9 @@ extension ScheduleGlance {
         case .inClass: current.map { "上課中 · 第 \($0.period) 節" } ?? "上課中"
         case .startingSoon: next.map { "即將上課 · 第 \($0.period) 節" } ?? "即將上課"
         case .beforeClass: next.map { "下一堂 · 第 \($0.period) 節" } ?? "下一堂"
-        case .dayDone, .freeDay: next.map { "\(nextDayLabel) · 第 \($0.period) 節" } ?? restText
+        // With no further lesson the body already says why (`restText`); the same sentence as a
+        // headline above it would show twice.
+        case .dayDone, .freeDay: next.map { "\(nextDayLabel) · 第 \($0.period) 節" } ?? "今日課表"
         }
     }
 

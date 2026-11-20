@@ -130,7 +130,8 @@ extension ScheduleSnapshot {
         guard let entry = entries.last(where: { $0.atMillis <= millis }) else {
             return ScheduleGlance(state: .empty, date: date)
         }
-        let byId = Dictionary(uniqueKeysWithValues: lessons.map { ($0.id, $0) })
+        // A snapshot with a repeated lesson id is still shown; the first one wins.
+        let byId = Dictionary(lessons.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let current = entry.currentLessonId.flatMap { byId[$0] }
         let next = entry.nextLessonId.flatMap { byId[$0] }
         let state: ScheduleGlance.State = switch entry.phase {

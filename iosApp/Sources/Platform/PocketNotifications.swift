@@ -106,19 +106,33 @@ final class NotificationCapabilityStore {
         set { defaults.set(newValue, forKey: Self.key) }
     }
 
+    /// How long after its notification fires a token can still be redeemed. Notifications the
+    /// student swiped away never come back to be consumed, so without this the store only grows.
+    static let lifetime: TimeInterval = 7 * 24 * 3600
+
     /// Issues a token for the notification `identifier`, replacing any earlier one.
-    func issue(for identifier: String, link: PocketDeepLink) -> String {
+    /// `fireDate` is when the notification appears; nil for one delivered now.
+    func issue(for identifier: String, link: PocketDeepLink, fireDate: Date? = nil, now: Date = Date()) -> String {
         let token = UUID().uuidString
-        var all = entries.filter { $0.value["id"] != identifier }
-        all[token] = ["id": identifier, "link": link.rawValue]
+        let expiry = max(now, fireDate ?? now).addingTimeInterval(Self.lifetime)
+        var all = entries.filter { $0.value["id"] != identifier && !Self.isExpired($0.value, now: now) }
+        all[token] = ["id": identifier, "link": link.rawValue, "until": String(expiry.timeIntervalSince1970)]
         entries = all
         return token
     }
 
-    func consume(_ token: String) -> PocketDeepLink? {
+    /// Tokens stored before expiry existed carry no date and stay until they are used or revoked.
+    private static func isExpired(_ entry: [String: String], now: Date) -> Bool {
+        guard let until = entry["until"].flatMap(Double.init) else { return false }
+        return now.timeIntervalSince1970 > until
+    }
+
+
+    func consume(_ token: String, now: Date = Date()) -> PocketDeepLink? {
         var all = entries
         guard let entry = all.removeValue(forKey: token) else { return nil }
         entries = all
+        guard !Self.isExpired(entry, now: now) else { return nil }
         return entry["link"].flatMap(PocketDeepLink.init(rawValue:))
     }
 
@@ -168,7 +182,9 @@ final class PocketNotificationCenter {
             title: planned.title,
             body: planned.body,
             fireDate: planned.fireAtMillis.map { Date(epochMillis: $0.int64Value) },
-            capability: capabilities.issue(for: planned.identifier, link: link),
+            capability: capabilities.issue(
+                for: planned.identifier, link: link, fireDate: planned.fireAtMillis.map { Date(epochMillis: $0.int64Value) }
+            ),
             isCourseReminder: planned.identifier.hasPrefix(ReminderPlanningKt.COURSE_REMINDER_PREFIX)
                 || planned.identifier == Self.demoCourseIdentifier
         )
@@ -221,7 +237,13 @@ final class PocketNotificationCenter {
             // "暫停一日" can arrive between two adds; the plan predates it.
             let fireMillis = item.fireAtMillis?.int64Value ?? 0
             guard fireMillis >= coursePausedUntilMillis, let request = request(for: item) else { continue }
-            try? await scheduler.add(request)
+            do {
+                try await scheduler.add(request)
+            } catch {
+                // No notification will ever carry this token.
+                capabilities.revoke(identifiers: [request.identifier])
+                continue
+            }
             added.append(request.identifier)
             addedBefore.append((request.identifier, fireMillis))
         }
@@ -238,7 +260,13 @@ final class PocketNotificationCenter {
     @discardableResult
     func deliver(_ planned: PlannedNotification?) async -> Bool {
         guard let planned, await scheduler.isAuthorized(), let request = request(for: planned) else { return false }
-        return (try? await scheduler.add(request)) != nil
+        do {
+            try await scheduler.add(request)
+            return true
+        } catch {
+            capabilities.revoke(identifiers: [request.identifier])
+            return false
+        }
     }
 
     /// Compares the public announcement list with the stored baseline.

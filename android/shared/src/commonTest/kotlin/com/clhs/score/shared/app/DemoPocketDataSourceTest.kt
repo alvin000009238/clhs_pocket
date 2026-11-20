@@ -176,6 +176,13 @@ class DemoPocketDataSourceTest {
             assertEquals("11/23", week(1).days.first().dateText)
             assertFalse(week(2).isAvailable)
             assertFalse(week(-1).isAvailable)
+            // The widget and reminders use the semester timetable while the week is missing.
+            assertEquals(ScheduleScope.CURRENT_WEEK, PocketSchedules.currentWeek(today)?.scope)
+            PocketLive.clearAll()
+            assertEquals(null, PocketSchedules.currentWeek(today))
+            PocketLive.putSchedule("", FakeScheduleData.report("115_1", "230", ScheduleScope.SEMESTER, today))
+            assertEquals(ScheduleScope.SEMESTER, PocketSchedules.currentWeek(today)?.scope)
+            PocketLive.putSchedule("", FakeScheduleData.report("115_1", "230", ScheduleScope.CURRENT_WEEK, today))
             // A class that has not loaded yet is empty, not the student's own timetable.
             assertFalse(PocketScheduleStore.schedule(PocketScheduleScope.CURRENT_WEEK, clock, "101", 0, "[]").isAvailable)
             PocketLive.putSchedule("101", FakeScheduleData.report("115_1", "101", ScheduleScope.CURRENT_WEEK, today))

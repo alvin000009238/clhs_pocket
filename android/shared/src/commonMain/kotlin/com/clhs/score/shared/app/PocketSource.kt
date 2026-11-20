@@ -278,7 +278,10 @@ object PocketData {
 
 /** The active timetable for platform features (widget snapshot, reminders, Live Activity). */
 object PocketSchedules {
-    fun currentWeek(today: LocalDate): ScheduleReport? = PocketData.current.schedule(ScheduleScope.CURRENT_WEEK, today, "")
+    /** This week's timetable; the semester timetable while the week is missing or not published. */
+    fun currentWeek(today: LocalDate): ScheduleReport? =
+        PocketData.current.schedule(ScheduleScope.CURRENT_WEEK, today, "")
+            ?: PocketData.current.schedule(ScheduleScope.SEMESTER, today, "")
 }
 
 /**

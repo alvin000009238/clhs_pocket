@@ -25,7 +25,11 @@ enum LessonActivityController {
             }
         }
         if let current {
-            if current.content.state != state { await current.update(content) }
+            // Also when only the stale date moved, or the system already marked it stale.
+            if current.content.state != state || current.content.staleDate != content.staleDate
+                || current.activityState == .stale {
+                await current.update(content)
+            }
         } else {
             _ = try? Activity.request(attributes: LessonActivityAttributes(epochDay: day), content: content, pushType: nil)
         }

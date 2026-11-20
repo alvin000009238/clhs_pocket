@@ -58,7 +58,7 @@ struct LessonLiveActivity: Widget {
                 LessonCountdown(state: state, phase: phase)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(tint)
-                    .frame(maxWidth: 46)
+                    .frame(maxWidth: state.countdownWidth(phase, base: 46))
             } minimal: {
                 ProgressView(timerInterval: state.start...state.end, countsDown: false) { EmptyView() } currentValueLabel: {
                     Text("\(state.period)").font(.caption2.weight(.bold))
@@ -158,12 +158,13 @@ private struct LessonLockScreenView: View {
                     if isLuminanceReduced, phase != .ended { Text(phase == .inClass ? "下課" : "上課") }
                     // A timer text takes all offered width, so it gets a fixed slot.
                     LessonCountdown(state: state, phase: phase)
-                        .frame(width: timerWidth, alignment: .trailing)
+                        .frame(width: state.countdownWidth(phase, base: timerWidth), alignment: .trailing)
                 }
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(PocketColor.onPrimaryContainer)
             }
             Text(state.subject)
+                .privacySensitive()
                 .font(PocketFont.display(30, relativeTo: .title))
                 .foregroundStyle(PocketColor.onPrimaryContainer)
                 .lineLimit(1)

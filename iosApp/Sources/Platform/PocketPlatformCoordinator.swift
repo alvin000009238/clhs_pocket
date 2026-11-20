@@ -225,8 +225,13 @@ final class PocketPlatformCoordinator: NSObject {
         var planned: PlannedNotification?
         switch alert {
         case .course:
+            // Without an App Group container nothing is stored; plan from the timetable in memory.
+            var snapshotJSON = store.loadData().flatMap { String(data: $0, encoding: .utf8) }
+            if snapshotJSON == nil, case let .available(json) = data.scheduleSnapshot(
+                scheduleNow: PlatformClock.scheduleNow(deviceNow: now), deviceNow: now
+            ) { snapshotJSON = json }
             let reminders = PocketPlatform.shared.courseReminders(
-                snapshotJson: store.loadData().flatMap { String(data: $0, encoding: .utf8) },
+                snapshotJson: snapshotJSON,
                 nowMillis: now.epochMillis, settings: shared, pausedUntilMillis: 0
             )
             planned = reminders.first
@@ -293,11 +298,13 @@ final class PocketPlatformCoordinator: NSObject {
 }
 
 extension PocketPlatformCoordinator: UNUserNotificationCenterDelegate {
+    // Completion-handler form, for the same reason as `didReceive` below.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
     }
 
     // The completion-handler form is used on purpose: UIKit aborts the app when

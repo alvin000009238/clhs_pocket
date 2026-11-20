@@ -69,6 +69,12 @@ extension LessonActivityAttributes.ContentState {
     /// The interval a countdown timer runs over, or nil when there is nothing left to count.
     /// The view can be drawn again later than its phase was computed (for example when the
     /// Lock Screen dims), so the bounds are checked here: a range must never run backwards.
+    /// Room for the countdown: `M:SS` fits `base`; from an hour on the text is `H:MM:SS`.
+    func countdownWidth(_ phase: LessonActivityPhase, base: CGFloat, now: Date = .now) -> CGFloat {
+        guard let range = countdownRange(phase, now: now) else { return base }
+        return range.upperBound.timeIntervalSince(now) >= 3600 ? base * 1.5 : base
+    }
+
     func countdownRange(_ phase: LessonActivityPhase, now: Date = .now) -> ClosedRange<Date>? {
         switch phase {
         case .upcoming: now < start ? now...start : nil
