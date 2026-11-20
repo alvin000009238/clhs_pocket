@@ -109,6 +109,12 @@ internal object DemoSource : PocketSource {
 /**
  * Data loaded from the real services. Swift fills it on the main thread after each
  * `PocketApi` call and clears the private half when the session ends; nothing here is persisted.
+ *
+ * Threading: this object, [PocketData] and every facade that reads them are confined to the main
+ * thread. On iOS all callers are `@MainActor` (`LiveDataController`, `AppModel`, the SwiftUI views
+ * and `PocketPlatformCoordinator`); the widget extension runs in its own process and reads only
+ * the snapshot file. `PocketApi` does its work on background dispatchers but returns values and
+ * never touches this state. Keep it that way: do not read or fill it from a background task.
  */
 object PocketLive : PocketSource {
     override val isDemo = false
