@@ -145,7 +145,7 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["示範帳號 DEMO-000"].waitForExistence(timeout: 5))
         capture("18-personal")
         app.buttons["sign-out"].tap()
-        let confirm = app.buttons["sign-out-confirm"]
+        let confirm = app.buttons["sign-out-confirm"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "signing out must ask for confirmation first")
         XCTAssertTrue(app.staticTexts["示範帳號 DEMO-000"].exists, "the account is still signed in until confirmed")
         capture("18b-sign-out-confirm")
