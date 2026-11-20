@@ -26,6 +26,47 @@ final class URLSessionTransportTests: XCTestCase {
         return probe
     }
 
+    func testSeveralCookiesWithCommasInTheirExpiryDatesStaySeparate() throws {
+        // Near dates: Foundation caps a cookie's lifetime, which would make far ones equal.
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.timeZone = TimeZone(identifier: "GMT")
+        format.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        let one = format.string(from: Date(timeIntervalSinceNow: 86_400))
+        let two = format.string(from: Date(timeIntervalSinceNow: 2 * 86_400))
+        StubURLProtocol.install { _ in
+            StubURLProtocol.text("", headers: [
+                ("Set-Cookie", "first=1; Path=/; Expires=\(one); Secure"),
+                ("Set-Cookie", "second=2; Path=/; Expires=\(two)"),
+                ("Set-Cookie", "third=3; Path=/"),
+            ])
+        }
+        let response = try XCTUnwrap(run(request("https://shcloud2.k12ea.gov.tw/CLHSTYC/x")).response)
+        let cookies = Dictionary(uniqueKeysWithValues: response.setCookies.map { ($0.name, $0) })
+        XCTAssertEqual(cookies.keys.sorted(), ["first", "second", "third"])
+        XCTAssertEqual(cookies["first"]?.value, "1")
+        XCTAssertEqual(cookies["second"]?.value, "2")
+        let first = try XCTUnwrap(cookies["first"]?.expiresAtEpochMillis?.int64Value)
+        let second = try XCTUnwrap(cookies["second"]?.expiresAtEpochMillis?.int64Value)
+        XCTAssertEqual(second - first, 86_400_000)
+        XCTAssertNil(cookies["third"]?.expiresAtEpochMillis)
+    }
+
+    func testExpiryDatesOutOfRangeAreClampedAndTheTransportIsReleased() {
+        XCTAssertEqual(URLSessionTransport.epochMillis(Date(timeIntervalSince1970: 1)), 1000)
+        XCTAssertGreaterThan(URLSessionTransport.epochMillis(.distantFuture), 0)
+        XCTAssertGreaterThan(URLSessionTransport.epochMillis(Date(timeIntervalSince1970: .greatestFiniteMagnitude)), 0)
+        XCTAssertLessThan(URLSessionTransport.epochMillis(Date(timeIntervalSince1970: -.greatestFiniteMagnitude)), 0)
+        XCTAssertEqual(URLSessionTransport.epochMillis(Date(timeIntervalSince1970: .infinity)), .max)
+
+        weak var released: URLSessionTransport?
+        autoreleasepool {
+            let short = URLSessionTransport(protocolClasses: [StubURLProtocol.self])
+            released = short
+        }
+        XCTAssertNil(released, "the session must not keep its transport alive")
+    }
+
     func testSendsExactlyTheGivenRequestAndReturnsStatusHeadersBodyAndCookies() throws {
         StubURLProtocol.install { _ in
             StubURLProtocol.text("{\"ok\":true}", status: 201, headers: [

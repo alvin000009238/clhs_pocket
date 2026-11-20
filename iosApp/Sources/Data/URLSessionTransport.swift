@@ -37,6 +37,28 @@ final class URLSessionTransport: NSObject, HttpTransport, URLSessionDataDelegate
         func cancel() {}
     }
 
+    /// A `URLSession` keeps its delegate alive until it is invalidated. Handing it this forwarder
+    /// instead of the transport lets the transport be released, which then invalidates the session.
+    private final class Forwarder: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        weak var target: URLSessionTransport?
+
+        func urlSession(
+            _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+            newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
+        ) {
+            guard let target else { return completionHandler(nil) }
+            target.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: request, completionHandler: completionHandler)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            target?.urlSession(session, dataTask: dataTask, didReceive: data)
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            target?.urlSession(session, task: task, didCompleteWithError: error)
+        }
+    }
+
     private let lock = NSLock()
     private var pending: [Int: Pending] = [:]
     private var session: URLSession!
@@ -57,7 +79,13 @@ final class URLSessionTransport: NSObject, HttpTransport, URLSessionDataDelegate
         }
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
-        session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
+        let forwarder = Forwarder()
+        forwarder.target = self
+        session = URLSession(configuration: configuration, delegate: forwarder, delegateQueue: queue)
+    }
+
+    deinit {
+        session.invalidateAndCancel()
     }
 
     func start(request: HttpRequest, callback: HttpCallback) -> HttpCall {
@@ -117,7 +145,9 @@ final class URLSessionTransport: NSObject, HttpTransport, URLSessionDataDelegate
             entry.callback.onFailure(failure: HttpFailure(kind: .tooLarge, message: "Response too large"))
             return
         }
-        if let error, entry.redirect == nil {
+        // A redirect ends the task without an error. An error after one is the caller's cancel (or a
+        // real failure) and is reported as such, not as the redirect response.
+        if let error {
             entry.callback.onFailure(failure: Self.failure(for: error))
             return
         }
@@ -147,11 +177,18 @@ final class URLSessionTransport: NSObject, HttpTransport, URLSessionDataDelegate
         // Foundation marks a cookie that carried a Domain attribute with a leading dot;
         // without one the cookie belongs to the responding host only.
         let domain = cookie.domain.hasPrefix(".") ? String(cookie.domain.dropFirst()) : nil
-        let expires = cookie.expiresDate.map { KotlinLong(value: Int64($0.timeIntervalSince1970 * 1000)) }
+        let expires = cookie.expiresDate.map { KotlinLong(value: epochMillis($0)) }
         return HttpSetCookie(
             name: cookie.name, value: cookie.value, domain: domain, path: cookie.path,
             expiresAtEpochMillis: expires, secure: cookie.isSecure
         )
+    }
+
+    /// Far-future and far-past expiry dates are clamped instead of trapping in the conversion.
+    static func epochMillis(_ date: Date) -> Int64 {
+        let millis = date.timeIntervalSince1970 * 1000
+        guard millis.isFinite else { return millis < 0 ? .min : .max }
+        return Int64(max(-9.2e18, min(9.2e18, millis)))
     }
 
     private static func text(_ data: Data, encodingName: String?) -> String {
