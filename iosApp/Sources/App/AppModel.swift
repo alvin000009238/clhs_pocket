@@ -177,7 +177,11 @@ final class AppModel {
     @ObservationIgnored private var syncingUnread = false
 
     var bookmarkedAnnouncementIds: Set<String> {
-        didSet { defaults.set(Array(bookmarkedAnnouncementIds), forKey: Key.bookmarks) }
+        didSet {
+            defaults.set(Array(bookmarkedAnnouncementIds), forKey: Key.bookmarks)
+            guard oldValue != bookmarkedAnnouncementIds, !resettingPreferences, usesLiveData else { return }
+            live?.syncBookmarks(bookmarkedAnnouncementIds)
+        }
     }
 
     // Notification and quiet-hours preferences live in `PlatformSettings`, which the platform
@@ -286,6 +290,7 @@ final class AppModel {
             // Not yet readable (device locked, storage error): the next refresh restores again.
             restored = live.restoreSettled
         }
+        live.syncBookmarks(bookmarkedAnnouncementIds)
         await live.refreshPublic(weatherSource: sharedWeatherSource, force: force)
         await syncUnread()
     }

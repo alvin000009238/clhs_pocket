@@ -14,6 +14,37 @@ class PocketCampusStoreTest {
     ) = PocketCampusStore.announcements(clock, category, query, filter, unread, bookmarks)
 
     @Test
+    fun aBookmarkThatLeftTheFirstPageIsStillListedAndIsNeverPartOfTheFeed() {
+        val old = com.clhs.score.data.SchoolAnnouncement("old-1", "舊公告", "2026-09-01", "一般", "教務處", "", false, "")
+        PocketData.useLive()
+        try {
+            PocketLive.putAnnouncements(DemoCampus.demoAnnouncements(clock))
+            PocketLive.savedAnnouncements = listOf(old)
+            val saved = list(filter = PocketAnnouncementFilter.BOOKMARKED, bookmarks = setOf("old-1"))
+            assertEquals(listOf("old-1"), saved.map { it.id })
+            assertTrue(saved.single().isBookmarked)
+            assertEquals("9/1", saved.single().shortDateText, "ISO dates are shortened too")
+            // No longer bookmarked: the kept copy is not shown.
+            assertEquals(emptyList(), list(filter = PocketAnnouncementFilter.BOOKMARKED))
+            // Old items never join the list the reminder check compares against.
+            assertTrue(list().none { it.id == "old-1" })
+            assertTrue(DemoCampus.sharedAnnouncements(clock).none { it.id == "old-1" })
+        } finally {
+            PocketLive.clearAll()
+            PocketData.useDemo()
+        }
+    }
+
+    @Test
+    fun homeAnnouncementsCarryTheirBookmark() {
+        val id = DemoCampus.sharedAnnouncements(clock).last().id
+        val rows = DemoCampus.importantAnnouncements(
+            clock, com.clhs.score.domain.overview.OverviewWidgetConfig.ListItems(3), unreadIds = emptySet(), bookmarkedIds = setOf(id),
+        )
+        assertTrue(rows.first { it.id == id }.isBookmarked)
+    }
+
+    @Test
     fun announcementsFilterByCategorySearchAndState() {
         val all = list()
         val category = PocketCampusStore.categories(clock)[1]
@@ -53,6 +84,22 @@ class PocketScheduleStoreTest {
 
     private fun week(offset: Int = 0, overrides: String = "[]") =
         PocketScheduleStore.schedule(PocketScheduleScope.CURRENT_WEEK, clock, "", offset, overrides)
+
+    @Test
+    fun semesterTimetableHasNoToday() {
+        assertTrue(week().days.any { it.isToday })
+        assertTrue(PocketScheduleStore.schedule(PocketScheduleScope.SEMESTER, clock, "", 0, "[]").days.none { it.isToday })
+    }
+
+    @Test
+    fun aLessonWithOnlyItsTeacherChangedCanBeRestored() {
+        val subject = week().cells.first { it.subject.isNotEmpty() }.originalSubject
+        val edited = PocketScheduleStore.overridesJson(listOf(
+            com.clhs.score.data.ScheduleSubjectOverride(subject, customTeacherName = "代課老師"),
+        ))
+        val cells = week(overrides = edited).cells.filter { it.originalSubject == subject }
+        assertTrue(cells.isNotEmpty() && cells.all { it.isOverridden && it.subject == subject })
+    }
 
     @Test
     fun overrideRenamesEveryLessonOfTheSubjectAndCanBeCleared() {

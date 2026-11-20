@@ -257,7 +257,8 @@ object PocketDashboard {
     }
 
     fun widgetTypes(layout: String): List<PocketWidgetType> {
-        val present = decode(layout).map { it.type }.toSet()
+        // A widget switched off on Android is still stored; it is not on screen and can be added.
+        val present = decode(layout).filter { it.enabled }.map { it.type }.toSet()
         return OverviewWidgetDefinitions.all.map {
             PocketWidgetType(it.type, it.title, symbols.getValue(it.type), details.getValue(it.type), it.multiple || it.type !in present)
         }
@@ -266,7 +267,12 @@ object PocketDashboard {
     fun add(layout: String, type: String, clock: PocketClock): String {
         val widgets = decode(layout)
         val definition = OverviewWidgetDefinitions[type] ?: return layout
-        if (!definition.multiple && widgets.any { it.type == type }) return layout
+        if (!definition.multiple) {
+            val existing = widgets.firstOrNull { it.type == type }
+            if (existing?.enabled == true) return layout
+            // Adding a switched-off single widget turns it back on, at the end like any new one.
+            if (existing != null) return encode(widgets.filterNot { it.id == existing.id } + existing.copy(enabled = true))
+        }
         val config = when (type) {
             "weather" -> OverviewWidgetConfig.Weather()
             "youbike" -> OverviewWidgetConfig.YouBike()
@@ -289,7 +295,15 @@ object PocketDashboard {
     fun remove(layout: String, id: String): String = encode(decode(layout).filterNot { it.id == id })
 
     /** Moves a widget to [index] in reading order. */
-    fun move(layout: String, id: String, index: Int): String = encode(OverviewLayoutEngine.move(decode(layout), id, index))
+    fun move(layout: String, id: String, index: Int): String {
+        val all = decode(layout)
+        // [index] counts the widgets on screen; hidden ones (disabled, or unknown to this version)
+        // keep their place in the stored list, so the position is translated first.
+        val visible = all.filter { it.enabled && OverviewWidgetDefinitions[it.type] != null && it.type in symbols && it.id != id }
+        val rest = all.filterNot { it.id == id }
+        val target = visible.getOrNull(index.coerceAtLeast(0))?.let { anchor -> rest.indexOfFirst { it.id == anchor.id } } ?: rest.size
+        return encode(OverviewLayoutEngine.move(all, id, target))
+    }
 
     fun resize(layout: String, id: String, columns: Int, rows: Int): String = update(layout, id) { widget ->
         val size = OverviewWidgetSize(columns, rows)

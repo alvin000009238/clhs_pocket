@@ -86,6 +86,30 @@ class PocketDashboardTabletTest {
 
     /** Reading the grid top to bottom never meets a widget before one that precedes it in the edit order. */
     @Test
+    fun aSwitchedOffSingleWidgetCanBeAddedBackAndDoesNotShiftMoves() {
+        run {
+            val all = PocketDashboard.instances(PocketDashboard.defaultLayout())
+            val off = all.first { com.clhs.score.domain.overview.OverviewWidgetDefinitions[it.type]?.multiple == false }
+            // As imported from Android: the widget is stored but switched off.
+            val layout = PocketDashboard.layout(all.map { if (it.id == off.id) it.copy(enabled = false) else it })
+            fun shown(value: String) = PocketDashboard.instances(value).filter { it.enabled }.map { it.id }
+
+            assertTrue(PocketDashboard.widgetTypes(layout).first { it.type == off.type }.canAdd)
+            val added = PocketDashboard.instances(PocketDashboard.add(layout, off.type, clock))
+            assertEquals(1, added.count { it.type == off.type })
+            assertTrue(added.last().type == off.type && added.last().enabled)
+
+            // Positions count what is on screen, wherever the hidden widget sits in the stored list.
+            val visible = shown(layout)
+            for (index in visible.indices) {
+                val moved = shown(PocketDashboard.move(layout, visible.last(), index))
+                assertEquals(visible.last(), moved[index], "index $index")
+                assertEquals(visible.dropLast(1), moved - visible.last())
+            }
+        }
+    }
+
+    @Test
     fun wideGridsKeepTheEditOrderTopToBottom() {
         val base = PocketDashboard.defaultLayout()
         val weather = PocketDashboard.instances(base).first { it.type == "weather" }.id

@@ -47,6 +47,13 @@ internal interface PocketSource {
 
     fun announcements(clock: PocketClock): List<SchoolAnnouncement>
     fun announcementDetail(id: String): SchoolAnnouncementDetail?
+
+    /**
+     * Bookmarked announcements as they were when saved. The list from the school holds only its
+     * first page, so a bookmark that has moved off it is found here. Not part of [announcements]:
+     * these are old items and must never look newly published to the reminder check.
+     */
+    val savedAnnouncements: List<SchoolAnnouncement> get() = emptyList()
     fun events(clock: PocketClock): List<SchoolCalendarEvent>
 
     val weatherLocations: List<WeatherLocation>
@@ -170,6 +177,8 @@ object PocketLive : PocketSource {
     fun putAnnouncements(items: List<SchoolAnnouncement>) { announcementList = items }
     override fun announcementDetail(id: String): SchoolAnnouncementDetail? = details[id]
     fun putAnnouncementDetail(detail: SchoolAnnouncementDetail) { details[detail.id] = detail }
+    override var savedAnnouncements: List<SchoolAnnouncement> = emptyList()
+    val listedAnnouncements: List<SchoolAnnouncement> get() = announcementList
 
     override fun events(clock: PocketClock): List<SchoolCalendarEvent> = eventList
     fun putEvents(items: List<SchoolCalendarEvent>) { eventList = items }
@@ -255,6 +264,7 @@ object PocketLive : PocketSource {
     fun clearAll() {
         clearPrivate()
         announcementList = emptyList()
+        savedAnnouncements = emptyList()
         details.clear()
         eventList = emptyList()
         weatherByLocation.clear()

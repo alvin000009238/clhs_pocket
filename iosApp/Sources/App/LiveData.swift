@@ -40,6 +40,36 @@ final class LiveDataController {
 
     private func publish() { revision += 1 }
 
+    @ObservationIgnored private var bookmarkIds: Set<String> = []
+    @ObservationIgnored private var bookmarkSync: Task<Void, Never>?
+
+    /// Keeps a copy of every bookmarked announcement, so one that has left the first page of the
+    /// school's list can still be listed and opened. `ids` is the student's current selection.
+    func syncBookmarks(_ ids: Set<String>) {
+        bookmarkIds = ids
+        let earlier = bookmarkSync
+        bookmarkSync = Task {
+            await earlier?.value
+            let live = PocketLive.shared
+            do {
+                var stored = try await backend.call { try await $0.bookmarkedAnnouncements(token: $1) }
+                let known = Set(stored.map(\.id))
+                let listed = live.listedAnnouncements
+                let changes = stored.filter { !ids.contains($0.id) } + listed.filter { ids.contains($0.id) && !known.contains($0.id) }
+                for item in changes {
+                    _ = try await backend.call { try await $0.toggleAnnouncementBookmark(announcement: item, token: $1) }
+                }
+                if !changes.isEmpty { stored = try await backend.call { try await $0.bookmarkedAnnouncements(token: $1) } }
+                live.savedAnnouncements = stored
+            } catch {
+                // The bookmark itself is kept by the app; only the offline copy is missing.
+            }
+            publish()
+        }
+    }
+
+    func bookmarksSettled() async { await bookmarkSync?.value }
+
     /// Announcements, calendar, weather and YouBike need no account.
     func refreshPublic(weatherSource: WeatherSource, force: Bool = false) async {
         guard !isLoadingPublic else { return }
@@ -51,6 +81,8 @@ final class LiveDataController {
             live.putAnnouncements(items: page.announcements)
             announcementsLoaded = true
         } catch { lastError = error.message }
+        syncBookmarks(bookmarkIds)
+        await bookmarkSync?.value
         publish()
         do {
             let snapshot = try await backend.call { try await $0.calendar(forceRefresh: force, token: $1) }

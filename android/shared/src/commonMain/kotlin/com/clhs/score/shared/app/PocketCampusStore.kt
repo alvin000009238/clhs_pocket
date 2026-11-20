@@ -92,7 +92,13 @@ object PocketCampusStore {
         bookmarkedIds: Set<String>,
     ): List<PocketAnnouncement> {
         val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
-        return DemoCampus.sharedAnnouncements(clock)
+        val listed = DemoCampus.sharedAnnouncements(clock)
+        // A bookmark outlives the first page of the school's list.
+        val saved = if (filter == PocketAnnouncementFilter.BOOKMARKED) {
+            val onPage = listed.map { it.id }.toSet()
+            PocketData.current.savedAnnouncements.filter { it.id in bookmarkedIds && it.id !in onPage }
+        } else emptyList()
+        return (listed + saved)
             .filter { category == ALL || category.isBlank() || it.category == category }
             .filter { item ->
                 val text = "${item.title} ${item.unit} ${item.category}".lowercase()
@@ -113,7 +119,8 @@ object PocketCampusStore {
         DemoCampus.sharedAnnouncements(clock).count { it.id in unreadIds }
 
     fun announcementDetail(clock: PocketClock, id: String): PocketAnnouncementDetail? {
-        val item = DemoCampus.sharedAnnouncements(clock).firstOrNull { it.id == id } ?: return null
+        val item = DemoCampus.sharedAnnouncements(clock).firstOrNull { it.id == id }
+            ?: PocketData.current.savedAnnouncements.firstOrNull { it.id == id } ?: return null
         if (!PocketData.isDemo) {
             // Null until the live detail has been loaded; the list row is not a substitute for the body.
             val live = PocketData.current.announcementDetail(id) ?: return null
