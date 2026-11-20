@@ -187,6 +187,47 @@ object OverviewLayoutEngine {
         }
     }
 
+    /**
+     * Phone grids use [pack] unchanged. Wider grids (tablets) keep reading order but fill every row:
+     * list sections take half the grid, so two sit side by side or one spans the row, and the widgets
+     * of a row share its spare columns. Lists never share a row with other widgets, and a row's
+     * repeatable widgets take its full height. Saved sizes are untouched.
+     */
+    fun arrange(widgets: List<OverviewWidgetInstance>, columns: Int, legacyOrder: Boolean = false): List<OverviewPlacement> {
+        val packed = pack(widgets, columns, legacyOrder)
+        if (legacyOrder || columns <= 4) return packed
+        val enabled = widgets.filter { it.enabled }
+        fun isList(index: Int) = enabled[index].type in setOf("alerts", "calendar", "announcements")
+        fun isRepeatable(index: Int) = OverviewWidgetDefinitions[enabled[index].type]?.multiple == true
+        val lines = mutableListOf<MutableList<Int>>()
+        var used = columns
+        packed.indices.forEach { index ->
+            val width = if (isList(index)) columns / 2 else packed[index].columns
+            val line = lines.lastOrNull()
+            if (line == null || enabled[index].ownRow || line.any { enabled[it].ownRow || isList(it) != isList(index) } ||
+                used + width > columns) {
+                lines.add(mutableListOf()); used = 0
+            }
+            lines.last().add(index)
+            used += width
+        }
+        val result = arrayOfNulls<OverviewPlacement>(packed.size)
+        var row = 0
+        for (line in lines) {
+            val widths = line.map { if (isList(it)) columns / 2 else packed[it].columns }.toMutableList()
+            repeat(columns - widths.sum()) { widths[it % widths.size]++ }
+            val height = line.maxOf { packed[it].rows }
+            var column = 0
+            line.forEachIndexed { position, index ->
+                result[index] = packed[index].copy(column = column, row = row, columns = widths[position],
+                    rows = if (isRepeatable(index)) height else packed[index].rows)
+                column += widths[position]
+            }
+            row += height
+        }
+        return result.map { requireNotNull(it) }
+    }
+
     /** Replace visible slots only; hidden/unknown rows keep their identities and settings. */
     fun inVisualOrder(widgets: List<OverviewWidgetInstance>, ids: List<String>): List<OverviewWidgetInstance> {
         val byId = widgets.associateBy { it.id }
