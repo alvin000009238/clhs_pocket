@@ -269,7 +269,7 @@ struct GradeSimulatorView: View {
 
     var body: some View {
         if let simulator = PocketGrades.shared.simulator(examValue: examValue) {
-            GradeSimulatorContent(simulator: simulator)
+            GradeSimulatorContent(simulator: simulator, examValue: examValue)
         } else {
             ContentUnavailableView("成績尚未載入", systemImage: "chart.bar", description: Text("載入這次考試的成績後才能試算。"))
                 .navigationTitle("成績模擬器")
@@ -279,12 +279,15 @@ struct GradeSimulatorView: View {
 }
 
 private struct GradeSimulatorContent: View {
+    @Environment(AppModel.self) private var model
     @State private var simulator: PocketSimulator
     @State private var revision = 0
     @State private var showingCredits = false
+    let examValue: String
 
-    init(simulator: PocketSimulator) {
+    init(simulator: PocketSimulator, examValue: String) {
         _simulator = State(initialValue: simulator)
+        self.examValue = examValue
     }
 
     private func edit(_ change: (PocketSimulator) -> Void) {
@@ -330,7 +333,12 @@ private struct GradeSimulatorContent: View {
             }
         }
         .sheet(isPresented: $showingCredits) {
-            CreditsSheet(simulator: simulator, revision: $revision)
+            CreditsSheet(simulator: simulator, revision: $revision, examValue: examValue)
+        }
+        .task(id: examValue) {
+            // Credits the student confirmed for this exam and account earlier.
+            guard let live = model.live, let json = await live.simulatorCredits(examValue: examValue) else { return }
+            if simulator.restoreCredits(json: json) { revision += 1 }
         }
     }
 
@@ -394,7 +402,14 @@ private struct GradeSimulatorContent: View {
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .background(PocketColor.surfaceHigh, in: .rect(cornerRadius: 14, style: .continuous))
                 }
+                .overlay(alignment: .topTrailing) {
+                    if state.creditsPending {
+                        Circle().fill(PocketColor.negative).frame(width: 10, height: 10).padding(8)
+                            .accessibilityIdentifier("simulator-credits-pending")
+                    }
+                }
                 .accessibilityIdentifier("simulator-credits")
+                .accessibilityValue(state.creditsPending ? "學分尚未儲存" : "")
             }
         }
     }
@@ -472,7 +487,27 @@ private struct CreditsSheet: View {
     @Environment(\.dismiss) private var dismiss
     let simulator: PocketSimulator
     @Binding var revision: Int
+    let examValue: String
+    @Environment(AppModel.self) private var model
     @State private var inferring: Task<Void, Never>?
+    @State private var saving = false
+    @State private var saveMessage: String?
+
+    /// Stores the credits for this exam and account; only a stored set counts as confirmed.
+    private func saveCredits(_ live: LiveDataController) {
+        saving = true
+        Task {
+            do {
+                try await live.saveSimulatorCredits(examValue: examValue, json: simulator.creditsJson())
+                simulator.markCreditsSaved()
+                saveMessage = nil
+            } catch {
+                saveMessage = "學分未能儲存：\(PocketError(error).message)"
+            }
+            saving = false
+            revision += 1
+        }
+    }
 
     /// The search can take a while on a long report card, so it runs off the main actor; only
     /// applying the finished result touches the simulator, and a cancelled search is dropped.
@@ -493,9 +528,29 @@ private struct CreditsSheet: View {
     }
 
     var body: some View {
+        let _ = revision
         let state = simulator.state()
         NavigationStack {
             Form {
+                Section {
+                    LabeledContent("學分來源") {
+                        HStack(spacing: 6) {
+                            if state.creditsPending {
+                                Circle().fill(PocketColor.negative).frame(width: 8, height: 8).accessibilityHidden(true)
+                            }
+                            Text(state.creditSourceText)
+                        }
+                    }
+                    .accessibilityIdentifier("credits-source")
+                    if let live = model.live, live.session != nil {
+                        Button(saving ? "儲存中…" : "儲存學分", systemImage: "square.and.arrow.down") { saveCredits(live) }
+                            .disabled(!state.creditsPending || saving)
+                            .accessibilityIdentifier("credits-save")
+                    }
+                    if let saveMessage {
+                        Text(saveMessage).font(.footnote).foregroundStyle(PocketColor.negative)
+                    }
+                }
                 Section {
                     Label(state.checkTitle, systemImage: state.check == .matches ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
                         .foregroundStyle(state.check == .matches ? PocketColor.positive : PocketColor.warning)
