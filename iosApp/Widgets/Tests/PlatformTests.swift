@@ -62,7 +62,10 @@ final class PlatformTests: XCTestCase {
     }
 
     private func demoJSON(at date: Date) throws -> String {
-        try XCTUnwrap(DemoPlatformData().scheduleSnapshotJSON(scheduleNow: date, deviceNow: date))
+        guard case let .available(json) = DemoPlatformData().scheduleSnapshot(scheduleNow: date, deviceNow: date) else {
+            return try XCTUnwrap(nil as String?, "the demo timetable has no snapshot at \(date)")
+        }
+        return json
     }
 
     // MARK: Snapshot contract between Kotlin and the widget
@@ -207,6 +210,29 @@ final class PlatformTests: XCTestCase {
         model.hasCompletedOnboarding = false
         model.open(.home)
         XCTAssertEqual(model.selectedTab, .grades)
+    }
+
+    /// A cold background launch knows nothing about the timetable; that must not erase the widget.
+    func testUnknownTimetableKeepsTheStoredSnapshotAndPublishesNoDemoData() throws {
+        let json = try demoJSON(at: lessonTime)
+        let stored = Data(json.utf8)
+
+        let kept = PlatformSnapshot.unknown.resolved(stored: stored, now: lessonTime)
+        XCTAssertEqual(kept.change, .keep)
+        XCTAssertEqual(kept.json, json, "reminders keep being planned from the snapshot that is still valid")
+
+        let expired = try XCTUnwrap(ScheduleSnapshot.decode(stored)).validUntil.addingTimeInterval(1)
+        let stale = PlatformSnapshot.unknown.resolved(stored: stored, now: expired)
+        XCTAssertEqual(stale.change, .keep)
+        XCTAssertNil(stale.json)
+
+        XCTAssertEqual(PlatformSnapshot.none.resolved(stored: stored, now: lessonTime).change, .clear)
+        XCTAssertEqual(PlatformSnapshot.available(json).resolved(stored: nil, now: lessonTime).change, .save(json))
+
+        // Before the shell installs a provider there is nothing to publish, least of all demo data.
+        let fallback = UnavailablePlatformData()
+        XCTAssertEqual(fallback.scheduleSnapshot(scheduleNow: lessonTime, deviceNow: lessonTime), .unknown)
+        XCTAssertNil(fallback.announcementHeadlines(at: lessonTime))
     }
 
     // MARK: Notifications
@@ -399,10 +425,14 @@ final class PlatformTests: XCTestCase {
         let coordinator = PocketPlatformCoordinator.shared
         let store = coordinator.notifications.capabilities
         var opened: [PocketDeepLink] = []
+        let savedLocked = coordinator.isLocked
+        // The lock itself is open here; this test is about the gate a notification tap asks.
+        coordinator.isLocked = { false }
         coordinator.openLink = { opened.append($0) }
         defer {
             coordinator.openLink = nil
             coordinator.unlockGate = nil
+            coordinator.isLocked = savedLocked
             store.revokeAll()
         }
         _ = suiteDefaults

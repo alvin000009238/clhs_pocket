@@ -11,7 +11,7 @@ import WidgetKit
 final class PocketPlatformCoordinator: NSObject {
     static let shared = PocketPlatformCoordinator()
 
-    var data: PlatformDataProviding = DemoPlatformData()
+    var data: PlatformDataProviding = UnavailablePlatformData()
     let settings = PlatformSettings.shared
     let notifications = PocketNotificationCenter()
     let store = ScheduleSnapshotStore.shared
@@ -89,24 +89,36 @@ final class PocketPlatformCoordinator: NSObject {
         }
         let generation = sessionGeneration
         let isCurrent: @MainActor () -> Bool = { [unowned self] in generation == sessionGeneration && isSignedIn }
+        await data.prepare()
+        guard isCurrent() else { return }
         let shared = settings.shared(at: deviceNow)
         // As on Android, the quiet window only stops background grade and
         // announcement checks; the widget snapshot and course reminders continue.
         let paused = PocketPlatform.shared.isBackgroundPaused(nowMillis: deviceNow.epochMillis, settings: shared)
         let scheduleNow = PlatformClock.scheduleNow(deviceNow: deviceNow)
-        let json = data.scheduleSnapshotJSON(scheduleNow: scheduleNow, deviceNow: deviceNow)
-        if let json {
+        let snapshot = data.scheduleSnapshot(scheduleNow: scheduleNow, deviceNow: deviceNow)
+        let (change, json) = snapshot.resolved(stored: store.loadData(), now: deviceNow)
+        switch change {
+        case let .save(json):
             try? store.save(json: json)
-        } else {
+            WidgetCenter.shared.reloadAllTimelines()
+        case .clear:
             try? store.clear()
+            WidgetCenter.shared.reloadAllTimelines()
+        case .keep:
+            break
         }
-        WidgetCenter.shared.reloadAllTimelines()
-
-        await notifications.syncCourseReminders(snapshotJSON: json, now: deviceNow, settings: shared, isCurrent: isCurrent)
+        // With the timetable unknown and nothing valid stored, the reminders already scheduled stay.
+        let plansFromSnapshot = snapshot != .unknown || json != nil
+        if plansFromSnapshot {
+            await notifications.syncCourseReminders(snapshotJSON: json, now: deviceNow, settings: shared, isCurrent: isCurrent)
+        }
         if !paused, isCurrent() {
             let gradeAlert = await data.gradeNotification(at: deviceNow, settings: shared)
             if isCurrent() { await notifications.deliver(gradeAlert) }
-            await notifications.checkAnnouncements(data.announcementHeadlines(at: scheduleNow), now: deviceNow, settings: shared)
+            if isCurrent(), let headlines = data.announcementHeadlines(at: scheduleNow) {
+                await notifications.checkAnnouncements(headlines, now: deviceNow, settings: shared)
+            }
         }
         // A sign-out during the awaits above already ran its own cleanup; run it
         // again so nothing this pass scheduled or published survives.
@@ -114,10 +126,12 @@ final class PocketPlatformCoordinator: NSObject {
             if !isSignedIn { await clearSessionData() }
             return
         }
-        let glance = json.flatMap { ScheduleSnapshot.decode(Data($0.utf8)) }?.glance(at: deviceNow)
-        await LessonActivityController.sync(
-            glance: glance, enabled: settings.liveActivity && !notifications.isCoursePaused(at: deviceNow)
-        )
+        if plansFromSnapshot {
+            let glance = json.flatMap { ScheduleSnapshot.decode(Data($0.utf8)) }?.glance(at: deviceNow)
+            await LessonActivityController.sync(
+                glance: glance, enabled: settings.liveActivity && !notifications.isCoursePaused(at: deviceNow)
+            )
+        }
         scheduleBackgroundRefresh()
     }
 
@@ -173,7 +187,7 @@ final class PocketPlatformCoordinator: NSObject {
         case .grade:
             planned = PocketPlatform.shared.demoGradeNotification(nowMillis: now.epochMillis, settings: shared)
         case .announcement:
-            let latest = data.announcementHeadlines(at: PlatformClock.scheduleNow(deviceNow: now))
+            let latest = data.announcementHeadlines(at: PlatformClock.scheduleNow(deviceNow: now)) ?? []
             planned = PocketPlatform.shared.announcementPlan(
                 seenIds: Array(latest.dropFirst().map(\.id)), latest: latest, nowMillis: now.epochMillis, settings: shared
             ).notification

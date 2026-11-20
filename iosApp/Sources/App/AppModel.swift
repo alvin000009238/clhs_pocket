@@ -254,6 +254,8 @@ final class AppModel {
         if usesLiveData { unreadAnnouncementIds = [] }
         if let live {
             PocketPlatformCoordinator.shared.data = LivePlatformData(live: live) { [weak self] in self?.usesLiveData ?? false }
+        } else {
+            PocketPlatformCoordinator.shared.data = DemoPlatformData()
         }
     }
 
@@ -263,11 +265,11 @@ final class AppModel {
     func refreshLiveData(force: Bool = false) async {
         // Nothing is fetched for the school account while the demo is showing.
         guard usesLiveData, let live else { return }
-        if !restored {
-            restored = true
-            await live.restore()
-        } else {
+        if restored {
             await live.refreshPrivate(force: force)
+        } else {
+            await live.restoreOnce()
+            restored = true
         }
         await live.refreshPublic(weatherSource: sharedWeatherSource, force: force)
         await syncUnread()

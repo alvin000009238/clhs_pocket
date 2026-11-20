@@ -8,22 +8,64 @@ import PocketShared
 /// Every provider keeps the same contract: timetable facts only, never credentials.
 @MainActor
 protocol PlatformDataProviding {
-    /// Shared-encoded widget snapshot, or nil when no valid timetable exists.
-    func scheduleSnapshotJSON(scheduleNow: Date, deviceNow: Date) -> String?
-    func announcementHeadlines(at date: Date) -> [AnnouncementHeadline]
+    /// Loads what a refresh needs when the app was started in the background and nothing is in memory.
+    func prepare() async
+    func scheduleSnapshot(scheduleNow: Date, deviceNow: Date) -> PlatformSnapshot
+    /// Nil when the list is not known right now (not loaded, or the demo is showing).
+    func announcementHeadlines(at date: Date) -> [AnnouncementHeadline]?
     /// A grade-change alert when a check found differences. May fetch from the school.
     func gradeNotification(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification?
 }
 
+extension PlatformDataProviding {
+    func prepare() async {}
+}
+
+/// What a provider knows about the student's timetable.
+enum PlatformSnapshot: Equatable {
+    /// Shared-encoded widget snapshot.
+    case available(String)
+    /// The timetable was loaded and holds nothing to publish.
+    case none
+    /// The timetable could not be loaded right now (cold background launch, locked device, offline,
+    /// demo showing). What was published before stays.
+    case unknown
+
+    enum StoreChange: Equatable { case save(String), clear, keep }
+
+    /// What to do with the stored snapshot, and the snapshot reminders are planned from.
+    /// An unknown timetable never deletes a snapshot that is still valid.
+    func resolved(stored: Data?, now: Date) -> (change: StoreChange, json: String?) {
+        switch self {
+        case let .available(json):
+            return (.save(json), json)
+        case .none:
+            return (.clear, nil)
+        case .unknown:
+            guard let stored, let snapshot = ScheduleSnapshot.decode(stored), snapshot.validUntil > now,
+                  let json = String(data: stored, encoding: .utf8) else { return (.keep, nil) }
+            return (.keep, json)
+        }
+    }
+}
+
+/// Until the app shell installs the real provider nothing is known, so nothing is published or removed.
+struct UnavailablePlatformData: PlatformDataProviding {
+    func scheduleSnapshot(scheduleNow: Date, deviceNow: Date) -> PlatformSnapshot { .unknown }
+    func announcementHeadlines(at date: Date) -> [AnnouncementHeadline]? { nil }
+    func gradeNotification(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification? { nil }
+}
+
+/// Reads whichever shared source is active. Installed as the provider only for `-dataMode demo`.
 struct DemoPlatformData: PlatformDataProviding {
-    func scheduleSnapshotJSON(scheduleNow: Date, deviceNow: Date) -> String? {
+    func scheduleSnapshot(scheduleNow: Date, deviceNow: Date) -> PlatformSnapshot {
         PocketPlatform.shared.demoScheduleSnapshotJson(
             scheduleNowMillis: scheduleNow.epochMillis,
             deviceNowMillis: deviceNow.epochMillis
-        )
+        ).map(PlatformSnapshot.available) ?? .none
     }
 
-    func announcementHeadlines(at date: Date) -> [AnnouncementHeadline] {
+    func announcementHeadlines(at date: Date) -> [AnnouncementHeadline]? {
         PocketPlatform.shared.demoAnnouncementHeadlines(clock: PlatformClock.pocketClock(at: date))
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 @preconcurrency import PocketShared
 
 /// Loads real data through `PocketBackend` and publishes it to the shared `PocketLive`
@@ -17,6 +18,10 @@ final class LiveDataController {
     /// out. They live in the account's protected store, which is also what the settings backup reads.
     private(set) var subjectOverrides: String?
     @ObservationIgnored private var lastGradeCheck: Date?
+    /// The one restore of the stored session; foreground and background launches share it.
+    @ObservationIgnored private var restoring: Task<Void, Never>?
+    /// Whether the announcement list in memory came from the school this launch.
+    @ObservationIgnored private(set) var announcementsLoaded = false
     private static let gradeCheckInterval: TimeInterval = 15 * 60
     private(set) var isLoadingPublic = false
     private(set) var isLoadingPrivate = false
@@ -38,6 +43,7 @@ final class LiveDataController {
         do {
             let page = try await backend.call { try await $0.announcements(pageIndex: 0, keyword: "", unitId: "-1", categoryId: "-1", token: $1) }
             live.putAnnouncements(items: page.announcements)
+            announcementsLoaded = true
         } catch { lastError = error.message }
         publish()
         do {
@@ -58,8 +64,17 @@ final class LiveDataController {
 
     // MARK: Account
 
+    /// Restores the stored session and loads the account's data, once per launch no matter how many
+    /// callers ask or how early they ask; everyone waits for the same restore to finish.
+    func restoreOnce() async {
+        if let restoring { return await restoring.value }
+        let task = Task { await restore() }
+        restoring = task
+        await task.value
+    }
+
     /// Restores a stored session at launch. A failure leaves the app in guest mode.
-    func restore() async {
+    private func restore() async {
         do {
             session = try await backend.restoreSession()
         } catch {
@@ -256,7 +271,7 @@ final class LiveDataController {
     func checkGradeUpdate(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification? {
         guard settings.notificationsEnabled, settings.gradeUpdates else { return nil }
         if let lastGradeCheck, date.timeIntervalSince(lastGradeCheck) < Self.gradeCheckInterval { return nil }
-        if session == nil { await restore() }
+        if session == nil { await restoreOnce() }
         let live = PocketLive.shared
         guard let session else { return nil }
         lastGradeCheck = date
@@ -324,12 +339,28 @@ struct LivePlatformData: PlatformDataProviding {
     let isActive: @MainActor () -> Bool
     private let shared = DemoPlatformData()
 
-    func scheduleSnapshotJSON(scheduleNow: Date, deviceNow: Date) -> String? {
-        shared.scheduleSnapshotJSON(scheduleNow: scheduleNow, deviceNow: deviceNow)
+    /// The demo is showing on a device that also holds a school account: that account's widget,
+    /// reminders and notifications are left exactly as they are.
+    private var standsAside: Bool { !isActive() && live.session != nil }
+
+    /// A cold background launch has nothing in memory: restore the session and the cached timetable.
+    func prepare() async {
+        guard isActive(), UIApplication.shared.isProtectedDataAvailable else { return }
+        await live.restoreOnce()
     }
 
-    func announcementHeadlines(at date: Date) -> [AnnouncementHeadline] {
-        shared.announcementHeadlines(at: date)
+    func scheduleSnapshot(scheduleNow: Date, deviceNow: Date) -> PlatformSnapshot {
+        guard !standsAside else { return .unknown }
+        let snapshot = shared.scheduleSnapshot(scheduleNow: scheduleNow, deviceNow: deviceNow)
+        // "Nothing to publish" only counts once the student's own timetable has been loaded.
+        if snapshot == .none, isActive(), live.scheduleRevision == 0 { return .unknown }
+        return snapshot
+    }
+
+    func announcementHeadlines(at date: Date) -> [AnnouncementHeadline]? {
+        guard !standsAside else { return nil }
+        if isActive(), !live.announcementsLoaded { return nil }
+        return shared.announcementHeadlines(at: date)
     }
 
     func gradeNotification(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification? {
