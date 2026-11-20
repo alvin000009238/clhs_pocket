@@ -174,6 +174,10 @@ enum AnnouncementMarkup {
                 index = min(index + 3, chars.count)
                 return Tag(name: "", isClosing: false, isSelfClosing: true, href: nil)
             }
+            // "a < b" is text: a tag starts with a letter, "/" or "!" right after the "<".
+            guard index + 1 < chars.count, chars[index + 1].isLetter || chars[index + 1] == "/" || chars[index + 1] == "!" else {
+                return nil
+            }
             var end = index + 1
             var quote: Character?
             while end < chars.count {
