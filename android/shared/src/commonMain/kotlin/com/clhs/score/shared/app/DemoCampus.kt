@@ -108,7 +108,9 @@ internal object DemoCampus {
         id = item.id,
         title = item.title,
         dateText = item.date,
-        shortDateText = item.date.substringAfter('/').split('/').joinToString("/") { it.trimStart('0') },
+        // Month and day without leading zeros, from either `2026/11/05` or the ISO `2026-11-05`.
+        shortDateText = item.date.split('/', '-').let { parts -> if (parts.size > 2) parts.drop(1) else parts }
+            .joinToString("/") { it.trimStart('0') },
         unit = item.unit,
         category = item.category,
         isPinned = item.isPinned,
@@ -128,7 +130,7 @@ internal object DemoCampus {
         return overview(clock)
             .importantAnnouncementsFrom(config, unreadIds, all.values.filter { it.id in bookmarkedIds })
             .mapNotNull { all[(it.destination as? OverviewDestination.Announcement)?.id] }
-            .map { announcementRow(it, unreadIds) }
+            .map { announcementRow(it, unreadIds, bookmarkedIds) }
     }
 
     fun eventRow(event: SchoolCalendarEvent, today: LocalDate): PocketEventRow {

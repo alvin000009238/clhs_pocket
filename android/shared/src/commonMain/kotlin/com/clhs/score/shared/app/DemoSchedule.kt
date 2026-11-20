@@ -84,7 +84,8 @@ internal object DemoSchedule {
                 dayOfWeek = day,
                 label = WEEKDAY_LABELS[day - 1],
                 dateText = monday.shiftDays(day - 1L).shortText(),
-                isToday = day == clock.dayOfWeek && (!isWeek || view.weekOffset == 0),
+                // The semester timetable is not a calendar week; only this week has a "today".
+                isToday = isWeek && view.weekOffset == 0 && day == clock.dayOfWeek,
             )
         }
         val cells = mergedCells(slots(scope, clock, view), clock, trackStatus = isWeek && view.weekOffset == 0)
@@ -121,7 +122,9 @@ internal object DemoSchedule {
                     val contiguous = next.item.period == previous.item.period + 1 &&
                         previous.item.period != LAST_MORNING_PERIOD
                     val sameBlock = next.item.subjectName == head.item.subjectName &&
-                        next.item.classroom == head.item.classroom && next.change == head.change
+                        next.item.classroom == head.item.classroom &&
+                        next.item.teacherName == head.item.teacherName &&
+                        next.change == head.change && next.note == head.note
                     if (!contiguous || !sameBlock) break
                     span++
                 }
