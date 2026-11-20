@@ -14,7 +14,7 @@ actual typealias LocalDateTime = PortableLocalDateTime
 actual fun parseLocalDate(text: String): LocalDate = PortableLocalDate.parse(text)
 actual fun localDateOf(year: Int, month: Int, day: Int): LocalDate = PortableLocalDate.of(year, month, day)
 actual fun localDateOfEpochDay(epochDay: Long): LocalDate = PortableLocalDate.ofEpochDay(epochDay)
-actual operator fun LocalDate.compareTo(other: LocalDate): Int = compareTo(other)
+actual operator fun LocalDate.compareTo(other: LocalDate): Int = epochDay.compareTo(other.epochDay)
 actual fun LocalDate.epochDay(): Long = epochDay
 actual fun LocalDate.yearNumber(): Int = year
 actual fun LocalDate.monthNumber(): Int = monthValue
@@ -30,7 +30,8 @@ actual fun LocalTime.hourNumber(): Int = hour
 actual fun LocalTime.minuteNumber(): Int = minute
 
 actual val LOCAL_DATE_TIME_MIN: LocalDateTime = PortableLocalDateTime.MIN
-actual operator fun LocalDateTime.compareTo(other: LocalDateTime): Int = compareTo(other)
+actual operator fun LocalDateTime.compareTo(other: LocalDateTime): Int =
+    date.epochDay.compareTo(other.date.epochDay).takeIf { it != 0 } ?: time.nanoOfDay.compareTo(other.time.nanoOfDay)
 actual fun LocalDateTime.datePart(): LocalDate = date
 actual fun LocalDateTime.timePart(): LocalTime = time
 

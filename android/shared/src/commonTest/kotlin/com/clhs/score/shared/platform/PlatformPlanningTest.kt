@@ -7,6 +7,7 @@ import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleScope
 import com.clhs.score.shared.time.at
+import com.clhs.score.shared.time.epochDay
 import com.clhs.score.shared.time.localDateOf
 import com.clhs.score.shared.time.localTimeOf
 import com.clhs.score.shared.time.schoolEpochMillis
@@ -66,6 +67,26 @@ class PlatformPlanningTest {
         assertEquals(at(0, 0, day = 23), snapshot.validUntilMillis)
         assertNotNull(snapshot.entryAt(at(23, 59, day = 22)))
         assertNull(snapshot.entryAt(at(0, 0, day = 23)))
+    }
+
+    @Test
+    fun weekFetchedAheadStartsOnItsOwnFirstDayNotOnTodaysWeekday() {
+        // Friday 2026-11-20 with next week's timetable, which has a Friday lesson.
+        val next = week(ScheduleItem(5, 1, "國語文", "教師丁", "高二30")).copy(
+            weekNo = "13", weekStartDate = "2026-11-23", weekEndDate = "2026-11-29",
+        )
+        val snapshot = assertNotNull(buildWidgetScheduleSnapshot(next, at(7, 0, day = 20)))
+        assertEquals(listOf(localDateOf(2026, 11, 27).epochDay()), snapshot.lessons.map { it.epochDay })
+        assertTrue(snapshot.entries.none { it.phase == WidgetPhase.IN_CLASS && it.atMillis < at(0, 0, day = 23) })
+    }
+
+    @Test
+    fun truncatedTimelineIsOnlyValidUntilItsFirstMissingBoundary() {
+        val snapshot = assertNotNull(buildWidgetScheduleSnapshot(report, at(9, 0), maxEntries = 3))
+        assertEquals(3, snapshot.entries.size)
+        assertEquals(at(11, 0), snapshot.validUntilMillis)
+        assertNotNull(snapshot.entryAt(at(10, 59)))
+        assertNull(snapshot.entryAt(at(11, 0)))
     }
 
     @Test
@@ -170,6 +191,19 @@ class PlatformPlanningTest {
         assertEquals(PocketLinks.ANNOUNCEMENTS, fresh.notification?.link)
 
         assertNull(PocketPlatform.announcementPlan(fresh.seenIds, listOf(b, a), at(12, 5), settings()).notification)
+    }
+
+    @Test
+    fun pinnedAnnouncementStaysInTheBaselineWhileManyNewOnesArrive() {
+        val pinned = AnnouncementHeadline("pinned", "置頂：本學期行事曆")
+        var seen = PocketPlatform.announcementPlan(null, listOf(pinned), at(12, 0), settings()).seenIds
+        repeat(250) { index ->
+            val plan = PocketPlatform.announcementPlan(seen, listOf(pinned, AnnouncementHeadline("n$index", "新公告 $index")), at(12, 0), settings())
+            assertEquals("1 則新學校公告", plan.notification?.title, "only the new item is announced")
+            seen = plan.seenIds
+        }
+        assertTrue("pinned" in seen)
+        assertTrue(seen.size <= 200)
     }
 
     @Test

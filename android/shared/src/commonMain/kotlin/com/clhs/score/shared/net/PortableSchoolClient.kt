@@ -521,13 +521,17 @@ class PortableSchoolClient internal constructor(
     ): Pair<PortableUrl, HttpResponse> {
         var currentUrl = url
         var currentMethod = method
+        var currentHeaders = headers
         var currentBody = form?.let(PortableUrl::formEncode)
         repeat(MAX_REDIRECTS + 1) {
             requireGeneration(generation)
-            if (!currentUrl.isHttps && baseUrl.isHttps) throw SchoolException("學校系統回應異常")
+            // Every hop stays on the school origin; no other host receives a request of this chain.
+            if (currentUrl.host != baseUrl.host || currentUrl.port != baseUrl.port || (!currentUrl.isHttps && baseUrl.isHttps)) {
+                throw SchoolException("學校系統回應異常")
+            }
             val cookies = state.cookiesFor(generation, currentUrl, now())
             val requestHeaders = buildList {
-                addAll(headers)
+                addAll(currentHeaders)
                 if (currentBody != null) add(HttpHeader("Content-Type", "application/x-www-form-urlencoded"))
                 if (cookies.isNotEmpty()) add(HttpHeader("Cookie", cookies.joinToString("; ") { "${it.name}=${it.value}" }))
             }
@@ -540,9 +544,11 @@ class PortableSchoolClient internal constructor(
             val location = response.header("Location")
             if (response.statusCode !in REDIRECT_CODES || location == null) return currentUrl to response
             currentUrl = currentUrl.resolve(location) ?: return currentUrl to response
-            if (response.statusCode != 307 && response.statusCode != 308) {
+            if (response.statusCode != 307 && response.statusCode != 308 && currentMethod != "GET") {
+                // The follow-up GET carries neither the form nor the headers that only describe it.
                 currentMethod = "GET"
                 currentBody = null
+                currentHeaders = currentHeaders.filterNot { it.name.lowercase() in FORM_ONLY_HEADERS }
             }
         }
         throw SchoolTransientException("學校系統重新導向次數過多")
@@ -566,6 +572,7 @@ class PortableSchoolClient internal constructor(
         const val CALL_TIMEOUT_MILLIS = 30_000L
         const val MAX_REDIRECTS = 20
         val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+        val FORM_ONLY_HEADERS = setOf("origin", "x-requested-with", "content-type", "content-length")
         val USER_INFO_PATTERN = Regex("""const\s+userInfo\s*=\s*JSON\.parse\(\s*'([^']+)'\s*\)""")
         const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"

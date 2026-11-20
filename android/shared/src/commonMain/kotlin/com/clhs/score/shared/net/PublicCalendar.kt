@@ -139,11 +139,12 @@ object SchoolCalendarIcs {
         val date = localDateOf(year.toInt(), month.toInt(), day.toInt())
         val secondOfDay = hour.toInt() * 3600L + minute.toInt() * 60L + second.toInt()
         require(hour.toInt() < 24 && minute.toInt() < 60 && second.toInt() < 61)
-        val local = if (utc == "Z") {
-            schoolDateTimeAt((date.epochDay() * 86_400L + secondOfDay) * 1000L)
+        val offsetSeconds = if (utc == "Z") 0 else utcOffsetSeconds(property.parameters["TZID"])
+        val local = if (offsetSeconds != null) {
+            schoolDateTimeAt((date.epochDay() * 86_400L + secondOfDay - offsetSeconds) * 1000L)
         } else {
-            // Floating times and TZID values are read as school wall-clock time; the school feed only
-            // uses Asia/Taipei, and no time-zone database is bundled for other zones.
+            // Floating times, Asia/Taipei and zones whose rules are not bundled are read as school
+            // wall-clock time; the school feed itself only uses Asia/Taipei.
             date.at(localTimeOf(0, 0)).shiftNanos(secondOfDay * 1_000_000_000L)
         }
         DateValue(local, hasTime = true)
@@ -151,14 +152,44 @@ object SchoolCalendarIcs {
 
     private val DURATION = Regex("""([+-]?)P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?""")
 
+    private val ETC_GMT = Regex("""Etc/GMT([+-])(\d{1,2})""", RegexOption.IGNORE_CASE)
+    private val FIXED_OFFSET = Regex("""(?:UTC|GMT)?([+-])(\d{1,2})(?::?(\d{2}))?""", RegexOption.IGNORE_CASE)
+    private val UTC_ZONES = setOf("utc", "gmt", "z", "zulu", "uct", "universal", "etc/utc", "etc/gmt", "etc/uct", "etc/universal", "etc/zulu", "etc/gmt0", "gmt0")
+
+    /** UTC offset of a fixed-offset TZID, or null for a floating time or a zone read as school time. */
+    private fun utcOffsetSeconds(tzid: String?): Int? {
+        val zone = tzid?.trim()?.takeIf(String::isNotEmpty) ?: return null
+        if (zone.lowercase() in UTC_ZONES) return 0
+        ETC_GMT.matchEntire(zone)?.let { match ->
+            // POSIX sign: Etc/GMT-8 is eight hours ahead of UTC.
+            val hours = match.groupValues[2].toInt().takeIf { it <= 14 } ?: return null
+            return (if (match.groupValues[1] == "-") hours else -hours) * 3_600
+        }
+        FIXED_OFFSET.matchEntire(zone)?.let { match ->
+            val hours = match.groupValues[2].toInt()
+            val minutes = match.groupValues[3].ifEmpty { "0" }.toInt()
+            if (hours > 14 || minutes > 59) return null
+            val seconds = hours * 3_600 + minutes * 60
+            return if (match.groupValues[1] == "-") -seconds else seconds
+        }
+        return null
+    }
+
     private fun parseDurationNanos(value: String): Long? {
         val match = DURATION.matchEntire(value.trim()) ?: return null
         val (sign, weeks, days, hours, minutes, seconds) = match.destructured
-        val totalSeconds = (weeks.toLongOrNull() ?: 0) * 604_800 + (days.toLongOrNull() ?: 0) * 86_400 +
-            (hours.toLongOrNull() ?: 0) * 3_600 + (minutes.toLongOrNull() ?: 0) * 60 + (seconds.toLongOrNull() ?: 0)
-        if (totalSeconds > 366L * 86_400) return null
+        var totalSeconds = 0L
+        for ((text, unitSeconds) in listOf(weeks to 604_800L, days to 86_400L, hours to 3_600L, minutes to 60L, seconds to 1L)) {
+            if (text.isEmpty()) continue
+            // Each part is bounded before multiplying, so no input can overflow into a plausible value.
+            val amount = text.toLongOrNull()?.takeIf { it <= MAX_DURATION_SECONDS / unitSeconds } ?: return null
+            totalSeconds += amount * unitSeconds
+            if (totalSeconds > MAX_DURATION_SECONDS) return null
+        }
         return (if (sign == "-") -totalSeconds else totalSeconds) * 1_000_000_000L
     }
+
+    private const val MAX_DURATION_SECONDS = 366L * 86_400
 
     private fun unescapeText(value: String): String = buildString(value.length) {
         var index = 0

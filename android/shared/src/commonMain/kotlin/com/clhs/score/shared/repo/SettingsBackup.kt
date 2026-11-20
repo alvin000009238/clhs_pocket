@@ -10,6 +10,8 @@ import com.clhs.score.domain.overview.OverviewWidgetConfig
 import com.clhs.score.domain.overview.OverviewWidgetDefinitions
 import com.clhs.score.domain.overview.OverviewWidgetInstance
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -153,7 +155,9 @@ class SettingsBackupService(
     private val cache: PrivateCache,
     private val vault: SessionVault,
 ) {
-    fun export(session: AuthenticatedSession?): SettingsBackupDocument {
+    private val restoreLock = Mutex()
+
+    suspend fun export(session: AuthenticatedSession?): SettingsBackupDocument {
         session?.let(vault::validateSession)
         val current = settings.load()
         return SettingsBackupDocument(
@@ -175,12 +179,16 @@ class SettingsBackupService(
         ).also(SettingsBackupCodec::validate)
     }
 
-    fun exportJson(session: AuthenticatedSession?): String = SettingsBackupCodec.encode(export(session))
+    suspend fun exportJson(session: AuthenticatedSession?): String = SettingsBackupCodec.encode(export(session))
 
-    fun restoreJson(text: String, includeSubjects: Boolean, expectedSession: AuthenticatedSession?) =
+    suspend fun restoreJson(text: String, includeSubjects: Boolean, expectedSession: AuthenticatedSession?) =
         restore(SettingsBackupCodec.decode(text), includeSubjects, expectedSession)
 
-    fun restore(document: SettingsBackupDocument, includeSubjects: Boolean, expectedSession: AuthenticatedSession?) {
+    /** One restore at a time, so a rollback never undoes another restore's values. */
+    suspend fun restore(document: SettingsBackupDocument, includeSubjects: Boolean, expectedSession: AuthenticatedSession?) =
+        restoreLock.withLock { restoreLocked(document, includeSubjects, expectedSession) }
+
+    private suspend fun restoreLocked(document: SettingsBackupDocument, includeSubjects: Boolean, expectedSession: AuthenticatedSession?) {
         SettingsBackupCodec.validate(document)
         if (includeSubjects) {
             require(document.subjects != null && expectedSession != null) { "請先登入再匯入自訂科目" }
@@ -188,12 +196,17 @@ class SettingsBackupService(
         }
         val previous = settings.load()
         val previousSubjects = if (includeSubjects) cache.loadSubjectOverrides(requireNotNull(expectedSession).studentNo) else null
-        val undo = ArrayList<() -> Unit>()
+        val undo = ArrayList<suspend () -> Unit>()
         try {
             if (includeSubjects) {
                 val session = requireNotNull(expectedSession)
-                undo += { cache.saveSubjectOverrides(session.studentNo, requireNotNull(previousSubjects)) { vault.isAuthorized(session) } }
-                cache.saveSubjectOverrides(session.studentNo, requireNotNull(document.subjects)) { vault.isAuthorized(session) }
+                val written = cache.saveSubjectOverrides(session.studentNo, requireNotNull(document.subjects)) { vault.isAuthorized(session) }
+                if (!written) throw CancellationException("Session revoked")
+                undo += {
+                    // A revoked session can no longer put its overrides back: that is a failed rollback.
+                    val restored = cache.saveSubjectOverrides(session.studentNo, requireNotNull(previousSubjects)) { vault.isAuthorized(session) }
+                    if (!restored) throw StorageException("Subject overrides could not be restored after revocation")
+                }
                 vault.validateSession(session)
             }
             undo += { settings.save(previous) }

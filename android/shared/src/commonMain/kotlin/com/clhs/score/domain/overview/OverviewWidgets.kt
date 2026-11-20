@@ -1,30 +1,15 @@
 package com.clhs.score.domain.overview
 
+import kotlin.time.Duration
 import com.clhs.score.shared.time.LOCAL_DATE_TIME_ORDER
-import com.clhs.score.shared.time.Instant
-import com.clhs.score.shared.time.LocalDate
-import com.clhs.score.shared.time.LocalDateTime
-import com.clhs.score.shared.time.NANOS_PER_DAY
-import com.clhs.score.shared.time.NANOS_PER_HOUR
-import com.clhs.score.shared.time.NANOS_PER_MINUTE
 import com.clhs.score.shared.time.at
-import com.clhs.score.shared.time.compareTo
 import com.clhs.score.shared.time.datePart
-import com.clhs.score.shared.time.dayNumber
 import com.clhs.score.shared.time.daysUntil
-import com.clhs.score.shared.time.epochDay
-import com.clhs.score.shared.time.hourMinuteText
 import com.clhs.score.shared.time.isValidTimeZoneId
-import com.clhs.score.shared.time.monthNumber
-import com.clhs.score.shared.time.nanosUntil
+import com.clhs.score.shared.time.durationUntil
 import com.clhs.score.shared.time.parseLocalDate
-import com.clhs.score.shared.time.parseLocalDateOrNull
 import com.clhs.score.shared.time.parseLocalTime
 import com.clhs.score.shared.time.randomUuidString
-import com.clhs.score.shared.time.schoolNow
-import com.clhs.score.shared.time.shiftNanos
-import com.clhs.score.shared.time.timePart
-import com.clhs.score.shared.time.yearNumber
 import com.clhs.score.data.AppSettings
 import com.clhs.score.data.OverviewPreferences
 import com.clhs.score.data.SchoolCalendarEvent
@@ -235,8 +220,8 @@ fun OverviewWidgetInstance.countdownItem(state: OverviewState): OverviewItem? = 
             val days = state.now.datePart().daysUntil(date)
             when { days < 0 -> "已到期"; days == 0L -> "今天"; else -> "$days 天" }
         } else {
-            val remaining = state.now.nanosUntil(date.at(time))
-            if (remaining <= 0) "已到期" else remainingLabel(remaining)
+            val remaining = state.now.durationUntil(date.at(time))
+            if (remaining <= Duration.ZERO) "已到期" else remainingLabel(remaining)
         }
         OverviewItem(id, OverviewPriority.P1, OverviewItemKind.CalendarEvent, config.title,
             config.date + (config.time?.let { " $it" } ?: ""), label, "calendar_today", OverviewDestination.Calendar,

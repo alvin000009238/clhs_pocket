@@ -120,12 +120,22 @@ private fun LocalDate.startMillis(): Long = at(localTimeOf(0, 0)).schoolEpochMil
  * malformed or overlapping slots), so the widget falls back to its prompt
  * instead of showing data the Android widget would also reject.
  */
-fun buildWidgetScheduleSnapshot(report: ScheduleReport?, nowMillis: Long): WidgetScheduleSnapshot? {
+fun buildWidgetScheduleSnapshot(report: ScheduleReport?, nowMillis: Long): WidgetScheduleSnapshot? =
+    buildWidgetScheduleSnapshot(report, nowMillis, MAX_ENTRIES)
+
+internal fun buildWidgetScheduleSnapshot(report: ScheduleReport?, nowMillis: Long, maxEntries: Int): WidgetScheduleSnapshot? {
     if (report == null) return null
     val first = resolveCourses(report, instantOfEpochMilli(nowMillis), remindBeforeClass = true)
     if (!first.scheduleAvailable) return null
 
     val today = schoolDateTimeAt(nowMillis).datePart()
+    // A week fetched ahead of time starts on its own first day, never on today's weekday.
+    val firstDay = if (report.scope == ScheduleScope.CURRENT_WEEK) {
+        val weekStart = report.weekStartDate?.let(::parseLocalDateOrNull)
+        if (weekStart != null && weekStart.epochDay() > today.epochDay()) weekStart else today
+    } else {
+        today
+    }
     val lastDay = if (report.scope == ScheduleScope.CURRENT_WEEK) {
         report.weekEndDate?.let(::parseLocalDateOrNull) ?: return null
     } else {
@@ -136,9 +146,9 @@ fun buildWidgetScheduleSnapshot(report: ScheduleReport?, nowMillis: Long): Widge
     val items = report.displayItems()
     val colorsLight = getSubjectColors(items.map { it.subjectName }, isDarkTheme = false)
     val colorsDark = getSubjectColors(items.map { it.subjectName }, isDarkTheme = true)
-    val dayCount = (lastDay.epochDay() - today.epochDay()).coerceAtLeast(0)
+    val dayCount = lastDay.epochDay() - firstDay.epochDay()
     val lessons = (0..dayCount).flatMap { offset ->
-        val date = today.shiftDays(offset)
+        val date = firstDay.shiftDays(offset)
         items.filter { it.dayOfWeek == date.weekday().isoNumber }.mapNotNull { item ->
             item.occurrenceOn(date)?.let { Triple(date, item, it) }
         }
@@ -162,7 +172,7 @@ fun buildWidgetScheduleSnapshot(report: ScheduleReport?, nowMillis: Long): Widge
 
     val entries = mutableListOf<WidgetTimelineEntry>()
     var at = nowMillis
-    while (at < horizon && entries.size < MAX_ENTRIES) {
+    while (at < horizon && entries.size < maxEntries) {
         val resolution = resolveCourses(report, instantOfEpochMilli(at), remindBeforeClass = true)
         val day = schoolDateTimeAt(at).datePart()
         val dayEpoch = day.epochDay()
@@ -184,7 +194,8 @@ fun buildWidgetScheduleSnapshot(report: ScheduleReport?, nowMillis: Long): Widge
 
     return WidgetScheduleSnapshot(
         generatedAtMillis = nowMillis,
-        validUntilMillis = horizon,
+        // When the entry limit cut the timeline short it is only valid up to the first missing boundary.
+        validUntilMillis = minOf(at, horizon),
         weekLabel = report.weekNo?.takeIf { it.isNotBlank() }?.let { "第 $it 週" }.orEmpty(),
         lessons = lessons,
         entries = entries,

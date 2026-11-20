@@ -2,6 +2,10 @@
 
 package com.clhs.score.shared.time
 
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.nanoseconds
+
 /**
  * Calendar types for shared school logic: `java.time` on Android (so existing Android callers keep
  * their exact types) and the portable implementations elsewhere. Factories and accessors are
@@ -85,10 +89,13 @@ fun currentInstant(): Instant = instantOfEpochMilli(currentEpochMillis())
 expect fun LocalTime.nanoOfDayValue(): Long
 expect fun LocalDateTime.shiftNanos(nanos: Long): LocalDateTime
 
-/** Signed nanoseconds from this date-time to [other], like `Duration.between`. */
-fun LocalDateTime.nanosUntil(other: LocalDateTime): Long =
-    datePart().daysUntil(other.datePart()) * NANOS_PER_DAY +
-        (other.timePart().nanoOfDayValue() - timePart().nanoOfDayValue())
+/**
+ * Signed time from this date-time to [other], like `java.time.Duration.between`. Exact to the
+ * nanosecond within about ±146 years and to the millisecond beyond, so every supported date fits.
+ */
+fun LocalDateTime.durationUntil(other: LocalDateTime): Duration =
+    datePart().daysUntil(other.datePart()).days +
+        (other.timePart().nanoOfDayValue() - timePart().nanoOfDayValue()).nanoseconds
 
 const val NANOS_PER_MINUTE = 60_000_000_000L
 const val NANOS_PER_HOUR = 60 * NANOS_PER_MINUTE

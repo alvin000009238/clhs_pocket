@@ -108,6 +108,39 @@ class PublicClientsTest {
         assertEquals("<a>x</a>", html("<a href=\"https://user:pw@evil.example/\">x</a>"))
         assertEquals("前後", html("前<iframe src=\"https://x.example\"><p>inner</p></iframe><style>p{}</style>後"))
         assertEquals("<p>未關閉</p>", html("<p>未關閉"))
+        assertEquals("前後", html("前<script/>alert(1)</script>後"))
+        assertEquals("前", html("前<iframe/><p>inner</p>"))
+        assertEquals("<p>“引號”—破折號…&nbsp;&amp;ldquo 中文©</p>", html("<p>&ldquo;引號&rdquo;&mdash;破折號&hellip;&nbsp;&amp;ldquo &#20013;&#x6587;&copy;</p>"))
+    }
+
+    @Test
+    fun imagesInsideRemovedTablesAreStillListed() {
+        val detail = PublicAnnouncementParser.parseDetail(
+            "[{\"rcode\":200,\"newsId\":\"1\",\"content\":\"" + PortableUrl.encodeComponent(
+                "<p>說明</p><table><tr><td><img src=\"/ischool/a.jpg\" alt=\"海報\"></td></tr></table>",
+            ) + "\"}]",
+            "1",
+        )
+        assertTrue(detail.htmlContent.startsWith("<p>說明</p>"))
+        assertEquals(listOf("https://www.clhs.tyc.edu.tw/ischool/a.jpg"), detail.images.map { it.url })
+        assertEquals("海報", detail.images.single().description)
+    }
+
+    @Test
+    fun attachmentNamesAreEncodedAsOneSegment() {
+        val detail = PublicAnnouncementParser.parseDetail(
+            "[{\"rcode\":200,\"newsId\":\"45072\",\"content\":\"\",\"attachedfile\":" +
+                "\"[[\\\"o\\\",1,\\\"../a/b?.pdf\\\"],[\\\"o\\\",1,\\\"..\\\"],[\\\"o\\\",1,\\\"100%#.pdf\\\"]]\"}]",
+            "45072",
+        )
+        assertEquals(
+            listOf(
+                "https://www.clhs.tyc.edu.tw/ischool/news/attached/45072/..%2Fa%2Fb%3F.pdf",
+                "https://www.clhs.tyc.edu.tw/ischool/news/attached/45072/%2E%2E",
+                "https://www.clhs.tyc.edu.tw/ischool/news/attached/45072/100%25%23.pdf",
+            ),
+            detail.attachments.map { it.url },
+        )
     }
 
     @Test
@@ -191,6 +224,51 @@ class PublicClientsTest {
         assertEquals(dateTime(2026, 8, 12, 10, 30), timed.endExclusive)
         assertFalse(timed.isAllDay)
         assertEquals("圖書館;二樓", timed.location)
+    }
+
+    @Test
+    fun icsConvertsFixedOffsetZonesAndRejectsOversizedDurations() {
+        val feed = SchoolCalendarIcs.parse(
+            """
+            BEGIN:VCALENDAR
+            BEGIN:VEVENT
+            UID:utc
+            DTSTART;TZID=UTC:20260901T003000
+            SUMMARY:UTC
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:tokyo
+            DTSTART;TZID=Etc/GMT-9:20260901T093000
+            SUMMARY:Tokyo
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:offset
+            DTSTART;TZID="UTC-05:00":20260831T193000
+            SUMMARY:Offset
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:taipei
+            DTSTART;TZID=Asia/Taipei:20260901T083000
+            DURATION:P99999999999999W
+            SUMMARY:Taipei
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:overflow
+            DTSTART;TZID=Asia/Taipei:20260901T083000
+            DURATION:PT99999999999999999999S
+            SUMMARY:Overflow
+            END:VEVENT
+            END:VCALENDAR
+            """.trimIndent(),
+        )
+        val byId = feed.events.associateBy { it.id }
+        assertEquals(dateTime(2026, 9, 1, 8, 30), byId.getValue("utc").start)
+        assertEquals(dateTime(2026, 9, 1, 8, 30), byId.getValue("tokyo").start)
+        assertEquals(dateTime(2026, 9, 1, 8, 30), byId.getValue("offset").start)
+        assertEquals(dateTime(2026, 9, 1, 8, 30), byId.getValue("taipei").start)
+        // An unusable duration falls back to the default end instead of a wrapped-around value.
+        assertEquals(byId.getValue("taipei").start, byId.getValue("taipei").endExclusive)
+        assertEquals(byId.getValue("overflow").start, byId.getValue("overflow").endExclusive)
     }
 
     @Test
@@ -432,5 +510,13 @@ class PublicClientsTest {
         assertEquals("中 文+", PortableUrl.percentDecode("%E4%B8%AD%20%E6%96%87+"))
         assertFailsWith<Exception> { PortableUrl.percentDecode("%E4%") }
         assertFailsWith<Exception> { PortableUrl.percentDecode("%ZZ") }
+    }
+
+    @Test
+    fun rawQueryCharactersFromAServerAreEncodedButExistingEscapesAreKept() {
+        val parsed = PortableUrl.parse("https://example.org/p?q=中 文&r=%E4%B8%AD&s=\"x\"")!!
+        assertEquals("q=%E4%B8%AD%20%E6%96%87&r=%E4%B8%AD&s=%22x%22", parsed.encodedQuery)
+        val redirected = parsed.resolve("/next?ReturnUrl=/a b&page=成績")!!
+        assertEquals("https://example.org/next?ReturnUrl=/a%20b&page=%E6%88%90%E7%B8%BE", redirected.toString())
     }
 }

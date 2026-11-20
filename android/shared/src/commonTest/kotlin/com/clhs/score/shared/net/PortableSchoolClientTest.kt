@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package com.clhs.score.shared.net
 
 import com.clhs.score.data.AuthenticatedSession
@@ -136,18 +138,64 @@ class PortableSchoolClientTest {
     }
 
     @Test
-    fun redirectToAnotherHostNeverReceivesSchoolCookiesAndPlainHttpIsRefused() = runTest {
+    fun redirectToAnotherHostOrPlainHttpIsRefusedWithoutSendingAnything() = runTest {
         var location = "https://elsewhere.example/landing"
         val (client, transport) = client { request ->
             if (request.url.startsWith("https://shcloud2")) response(status = 302, headers = listOf(HttpHeader("Location", location)))
             else response("[]")
         }
-        client.loadStructure(session)
-        assertNull(transport.requests[1].header("Cookie"))
-        location = "http://shcloud2.k12ea.gov.tw/CLHSTYC/x"
-        val count = transport.requests.size
         assertFailsWith<SchoolException> { client.loadStructure(session) }
-        assertEquals(count + 1, transport.requests.size)
+        assertEquals(1, transport.requests.size)
+        location = "http://shcloud2.k12ea.gov.tw/CLHSTYC/x"
+        assertFailsWith<SchoolException> { client.loadStructure(session) }
+        assertEquals(2, transport.requests.size)
+        location = "https://shcloud2.k12ea.gov.tw:8443/CLHSTYC/x"
+        assertFailsWith<SchoolException> { client.loadStructure(session) }
+        assertEquals(3, transport.requests.size)
+        assertTrue(transport.requests.all { it.url.startsWith("https://shcloud2.k12ea.gov.tw/") })
+    }
+
+    @Test
+    fun postRedirectedToGetDropsTheFormAndItsHeadersButA307KeepsThem() = runTest {
+        var status = 302
+        val (client, transport) = client { request ->
+            if (request.url.endsWith("/landing")) response("[]")
+            else response(status = status, headers = listOf(HttpHeader("Location", "/CLHSTYC/landing")))
+        }
+        client.loadStructure(session)
+        val followUp = transport.requests[1]
+        assertEquals("GET", followUp.method)
+        assertNull(followUp.body)
+        assertNull(followUp.header("Origin"))
+        assertNull(followUp.header("X-Requested-With"))
+        assertNull(followUp.header("Content-Type"))
+        assertEquals("ASP.NET_SessionId=abc", followUp.header("Cookie"))
+
+        status = 307
+        transport.requests.clear()
+        client.loadStructure(session)
+        val replayed = transport.requests[1]
+        assertEquals("POST", replayed.method)
+        assertEquals(transport.requests[0].body, replayed.body)
+        assertEquals(transport.requests[0].header("Origin"), replayed.header("Origin"))
+        assertEquals("application/x-www-form-urlencoded", replayed.header("Content-Type"))
+    }
+
+    @Test
+    fun cookiesWithLongerPathsAreSentFirst() = runTest {
+        var sent = 0
+        val (client, transport) = client {
+            response(
+                "[]",
+                setCookies = if (sent++ > 0) emptyList() else listOf(
+                    HttpSetCookie("token", "root", domain = null, path = "/", expiresAtEpochMillis = null, secure = true),
+                    HttpSetCookie("token", "app", domain = null, path = "/CLHSTYC", expiresAtEpochMillis = null, secure = true),
+                ),
+            )
+        }
+        client.loadStructure(session)
+        client.loadStructure(session)
+        assertEquals("token=app; ASP.NET_SessionId=abc; token=root", transport.requests.last().header("Cookie"))
     }
 
     @Test

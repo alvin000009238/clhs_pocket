@@ -31,17 +31,25 @@ import com.clhs.score.shared.time.instantOfEpochMilli
 import com.clhs.score.shared.time.parseLocalDate
 import com.clhs.score.shared.time.schoolDateTimeAt
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.concurrent.atomics.AtomicLong
+import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.concurrent.atomics.incrementAndFetch
 
 /** Only the newest started request may replace a cache file (Android `LatestCacheFile`). */
 internal class LatestWrite {
     private val generation = AtomicLong(0L)
+    private val lock = Mutex()
     fun begin(): Long = generation.incrementAndFetch()
-    fun isLatest(started: Long): Boolean = generation.load() == started
+
+    /** Runs [write] only while [started] is the newest request; the check and the write are atomic. */
+    suspend fun commitIfLatest(started: Long, write: () -> Unit) {
+        lock.withLock { if (generation.load() == started) write() }
+    }
 }
 
 private val storeJson = Json { ignoreUnknownKeys = true }
@@ -64,6 +72,9 @@ class AnnouncementsRepository(
     private val listWrite = LatestWrite()
     private val optionsWrite = LatestWrite()
 
+    /** Read state and bookmarks are read-modify-write; one lock keeps concurrent changes. */
+    private val stateLock = Mutex()
+
     fun loadCached(): SchoolAnnouncementPage? {
         val stored = files.readOrNull(LIST_CACHE)?.takeIf { it.text.length <= PublicAnnouncementsClient.MAX_LIST_BYTES } ?: return null
         return runCatching {
@@ -82,7 +93,7 @@ class AnnouncementsRepository(
         val body = client.fetchPageBody(pageIndex, keyword, unitId, categoryId)
         val fetchedAt = now()
         val page = PublicAnnouncementParser.parsePage(body, instantOfEpochMilli(fetchedAt))
-        if (write != null && listWrite.isLatest(write)) files.write(LIST_CACHE, body, fetchedAt).orThrow("Announcement cache write")
+        if (write != null) listWrite.commitIfLatest(write) { files.write(LIST_CACHE, body, fetchedAt).orThrow("Announcement cache write") }
         discoverForDisplay(page.announcements)
         return page
     }
@@ -96,7 +107,7 @@ class AnnouncementsRepository(
         val write = optionsWrite.begin()
         val body = client.fetchFilterOptionsBody()
         val options = PublicAnnouncementParser.parseFilterOptions(body)
-        if (optionsWrite.isLatest(write)) files.write(OPTIONS_CACHE, body, now()).orThrow("Announcement cache write")
+        optionsWrite.commitIfLatest(write) { files.write(OPTIONS_CACHE, body, now()).orThrow("Announcement cache write") }
         return options
     }
 
@@ -115,9 +126,9 @@ class AnnouncementsRepository(
         files.write(READ_STATE, storeJson.encodeToString(ReadState.serializer(), state), now()).orThrow("Read state write")
     }
 
-    fun unreadIds(): Set<String> = readState().read.filterValues { !it }.keys
+    suspend fun unreadIds(): Set<String> = stateLock.withLock { readState().read.filterValues { !it }.keys }
 
-    fun discover(announcements: List<SchoolAnnouncement>) {
+    suspend fun discover(announcements: List<SchoolAnnouncement>) = stateLock.withLock {
         val state = readState()
         val cutoff = parseLocalDate(state.cutoff)
         val discovered = announcements.distinctBy(SchoolAnnouncement::id)
@@ -126,7 +137,7 @@ class AnnouncementsRepository(
     }
 
     /** Public content stays available when reading-state storage is temporarily unavailable. */
-    private fun discoverForDisplay(announcements: List<SchoolAnnouncement>) {
+    private suspend fun discoverForDisplay(announcements: List<SchoolAnnouncement>) {
         try {
             discover(announcements)
         } catch (error: CancellationException) {
@@ -135,18 +146,22 @@ class AnnouncementsRepository(
         }
     }
 
-    fun markRead(id: String) {
+    suspend fun markRead(id: String) {
         require(id.isNotBlank())
-        val state = readState()
-        writeReadState(state.copy(read = state.read + (id to true)))
+        stateLock.withLock {
+            val state = readState()
+            writeReadState(state.copy(read = state.read + (id to true)))
+        }
     }
 
-    fun markAllRead(ids: Set<String>) {
+    suspend fun markAllRead(ids: Set<String>) = stateLock.withLock {
         val state = readState()
         writeReadState(state.copy(read = state.read + ids.filter { state.read[it] == false }.associateWith { true }))
     }
 
-    fun bookmarks(): List<SchoolAnnouncement> {
+    suspend fun bookmarks(): List<SchoolAnnouncement> = stateLock.withLock { storedBookmarks() }
+
+    private fun storedBookmarks(): List<SchoolAnnouncement> {
         val stored = files.readOrNull(BOOKMARKS) ?: return emptyList()
         return runCatching { storeJson.decodeFromString<List<Bookmark>>(stored.text) }.getOrDefault(emptyList()).map {
             SchoolAnnouncement(it.id, it.title, it.date, it.category, it.unit, it.issuer, isPinned = false, it.contentType, it.externalUrl)
@@ -154,15 +169,15 @@ class AnnouncementsRepository(
     }
 
     /** Returns true when the announcement is bookmarked after the call. */
-    fun toggleBookmark(announcement: SchoolAnnouncement): Boolean {
-        val current = bookmarks()
+    suspend fun toggleBookmark(announcement: SchoolAnnouncement): Boolean = stateLock.withLock {
+        val current = storedBookmarks()
         val exists = current.any { it.id == announcement.id }
         val next = if (exists) current.filterNot { it.id == announcement.id } else listOf(announcement) + current
         val encoded = storeJson.encodeToString(
             next.take(MAX_BOOKMARKS).map { Bookmark(it.id, it.title, it.date, it.category, it.unit, it.issuer, it.contentType, it.externalUrl) },
         )
         files.write(BOOKMARKS, encoded, now()).orThrow("Bookmark write")
-        return !exists
+        !exists
     }
 
     private fun startsUnread(date: String, cutoff: LocalDate): Boolean {
@@ -172,12 +187,12 @@ class AnnouncementsRepository(
         return published == null || published >= cutoff
     }
 
-    private companion object {
-        const val LIST_CACHE = "${FileStore.PUBLIC}/school-announcements.json"
-        const val OPTIONS_CACHE = "${FileStore.PUBLIC}/school-announcement-units.html"
+    internal companion object {
+        private const val LIST_CACHE = "${FileStore.PUBLIC}/school-announcements.json"
+        private const val OPTIONS_CACHE = "${FileStore.PUBLIC}/school-announcement-units.html"
         const val READ_STATE = "${FileStore.SETTINGS}/announcement-read.json"
         const val BOOKMARKS = "${FileStore.SETTINGS}/announcement-bookmarks.json"
-        const val MAX_BOOKMARKS = 500
+        private const val MAX_BOOKMARKS = 500
     }
 }
 
@@ -189,23 +204,31 @@ class CalendarRepository(
 ) {
     private val write = LatestWrite()
 
-    fun loadCached(): SchoolCalendarSnapshot? {
-        val stored = files.readOrNull(CACHE)?.takeIf { it.text.length <= PublicCalendarClient.MAX_FEED_BYTES } ?: return null
-        return runCatching {
-            SchoolCalendarSnapshot(SchoolCalendarIcs.parse(stored.text), instantOfEpochMilli(stored.modifiedAtEpochMillis))
-        }.getOrNull()
+    private class Parsed(val text: String, val modifiedAtEpochMillis: Long, val snapshot: SchoolCalendarSnapshot)
+
+    /** The last parsed cache file, so a cache hit neither rereads nor reparses an unchanged feed twice. */
+    private val parsed = AtomicReference<Parsed?>(null)
+
+    fun loadCached(): SchoolCalendarSnapshot? = files.readOrNull(CACHE)?.let(::parseCached)
+
+    private fun parseCached(stored: StoredText): SchoolCalendarSnapshot? {
+        if (stored.text.length > PublicCalendarClient.MAX_FEED_BYTES) return null
+        val fetchedAt = instantOfEpochMilli(stored.modifiedAtEpochMillis)
+        parsed.load()?.takeIf { it.modifiedAtEpochMillis == stored.modifiedAtEpochMillis && it.text == stored.text }?.let { return it.snapshot }
+        return runCatching { SchoolCalendarSnapshot(SchoolCalendarIcs.parse(stored.text), fetchedAt) }.getOrNull()
+            ?.also { parsed.store(Parsed(stored.text, stored.modifiedAtEpochMillis, it)) }
     }
 
     suspend fun load(forceRefresh: Boolean): SchoolCalendarSnapshot {
         val startedAt = now()
         if (!forceRefresh) {
-            val cachedAt = files.readOrNull(CACHE)?.modifiedAtEpochMillis
-            if (cachedAt != null && startedAt - cachedAt in 0..CACHE_MAX_AGE_MILLIS) loadCached()?.let { return it }
+            val stored = files.readOrNull(CACHE)
+            if (stored != null && startedAt - stored.modifiedAtEpochMillis in 0..CACHE_MAX_AGE_MILLIS) parseCached(stored)?.let { return it }
         }
         val started = write.begin()
         val body = client.fetchFeedBody()
         val feed = SchoolCalendarIcs.parse(body)
-        if (write.isLatest(started)) files.write(CACHE, body, startedAt).orThrow("Calendar cache write")
+        write.commitIfLatest(started) { files.write(CACHE, body, startedAt).orThrow("Calendar cache write") }
         return SchoolCalendarSnapshot(feed, instantOfEpochMilli(startedAt))
     }
 
@@ -235,6 +258,7 @@ class WeatherRepository(
     private val now: () -> Long,
 ) {
     private val writes = HashMap<String, LatestWrite>()
+    private val writesLock = Mutex()
 
     /** A cached snapshot that is still usable, for rendering before [load] returns. */
     fun cached(source: WeatherSource, location: WeatherLocation = WeatherLocation.SCHOOL): WeatherSnapshot? {
@@ -261,13 +285,13 @@ class WeatherRepository(
             } ?: return WeatherLoad(usable, needsCwaApiKey = true)
         } else null
         val path = cachePath(source, location)
-        val write = writes.getOrPut(path) { LatestWrite() }
+        val write = writesLock.withLock { writes.getOrPut(path) { LatestWrite() } }
         val started = write.begin()
         return try {
             val raw = client.fetchBody(source, location, key)
             val fetchedAt = now()
             val snapshot = WeatherParser.parse(source, raw, instantOfEpochMilli(fetchedAt), location)
-            if (write.isLatest(started)) files.write(path, raw, fetchedAt).orThrow("Weather cache write")
+            write.commitIfLatest(started) { files.write(path, raw, fetchedAt).orThrow("Weather cache write") }
             WeatherLoad(snapshot)
         } catch (error: CancellationException) {
             throw error
@@ -299,7 +323,7 @@ class WeatherRepository(
             }
         }
         val identity = "${source.ordinal}|${location.latitude}|${location.longitude}|${location.cwaDataset}|${location.cwaLocationName}"
-        return "${FileStore.PUBLIC}/weather-${fileKey(identity)}.json"
+        return "${FileStore.PUBLIC}/weather-${hashedFileKey(identity)}.json"
     }
 
     internal companion object {
@@ -316,7 +340,7 @@ class YouBikeStationLoad(val stationId: String, val snapshot: YouBikeSnapshot?, 
 class YouBikeRepository(private val client: PublicYouBikeClient, private val now: () -> Long) {
     private class Feed(val raw: String, val fetchedAt: Long)
 
-    private val feed = kotlin.concurrent.atomics.AtomicReference<Feed?>(null)
+    private val feed = AtomicReference<Feed?>(null)
 
     private suspend fun feed(maxAgeMillis: Long): Feed {
         feed.load()?.takeIf { now() - it.fetchedAt in 0..maxAgeMillis }?.let { return it }

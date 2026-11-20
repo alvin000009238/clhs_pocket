@@ -3,6 +3,7 @@ package com.clhs.score.shared.repo
 import com.clhs.score.data.AuthenticatedSession
 import com.clhs.score.data.ScheduleSubjectOverride
 import com.clhs.score.data.ThemeMode
+import com.clhs.score.data.WeatherLocation
 import com.clhs.score.data.WeatherSource
 import com.clhs.score.shared.net.CwaKeyValidation
 import com.clhs.score.shared.net.FakeHttpTransport
@@ -244,14 +245,50 @@ class PublicRepositoriesAndSettingsTest {
     }
 
     @Test
-    fun damagedSettingsFallBackToDefaultsAndInvalidValuesAreNotSaved() {
+    fun damagedSettingsFailClosedUntilResetAndInvalidValuesAreNotSaved() = runTest {
         val settings = SettingsStore(files, now)
         files.write("${FileStore.SETTINGS}/app-settings.json", "{broken", 0L)
+        // A damaged file must not read as defaults, which would silently turn the app lock off.
+        val error = assertFailsWith<SettingsUnreadableException> { settings.load() }
+        assertEquals(PocketFailureKind.STORAGE, PocketFailure.from(error).kind)
+        assertFailsWith<SettingsUnreadableException> { settings.update { it.copy(themeMode = ThemeMode.DARK) } }
+        settings.clear()
         // Default home widgets get fresh ids, so compare everything else.
         assertEquals(PocketSettings(overview = emptyList()), settings.load().copy(overview = emptyList()))
         assertEquals(PocketSettings().overview.map { it.type }, settings.load().overview.map { it.type })
+
         assertFailsWith<IllegalArgumentException> { settings.save(PocketSettings(announcementIntervalMinutes = 7)) }
         files.failWrites += FileStore.SETTINGS
         assertFailsWith<StorageException> { settings.save(PocketSettings(appLockEnabled = true)) }
+    }
+
+    @Test
+    fun revocationDuringImportIsReportedAsAFailedRollback() = runTest {
+        val rig = backup()
+        val session = rig.vault.establishSession(AuthenticatedSession("DEMO-001", "t", emptyMap()))
+        val previous = listOf(ScheduleSubjectOverride("數學", customTeacherName = "王老師"))
+        rig.cache.saveSubjectOverrides("DEMO-001", previous) { true }
+        // Logout revokes while the imported overrides are being written.
+        files.onWrite["${FileStore.SETTINGS}/subject-overrides/"] = { rig.vault.revoke() }
+
+        val error = assertFailsWith<SettingsRestoreException> {
+            rig.service.restoreJson(androidBackup, includeSubjects = true, expectedSession = session)
+        }
+        assertTrue(error.rollbackFailed)
+        assertEquals("設定匯入失敗，且部分設定無法還原", PocketFailure.from(error).message)
+    }
+
+    @Test
+    fun weatherForALongNamedLocationGetsItsOwnCacheFile() = runTest {
+        val transport = FakeHttpTransport { response(PublicFixtures.OPEN_METEO_RESPONSE) }
+        val repository = WeatherRepository(PublicWeatherClient(transport), files, secure, now)
+        val location = WeatherLocation(
+            id = "custom", name = "桃園市中壢區中央西路二段一百號附近的一個很長的地點名稱",
+            latitude = 24.957_123_456_789, longitude = 121.215_987_654_321,
+            cwaDataset = "F-D0047-005", cwaLocationName = "中壢區中央西路二段一百號附近的一個很長的地點名稱",
+        )
+        assertNotNull(repository.load(WeatherSource.OPEN_METEO, location).snapshot)
+        assertNotNull(repository.cached(WeatherSource.OPEN_METEO, location))
+        assertNull(repository.cached(WeatherSource.OPEN_METEO))
     }
 }

@@ -219,6 +219,17 @@ object PublicAnnouncementParser {
         var skipDepth = 0
         var tableNoticeWritten = false
 
+        fun addImage(token: HtmlToken.Start) {
+            val url = token.attributes["src"]?.let(::safeWebUrl) ?: return
+            images.add(
+                SchoolAnnouncementImage(
+                    url = url,
+                    description = token.attributes["alt"].orEmpty().trim().ifBlank { "消息圖片" },
+                    canPreview = PortableUrl.parse(url)?.let { it.isHttps && it.host == siteBase.host } == true,
+                ),
+            )
+        }
+
         fun close(element: OpenElement) {
             if (element.headingStart >= 0) {
                 val inner = output.substring(element.headingStart)
@@ -237,7 +248,11 @@ object PublicAnnouncementParser {
         for (token in tokenizeHtml(source)) {
             if (skipName != null) {
                 when (token) {
-                    is HtmlToken.Start -> if (token.name == skipName && !token.selfClosing) skipDepth++
+                    // Content is dropped, but a picture inside a layout table is still listed.
+                    is HtmlToken.Start -> when (token.name) {
+                        skipName -> skipDepth++
+                        "img" -> addImage(token)
+                    }
                     is HtmlToken.End -> if (token.name == skipName && --skipDepth == 0) skipName = null
                     is HtmlToken.Text -> Unit
                 }
@@ -254,20 +269,13 @@ object PublicAnnouncementParser {
                                 output.append(TABLE_NOTICE)
                                 tableNoticeWritten = true
                             }
-                            if (!token.selfClosing && name !in VOID_HTML_TAGS) {
+                            // `/>` does not close a non-void element, so its content is still removed.
+                            if (name !in VOID_HTML_TAGS) {
                                 skipName = name
                                 skipDepth = 1
                             }
                         }
-                        name == "img" -> token.attributes["src"]?.let(::safeWebUrl)?.let { url ->
-                            images.add(
-                                SchoolAnnouncementImage(
-                                    url = url,
-                                    description = token.attributes["alt"].orEmpty().trim().ifBlank { "消息圖片" },
-                                    canPreview = PortableUrl.parse(url)?.let { it.isHttps && it.host == siteBase.host } == true,
-                                ),
-                            )
-                        }
+                        name == "img" -> addImage(token)
                         name in headings -> {
                             output.append("<p>")
                             open.add(OpenElement(name, emitted = true, headingStart = output.length))
@@ -314,7 +322,7 @@ object PublicAnnouncementParser {
             SchoolAnnouncementAttachment(
                 name = name,
                 sizeBytes = (fields.getOrNull(1) as? JsonPrimitive)?.contentOrNull?.toLongOrNull(),
-                url = siteBase.withPath("ischool/news/attached/$newsId/$name").toString(),
+                url = siteBase.withPathSegments("ischool", "news", "attached", newsId, name).toString(),
             )
         }.distinctBy(SchoolAnnouncementAttachment::url)
     }
