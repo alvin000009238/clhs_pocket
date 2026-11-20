@@ -207,6 +207,8 @@ struct WidgetSettingsView: View {
                     TextField("名稱，例如：學測", text: $customTitle)
                         .accessibilityIdentifier("countdown-title")
                     DatePicker("日期", selection: $customDate, displayedComponents: customHasTime ? [.date, .hourAndMinute] : [.date])
+                        // Stored as a Taipei calendar date, so it is picked in Taipei time too.
+                        .environment(\.timeZone, TimeZone(identifier: "Asia/Taipei") ?? .current)
                     Toggle("指定時間", isOn: $customHasTime)
                     Button("套用") { applyCustom() }
                         .disabled(customTitle.trimmingCharacters(in: .whitespaces).isEmpty)

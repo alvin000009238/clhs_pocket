@@ -64,6 +64,7 @@ struct HomeView: View {
             }
             .pocketPage()
         }
+        .refreshable { await model.refreshLiveData(force: true) }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { brandItem }
         .sheet(isPresented: $showingEditor) { DashboardEditorView() }
@@ -192,6 +193,8 @@ private struct CourseHeroCard: View {
                     .padding(.top, 16)
                 }
             }
+            // On iPad the hero shares a row with taller widgets; fill the row instead of floating.
+            .frame(maxHeight: .infinity, alignment: .top)
         }
         .accessibilityElement(children: .combine)
     }
@@ -617,7 +620,10 @@ private struct CountdownCard: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(countdown.map { "距離\($0.title)還有 \($0.label)，\($0.dateText)" } ?? "倒數行程已不存在")
+        .accessibilityLabel(countdown.map {
+            // The label is a day count, or a word such as 進行中／今天 that cannot follow 還有.
+            Int($0.label) != nil ? "距離\($0.title)還有 \($0.label) 天，\($0.dateText)" : "\($0.title)\($0.label)，\($0.dateText)"
+        } ?? "倒數行程已不存在")
     }
 
     private func details(_ countdown: PocketCountdown) -> some View {
@@ -651,7 +657,9 @@ private struct YouBikeCard: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(PocketColor.onSurface)
                             .lineLimit(1)
+                        // The narrow layout drops the detail line, except a suspension notice that changes what the numbers mean.
                         Text(wide ? "可借 \(station.bikesText) · 可還 \(station.docksText) · \(station.detailText)"
+                            : station.detailText.contains("暫停") ? station.detailText
                             : "可借 \(station.bikesText) · 可還 \(station.docksText)")
                             .font(.caption)
                             .monospacedDigit()
