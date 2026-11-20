@@ -102,7 +102,8 @@ internal class SchoolSessionState {
     fun cookiesFor(generation: Long, url: PortableUrl, now: Long): List<StoredCookie> {
         val state = current
         if (state.generation != generation) return emptyList()
-        return state.cookies.filter { !it.isExpired(now) && it.matches(url) }
+        // RFC 6265 §5.4: longer paths first; the stable sort keeps creation order for equal paths.
+        return state.cookies.filter { !it.isExpired(now) && it.matches(url) }.sortedByDescending { it.path.length }
     }
 
     fun saveFromResponse(generation: Long, url: PortableUrl, received: List<HttpSetCookie>, now: Long) {

@@ -433,4 +433,12 @@ class PublicClientsTest {
         assertFailsWith<Exception> { PortableUrl.percentDecode("%E4%") }
         assertFailsWith<Exception> { PortableUrl.percentDecode("%ZZ") }
     }
+
+    @Test
+    fun rawQueryCharactersFromAServerAreEncodedButExistingEscapesAreKept() {
+        val parsed = PortableUrl.parse("https://example.org/p?q=中 文&r=%E4%B8%AD&s=\"x\"")!!
+        assertEquals("q=%E4%B8%AD%20%E6%96%87&r=%E4%B8%AD&s=%22x%22", parsed.encodedQuery)
+        val redirected = parsed.resolve("/next?ReturnUrl=/a b&page=成績")!!
+        assertEquals("https://example.org/next?ReturnUrl=/a%20b&page=%E6%88%90%E7%B8%BE", redirected.toString())
+    }
 }
