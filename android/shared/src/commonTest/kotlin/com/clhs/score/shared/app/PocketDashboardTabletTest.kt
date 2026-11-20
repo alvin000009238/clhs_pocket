@@ -50,4 +50,40 @@ class PocketDashboardTabletTest {
             assertEquals(listOf(columns, 1), listOf(alerts.columns, alerts.rows), "columns=$columns")
         }
     }
+
+    private fun wide(layout: String, columns: Int, signedIn: Boolean) =
+        PocketDashboard.widgets(layout, columns, clock, signedIn = signedIn, unreadIds = emptySet(), bookmarkedIds = emptySet())
+
+    /** A list set to its one-row size shows one item on iPad too, whatever the row around it does. */
+    @Test
+    fun listItemCountFollowsItsOwnSizeNotThePlacement() {
+        val base = PocketDashboard.defaultLayout()
+        val id = PocketDashboard.instances(base).first { it.type == "announcements" }.id
+        val layout = PocketDashboard.resize(base, id, 4, 1)
+        for (columns in listOf(4, 6, 8)) for (signedIn in listOf(true, false)) {
+            val widget = wide(layout, columns, signedIn).first { it.id == id }
+            assertEquals(1, widget.announcements.size, "columns=$columns signedIn=$signedIn")
+            assertEquals(1, widget.rows, "a list is never taller than its own size, columns=$columns signedIn=$signedIn")
+        }
+    }
+
+    /** Reading the grid top to bottom never meets a widget before one that precedes it in the edit order. */
+    @Test
+    fun wideGridsKeepTheEditOrderTopToBottom() {
+        val base = PocketDashboard.defaultLayout()
+        val weather = PocketDashboard.instances(base).first { it.type == "weather" }.id
+        val count = PocketDashboard.instances(base).count { it.enabled }
+        for (index in 0 until count) {
+            val layout = PocketDashboard.move(base, weather, index)
+            for (columns in listOf(6, 8)) for (signedIn in listOf(true, false)) {
+                val case = "weather at $index, columns=$columns signedIn=$signedIn"
+                val widgets = wide(layout, columns, signedIn)
+                widgets.zipWithNext { a, b -> assertTrue(b.row >= a.row, "${b.type} is above ${a.type}; $case") }
+                val cells = widgets.flatMap { w -> (w.row until w.row + w.rows).flatMap { y -> (w.column until w.column + w.columns).map { x -> x to y } } }
+                val all = (0 until widgets.maxOf { it.row + it.rows }).flatMap { y -> (0 until columns).map { x -> x to y } }
+                assertEquals(all.toSet(), cells.toSet(), "holes; $case")
+                assertEquals(cells.size, cells.toSet().size, "overlap; $case")
+            }
+        }
+    }
 }

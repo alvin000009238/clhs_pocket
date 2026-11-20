@@ -134,13 +134,19 @@ object PocketDashboard {
                 else -> packedItem
             }
             val line = lines.lastOrNull()
-            val fits = line != null && !alone(item) && line.none { slot -> slot.items.any { alone(it) || isList(it) != isList(item) } }
+            // Lists pair only with an equally tall list, so none is stretched beyond its own size.
+            val fits = line != null && !alone(item) && line.none { slot ->
+                slot.items.any { alone(it) || isList(it) != isList(item) || (isList(item) && it.rows != item.rows) }
+            }
             val last = line?.lastOrNull()
+            // Once a slot holds a stack, a new slot beside it would put a later widget above an
+            // earlier one, so the line only accepts more of the stack.
+            val stacked = line?.any { it.items.size > 1 } == true
             if (fits && !isList(item) && last != null && last.width == item.columns &&
                 last.height + item.rows <= line!!.maxOf { it.height }
             ) {
                 last.items += item
-            } else if (fits && line!!.sumOf { it.width } + item.columns <= columns) {
+            } else if (fits && !stacked && line!!.sumOf { it.width } + item.columns <= columns) {
                 line += Slot(item.columns, mutableListOf(item))
             } else {
                 lines += mutableListOf(Slot(item.columns, mutableListOf(item)))
@@ -176,6 +182,7 @@ object PocketDashboard {
         val instances = decode(layout).filter { it.enabled && OverviewWidgetDefinitions[it.type] != null && it.type in symbols }
         val lockedIds = if (signedIn) emptySet() else instances.filter { it.type in privateTypes }.map { it.id }.toSet()
         val placements = place(instances, columns, lockedIds).associateBy { it.id }
+        val ownSizes = OverviewLayoutEngine.pack(instances, columns).associateBy { it.id }
         val overview = DemoCampus.overview(clock)
         return instances.mapNotNull { widget ->
             val place = placements[widget.id] ?: return@mapNotNull null
@@ -183,7 +190,9 @@ object PocketDashboard {
             val config = widget.config()
             val locked = widget.type in privateTypes && !signedIn
             val list = config as? OverviewWidgetConfig.ListItems
-            val shown = list?.let { if (place.rows == 1) 1 else it.limit } ?: 0
+            // Counts follow the size the student chose, not a placement widened or grown to fill a row.
+            val ownRows = ownSizes[widget.id]?.rows ?: place.rows
+            val shown = list?.let { if (ownRows == 1) 1 else it.limit } ?: 0
             val countdown = widget.countdownItem(overview)
             PocketWidget(
                 id = widget.id, type = widget.type, title = definition.title, symbol = symbols.getValue(widget.type),
@@ -226,7 +235,7 @@ object PocketDashboard {
                 events = if (widget.type == "calendar" && list != null) DemoCampus.events(clock, list, shown) else emptyList(),
                 announcements = if (widget.type == "announcements" && list != null)
                     DemoCampus.importantAnnouncements(clock, list, unreadIds, bookmarkedIds).take(shown) else emptyList(),
-                alerts = if (widget.type == "alerts" && !locked) DemoSchedule.alerts(clock).take(place.rows * 2) else emptyList(),
+                alerts = if (widget.type == "alerts" && !locked) DemoSchedule.alerts(clock).take(ownRows * 2) else emptyList(),
             )
         }
     }
