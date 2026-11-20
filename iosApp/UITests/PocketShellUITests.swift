@@ -188,7 +188,9 @@ final class PocketShellUITests: XCTestCase {
         let before = order()
         XCTAssertGreaterThanOrEqual(before.count, 3)
         // With accessibility text sizes only the first widgets fit on screen; drag between two that are.
-        let reachable = before.filter { widgets.matching(identifier: $0).firstMatch.isHittable }
+        // Identifiers repeat (two countdowns, nested elements), so pick two different ones.
+        var seen = Set<String>()
+        let reachable = before.filter { seen.insert($0).inserted && widgets.matching(identifier: $0).firstMatch.isHittable }
         XCTAssertGreaterThanOrEqual(reachable.count, 2)
         let moved = widgets.matching(identifier: reachable[reachable.count - 2]).firstMatch
         let target = widgets.matching(identifier: reachable[reachable.count - 1]).firstMatch
