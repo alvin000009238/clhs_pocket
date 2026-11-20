@@ -145,26 +145,19 @@ class DemoPocketDataSourceTest {
 
     @Test
     fun firstExamAfterAConfirmedEmptyListIsNewButTheFirstCheckNeverIs() {
-        PocketLive.clearAll()
-        try {
-            // First check after sign-in: whatever is listed is only recorded.
-            assertFalse(PocketLive.noteExamListChecked(emptyList(), "114_1|1"))
-            // Already known at the next check.
-            assertFalse(PocketLive.noteExamListChecked(listOf("114_1|1"), "114_1|1"))
-            assertTrue(PocketLive.noteExamListChecked(listOf("114_1|1"), "114_1|2"))
+        // First check after sign-in: whatever is listed is only recorded.
+        assertFalse(PocketLive.isNewExam(null, "114_1|1"))
+        // Already known at the next check.
+        assertFalse(PocketLive.isNewExam(listOf("114_1|1"), "114_1|1"))
+        assertTrue(PocketLive.isNewExam(listOf("114_1|1"), "114_1|2"))
 
-            // A student without exams: the empty list is confirmed, then the first exam appears.
-            PocketLive.clearPrivate()
-            assertFalse(PocketLive.noteExamListChecked(emptyList(), null))
-            assertFalse(PocketLive.noteExamListChecked(emptyList(), null))
-            assertTrue(PocketLive.noteExamListChecked(emptyList(), "114_1|1"))
+        // A student without exams: the empty list is confirmed, then the first exam appears.
+        assertFalse(PocketLive.isNewExam(null, null))
+        assertFalse(PocketLive.isNewExam(emptyList(), null))
+        assertTrue(PocketLive.isNewExam(emptyList(), "114_1|1"))
 
-            // Signing out forgets the baseline.
-            PocketLive.clearPrivate()
-            assertFalse(PocketLive.noteExamListChecked(emptyList(), "114_1|1"))
-        } finally {
-            PocketLive.clearAll()
-        }
+        // A check that failed after listing the new exam did not move the baseline: still new.
+        assertTrue(PocketLive.isNewExam(listOf("114_1|1"), "114_1|2"))
     }
 
     /** Browsing another week in production keeps the current week and finds each by its dates. */

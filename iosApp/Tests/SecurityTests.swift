@@ -39,6 +39,27 @@ private final class MemorySecureStore: NSObject, SecureStore, @unchecked Sendabl
     }
 }
 
+final class GradeCheckBaselineTests: XCTestCase {
+    func testBaselineSurvivesARestartAndBelongsToOneSignIn() throws {
+        let suite = "GradeCheckBaselineTests"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertNil(GradeCheckBaseline(defaults: defaults).exams(authorizationId: "sign-in-1"), "no check completed yet")
+        GradeCheckBaseline(defaults: defaults).save(exams: [], authorizationId: "sign-in-1")
+        // A new instance stands for the next launch; a confirmed empty list is still a baseline.
+        XCTAssertEqual(GradeCheckBaseline(defaults: defaults).exams(authorizationId: "sign-in-1"), [])
+        GradeCheckBaseline(defaults: defaults).save(exams: ["114_1|1"], authorizationId: "sign-in-1")
+        XCTAssertEqual(GradeCheckBaseline(defaults: defaults).exams(authorizationId: "sign-in-1"), ["114_1|1"])
+
+        XCTAssertNil(GradeCheckBaseline(defaults: defaults).exams(authorizationId: "sign-in-2"), "another sign-in starts over")
+        XCTAssertFalse("\(defaults.dictionaryRepresentation())".contains("sign-in-1"), "the authorization id itself is not stored")
+        GradeCheckBaseline(defaults: defaults).clear()
+        XCTAssertNil(GradeCheckBaseline(defaults: defaults).exams(authorizationId: "sign-in-1"))
+    }
+}
+
 final class AppLockSettingTests: XCTestCase {
     private let suite = "AppLockSettingTests"
     private var defaults: UserDefaults!

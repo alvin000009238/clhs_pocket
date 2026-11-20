@@ -18,6 +18,7 @@ final class LiveDataController {
     /// out. They live in the account's protected store, which is also what the settings backup reads.
     private(set) var subjectOverrides: String?
     @ObservationIgnored private var lastGradeCheck: Date?
+    @ObservationIgnored private let gradeBaseline = GradeCheckBaseline()
     /// The one restore of the stored session; foreground and background launches share it.
     @ObservationIgnored private var restoring: Task<Void, Never>?
     /// Whether the announcement list in memory came from the school this launch.
@@ -68,6 +69,9 @@ final class LiveDataController {
     /// callers ask or how early they ask; everyone waits for the same restore to finish.
     func restoreOnce() async {
         if let restoring { return await restoring.value }
+        // Before the first unlock, and on a locked device, the Keychain cannot be read. That is
+        // not a failed restore: nothing is reported and the next caller tries again.
+        guard UIApplication.shared.isProtectedDataAvailable else { return }
         let task = Task { await restore() }
         restoring = task
         await task.value
@@ -117,6 +121,7 @@ final class LiveDataController {
 
     func logout() async throws(PocketError) {
         session = nil
+        gradeBaseline.clear()
         subjectOverrides = nil
         PocketLive.shared.clearPrivate()
         publish()
@@ -125,6 +130,7 @@ final class LiveDataController {
 
     func deleteAllData() async throws(PocketError) {
         session = nil
+        gradeBaseline.clear()
         subjectOverrides = nil
         PocketLive.shared.clearAll()
         publish()
@@ -271,24 +277,34 @@ final class LiveDataController {
     func checkGradeUpdate(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification? {
         guard settings.notificationsEnabled, settings.gradeUpdates else { return nil }
         if let lastGradeCheck, date.timeIntervalSince(lastGradeCheck) < Self.gradeCheckInterval { return nil }
+        // The session and the grade cache are unreadable while the device is locked. The check
+        // waits for the next refresh instead of failing and blocking the following 15 minutes.
+        guard UIApplication.shared.isProtectedDataAvailable else { return nil }
         if session == nil { await restoreOnce() }
         let live = PocketLive.shared
         guard let session else { return nil }
-        lastGradeCheck = date
         do {
             // Android watches one exam the student picked; here the newest exam is watched
             // automatically, so the exam list is refetched first or a new exam would go unnoticed.
-            let known = live.currentTermExamValues()
+            let baseline = gradeBaseline.exams(authorizationId: session.authorizationId)
             let structure = try await backend.call { try await $0.loadStructure(session: session, forceRefresh: true, token: $1) }
             guard self.session?.authorizationId == session.authorizationId else { return nil }
             live.putStructure(items: structure)
-            let newest = live.currentTermExamValues().last
-            // The cached report is the baseline; nothing extra is stored for the comparison. An exam
-            // that was not listed at the previous check has no baseline, even when that check found
-            // no exams at all; the very first check after sign-in only records what exists.
-            let isNewExam = live.noteExamListChecked(knownBefore: known, key: newest)
-            guard let key = newest,
-                  let year = live.yearValueOf(examValue: key), let code = live.examCodeOf(examValue: key) else { return nil }
+            let exams = live.currentTermExamValues()
+            // Only a check that ran to the end moves the baseline and the 15-minute timer.
+            func completed() {
+                gradeBaseline.save(exams: exams, authorizationId: session.authorizationId)
+                lastGradeCheck = date
+            }
+            guard let key = exams.last,
+                  let year = live.yearValueOf(examValue: key), let code = live.examCodeOf(examValue: key) else {
+                completed()
+                return nil
+            }
+            // The cached report is what an exam is compared with. An exam that was not listed at
+            // the last completed check has nothing to compare with, even when that check found no
+            // exams at all; the very first check after sign-in only records what exists.
+            let isNewExam = live.isNewExam(baseline: baseline, key: key)
             let before: GradeReport? = isNewExam ? nil : try await backend.call {
                 try await $0.fetchGrades(session: session, yearValue: year, examValue: code, forceRefresh: false, token: $1)
             }
@@ -297,13 +313,17 @@ final class LiveDataController {
             }
             guard self.session?.authorizationId == session.authorizationId else { return nil }
             live.putReport(yearValue: year, examValue: code, report: after)
+            completed()
             publish()
             return PocketPlatform.shared.gradeChangeNotification(
                 before: before, after: after, studentNo: session.studentNo, yearValue: year, examValue: code,
                 examName: after.examSummary?.examName ?? "", nowMillis: date.epochMillis, settings: settings
             )
         } catch {
-            // A failed background check is not worth an error on screen; the next one retries.
+            // A failed background check is not worth an error on screen and the next one retries,
+            // but a session the school no longer accepts ends here as it does everywhere else.
+            let error = PocketError(error)
+            if error.kind == .authenticationExpired { note(error) }
             return nil
         }
     }
