@@ -2,7 +2,22 @@ import Foundation
 
 /// Identifiers shared by the app and its WidgetKit extension.
 enum PocketPlatformID {
-    static let appGroup = "group.com.clhs.pocket.ios"
+    private static let declaredAppGroup = "group.com.clhs.pocket.ios"
+
+    /// The App Group the app and the widget actually share. Sideloading tools that re-sign with a
+    /// personal team (AltStore) rename the group and list the new names under `ALTAppGroups` in the
+    /// app's Info.plist; the first group this process can open wins, the declared one otherwise.
+    static let appGroup: String = {
+        var bundles = [Bundle.main]
+        // From the widget extension, the containing app is two levels up (…/App.app/PlugIns/X.appex).
+        let host = Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()
+        if Bundle.main.bundleURL.pathExtension == "appex", let app = Bundle(url: host) { bundles.append(app) }
+        let renamed = bundles.flatMap { $0.object(forInfoDictionaryKey: "ALTAppGroups") as? [String] ?? [] }
+            .filter { $0.hasPrefix(declaredAppGroup) }
+        return (renamed + [declaredAppGroup]).first {
+            FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0) != nil
+        } ?? declaredAppGroup
+    }()
     static let scheduleWidgetKind = "PocketScheduleWidget"
     static let snapshotFile = "schedule-snapshot.json"
     static let refreshTask = "com.clhs.pocket.ios.refresh"
