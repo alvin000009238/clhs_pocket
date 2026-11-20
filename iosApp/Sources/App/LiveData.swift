@@ -234,15 +234,17 @@ final class LiveDataController {
         do {
             // Android watches one exam the student picked; here the newest exam is watched
             // automatically, so the exam list is refetched first or a new exam would go unnoticed.
-            let known = Set(live.currentTermExamValues())
+            let known = live.currentTermExamValues()
             let structure = try await backend.call { try await $0.loadStructure(session: session, forceRefresh: true, token: $1) }
             guard self.session?.authorizationId == session.authorizationId else { return nil }
             live.putStructure(items: structure)
-            guard let key = live.currentTermExamValues().last,
-                  let year = live.yearValueOf(examValue: key), let code = live.examCodeOf(examValue: key) else { return nil }
+            let newest = live.currentTermExamValues().last
             // The cached report is the baseline; nothing extra is stored for the comparison. An exam
-            // that was not listed before has no baseline, unless this is the very first check.
-            let isNewExam = !known.isEmpty && !known.contains(key)
+            // that was not listed at the previous check has no baseline, even when that check found
+            // no exams at all; the very first check after sign-in only records what exists.
+            let isNewExam = live.noteExamListChecked(knownBefore: known, key: newest)
+            guard let key = newest,
+                  let year = live.yearValueOf(examValue: key), let code = live.examCodeOf(examValue: key) else { return nil }
             let before: GradeReport? = isNewExam ? nil : try await backend.call {
                 try await $0.fetchGrades(session: session, yearValue: year, examValue: code, forceRefresh: false, token: $1)
             }

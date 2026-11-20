@@ -1,5 +1,6 @@
 package com.clhs.score.shared.app
 
+import kotlin.test.assertFalse
 import com.clhs.score.data.YearTermOption
 import com.clhs.score.data.ExamOption
 import com.clhs.score.data.FakeData
@@ -136,6 +137,30 @@ class DemoPocketDataSourceTest {
         } finally {
             PocketLive.clearAll()
             PocketData.useDemo()
+        }
+    }
+
+    @Test
+    fun firstExamAfterAConfirmedEmptyListIsNewButTheFirstCheckNeverIs() {
+        PocketLive.clearAll()
+        try {
+            // First check after sign-in: whatever is listed is only recorded.
+            assertFalse(PocketLive.noteExamListChecked(emptyList(), "114_1|1"))
+            // Already known at the next check.
+            assertFalse(PocketLive.noteExamListChecked(listOf("114_1|1"), "114_1|1"))
+            assertTrue(PocketLive.noteExamListChecked(listOf("114_1|1"), "114_1|2"))
+
+            // A student without exams: the empty list is confirmed, then the first exam appears.
+            PocketLive.clearPrivate()
+            assertFalse(PocketLive.noteExamListChecked(emptyList(), null))
+            assertFalse(PocketLive.noteExamListChecked(emptyList(), null))
+            assertTrue(PocketLive.noteExamListChecked(emptyList(), "114_1|1"))
+
+            // Signing out forgets the baseline.
+            PocketLive.clearPrivate()
+            assertFalse(PocketLive.noteExamListChecked(emptyList(), "114_1|1"))
+        } finally {
+            PocketLive.clearAll()
         }
     }
 }

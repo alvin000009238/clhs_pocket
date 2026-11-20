@@ -204,6 +204,21 @@ object PocketLive : PocketSource {
     fun currentTermExamValues(): List<String> =
         currentTerm?.let { term -> term.exams.map { PocketExamKey.of(term.value, it.value) } }.orEmpty()
 
+    /** True once a grade check has fetched the exam list for the signed-in student. */
+    private var examListChecked = false
+
+    /**
+     * Call from a grade check right after storing the freshly fetched exam list, with the exam
+     * keys known before it. Returns whether [key] is an exam that appeared since the previous
+     * check. An empty list confirmed by an earlier check is a baseline too, so the first exam a
+     * student ever gets counts as new; the very first check after sign-in never does.
+     */
+    fun noteExamListChecked(knownBefore: List<String>, key: String?): Boolean {
+        val isNew = examListChecked && key != null && key !in knownBefore
+        examListChecked = true
+        return isNew
+    }
+
     /** The term an exam key names, or null when it is unknown. */
     fun yearValueOf(examValue: String): String? = located(examValue)?.first?.value
 
@@ -218,6 +233,7 @@ object PocketLive : PocketSource {
     /** Drops everything that belongs to a signed-in student. Public data stays. */
     fun clearPrivate() {
         structure = emptyList()
+        examListChecked = false
         studentInfo = null
         reports.clear()
         scheduleClasses = emptyList()
