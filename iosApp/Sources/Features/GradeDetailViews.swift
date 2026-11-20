@@ -463,6 +463,25 @@ private struct CreditsSheet: View {
     @Environment(\.dismiss) private var dismiss
     let simulator: PocketSimulator
     @Binding var revision: Int
+    @State private var inferring: Task<Void, Never>?
+
+    /// The search can take a while on a long report card, so it runs off the main actor; only
+    /// applying the finished result touches the simulator, and a cancelled search is dropped.
+    private func startInference() {
+        let search = CreditSearch(simulator: simulator)
+        inferring = Task {
+            let result = await Task.detached(priority: .userInitiated) { search.run() }.value
+            guard !Task.isCancelled else { return }
+            simulator.applyInference(result: result.value)
+            revision += 1
+            inferring = nil
+        }
+    }
+
+    private func cancelInference() {
+        inferring?.cancel()
+        inferring = nil
+    }
 
     var body: some View {
         let state = simulator.state()
@@ -480,6 +499,8 @@ private struct CreditsSheet: View {
                         Stepper(value: Binding(
                             get: { Int(row.credits) },
                             set: { value in
+                                // A manual edit supersedes a search still running for the old credits.
+                                cancelInference()
                                 simulator.setCredits(name: row.name, value: Int32(value))
                                 revision += 1
                             }
@@ -501,11 +522,20 @@ private struct CreditsSheet: View {
                     }
                 }
                 Section {
-                    Button("依校方總分推算學分", systemImage: "wand.and.stars") {
-                        simulator.inferCredits()
-                        revision += 1
+                    if inferring != nil {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text("正在推算學分…").foregroundStyle(PocketColor.onSurfaceVariant)
+                            Spacer()
+                            Button("取消") { cancelInference() }
+                                .accessibilityIdentifier("credits-infer-cancel")
+                        }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("credits-inferring")
+                    } else {
+                        Button("依校方總分推算學分", systemImage: "wand.and.stars") { startInference() }
+                            .accessibilityIdentifier("credits-infer")
                     }
-                    .accessibilityIdentifier("credits-infer")
                     if !state.inferenceText.isEmpty {
                         Text(state.inferenceText).font(.footnote).foregroundStyle(PocketColor.onSurfaceVariant)
                     }
@@ -531,6 +561,7 @@ private struct CreditsSheet: View {
             .background(PocketColor.background.ignoresSafeArea())
             .navigationTitle("學分")
             .navigationBarTitleDisplayMode(.inline)
+            .onDisappear { cancelInference() }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }.accessibilityIdentifier("credits-done")
@@ -538,4 +569,14 @@ private struct CreditsSheet: View {
             }
         }
     }
+}
+
+/// Carries the simulator to the search thread. `computeInference` reads only the immutable report,
+/// so the editable state is never touched off the main actor.
+private struct CreditSearch: @unchecked Sendable {
+    let simulator: PocketSimulator
+
+    struct Result: @unchecked Sendable { let value: PocketCreditInference }
+
+    func run() -> Result { Result(value: simulator.computeInference()) }
 }
