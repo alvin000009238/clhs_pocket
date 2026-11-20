@@ -257,6 +257,7 @@ internal object DemoSchedule {
             )
         }
         val grade = DemoGrades.report(DemoGrades.DEFAULT_EXAM)
+        if (!grade.isLoaded) return changes
         return changes + PocketAlertRow("grade-${grade.examValue}", "${grade.examTitle}成績已公布", grade.termTitle, "chart.bar.fill")
     }
 

@@ -24,7 +24,8 @@ class DemoPocketDataSourceTest {
         val home = source.home(wednesday(10, 35))
         // Unread first, then pinned: the shared announcement priority order.
         assertEquals(listOf("45072", "45068", "45055"), home.announcements.map { it.id })
-        assertEquals(listOf("demo-e1", "demo-e2", "demo-e3"), home.events.map { it.id })
+        // demo-e7 is today's timed event (18:30), so it now sits between the ongoing trip and demo-e2.
+        assertEquals(listOf("demo-e1", "demo-e7", "demo-e2"), home.events.map { it.id })
         assertTrue(home.events.first().isOngoing)
         assertEquals(listOf("8", "51"), home.countdowns.map { it.label })
     }
