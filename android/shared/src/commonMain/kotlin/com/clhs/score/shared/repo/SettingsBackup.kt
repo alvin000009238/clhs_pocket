@@ -200,12 +200,21 @@ class SettingsBackupService(
         try {
             if (includeSubjects) {
                 val session = requireNotNull(expectedSession)
-                val written = cache.saveSubjectOverrides(session.studentNo, requireNotNull(document.subjects)) { vault.isAuthorized(session) }
-                if (!written) throw CancellationException("Session revoked")
+                // The undo is registered before the write: a write that fails after replacing the file
+                // (for example while setting its attributes) has still changed it and must be rolled back.
+                var subjectsTouched = true
                 undo += {
-                    // A revoked session can no longer put its overrides back: that is a failed rollback.
-                    val restored = cache.saveSubjectOverrides(session.studentNo, requireNotNull(previousSubjects)) { vault.isAuthorized(session) }
-                    if (!restored) throw StorageException("Subject overrides could not be restored after revocation")
+                    if (subjectsTouched) {
+                        // A revoked session can no longer put its overrides back: that is a failed rollback.
+                        val restored = cache.saveSubjectOverrides(session.studentNo, requireNotNull(previousSubjects)) { vault.isAuthorized(session) }
+                        if (!restored) throw StorageException("Subject overrides could not be restored after revocation")
+                    }
+                }
+                val written = cache.saveSubjectOverrides(session.studentNo, requireNotNull(document.subjects)) { vault.isAuthorized(session) }
+                if (!written) {
+                    // Refused before anything was written; there is nothing to undo.
+                    subjectsTouched = false
+                    throw CancellationException("Session revoked")
                 }
                 vault.validateSession(session)
             }

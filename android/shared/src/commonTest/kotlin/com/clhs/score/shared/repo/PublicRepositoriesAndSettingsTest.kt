@@ -263,6 +263,25 @@ class PublicRepositoriesAndSettingsTest {
     }
 
     @Test
+    fun overridesWriteThatFailsAfterReplacingTheFileIsRolledBack() = runTest {
+        val rig = backup()
+        val session = rig.vault.establishSession(AuthenticatedSession("DEMO-001", "t", emptyMap()))
+        val previous = listOf(ScheduleSubjectOverride("數學", customTeacherName = "王老師"))
+        rig.cache.saveSubjectOverrides("DEMO-001", previous) { true }
+        rig.settings.save(PocketSettings(themeMode = ThemeMode.LIGHT))
+        // The file is replaced, then setting its attributes fails.
+        files.partialWriteOnce += "${FileStore.SETTINGS}/subject-overrides/"
+
+        val error = assertFailsWith<SettingsRestoreException> {
+            rig.service.restoreJson(androidBackup, includeSubjects = true, expectedSession = session)
+        }
+        assertFalse(error.rollbackFailed)
+        assertEquals("設定匯入失敗，原本的設定已保留", PocketFailure.from(error).message)
+        assertEquals(previous, rig.cache.loadSubjectOverrides("DEMO-001"))
+        assertEquals(ThemeMode.LIGHT, rig.settings.load().themeMode)
+    }
+
+    @Test
     fun revocationDuringImportIsReportedAsAFailedRollback() = runTest {
         val rig = backup()
         val session = rig.vault.establishSession(AuthenticatedSession("DEMO-001", "t", emptyMap()))

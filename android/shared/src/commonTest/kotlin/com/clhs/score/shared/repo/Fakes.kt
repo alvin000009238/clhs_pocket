@@ -35,6 +35,8 @@ internal class FakeFileStore : FileStore {
     val failWrites = HashSet<String>()
     val failDeletes = HashSet<String>()
     val failReads = HashSet<String>()
+    /** The next write below one of these prefixes stores the file and then reports failure. */
+    val partialWriteOnce = HashSet<String>()
     /** Runs inside the next write whose path starts with the key, before the file is stored. */
     val onWrite = HashMap<String, () -> Unit>()
 
@@ -46,6 +48,11 @@ internal class FakeFileStore : FileStore {
 
     override fun write(path: String, text: String, modifiedAtEpochMillis: Long): StoreResult {
         onWrite.keys.firstOrNull { path.startsWith(it) }?.let { onWrite.remove(it)?.invoke() }
+        partialWriteOnce.firstOrNull { path.startsWith(it) }?.let { prefix ->
+            partialWriteOnce.remove(prefix)
+            files[path] = text to modifiedAtEpochMillis
+            return StoreResult.failure("attributes")
+        }
         if (failWrites.matches(path)) return StoreResult.failure("write")
         files[path] = text to modifiedAtEpochMillis
         return StoreResult.ok()
