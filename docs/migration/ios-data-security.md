@@ -18,10 +18,11 @@ Swift 不重複業務邏輯：解析、快取策略、世代檢查與清除順�
 - `URLSessionTransport` 使用 ephemeral 設定，不存 Cookie、不快取、不自動跟隨重新導向。Cookie 只由共用層的 `SchoolSessionState` 依世代管理，因此公開用戶端不可能帶到學校 Cookie。
 - 學校工作階段與 CWA 金鑰只存在 Keychain：`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`、不同步 iCloud。CWA 金鑰只放在 `Authorization` 標頭。
 - 檔案放在 Application Support 的 `PocketData`，排除備份。`private`（學校資料）使用 `.complete`，`public` 與 `settings` 使用 `.completeUntilFirstUserAuthentication`。
+- 測試用啟動參數與腳本化驗證器只編譯進 Debug 建置。
 - 登出、切換帳號、刪除全部資料都先撤銷記憶體中的授權，再清除 Keychain、Cookie、快取與 WebKit 資料。任何一步失敗都會以 `PocketError.kind == .cleanupIncomplete` 回報，並留下標記；標記存在時不會還原舊工作階段，也不能建立新的。
-- App 鎖使用 `LAPolicy.deviceOwnerAuthentication`（Face ID／Touch ID，退回裝置密碼）。啟用時 App 啟動即鎖定，進入背景立即鎖定；開關鎖定都要先通過驗證。
-- `pocketPrivacyProtected(lock:)` 在 App 非作用中時蓋上不透明畫面，App 切換器不會顯示成績或課表。
-- 學校 WebView 使用非持久的 `WKWebsiteDataStore`，主頁面只允許 HTTPS 的 `shcloud2.k12ea.gov.tw`（預設連接埠），拒絕新視窗與下載。登入掛鉤只回報帳號欄位，不讀取密碼。
+- App 鎖使用 `LAPolicy.deviceOwnerAuthentication`（Face ID／Touch ID，退回裝置密碼）。啟用時 App 啟動即鎖定，進入背景立即鎖定；開關鎖定都要先通過驗證。開關存在 Keychain，清除偏好設定或啟動參數無法關閉它。回到前景時只自動要求驗證一次，取消後需由使用者按下解鎖。鎖定期間不載入私人資料、不發布小工具與通知、不處理 Deep Link。App 只有單一場景；未支援多視窗。
+- `pocketPrivacyProtected(lock:)` 在 App 非作用中（含 `willResignActive`）時同步蓋上不透明畫面並收起鍵盤，App 切換器不會顯示成績或課表。
+- 學校 WebView 使用非持久的 `WKWebsiteDataStore`，主頁面只允許 HTTPS 的 `shcloud2.k12ea.gov.tw`（預設連接埠），子框架只允許同一主機或 `about:blank`，並以內容規則封鎖 HTTP 資源與第三方 Cookie；拒絕新視窗與下載。登入掛鉤只回報帳號欄位，不讀取密碼。這些規則未在真實校務網站上驗證（需要臺灣的 IP）。
 
 ## 接入 App
 

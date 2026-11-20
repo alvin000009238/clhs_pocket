@@ -1,6 +1,6 @@
 # iOS 小工具、通知、即時動態與背景更新
 
-本文件記錄 `feat/kmp-ios-widgets-notifications` 的實作範圍、與 Android 的差異，以及哪些行為已在 Simulator 實際執行、哪些僅通過編譯。目前 iOS App 只有示範資料，沒有校務登入；下列功能全部以共用 Kotlin 的示範資料驅動。
+本文件記錄 `feat/kmp-ios-widgets-notifications` 的實作範圍、與 Android 的差異，以及哪些行為已在 Simulator 實際執行、哪些僅通過編譯。正式模式下資料來自登入後的課表與成績、以及公開公告；示範模式使用共用 Kotlin 的示範資料。下列「已在 Simulator 執行」的項目都是以示範資料執行，真實帳號未驗證。
 
 ## 架構
 
@@ -93,8 +93,8 @@ iOS 不保證背景更新會執行；使用者關閉「背景 App 重新整理�
 
 ## 與 Android 尚未對齊的部分
 
-- 通知點擊的解鎖檢查已提供掛點（`PocketPlatformCoordinator.unlockGate`，以及包裝 `AppLockController` 的 `AppLockRouteGate`），課表與成績目的地會先通過它；但外殼尚未持有 `AppLockController`，所以目前沒有安裝，實際上仍只經過登入檢查。
-- 沒有校務連線，段考與公告檢查沒有真實資料來源。
+- 通知點擊的解鎖檢查已提供掛點（`PocketPlatformCoordinator.unlockGate`，以及包裝 `AppLockController` 的 `AppLockRouteGate`），課表與成績目的地會先通過它；`AppModel` 啟動時即安裝。App 鎖定中，通知點擊的一次性權杖會保留到解鎖成功後才兌換；權杖在通知出現 7 天後失效，排程失敗時立即作廢。
+- 段考與公告檢查已接上正式資料來源，但未以真實帳號驗證。訪客不排程背景更新。
 - 設定未納入設定匯入匯出。
 - App Group `group.com.clhs.pocket.ios` 與 Live Activity 在實機上需要對應的開發者帳號設定；目前只在 Simulator 以 ad-hoc 簽署驗證。建置時不可加 `CODE_SIGNING_ALLOWED=NO`，否則 entitlement 不會嵌入，App Group 會失效。
 
