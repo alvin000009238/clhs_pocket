@@ -285,4 +285,106 @@ class SessionAndSchoolRepositoryTest {
         assertEquals(setOf("${FileStore.SETTINGS}/session-cleanup-pending"), files.files.keys)
         assertFailsWith<StorageException> { rig().repository.restoreSession() }
     }
+
+    // C6: authority, serialization and non-cancellable cleanup
+
+    @Test
+    fun restoreThatRacesARevocationGrantsNoAuthority() = runTest {
+        val stored = SessionVault(secure, files).establishSession(login)
+        val vault = SessionVault(secure, files)
+        // Logout revokes while the Keychain read of a restore is still in progress.
+        secure.onRead = { vault.revoke() }
+        assertNull(vault.loadSession())
+        assertFalse(vault.isAuthorized(stored))
+    }
+
+    @Test
+    fun loginRevokedWhileStoringNeitherGrantsAuthorityNorLeavesItsSession() = runTest {
+        val vault = SessionVault(secure, files)
+        secure.onWrite = { vault.revoke() }
+        assertFailsWith<CancellationException> { vault.establishSession(login) }
+        assertTrue(secure.values.isEmpty())
+        assertNull(SessionVault(secure, files).loadSession())
+    }
+
+    @Test
+    fun newLoginRevokesThePreviousAccountBeforeVerifyingCookies() = runTest {
+        var rig: Rig? = null
+        var previousAuthorizedDuringLogin: Boolean? = null
+        var first: AuthenticatedSession? = null
+        rig = rig { request ->
+            first?.let { previousAuthorizedDuringLogin = rig!!.vault.isAuthorized(it) }
+            if (request.method == "GET") response(tokenPage) else response(SchoolFixtures.gradeJson)
+        }
+        first = rig.repository.loginWithCookies("DEMO-001", mapOf("ASP.NET_SessionId" to "one"))
+        rig.repository.fetchGrades(first, "114_1", "期末考")
+
+        val second = rig.repository.loginWithCookies("DEMO-002", mapOf("ASP.NET_SessionId" to "two"))
+        assertEquals(false, previousAuthorizedDuringLogin)
+        assertFalse(rig.vault.isAuthorized(first))
+        assertFailsWith<CancellationException> { rig.repository.fetchGrades(first, "114_1", "期末考") }
+        assertTrue(rig.vault.isAuthorized(second))
+        assertNull(rig.cache.loadGradeReport("DEMO-001", "114_1", "期末考"))
+    }
+
+    @Test
+    fun logoutDuringLoginCancelsItAndNothingOfTheNewAccountIsStored() = runTest {
+        val rig = rig { response(tokenPage) }
+        rig.transport.hold = true
+        val pending = async { runCatching { rig.repository.loginWithCookies("DEMO-002", mapOf("ASP.NET_SessionId" to "two")) } }
+        runCurrent()
+        val call = rig.transport.pending.single()
+
+        val logout = async { account(rig).logout() }
+        runCurrent()
+        call.respond(response(tokenPage))
+        logout.await()
+        assertIs<CancellationException>(pending.await().exceptionOrNull())
+        assertTrue(secure.values.isEmpty())
+        assertNull(SessionVault(secure, files).loadSession())
+    }
+
+    @Test
+    fun cancellingDeleteAllDataStillCompletesEveryCleanupStep() = runTest {
+        val rig = rig()
+        rig.repository.activateSession(rig.vault.establishSession(login))
+        SettingsStore(files) { 0L }.save(PocketSettings(appLockEnabled = true))
+        files.write("${FileStore.PUBLIC}/school-calendar.ics", "x", 0L)
+        var finishWebCleanup: ((Boolean) -> Unit)? = null
+        val service = AccountService(
+            rig.repository, rig.cache, SettingsStore(files) { 0L }, files, secure,
+            object : WebDataCleaner {
+                override fun clear(completion: (Boolean) -> Unit) {
+                    finishWebCleanup = completion
+                }
+            },
+        )
+        val deletion = async { service.deleteAllData() }
+        runCurrent()
+        deletion.cancel()
+        runCurrent()
+        assertNotNull(finishWebCleanup).invoke(true)
+        runCurrent()
+        assertTrue(files.files.isEmpty())
+        assertTrue(secure.values.isEmpty())
+    }
+
+    @Test
+    fun switchAccountSignsOutCompletelyBeforeTheNewLogin() = runTest {
+        val rig = rig { request -> if (request.method == "GET") response(tokenPage) else response(SchoolFixtures.gradeJson) }
+        val first = rig.repository.loginWithCookies("DEMO-001", mapOf("ASP.NET_SessionId" to "one"))
+        rig.repository.fetchGrades(first, "114_1", "期末考")
+        val second = account(rig).switchAccount("DEMO-002", mapOf("ASP.NET_SessionId" to "two"))
+        assertEquals("DEMO-002", second.studentNo)
+        assertFalse(rig.vault.isAuthorized(first))
+        assertTrue(rig.vault.isAuthorized(second))
+        assertTrue(files.area(FileStore.PRIVATE).isEmpty())
+
+        // A failed cleanup stops the switch: the next account is not stored.
+        secure.failDelete = true
+        assertFailsWith<SessionCleanupException> { account(rig).switchAccount("DEMO-003", mapOf("ASP.NET_SessionId" to "three")) }
+        assertFalse(rig.vault.isAuthorized(second))
+        secure.failDelete = false
+        assertNull(SessionVault(secure, files).loadSession())
+    }
 }

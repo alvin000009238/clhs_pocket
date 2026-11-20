@@ -9,10 +9,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlin.concurrent.atomics.AtomicLong
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
-import kotlin.concurrent.atomics.incrementAndFetch
 
 enum class SessionCleanupFailure {
     SESSION_DELETE_FAILED,
@@ -43,10 +41,22 @@ class SessionVault(private val secure: SecureStore, private val files: FileStore
 
     private val json = Json { ignoreUnknownKeys = true }
     private val storageMutex = Mutex()
-    private val generation = AtomicLong(0L)
-    private val authorizationId = AtomicReference<String?>(null)
 
-    fun requestGeneration(): Long = generation.load()
+    /** Generation and authorization change together, so a grant can never outlive a revocation. */
+    private class Authority(val generation: Long, val authorizationId: String?)
+
+    private val authority = AtomicReference(Authority(0L, null))
+
+    fun requestGeneration(): Long = authority.load().generation
+
+    /** Grants [authorizationId] only when nothing revoked the authority since [expectedGeneration]. */
+    private fun grant(expectedGeneration: Long, authorizationId: String): Boolean {
+        while (true) {
+            val current = authority.load()
+            if (current.generation != expectedGeneration) return false
+            if (authority.compareAndSet(current, Authority(current.generation, authorizationId))) return true
+        }
+    }
 
     /** Called only after a new school login; restoring or unlocking never grants authority. */
     suspend fun establishSession(
@@ -55,20 +65,20 @@ class SessionVault(private val secure: SecureStore, private val files: FileStore
     ): AuthenticatedSession = storageMutex.withLock {
         if (hasTombstone()) throw SessionStorageUnavailableException()
         val authenticated = session.copy(authorizationId = randomUuidString())
-        if (expectedGeneration != generation.load()) throw CancellationException("Session revoked")
+        if (expectedGeneration != requestGeneration()) throw CancellationException("Session revoked")
         secure.write(SESSION_KEY, json.encodeToString(StoredSession(authenticated.authorizationId, authenticated)))
             .orThrow("Session write")
-        if (expectedGeneration != generation.load()) {
+        if (!grant(expectedGeneration, authenticated.authorizationId)) {
             // Revoked while writing: the stored copy must not outlive the revocation.
             if (!secure.delete(SESSION_KEY).succeeded) writeTombstone()
             throw CancellationException("Session revoked")
         }
-        authorizationId.store(authenticated.authorizationId)
         authenticated
     }
 
     /** The stored session, or null. Completes a pending cleanup first and never restores across one. */
     suspend fun loadSession(): AuthenticatedSession? = storageMutex.withLock {
+        val expectedGeneration = requestGeneration()
         if (hasTombstone()) {
             deleteStoredSession()
             return@withLock null
@@ -80,12 +90,13 @@ class SessionVault(private val secure: SecureStore, private val files: FileStore
             deleteStoredSession()
             return@withLock null
         }
-        authorizationId.store(stored.authorizationId)
+        // A revocation while the Keychain was read wins; the stored copy is removed by its cleanup.
+        if (!grant(expectedGeneration, stored.authorizationId)) return@withLock null
         stored.session
     }
 
     fun isAuthorized(session: AuthenticatedSession): Boolean =
-        session.authorizationId.isNotBlank() && authorizationId.load() == session.authorizationId
+        session.authorizationId.isNotBlank() && authority.load().authorizationId == session.authorizationId
 
     fun validateSession(session: AuthenticatedSession) {
         if (!isAuthorized(session)) throw CancellationException("Session revoked")
@@ -93,8 +104,10 @@ class SessionVault(private val secure: SecureStore, private val files: FileStore
 
     /** Ends the current authority immediately. Stored data is removed by [clear]. */
     fun revoke() {
-        generation.incrementAndFetch()
-        authorizationId.store(null)
+        while (true) {
+            val current = authority.load()
+            if (authority.compareAndSet(current, Authority(current.generation + 1, null))) return
+        }
     }
 
     /** Deletes the stored session. Throws [StorageException] when it could not be removed. */

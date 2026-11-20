@@ -172,12 +172,12 @@ class AnnouncementsRepository(
         return published == null || published >= cutoff
     }
 
-    private companion object {
-        const val LIST_CACHE = "${FileStore.PUBLIC}/school-announcements.json"
-        const val OPTIONS_CACHE = "${FileStore.PUBLIC}/school-announcement-units.html"
+    internal companion object {
+        private const val LIST_CACHE = "${FileStore.PUBLIC}/school-announcements.json"
+        private const val OPTIONS_CACHE = "${FileStore.PUBLIC}/school-announcement-units.html"
         const val READ_STATE = "${FileStore.SETTINGS}/announcement-read.json"
         const val BOOKMARKS = "${FileStore.SETTINGS}/announcement-bookmarks.json"
-        const val MAX_BOOKMARKS = 500
+        private const val MAX_BOOKMARKS = 500
     }
 }
 

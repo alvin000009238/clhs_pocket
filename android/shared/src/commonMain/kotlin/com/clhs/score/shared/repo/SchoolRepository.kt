@@ -21,6 +21,12 @@ import com.clhs.score.shared.net.PortableSchoolClient
 import com.clhs.score.shared.time.LocalDate
 import com.clhs.score.shared.time.schoolToday
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
@@ -40,6 +46,10 @@ class SchoolRepository(
     private class Active(val session: AuthenticatedSession?, val generation: Long)
 
     private val active = AtomicReference(Active(null, 0L))
+
+    /** Serializes login against logout so their storage steps never interleave. */
+    private val lifecycle = Mutex()
+    private val pendingLogin = AtomicReference<Job?>(null)
 
     private fun setActive(session: AuthenticatedSession?): Long {
         while (true) {
@@ -61,39 +71,73 @@ class SchoolRepository(
         setActive(session)
     }
 
-    /** Verifies cookies from the login web view, stores the session and makes it the active one. */
+    /**
+     * Verifies cookies from the login web view, stores the session and makes it the active one.
+     *
+     * Any previous session is revoked first, so its in-flight requests can neither read the new
+     * cookies nor write into the new account's cache. A [logout] that starts meanwhile cancels the
+     * login, and the new session is never stored once it has been revoked.
+     */
     suspend fun loginWithCookies(studentNo: String, cookies: Map<String, String>): AuthenticatedSession {
+        vault.revoke()
         setActive(null)
         val generation = vault.requestGeneration()
-        cache.clearSchoolData()
-        val verified = client.loginWithCookies(studentNo, cookies)
-        val session = vault.establishSession(verified, generation)
-        // The client holds the verified session without its authorization id; align both.
-        client.restoreSession(session)
-        setActive(session)
-        return session
+        return lifecycle.withLock {
+            coroutineScope {
+                val job = coroutineContext[Job]
+                pendingLogin.store(job)
+                try {
+                    // A logout or another login that started after this one wins.
+                    if (vault.requestGeneration() != generation) throw CancellationException("Session revoked")
+                    client.clearSession()
+                    cache.clearSchoolData()
+                    val verified = client.loginWithCookies(studentNo, cookies)
+                    val session = vault.establishSession(verified, generation)
+                    // The client holds the verified session without its authorization id; align both.
+                    client.restoreSession(session)
+                    setActive(session)
+                    if (!vault.isAuthorized(session)) throw CancellationException("Session revoked")
+                    session
+                } finally {
+                    pendingLogin.compareAndSet(job, null)
+                }
+            }
+        }
+    }
+
+    /** Ends the session in memory at once and cancels a login in progress; storage is left to [logout]. */
+    fun revoke() {
+        vault.revoke()
+        setActive(null)
+        pendingLogin.load()?.cancel(CancellationException("Session revoked"))
     }
 
     /**
      * Revokes the session first, then removes stored credentials, cookies and cached school data.
-     * Throws [SessionCleanupException] naming everything that could not be removed.
+     * Cleanup runs to the end even when the caller is cancelled. Throws [SessionCleanupException]
+     * naming everything that could not be removed.
      */
     suspend fun logout() {
-        vault.revoke()
-        setActive(null)
-        val failures = LinkedHashSet<SessionCleanupFailure>()
-        try {
-            vault.clear()
-        } catch (_: StorageException) {
-            failures += SessionCleanupFailure.SESSION_DELETE_FAILED
+        revoke()
+        withContext(NonCancellable) {
+            lifecycle.withLock {
+                vault.revoke()
+                setActive(null)
+                val failures = LinkedHashSet<SessionCleanupFailure>()
+                try {
+                    vault.clear()
+                } catch (_: StorageException) {
+                    failures += SessionCleanupFailure.SESSION_DELETE_FAILED
+                }
+                client.clearSession()
+                try {
+                    cache.clearSchoolData()
+                } catch (_: StorageException) {
+                    failures += SessionCleanupFailure.PRIVATE_CACHE_DELETE_FAILED
+                }
+                if (failures.isNotEmpty()) throw SessionCleanupException(failures)
+            }
         }
-        client.clearSession()
-        try {
-            cache.clearSchoolData()
-        } catch (_: StorageException) {
-            failures += SessionCleanupFailure.PRIVATE_CACHE_DELETE_FAILED
-        }
-        if (failures.isNotEmpty()) throw SessionCleanupException(failures)
     }
 
     suspend fun loadStructure(session: AuthenticatedSession, forceRefresh: Boolean = false): List<YearTermOption> {

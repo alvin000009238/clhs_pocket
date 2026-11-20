@@ -42,6 +42,11 @@ class PocketApi(private val services: PocketServices) {
     suspend fun loginWithCookies(studentNo: String, cookies: Map<String, String>, token: CancelToken?): AuthenticatedSession =
         pocketCall(token) { services.school.loginWithCookies(studentNo, cookies) }
 
+    /** Complete logout of the current account followed by [loginWithCookies], serialized as one step. */
+    @Throws(Exception::class)
+    suspend fun switchAccount(studentNo: String, cookies: Map<String, String>, token: CancelToken?): AuthenticatedSession =
+        pocketCall(token) { services.account.switchAccount(studentNo, cookies) }
+
     @Throws(Exception::class)
     suspend fun logout(token: CancelToken?) = pocketCall(token) { services.account.logout() }
 

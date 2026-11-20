@@ -6,11 +6,17 @@ internal class FakeSecureStore : SecureStore {
     var failRead = false
     var failWrite = false
     var failDelete = false
+    /** Runs inside the next read or write, to interleave another operation with it. */
+    var onRead: (() -> Unit)? = null
+    var onWrite: (() -> Unit)? = null
 
-    override fun read(key: String): StoreResult =
-        if (failRead) StoreResult.failure("read") else values[key]?.let { StoreResult.value(it, 0L) } ?: StoreResult.ok()
+    override fun read(key: String): StoreResult {
+        onRead?.also { onRead = null }?.invoke()
+        return if (failRead) StoreResult.failure("read") else values[key]?.let { StoreResult.value(it, 0L) } ?: StoreResult.ok()
+    }
 
     override fun write(key: String, value: String): StoreResult {
+        onWrite?.also { onWrite = null }?.invoke()
         if (failWrite) return StoreResult.failure("write")
         values[key] = value
         return StoreResult.ok()
