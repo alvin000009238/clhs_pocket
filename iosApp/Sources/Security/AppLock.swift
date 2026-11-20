@@ -98,6 +98,9 @@ final class AppLockController {
         method = authenticator.method()
     }
 
+    /// Re-reads the available method, e.g. after the user set a passcode in Settings.
+    func refreshMethod() { method = authenticator.method() }
+
     /// Asks for authentication and unlocks only on success. Safe to call repeatedly.
     func unlock() async {
         guard isLocked, !isAuthenticating else { return }
