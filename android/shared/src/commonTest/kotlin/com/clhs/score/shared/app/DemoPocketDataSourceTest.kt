@@ -176,6 +176,10 @@ class DemoPocketDataSourceTest {
             assertEquals("11/23", week(1).days.first().dateText)
             assertFalse(week(2).isAvailable)
             assertFalse(week(-1).isAvailable)
+            // A class that has not loaded yet is empty, not the student's own timetable.
+            assertFalse(PocketScheduleStore.schedule(PocketScheduleScope.CURRENT_WEEK, clock, "101", 0, "[]").isAvailable)
+            PocketLive.putSchedule("101", FakeScheduleData.report("115_1", "101", ScheduleScope.CURRENT_WEEK, today))
+            assertTrue(PocketScheduleStore.schedule(PocketScheduleScope.CURRENT_WEEK, clock, "101", 0, "[]").isAvailable)
         } finally {
             PocketLive.clearAll()
             PocketData.useDemo()

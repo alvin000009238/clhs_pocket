@@ -157,7 +157,9 @@ object PocketLive : PocketSource {
         fun find(value: String) = scheduleKey(scope, value).let { prefix ->
             schedules.entries.firstOrNull { it.key.startsWith(prefix) && it.value.isValidOn(today) }?.value
         }
-        return find(classValue) ?: find("")
+        // Another class that has not loaded (or failed) has no timetable yet; showing the
+        // student's own lessons under that class's name would be wrong.
+        return find(classValue)
     }
     /** [classValue] is empty for the signed-in student's own class. */
     fun putSchedule(classValue: String, report: ScheduleReport) {

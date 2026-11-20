@@ -432,12 +432,36 @@ final class AppModel {
         return try await backend.call { try await $0.exportSettingsJson(session: session, token: $1) }
     }
 
-    /// Validates and applies a backup. The app lock and notification permission are never turned on by an import.
-    func importSettings(_ text: String) async throws(PocketError) {
+    /// What a backup contains, for the confirmation shown before it replaces the settings.
+    struct SettingsImportPreview: Equatable {
+        /// The backup carries custom subject names (it was exported by a signed-in student).
+        let hasSubjects: Bool
+        /// They can be applied: the backup has them and a student is signed in to receive them.
+        let canApplySubjects: Bool
+
+        init(document: SettingsBackupDocument, signedIn: Bool) {
+            hasSubjects = document.subjects != nil
+            canApplySubjects = signedIn && document.subjects != nil
+        }
+    }
+
+    /// Validates a backup without applying anything.
+    func inspectSettings(_ text: String) async throws(PocketError) -> SettingsImportPreview {
         guard let backend = transferBackend else { throw PocketError(kind: .storage, message: "無法存取設定儲存空間") }
-        _ = try await backend.call { try await $0.inspectSettingsJson(text: text, token: $1) }
+        let document = try await backend.call { try await $0.inspectSettingsJson(text: text, token: $1) }
+        let signedIn = usesLiveData && live?.session != nil
+        return SettingsImportPreview(document: document, signedIn: signedIn)
+    }
+
+    /// Validates and applies a backup. The app lock and notification permission are never turned on by an import.
+    /// Custom subject names are applied only when the backup has them, a student is signed in and
+    /// `applySubjects` allows it, so a guest's backup imports cleanly into a signed-in app.
+    func importSettings(_ text: String, applySubjects: Bool = true) async throws(PocketError) {
+        guard let backend = transferBackend else { throw PocketError(kind: .storage, message: "無法存取設定儲存空間") }
+        let preview = try await inspectSettings(text)
         let session = usesLiveData ? live?.session : nil
-        try await backend.call { try await $0.restoreSettingsJson(text: text, includeSubjects: session != nil, session: session, token: $1) }
+        let includeSubjects = applySubjects && preview.canApplySubjects
+        try await backend.call { try await $0.restoreSettingsJson(text: text, includeSubjects: includeSubjects, session: session, token: $1) }
         await account?.reloadSubjectOverrides()
         let restored = try await backend.call { try await $0.loadSettings(token: $1) }
         appearance = switch restored.themeMode {
