@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package com.clhs.score.shared.net
 
 import com.clhs.score.data.AuthenticatedSession
