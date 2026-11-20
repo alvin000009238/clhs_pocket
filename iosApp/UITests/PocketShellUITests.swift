@@ -16,7 +16,8 @@ final class PocketShellUITests: XCTestCase {
             "-resetLocalState", "YES",
             "-hasCompletedOnboarding", onboarded ? "YES" : "NO",
             "-session", session,
-            "-appearance", "system",
+            // TEST_RUNNER_APPEARANCE=dark reruns the flows for the dark-mode screenshots.
+            "-appearance", ProcessInfo.processInfo.environment["APPEARANCE"] ?? "system",
             "-demoClock", "2026-11-18T10:35",
             "-dataMode", dataMode,
             "-lockAuth", lockAuth,
@@ -147,6 +148,7 @@ final class PocketShellUITests: XCTestCase {
         let confirm = app.buttons["sign-out-confirm"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "signing out must ask for confirmation first")
         XCTAssertTrue(app.staticTexts["示範帳號 DEMO-000"].exists, "the account is still signed in until confirmed")
+        capture("18b-sign-out-confirm")
         confirm.tap()
         XCTAssertTrue(app.staticTexts["訪客模式"].waitForExistence(timeout: 5))
         capture("19-personal-guest")
@@ -443,6 +445,16 @@ final class PocketShellUITests: XCTestCase {
 
         open("settings-關於")
         capture("66-settings-about")
+        app.buttons["about-licenses"].tap()
+        let huninn = app.buttons["license-Huninn-OFL"]
+        XCTAssertTrue(huninn.waitForExistence(timeout: 5))
+        capture("66b-settings-licenses")
+        huninn.tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "SIL Open Font License")).firstMatch.waitForExistence(timeout: 5),
+                      "the bundled licence text must load")
+        capture("66c-settings-license-huninn")
+        app.navigationBars.buttons.firstMatch.tap()
+        app.navigationBars.buttons.firstMatch.tap()
         app.navigationBars.buttons.firstMatch.tap()
 
         open("settings-資料管理")
@@ -501,7 +513,8 @@ final class PocketShellUITests: XCTestCase {
 
     private func tab(_ title: String) -> XCUIElement {
         // The iOS 26 tab bar minimises while scrolled down; scroll back to restore it.
-        for _ in 0..<4 where !app.tabBars.buttons[title].exists { app.swipeDown() }
+        // A pull-to-refresh at the top can briefly delay it, so wait before swiping again.
+        for _ in 0..<4 where !app.tabBars.buttons[title].waitForExistence(timeout: 2) { app.swipeDown() }
         let inTabBar = app.tabBars.buttons[title]
         return inTabBar.exists ? inTabBar : app.buttons[title].firstMatch
     }
