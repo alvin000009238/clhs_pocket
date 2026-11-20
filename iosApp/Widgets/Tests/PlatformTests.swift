@@ -73,6 +73,13 @@ final class PlatformTests: XCTestCase {
 
     // MARK: Snapshot contract between Kotlin and the widget
 
+    func testOnlyTheDeclaredAppGroupOrItsTeamSuffixedNameIsAccepted() {
+        XCTAssertTrue(PocketPlatformID.isRenamed("group.com.clhs.pocket.ios"))
+        XCTAssertTrue(PocketPlatformID.isRenamed("group.com.clhs.pocket.ios.ABCDE12345"))
+        XCTAssertFalse(PocketPlatformID.isRenamed("group.com.clhs.pocket.iosother"))
+        XCTAssertFalse(PocketPlatformID.isRenamed("group.com.example"))
+    }
+
     func testSharedSnapshotDecodesInSwiftAndDrivesTheWidgetTimeline() throws {
         let json = try demoJSON(at: lessonTime)
         let snapshot = try XCTUnwrap(ScheduleSnapshot.decode(Data(json.utf8)))

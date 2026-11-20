@@ -106,6 +106,25 @@ final class ProtectedFileStoreTests: XCTestCase {
         XCTAssertEqual(ProtectedFileStore.protection(forArea: "settings"), .completeUntilFirstUserAuthentication)
         XCTAssertTrue(store.write(path: "private/a.json", text: "x", modifiedAtEpochMillis: 0).succeeded)
         XCTAssertEqual(try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+
+        // A root that already existed without the flag gets it on the next write.
+        var existing = root!
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = false
+        try existing.setResourceValues(values)
+        existing.removeAllCachedResourceValues()
+        XCTAssertTrue(store.write(path: "private/b.json", text: "x", modifiedAtEpochMillis: 0).succeeded)
+        existing.removeAllCachedResourceValues()
+        XCTAssertEqual(try existing.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+    }
+
+    func testAnAreaItselfIsNotAFile() {
+        XCTAssertTrue(store.write(path: "private/a.json", text: "x", modifiedAtEpochMillis: 0).succeeded)
+        XCTAssertFalse(store.write(path: "private", text: "x", modifiedAtEpochMillis: 0).succeeded)
+        XCTAssertFalse(store.read(path: "private").succeeded)
+        XCTAssertFalse(store.delete(path: "private").succeeded)
+        XCTAssertTrue(store.read(path: "private/a.json").succeeded, "the area is still there")
+        XCTAssertTrue(store.deleteTree(directory: "private").succeeded)
     }
 
     func testFileSystemErrorsAreReturnedAsFailures() throws {

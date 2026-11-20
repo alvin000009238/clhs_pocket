@@ -28,7 +28,7 @@ final class ProtectedFileStore: NSObject, FileStore, @unchecked Sendable {
 
     func read(path: String) -> StoreResult {
         lock.withLock {
-            guard let url = resolve(path) else { return .companion.failure(message: "Invalid path") }
+            guard let url = resolve(path, file: true) else { return .companion.failure(message: "Invalid path") }
             guard fileManager.fileExists(atPath: url.path) else { return .companion.ok() }
             do {
                 let data = try Data(contentsOf: url)
@@ -47,7 +47,7 @@ final class ProtectedFileStore: NSObject, FileStore, @unchecked Sendable {
 
     func write(path: String, text: String, modifiedAtEpochMillis: Int64) -> StoreResult {
         lock.withLock {
-            guard let url = resolve(path), let area = path.split(separator: "/").first.map(String.init) else {
+            guard let url = resolve(path, file: true), let area = path.split(separator: "/").first.map(String.init) else {
                 return .companion.failure(message: "Invalid path")
             }
             let protection = Self.protection(forArea: area)
@@ -72,7 +72,7 @@ final class ProtectedFileStore: NSObject, FileStore, @unchecked Sendable {
 
     func delete(path: String) -> StoreResult {
         lock.withLock {
-            guard let url = resolve(path) else { return .companion.failure(message: "Invalid path") }
+            guard let url = resolve(path, file: true) else { return .companion.failure(message: "Invalid path") }
             return remove(url)
         }
     }
@@ -97,9 +97,12 @@ final class ProtectedFileStore: NSObject, FileStore, @unchecked Sendable {
     private func prepareDirectories(for file: URL, protection: FileProtectionType) throws {
         if !fileManager.fileExists(atPath: root.path) {
             try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        }
+        // Also for a root that already exists: one made before this rule, or restored without it.
+        var mutableRoot = root
+        if (try? mutableRoot.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup) != true {
             var values = URLResourceValues()
             values.isExcludedFromBackup = true
-            var mutableRoot = root
             try mutableRoot.setResourceValues(values)
         }
         let directory = file.deletingLastPathComponent()
@@ -111,7 +114,9 @@ final class ProtectedFileStore: NSObject, FileStore, @unchecked Sendable {
     }
 
     /// Accepts only `area/name[/name…]` made of plain file-name characters, so no path can leave the root.
-    private func resolve(_ path: String) -> URL? {
+    /// A file is always inside an area; only `deleteTree` may name the area itself.
+    private func resolve(_ path: String, file: Bool = false) -> URL? {
+        if file, path.split(separator: "/", omittingEmptySubsequences: false).count < 2 { return nil }
         let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         let areas = [FileStoreCompanion.shared.PRIVATE, FileStoreCompanion.shared.PUBLIC, FileStoreCompanion.shared.SETTINGS]
         guard let area = parts.first, areas.contains(area), parts.count <= 4 else { return nil }

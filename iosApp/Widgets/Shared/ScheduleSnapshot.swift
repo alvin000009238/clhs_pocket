@@ -7,13 +7,18 @@ enum PocketPlatformID {
     /// The App Group the app and the widget actually share. Sideloading tools that re-sign with a
     /// personal team (AltStore) rename the group and list the new names under `ALTAppGroups` in the
     /// app's Info.plist; the first group this process can open wins, the declared one otherwise.
+    /// The declared group, or it with a team suffix; not another group that merely starts alike.
+    static func isRenamed(_ group: String) -> Bool {
+        group == declaredAppGroup || group.hasPrefix(declaredAppGroup + ".")
+    }
+
     static let appGroup: String = {
         var bundles = [Bundle.main]
         // From the widget extension, the containing app is two levels up (…/App.app/PlugIns/X.appex).
         let host = Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()
         if Bundle.main.bundleURL.pathExtension == "appex", let app = Bundle(url: host) { bundles.append(app) }
         let renamed = bundles.flatMap { $0.object(forInfoDictionaryKey: "ALTAppGroups") as? [String] ?? [] }
-            .filter { $0.hasPrefix(declaredAppGroup) }
+            .filter { PocketPlatformID.isRenamed($0) }
         return (renamed + [declaredAppGroup]).first {
             FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0) != nil
         } ?? declaredAppGroup

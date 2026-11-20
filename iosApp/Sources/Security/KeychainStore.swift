@@ -53,7 +53,11 @@ final class KeychainStore: NSObject, SecureStore, @unchecked Sendable {
 
     func write(key: String, value: String) -> StoreResult {
         let data = Data(value.utf8)
-        var status = operations.update(query(key) as CFDictionary, [kSecValueData: data] as CFDictionary)
+        // The protection class is restated, so an item stored under another one is brought in line.
+        var status = operations.update(
+            query(key) as CFDictionary,
+            [kSecValueData: data, kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly] as CFDictionary
+        )
         if status == errSecItemNotFound {
             var item = query(key)
             item[kSecValueData] = data

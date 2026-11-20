@@ -30,9 +30,11 @@ struct PocketSettingsFile: FileDocument {
         defer {
             if scoped { url.stopAccessingSecurityScopedResource() }
         }
-        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { throw ReadError.unreadable }
-        guard size <= Self.maximumBytes else { throw ReadError.tooLarge }
-        guard let data = try? Data(contentsOf: url) else { throw ReadError.unreadable }
+        // Read at most one byte past the limit: a file provider may not report a size at all.
+        guard let handle = try? FileHandle(forReadingFrom: url) else { throw ReadError.unreadable }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: Self.maximumBytes + 1) else { throw ReadError.unreadable }
+        guard data.count <= Self.maximumBytes else { throw ReadError.tooLarge }
         text = try Self.text(from: data)
     }
 
