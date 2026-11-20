@@ -34,6 +34,16 @@ final class PocketShellUITests: XCTestCase {
         app.launch()
     }
 
+    /// iPad only: the same screen on the wider landscape grid, then back to portrait.
+    private func captureLandscapeOnPad(_ name: String) {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { return }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 1.5)
+        capture(name)
+        XCUIDevice.shared.orientation = .portrait
+        Thread.sleep(forTimeInterval: 1.5)
+    }
+
     func testGuestFirstShellAndFourIndependentStacks() {
         launch(onboarded: false, session: "guest")
         XCTAssertTrue(app.staticTexts["把校園生活放進口袋。"].waitForExistence(timeout: 10))
@@ -59,6 +69,7 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["onboarding-guest"].tap()
         XCTAssertTrue(app.staticTexts["登入後顯示今日課程"].waitForExistence(timeout: 5))
         capture("02-home-guest")
+        captureLandscapeOnPad("02-home-guest-landscape")
 
         tab("課表").tap()
         XCTAssertTrue(app.staticTexts["登入後查看課表"].waitForExistence(timeout: 5))
@@ -83,6 +94,7 @@ final class PocketShellUITests: XCTestCase {
         tab("首頁").tap()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "還有 25 分鐘下課")).firstMatch.waitForExistence(timeout: 5))
         capture("08-home")
+        captureLandscapeOnPad("08-home-landscape")
         app.swipeUp()
         capture("09-home-lower")
 

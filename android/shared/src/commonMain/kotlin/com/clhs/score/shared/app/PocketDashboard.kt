@@ -108,38 +108,61 @@ object PocketDashboard {
 
     /**
      * Phone-width grids use Android's packing unchanged. On wider grids (iPad) the widgets flow in
-     * reading order into rows that are always filled: each row's widgets widen to share the full
-     * width, and list widgets take half the grid so two sit side by side, or the whole row when alone.
-     * Stored sizes are untouched, so the same layout still packs the Android way on a phone.
+     * reading order into rows without holes: each row's widgets widen to share the full width, a
+     * shorter widget stacks under an equally wide neighbour or grows to the row's height, and list
+     * widgets take half the grid so two sit side by side, or the whole row when alone. A [locked]
+     * list is a one-line sign-in note, so it spans the row at one row high instead of being paired
+     * with a tall list. Stored sizes are untouched: the same layout packs the Android way on a phone.
      */
-    internal fun place(instances: List<OverviewWidgetInstance>, columns: Int): List<OverviewPlacement> {
+    internal fun place(
+        instances: List<OverviewWidgetInstance>, columns: Int, locked: Set<String> = emptySet(),
+    ): List<OverviewPlacement> {
         val packed = OverviewLayoutEngine.pack(instances, columns)
         if (columns <= 4) return packed
         val types = instances.associate { it.id to it.type }
         val ownRow = instances.filter { it.ownRow }.map { it.id }.toSet()
         fun isList(item: OverviewPlacement) = types[item.id] in listTypes
-        val lines = mutableListOf<MutableList<OverviewPlacement>>()
-        var used = columns
-        for (item in packed) {
-            val width = if (isList(item)) columns / 2 else item.columns
-            val alone = item.id in ownRow
-            val mixes = lines.lastOrNull()?.let { line -> line.any { isList(it) != isList(item) || it.id in ownRow } } ?: true
-            if (alone || mixes || used + width > columns) { lines.add(mutableListOf()); used = 0 }
-            lines.last().add(item.copy(columns = width))
-            used += width
+        fun alone(item: OverviewPlacement) = item.id in ownRow || (isList(item) && item.id in locked)
+
+        // A line is a row of slots; a slot is one widget or equally wide widgets stacked.
+        class Slot(var width: Int, val items: MutableList<OverviewPlacement>) { val height get() = items.sumOf { it.rows } }
+        val lines = mutableListOf<MutableList<Slot>>()
+        for (packedItem in packed) {
+            val item = when {
+                isList(packedItem) && packedItem.id in locked -> packedItem.copy(columns = columns, rows = 1)
+                isList(packedItem) -> packedItem.copy(columns = columns / 2)
+                else -> packedItem
+            }
+            val line = lines.lastOrNull()
+            val fits = line != null && !alone(item) && line.none { slot -> slot.items.any { alone(it) || isList(it) != isList(item) } }
+            val last = line?.lastOrNull()
+            if (fits && !isList(item) && last != null && last.width == item.columns &&
+                last.height + item.rows <= line!!.maxOf { it.height }
+            ) {
+                last.items += item
+            } else if (fits && line!!.sumOf { it.width } + item.columns <= columns) {
+                line += Slot(item.columns, mutableListOf(item))
+            } else {
+                lines += mutableListOf(Slot(item.columns, mutableListOf(item)))
+            }
         }
         val result = mutableListOf<OverviewPlacement>()
         var row = 0
         for (line in lines) {
-            val widths = line.map { it.columns }.toMutableList()
-            var spare = columns - widths.sum()
+            var spare = columns - line.sumOf { it.width }
             var index = 0
-            while (spare > 0) { widths[index % widths.size]++; spare--; index++ }
-            val height = line.maxOf { it.rows }
+            while (spare > 0) { line[index % line.size].width++; spare--; index++ }
+            val height = line.maxOf { it.height }
             var column = 0
-            line.forEachIndexed { i, item ->
-                result += item.copy(column = column, row = row, columns = widths[i], rows = if (isList(item)) height else item.rows)
-                column += widths[i]
+            for (slot in line) {
+                var y = row
+                slot.items.forEachIndexed { i, item ->
+                    // The last widget of a slot grows to the bottom of the line.
+                    val rows = if (i == slot.items.lastIndex) row + height - y else item.rows
+                    result += item.copy(column = column, row = y, columns = slot.width, rows = rows)
+                    y += rows
+                }
+                column += slot.width
             }
             row += height
         }
@@ -151,7 +174,8 @@ object PocketDashboard {
         unreadIds: Set<String>, bookmarkedIds: Set<String>,
     ): List<PocketWidget> {
         val instances = decode(layout).filter { it.enabled && OverviewWidgetDefinitions[it.type] != null && it.type in symbols }
-        val placements = place(instances, columns).associateBy { it.id }
+        val lockedIds = if (signedIn) emptySet() else instances.filter { it.type in privateTypes }.map { it.id }.toSet()
+        val placements = place(instances, columns, lockedIds).associateBy { it.id }
         val overview = DemoCampus.overview(clock)
         return instances.mapNotNull { widget ->
             val place = placements[widget.id] ?: return@mapNotNull null

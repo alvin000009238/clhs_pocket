@@ -21,22 +21,33 @@ class PocketDashboardTabletTest {
         }
     }
 
-    /** iPad: no row leaves empty columns, lists sit side by side or fill the row, nothing overlaps. */
+    /** iPad, portrait and landscape, signed in and guest: the grid has no holes and nothing overlaps. */
     @Test
-    fun wideGridsFillEveryRow() {
+    fun wideGridsHaveNoHoles() {
         val layout = PocketDashboard.defaultLayout()
-        for (columns in listOf(6, 8)) {
-            val widgets = PocketDashboard.widgets(layout, columns, clock, signedIn = true, unreadIds = emptySet(), bookmarkedIds = emptySet())
+        for (columns in listOf(6, 8)) for (signedIn in listOf(true, false)) {
+            val case = "columns=$columns signedIn=$signedIn"
+            val widgets = PocketDashboard.widgets(layout, columns, clock, signedIn = signedIn, unreadIds = emptySet(), bookmarkedIds = emptySet())
             val cells = widgets.flatMap { w -> (w.row until w.row + w.rows).flatMap { y -> (w.column until w.column + w.columns).map { x -> x to y } } }
-            assertEquals(cells.size, cells.toSet().size, "overlap at columns=$columns")
-            for (w in widgets) assertTrue(w.column >= 0 && w.column + w.columns <= columns, "${w.type} outside the grid")
-            // The first grid row of every widget row is covered edge to edge.
-            for (row in widgets.map { it.row }.toSet()) {
-                assertEquals(columns, widgets.filter { it.row == row }.sumOf { it.columns }, "row $row at columns=$columns")
-            }
+            assertEquals(cells.size, cells.toSet().size, "overlap, $case")
+            val rows = widgets.maxOf { it.row + it.rows }
+            val all = (0 until rows).flatMap { y -> (0 until columns).map { x -> x to y } }.toSet()
+            assertEquals(all, cells.toSet(), "holes, $case")
             val lists = widgets.filter { it.type in setOf("alerts", "calendar", "announcements") }
-            assertTrue(lists.all { it.columns == columns || it.columns == columns / 2 }, "list widths at columns=$columns")
-            assertTrue(lists.any { it.columns == columns / 2 }, "two lists side by side at columns=$columns")
+            assertTrue(lists.all { it.columns == columns || it.columns == columns / 2 }, "list widths, $case")
+            assertTrue(lists.any { it.columns == columns / 2 }, "two lists side by side, $case")
+            // Lists that share a row are equally tall, so neither is stretched around the other.
+            for (group in lists.groupBy { it.row }.values) assertEquals(1, group.map { it.rows }.toSet().size, "paired heights, $case")
+        }
+    }
+
+    /** A guest's locked list is a one-line note: it spans the row instead of matching a tall list. */
+    @Test
+    fun lockedListSpansTheRowAtOneRowHigh() {
+        for (columns in listOf(6, 8)) {
+            val alerts = PocketDashboard.widgets(PocketDashboard.defaultLayout(), columns, clock, signedIn = false, unreadIds = emptySet(), bookmarkedIds = emptySet())
+                .first { it.type == "alerts" }
+            assertEquals(listOf(columns, 1), listOf(alerts.columns, alerts.rows), "columns=$columns")
         }
     }
 }
