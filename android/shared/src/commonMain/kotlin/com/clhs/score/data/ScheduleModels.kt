@@ -3,7 +3,6 @@ package com.clhs.score.data
 import com.clhs.score.shared.time.LOCAL_DATE_TIME_MIN
 import com.clhs.score.shared.time.LocalDate
 import com.clhs.score.shared.time.LocalDateTime
-import com.clhs.score.shared.time.LocalTime
 import com.clhs.score.shared.time.at
 import com.clhs.score.shared.time.compareTo
 import com.clhs.score.shared.time.datePart

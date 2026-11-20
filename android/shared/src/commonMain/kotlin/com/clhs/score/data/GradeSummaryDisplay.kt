@@ -1,16 +1,6 @@
 package com.clhs.score.data
 
-import com.clhs.score.shared.math.BigDecimal
-import com.clhs.score.shared.math.DECIMAL_ZERO
 import com.clhs.score.shared.math.RoundingMode
-import com.clhs.score.shared.math.decimalValueOf
-import com.clhs.score.shared.math.formatFixed
-import com.clhs.score.shared.math.formatLocalizedFixed
-import com.clhs.score.shared.math.minus
-import com.clhs.score.shared.math.plus
-import com.clhs.score.shared.math.times
-import com.clhs.score.shared.math.toPlainDecimalOrNull
-
 
 data class GradeSummaryDisplay(
     val totalText: String = "--",
