@@ -24,6 +24,9 @@ final class PocketPlatformCoordinator: NSObject {
 
     private var pendingLink: PocketDeepLink?
 
+    /// Installed by the app shell: true while the app lock covers the app. Links wait until it opens.
+    var isLocked: (@MainActor () -> Bool)?
+
     /// Mirrors `AppModel.isSignedIn` for background launches, which have no
     /// model. It is the coordinator's own key because `AppModel`'s `session`
     /// default can be shadowed by a launch argument.
@@ -197,8 +200,9 @@ final class PocketPlatformCoordinator: NSObject {
         flushPendingLink()
     }
 
-    private func flushPendingLink() {
-        guard let openLink, let link = pendingLink else { return }
+    /// Opens the held link once the shell exists and the app lock is open.
+    func flushPendingLink() {
+        guard let openLink, let link = pendingLink, isLocked?() != true else { return }
         pendingLink = nil
         openLink(link)
     }
@@ -207,8 +211,11 @@ final class PocketPlatformCoordinator: NSObject {
     /// revoked token opens the app without navigating anywhere, and a
     /// protected destination is only opened after the unlock gate passes.
     func handleNotificationTap(capability: String?) async {
-        guard let capability, let link = notifications.capabilities.consume(capability) else { return }
-        if link.tab.requiresSession, let unlockGate, !(await unlockGate()) { return }
+        // The capability is redeemed only after the gate passes, so a cancelled Face ID prompt
+        // leaves the notification usable.
+        guard let capability, let destination = notifications.capabilities.link(for: capability) else { return }
+        if destination.tab.requiresSession, let unlockGate, !(await unlockGate()) { return }
+        guard let link = notifications.capabilities.consume(capability) else { return }
         route(link)
     }
 
@@ -245,8 +252,10 @@ extension PocketPlatformCoordinator: UNUserNotificationCenterDelegate {
         let action = response.actionIdentifier
         let done = MainThreadCompletion(run: completionHandler)
         Task { @MainActor in
+            // A tap may wait for Face ID; iOS must not be kept waiting for that.
+            if action == UNNotificationDefaultActionIdentifier { done.run() }
             await PocketPlatformCoordinator.shared.handleNotificationResponse(action: action, capability: capability)
-            done.run()
+            if action != UNNotificationDefaultActionIdentifier { done.run() }
         }
     }
 

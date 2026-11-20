@@ -7,11 +7,13 @@ private final class FakeAuthenticator: DeviceAuthenticating, @unchecked Sendable
     nonisolated(unsafe) var outcome: AppLockOutcome = .success
     nonisolated(unsafe) var available: AppLockMethod = .faceID
     nonisolated(unsafe) var prompts = 0
+    nonisolated(unsafe) var delay: Duration?
 
     func method() -> AppLockMethod { available }
 
     func authenticate(reason: String) async -> AppLockOutcome {
         prompts += 1
+        if let delay { try? await Task.sleep(for: delay) }
         return outcome
     }
 }
@@ -92,6 +94,22 @@ final class AppLockSettingTests: XCTestCase {
 
 @MainActor
 final class AppLockControllerTests: XCTestCase {
+    /// A notification tap and the automatic prompt can ask at the same moment.
+    func testConcurrentUnlockCallersShareOnePromptAndItsResult() async {
+        let authenticator = FakeAuthenticator()
+        authenticator.delay = .milliseconds(100)
+        let lock = AppLockController(isEnabled: true, authenticator: authenticator)
+        let gate = AppLockRouteGate(lock: lock)
+
+        async let first: Void = lock.sceneBecameActive()
+        async let second = gate.pass()
+        let passed = await second
+        await first
+        XCTAssertEqual(authenticator.prompts, 1)
+        XCTAssertTrue(passed, "the second caller must see the result of the prompt that was already showing")
+        XCTAssertFalse(lock.isLocked)
+    }
+
     /// The system prompt itself makes the scene inactive and then active again.
     func testCancelledPromptIsNotRepeatedWhenTheSceneBecomesActiveAgain() async {
         let authenticator = FakeAuthenticator()

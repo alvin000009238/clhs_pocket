@@ -95,6 +95,8 @@ final class AppLockController {
     /// itself once per lock (cold start, return from the background); after that the lock
     /// screen's button asks.
     @ObservationIgnored private var promptsOnActivation: Bool
+    /// The prompt in flight; everyone who asks while it is up waits for the same answer.
+    @ObservationIgnored private var unlocking: Task<Void, Never>?
 
     init(isEnabled: Bool, authenticator: DeviceAuthenticating = SystemDeviceAuthenticator()) {
         self.authenticator = authenticator
@@ -111,9 +113,18 @@ final class AppLockController {
         await unlock()
     }
 
-    /// Asks for authentication and unlocks only on success. Safe to call repeatedly.
+    /// Asks for authentication and unlocks only on success. Callers that arrive while a prompt is
+    /// showing wait for its result instead of returning early with the lock still closed.
     func unlock() async {
+        if let unlocking { return await unlocking.value }
         guard isLocked, !isAuthenticating else { return }
+        let attempt = Task { await authenticateToUnlock() }
+        unlocking = attempt
+        await attempt.value
+        unlocking = nil
+    }
+
+    private func authenticateToUnlock() async {
         isAuthenticating = true
         defer { isAuthenticating = false }
         method = authenticator.method()

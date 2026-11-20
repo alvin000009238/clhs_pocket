@@ -320,6 +320,38 @@ final class PlatformTests: XCTestCase {
         XCTAssertTrue(demo.isCourseReminder)
     }
 
+    func testNotificationTapKeepsItsCapabilityUntilTheLockOpensAndHoldsTheLinkWhileLocked() async {
+        let coordinator = PocketPlatformCoordinator.shared
+        let savedGate = coordinator.unlockGate, savedLocked = coordinator.isLocked, savedOpen = coordinator.openLink
+        defer {
+            coordinator.unlockGate = savedGate
+            coordinator.isLocked = savedLocked
+            coordinator.openLink = savedOpen
+        }
+        var opened: [PocketDeepLink] = []
+        var locked = true
+        coordinator.openLink = { opened.append($0) }
+        coordinator.isLocked = { locked }
+        let token = coordinator.notifications.capabilities.issue(for: "tap-test", link: .schedule)
+
+        coordinator.unlockGate = { false }
+        await coordinator.handleNotificationTap(capability: token)
+        XCTAssertTrue(coordinator.notifications.capabilities.isValid(token), "a cancelled prompt must not use the notification up")
+        XCTAssertTrue(opened.isEmpty)
+
+        // A widget link that arrives behind the lock screen waits for the unlock.
+        coordinator.handle(url: PocketPlatformID.scheduleLink)
+        XCTAssertTrue(opened.isEmpty)
+        locked = false
+        coordinator.flushPendingLink()
+        XCTAssertEqual(opened, [.schedule])
+
+        coordinator.unlockGate = { true }
+        await coordinator.handleNotificationTap(capability: token)
+        XCTAssertEqual(opened, [.schedule, .schedule])
+        XCTAssertFalse(coordinator.notifications.capabilities.isValid(token), "the capability is single-use")
+    }
+
     func testPauseActionNeedsALiveCapabilityAndSession() async throws {
         let coordinator = PocketPlatformCoordinator.shared
         let center = coordinator.notifications

@@ -247,6 +247,7 @@ final class AppModel {
         storedClock = fixedClock ?? AppModel.systemClock()
         lock = AppLockController(isEnabled: lockEnabled, authenticator: PocketLaunch.authenticator())
         PocketPlatformCoordinator.shared.unlockGate = AppLockRouteGate(lock: lock).pass
+        PocketPlatformCoordinator.shared.isLocked = { [lock] in lock.isLocked }
         live = PocketLaunch.usesDemoData ? nil : (try? PocketBackend.live()).map(LiveDataController.init)
         syncSource()
         if defaults.string(forKey: Key.dashboard) == nil { dashboardLayout = PocketDashboard.shared.defaultLayout() }

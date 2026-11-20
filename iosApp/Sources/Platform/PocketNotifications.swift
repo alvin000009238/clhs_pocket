@@ -122,6 +122,11 @@ final class NotificationCapabilityStore {
         return entry["link"].flatMap(PocketDeepLink.init(rawValue:))
     }
 
+    /// Where `token` leads, without redeeming it.
+    func link(for token: String) -> PocketDeepLink? {
+        entries[token]?["link"].flatMap(PocketDeepLink.init(rawValue:))
+    }
+
     /// Whether `token` is still outstanding, without redeeming it.
     func isValid(_ token: String) -> Bool { entries[token] != nil }
 

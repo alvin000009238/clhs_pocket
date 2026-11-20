@@ -20,9 +20,13 @@ private struct PocketPlatformHook: ViewModifier {
             }
             // Runs on launch, on every return to the foreground, on sign-in or sign-out, and when
             // the timetable the snapshot is built from arrives or changes.
+            .onChange(of: model.lock.isLocked) { PocketPlatformCoordinator.shared.flushPendingLink() }
             .task(id: RefreshTrigger(
-                active: scenePhase == .active, signedIn: model.isSignedIn, schedule: model.live?.scheduleRevision ?? 0
+                active: scenePhase == .active, signedIn: model.isSignedIn, schedule: model.live?.scheduleRevision ?? 0,
+                locked: model.lock.isLocked
             )) {
+                // Nothing personal is loaded or published while the lock screen is up.
+                guard !model.lock.isLocked else { return }
                 guard scenePhase == .active else {
                     PocketPlatformCoordinator.shared.scheduleBackgroundRefresh()
                     return
@@ -35,5 +39,6 @@ private struct PocketPlatformHook: ViewModifier {
         let active: Bool
         let signedIn: Bool
         let schedule: Int
+        let locked: Bool
     }
 }

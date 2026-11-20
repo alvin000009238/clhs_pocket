@@ -40,9 +40,26 @@ final class PrivacyShield {
     private let state = State()
     private var window: UIWindow?
     private weak var scene: UIWindowScene?
+    private var resignObserver: NSObjectProtocol?
+    /// Cover personal content in the app switcher even when the app lock is off.
+    var coversWhenInactive = true
 
     init(lock: AppLockController) {
         self.lock = lock
+        // SwiftUI reports the scene phase a run loop later, which can be after iOS has taken the
+        // app-switcher snapshot. UIKit's notification arrives first, so the cover goes up here.
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.coverNow() }
+        }
+    }
+
+    private func coverNow() {
+        guard coversWhenInactive || lock.isEnabled else { return }
+        state.showsCover = true
+        apply()
+        window?.layoutIfNeeded()
     }
 
     func attach(to scene: UIWindowScene?) {
@@ -51,9 +68,10 @@ final class PrivacyShield {
         window?.isHidden = true
         let window = UIWindow(windowScene: scene)
         window.windowLevel = .alert + 1
-        window.backgroundColor = .clear
+        // Opaque from the first frame, before SwiftUI has drawn the cover.
+        window.backgroundColor = UIColor(PocketColor.background)
         let host = UIHostingController(rootView: ShieldView(lock: lock, state: state))
-        host.view.backgroundColor = .clear
+        host.view.backgroundColor = UIColor(PocketColor.background)
         window.rootViewController = host
         window.isHidden = true
         self.window = window
@@ -73,6 +91,9 @@ final class PrivacyShield {
         guard let window else { return }
         let shielding = isShielding
         window.isHidden = !shielding
+        // The keyboard has its own window above this one; dismiss it so it cannot type into
+        // or reveal a field under the shield.
+        if shielding { scene?.windows.forEach { $0.endEditing(true) } }
         // Content under the shield must not be reachable by VoiceOver or a hardware keyboard either.
         for other in scene?.windows ?? [] where other !== window {
             other.accessibilityElementsHidden = shielding
@@ -134,7 +155,9 @@ private struct PrivacyProtection: ViewModifier {
     init(lock: AppLockController, coversWhenInactive: Bool) {
         self.lock = lock
         self.coversWhenInactive = coversWhenInactive
-        _shield = State(initialValue: PrivacyShield(lock: lock))
+        let shield = PrivacyShield(lock: lock)
+        shield.coversWhenInactive = coversWhenInactive
+        _shield = State(initialValue: shield)
     }
 
     private var showsCover: Bool {

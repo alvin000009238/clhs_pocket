@@ -21,8 +21,9 @@ struct RootView: View {
             LoginView()
         }
         .pocketPrivacyProtected(lock: model.lock)
-        .task(id: scenePhase) {
-            guard scenePhase == .active else { return }
+        .task(id: [scenePhase == .active, model.lock.isLocked]) {
+            // Personal data is not fetched or decoded behind the lock screen.
+            guard scenePhase == .active, !model.lock.isLocked else { return }
             await model.refreshLiveData()
         }
         .alert("帳號資料", isPresented: Binding(get: { model.accountError != nil }, set: { if !$0 { model.accountError = nil } })) {
