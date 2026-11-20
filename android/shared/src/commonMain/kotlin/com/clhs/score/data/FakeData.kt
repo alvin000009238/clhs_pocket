@@ -1,19 +1,6 @@
 package com.clhs.score.data
 
-import com.clhs.score.shared.time.LocalDate
-import com.clhs.score.shared.time.compareTo
-import com.clhs.score.shared.time.dayNumber
-import com.clhs.score.shared.time.epochDay
-import com.clhs.score.shared.time.localDateOf
-import com.clhs.score.shared.time.monthNumber
 import com.clhs.score.shared.time.parseInstant
-import com.clhs.score.shared.time.parseLocalDate
-import com.clhs.score.shared.time.schoolToday
-import com.clhs.score.shared.time.shiftDays
-import com.clhs.score.shared.time.weekday
-import com.clhs.score.shared.time.isoNumber
-import com.clhs.score.shared.time.yearNumber
-import kotlinx.serialization.json.JsonObject
 
 object FakeData {
     val session = AuthenticatedSession(

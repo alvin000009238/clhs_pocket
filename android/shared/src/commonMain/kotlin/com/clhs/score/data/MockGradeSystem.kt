@@ -75,7 +75,7 @@ object MockGradeSystem {
         customSubjectNames: List<String>? = null,
     ): GradeReport {
         val yearTermDisplay = "$year 學年度 $termText"
-        
+
         val scores = customScores ?: when (scenario) {
             StudentScenario.NORMAL -> listOf(78.0, 75.0, 80.0, 76.0, 70.0, 79.0, 74.0)
             StudentScenario.EXCELLENT -> listOf(95.0, 98.0, 100.0, 92.0, 96.0, 90.0, 94.0)
@@ -88,7 +88,7 @@ object MockGradeSystem {
 
         val subjects = subjectSpecs.zip(scores).mapIndexedNotNull { index, (spec, scoreValue) ->
             if (scoreValue == -999.0) return@mapIndexedNotNull null
-            
+
             val subjectName = customSubjectNames?.getOrNull(index) ?: spec.name
             val classAverage = spec.classAverage
             val isAbsent = scoreValue == -1.0
@@ -135,7 +135,7 @@ object MockGradeSystem {
             ?: computedTotal.setScale(2, RoundingMode.HALF_UP).toPlainString()
         val finalAverageScore = customAverageScore?.let { formatFixed(it, 2) }
             ?: computedAverage.toPlainString()
-        
+
         val finalClassRank = customClassRank ?: when (scenario) {
             StudentScenario.EXCELLENT -> 1.0
             StudentScenario.STRUGGLING -> 35.0

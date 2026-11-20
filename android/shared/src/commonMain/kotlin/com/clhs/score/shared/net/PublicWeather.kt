@@ -15,7 +15,7 @@ import com.clhs.score.shared.time.compareTo
 import com.clhs.score.shared.time.datePart
 import com.clhs.score.shared.time.epochMillis
 import com.clhs.score.shared.time.instantOfEpochMilli
-import com.clhs.score.shared.time.nanosUntil
+import com.clhs.score.shared.time.durationUntil
 import com.clhs.score.shared.time.parseLocalDate
 import com.clhs.score.shared.time.parseLocalTime
 import com.clhs.score.shared.time.schoolDateTimeAt
@@ -32,7 +32,6 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 enum class CwaKeyValidation { VALID, INVALID_FORMAT, INVALID_AUTHORIZATION, API_REJECTED, UNAVAILABLE }
@@ -273,7 +272,7 @@ object WeatherParser {
         val candidates = points.filter { it.first >= reference }.ifEmpty {
             points.filter { it.first.datePart() == reference.datePart() }
         }
-        return candidates.minByOrNull { abs(reference.nanosUntil(it.first)) }?.second
+        return candidates.minByOrNull { reference.durationUntil(it.first).absoluteValue }?.second
     }
 
     private fun JsonArray.periodTimeAt(reference: LocalDateTime): JsonObject? {
