@@ -227,6 +227,51 @@ class PublicClientsTest {
     }
 
     @Test
+    fun icsConvertsFixedOffsetZonesAndRejectsOversizedDurations() {
+        val feed = SchoolCalendarIcs.parse(
+            """
+            BEGIN:VCALENDAR
+            BEGIN:VEVENT
+            UID:utc
+            DTSTART;TZID=UTC:20260901T003000
+            SUMMARY:UTC
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:tokyo
+            DTSTART;TZID=Etc/GMT-9:20260901T093000
+            SUMMARY:Tokyo
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:offset
+            DTSTART;TZID="UTC-05:00":20260831T193000
+            SUMMARY:Offset
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:taipei
+            DTSTART;TZID=Asia/Taipei:20260901T083000
+            DURATION:P99999999999999W
+            SUMMARY:Taipei
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:overflow
+            DTSTART;TZID=Asia/Taipei:20260901T083000
+            DURATION:PT99999999999999999999S
+            SUMMARY:Overflow
+            END:VEVENT
+            END:VCALENDAR
+            """.trimIndent(),
+        )
+        val byId = feed.events.associateBy { it.id }
+        assertEquals(dateTime(2026, 9, 1, 8, 30), byId.getValue("utc").start)
+        assertEquals(dateTime(2026, 9, 1, 8, 30), byId.getValue("tokyo").start)
+        assertEquals(dateTime(2026, 9, 1, 8, 30), byId.getValue("offset").start)
+        assertEquals(dateTime(2026, 9, 1, 8, 30), byId.getValue("taipei").start)
+        // An unusable duration falls back to the default end instead of a wrapped-around value.
+        assertEquals(byId.getValue("taipei").start, byId.getValue("taipei").endExclusive)
+        assertEquals(byId.getValue("overflow").start, byId.getValue("overflow").endExclusive)
+    }
+
+    @Test
     fun icsAppliesDurationDefaultsAndIgnoresNestedAlarms() {
         val feed = SchoolCalendarIcs.parse(
             """
