@@ -597,7 +597,7 @@ private struct ScheduleCellSheet: View {
             Button {
                 let saved = PocketScheduleStore.shared.overrides(overrides: model.scheduleOverrides)
                     .first { $0.original == cell.originalSubject }
-                subject = saved?.subject.isEmpty == false ? saved!.subject : cell.subject
+                subject = saved.flatMap { $0.subject.isEmpty ? nil : $0.subject } ?? cell.subject
                 teacher = saved?.teacher ?? ""
                 classroom = saved?.classroom ?? ""
                 editing = true
