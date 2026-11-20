@@ -583,7 +583,10 @@ struct StudentRecordsView: View {
             .pocketPage()
             }
         }
-        .refreshable { await model.refreshLiveData(force: true) }
+        .refreshable {
+            await model.refreshLiveData(force: true)
+            await loadRecords()
+        }
         .task(id: "\(semester)-\(records.semesters.count)") { await loadRecords() }
     }
 
