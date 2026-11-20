@@ -211,7 +211,8 @@ class OverviewWidgetCoordinatorTest {
             val observation = record(coordinator(weatherRepository = weatherRepository(server)),
                 flowOf(listOf(OverviewWidgetInstance.create("weather", configuration))), refreshes = retry)
             try {
-                observation.await { !it.isInitialLoading && (it.weatherLocations[configuration.resourceKey()] as? OverviewWeatherState.Available)?.snapshot?.temperatureCelsius == 28 }
+                observation.await { !it.isInitialLoading && it.calendarEvents.isNotEmpty() && it.announcements.isNotEmpty() &&
+                    (it.weatherLocations[configuration.resourceKey()] as? OverviewWeatherState.Available)?.snapshot?.temperatureCelsius == 28 }
                 withTimeout(10_000) { retry.subscriptionCount.first { it > 0 } }
                 assertTrue(observation.state.value.manuallyRefreshingWeatherKeys.isEmpty())
                 val before = publicRequests.get()
