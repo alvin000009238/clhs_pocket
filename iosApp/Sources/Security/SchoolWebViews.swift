@@ -483,6 +483,8 @@ struct SchoolLoginScreen: View {
     let isVerifying: Bool
     /// zh-TW failure text from `PocketError.message`.
     let errorMessage: String?
+    /// Bumped by the parent after a failed verification, so the page can be used to sign in again.
+    var loginResetToken = 0
     let onLogin: @MainActor (_ studentNo: String, _ cookies: [String: String]) -> Void
     let onClose: () -> Void
     let onDismissError: () -> Void
@@ -494,7 +496,7 @@ struct SchoolLoginScreen: View {
         VStack(spacing: 0) {
             SchoolWebHeader(page: page, onClose: onClose) { reloadToken += 1 }
             ZStack(alignment: .top) {
-                SchoolLoginWebView(page: $page, reloadToken: reloadToken, onLogin: onLogin)
+                SchoolLoginWebView(page: $page, reloadToken: reloadToken, loginResetToken: loginResetToken, onLogin: onLogin)
                     .ignoresSafeArea(.container, edges: .bottom)
                 if page.loadFailed {
                     SchoolWebLoadFailure { reloadToken += 1 }

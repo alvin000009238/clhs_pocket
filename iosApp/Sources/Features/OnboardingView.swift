@@ -257,11 +257,13 @@ private struct SchoolLoginSheet: View {
     let onSignedIn: () -> Void
     @State private var isVerifying = false
     @State private var message: String?
+    @State private var loginResetToken = 0
 
     var body: some View {
         SchoolLoginScreen(
             isVerifying: isVerifying,
             errorMessage: message,
+            loginResetToken: loginResetToken,
             onLogin: { studentNo, cookies in
                 guard !isVerifying else { return }
                 isVerifying = true
@@ -271,6 +273,8 @@ private struct SchoolLoginSheet: View {
                     if message == nil {
                         dismiss()
                         onSignedIn()
+                    } else {
+                        loginResetToken += 1
                     }
                 }
             },
