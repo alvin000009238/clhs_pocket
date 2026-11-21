@@ -1,5 +1,10 @@
 package com.clhs.score.ui.schedule
 
+import com.clhs.score.ui.rememberPocketOverflowMenuState
+import com.clhs.score.ui.PocketOverflowDropdownMenu
+import com.clhs.score.ui.pocketOverflowMenuAnchor
+import com.clhs.score.ui.PocketOverflowMenuItem
+
 
 import androidx.compose.foundation.layout.Spacer
 
@@ -192,6 +197,7 @@ fun ScheduleScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var showMoreMenu by remember { mutableStateOf(false) }
+    val overflowMenu = rememberPocketOverflowMenuState { showMoreMenu = it }
     val captureLayer = rememberGraphicsLayer()
     val snackbarHostState = remember { SnackbarHostState() }
     var scheduleNow by remember(uiState.report) { mutableStateOf(LocalDateTime.now(SCHOOL_COURSE_ZONE)) }
@@ -270,18 +276,19 @@ fun ScheduleScreen(
                 }
             }
                     IconButton(
+                        modifier = Modifier.pocketOverflowMenuAnchor(overflowMenu),
                         onClick = { showMoreMenu = true },
                         shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
                     ) {
                         OutlinedRoundedSymbol(icon = "more_vert", tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "更多選項")
                     }
-                    DropdownMenu(
+                    PocketOverflowDropdownMenu(state = overflowMenu,
                         expanded = showMoreMenu,
                         onDismissRequest = { showMoreMenu = false },
                         offset = DpOffset(x = 0.dp, y = 10.dp),
                     ) {
                         notificationMenu { showMoreMenu = false }
-                        DropdownMenuItem(
+                        PocketOverflowMenuItem(
                             text = { Text("重新選擇") },
                             onClick = {
                                 onClearSelection()
@@ -289,14 +296,14 @@ fun ScheduleScreen(
                             }
                         )
                         if (!uiState.report?.items.isNullOrEmpty()) {
-                            DropdownMenuItem(
+                            PocketOverflowMenuItem(
                                 text = { Text("自訂科目") },
                                 onClick = {
                                     showMoreMenu = false
                                     onOpenSubjectCustomizations()
                                 },
                             )
-                            DropdownMenuItem(
+                            PocketOverflowMenuItem(
                                 text = { Text("另存為圖片") },
                                 onClick = {
                                     captureLayer.takeIf { it.size.width > 0 && it.size.height > 0 }?.let { layer ->
@@ -320,7 +327,7 @@ fun ScheduleScreen(
                                 }
                             )
 
-                            DropdownMenuItem(
+                            PocketOverflowMenuItem(
                                 text = { Text("新增 Widget") },
                                 onClick = {
                                         val appWidgetManager = android.appwidget.AppWidgetManager.getInstance(context)
