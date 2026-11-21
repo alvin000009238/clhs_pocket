@@ -130,7 +130,6 @@ object OverviewWidgetDefinitions {
 
 fun defaultOverviewWidgets(): List<OverviewWidgetInstance> = listOf(
     OverviewWidgetInstance.create("schedule"),
-    OverviewWidgetInstance.create("alerts"),
     OverviewWidgetInstance.create("weather", OverviewWidgetConfig.Weather())
         .copy(size = OverviewWidgetSize(4, 1)),
     OverviewWidgetInstance.create("calendar", OverviewWidgetConfig.ListItems(3)),

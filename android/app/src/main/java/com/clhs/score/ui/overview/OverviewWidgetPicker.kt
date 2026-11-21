@@ -35,7 +35,7 @@ internal fun OverviewWidgetPicker(
                 Text("選擇元件，再設定內容與尺寸", Modifier.padding(top = 8.dp, bottom = 8.dp),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            items(OverviewWidgetDefinitions.all, key = { it.type }) { definition ->
+            items(OverviewWidgetDefinitions.all.filterNot { it.type == "alerts" }, key = { it.type }) { definition ->
                 val existing = widgets.firstOrNull { it.type == definition.type }
                 val available = definition.multiple || existing == null || !existing.enabled
                 val accent = when (definition.type) {

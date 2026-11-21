@@ -256,12 +256,6 @@ internal fun OverviewWidgetContent(
                     state.announcementsLoading || bookmarksUiState.isLoading, state.announcementsFailed, skeletonRows = limit.coerceAtMost(3))
             }
         }
-        "alerts" -> Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            val alerts = remember(visibleItems) { visibleItems.filter { it.kind.isOverviewAlert() } }
-            OverviewAlerts(alerts, open)
-            if (editing && alerts.isEmpty()) Text("目前沒有課程或成績異動",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
     }
 }
 

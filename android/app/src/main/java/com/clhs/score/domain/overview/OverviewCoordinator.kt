@@ -475,7 +475,7 @@ internal fun scheduleOverviewItems(report: ScheduleReport, now: LocalDateTime): 
                 change.semesterItem?.occurrenceOn(today)?.end?.isAfter(now.atZone(SCHOOL_ZONE).toInstant()) == true
             val date = if (removedToday) today else displayDate
             date?.takeIf { report.isValidOn(it) && change.dayOfWeek == it.dayOfWeek.value }
-                ?.let { change.toOverviewItem(it) }
+                ?.let { change.toOverviewItem(it, today) }
         }
         .forEach { result += it }
 
@@ -536,7 +536,7 @@ internal fun scheduleOverviewHero(report: ScheduleReport, now: LocalDateTime): O
             teacherName = item.teacherName,
             classroom = item.classroom,
             nextCourse = if (current != null) upcoming?.toOverviewCourse(today) else null,
-            scheduleChanges = report.overviewChangesOn(today),
+            scheduleChanges = report.overviewChangesOn(today, today),
             startsAt = periodTime?.let { today.atTime(LocalTime.parse(it.start)) },
             endsAt = periodTime?.let { today.atTime(LocalTime.parse(it.end)) },
             courseProgress = if (current != null && periodTime != null) {
@@ -561,7 +561,7 @@ internal fun scheduleOverviewHero(report: ScheduleReport, now: LocalDateTime): O
         courseKey = OverviewCourseKey(nextDate, first.period),
         teacherName = first.teacherName,
         classroom = first.classroom,
-        scheduleChanges = report.overviewChangesOn(nextDate),
+        scheduleChanges = report.overviewChangesOn(nextDate, today),
         startsAt = PERIOD_TIMES.getOrNull(first.period - 1)?.let { nextDate.atTime(LocalTime.parse(it.start)) },
         endsAt = PERIOD_TIMES.getOrNull(first.period - 1)?.let { nextDate.atTime(LocalTime.parse(it.end)) },
         supportingText = listOf(first.classroom, first.teacherName)
@@ -583,11 +583,11 @@ private fun ScheduleItem.toOverviewCourse(date: LocalDate): OverviewCourse {
     )
 }
 
-private fun ScheduleReport.overviewChangesOn(date: LocalDate): List<OverviewItem> =
+private fun ScheduleReport.overviewChangesOn(date: LocalDate, today: LocalDate): List<OverviewItem> =
     if (!isValidOn(date)) emptyList() else displayChanges()
         .filter { it.dayOfWeek == date.dayOfWeek.value }
         .sortedBy(ScheduleChange::period)
-        .map { it.toOverviewItem(date) }
+        .map { it.toOverviewItem(date, today) }
 
 private fun nextSchoolDayLabel(today: LocalDate, date: LocalDate): String =
     when (val days = ChronoUnit.DAYS.between(today, date)) {
@@ -659,7 +659,7 @@ internal fun gradeOverviewItems(state: GradeReminderState?): List<OverviewItem> 
             priority = OverviewPriority.P2,
             kind = OverviewItemKind.GradeUpdate,
             title = "${changeSet.examName}有 ${changeSet.changes.size} 項更新",
-            supportingText = "查看最新成績與排名變化",
+            supportingText = "查看成績與排名",
             label = "新成績",
             icon = "science",
             destination = OverviewDestination.GradeExam(changeSet.yearValue, changeSet.examValue),
@@ -822,24 +822,26 @@ private fun ScheduleItem.toCourseOverviewItem(
     )
 }
 
-private fun ScheduleChange.toOverviewItem(date: LocalDate): OverviewItem {
+private fun ScheduleChange.toOverviewItem(date: LocalDate, today: LocalDate): OverviewItem {
     val effective = if (type == ScheduleChangeType.REMOVED) semesterItem else weekItem ?: semesterItem
     val action = when (type) {
         ScheduleChangeType.ADDED -> "新增課程"
         ScheduleChangeType.MODIFIED -> "調課"
         ScheduleChangeType.REMOVED -> "停課"
     }
-    val details = modifiedDetails() ?: listOfNotNull(
-        effective?.subjectName?.takeIf(String::isNotBlank),
-        effective?.classroom?.takeIf(String::isNotBlank),
-        effective?.teacherName?.takeIf(String::isNotBlank),
-    ).joinToString(" · ")
+    val details = modifiedDetails() ?: effective?.subjectName.orEmpty()
+    val dayLabel = when (date) {
+        today -> "今日"
+        today.plusDays(1) -> "明日"
+        else -> "週${"一二三四五六日"[date.dayOfWeek.value - 1]}"
+    }
+    val periodLabel = "一二三四五六七八九".getOrNull(period - 1)?.toString() ?: period.toString()
     return OverviewItem(
         id = "schedule-change-$date-$dayOfWeek-$period-$type",
         courseChange = OverviewCourseChange(OverviewCourseKey(date, period), type),
         priority = OverviewPriority.P0,
         kind = OverviewItemKind.ScheduleChange,
-        title = "第 $period 節$action",
+        title = "${dayLabel}第${periodLabel}節$action",
         supportingText = details.ifBlank { "課表已更新" },
         label = "課程異動",
         icon = "swap_vert",
@@ -855,7 +857,7 @@ private fun ScheduleChange.modifiedDetails(): String? {
     fun changed(label: String, old: String, new: String): String? =
         if (old == new) null else "$label${old.ifBlank { "未提供" }} → ${new.ifBlank { "未提供" }}"
     return listOfNotNull(
-        changed("", before.subjectName, after.subjectName),
+        changed("", before.subjectName, after.subjectName) ?: after.subjectName.takeIf(String::isNotBlank),
         changed("教師 ", before.teacherName, after.teacherName),
         changed("教室 ", before.classroom, after.classroom),
     ).joinToString(" · ").takeIf(String::isNotBlank)

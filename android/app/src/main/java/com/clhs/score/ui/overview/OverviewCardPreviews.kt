@@ -137,7 +137,9 @@ private fun OverviewChangeOwnershipPreview(
                 PreviewWidget("schedule", OverviewWidgetConfig.None, OverviewWidgetSize(4, 1), state)
                 PreviewWidget("weather", OverviewWidgetConfig.Weather(), OverviewWidgetSize(4, 1), state,
                     Modifier.fillMaxWidth().height(160.dp))
-                if (separateAlerts) PreviewWidget("alerts", OverviewWidgetConfig.None, OverviewWidgetSize(4, 1), state)
+                if (separateAlerts) state.items.filter { it.kind.isOverviewAlert() }.forEach { item ->
+                    OverviewAlertCard(item) {}
+                }
             }
         }
     }

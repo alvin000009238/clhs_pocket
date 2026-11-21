@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.SegmentedListItem
@@ -57,6 +58,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.clhs.score.domain.overview.OverviewContext
 import com.clhs.score.domain.overview.OverviewDestination
@@ -70,6 +72,7 @@ import com.clhs.score.domain.overview.isPrivate
 import com.clhs.score.ui.OutlinedRoundedSymbol
 import com.clhs.score.ui.RootTopAppBar
 import com.clhs.score.ui.AccountIconButton
+import com.clhs.score.ui.hapticClick
 import com.clhs.score.ui.AuthRestoringPlaceholder
 import com.clhs.score.ui.AuthGate
 import androidx.compose.material3.Button
@@ -231,7 +234,7 @@ private fun OverviewContent(
                 onRefreshYouBike,
             )
             "alerts" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OverviewAlerts(alerts, onOpenDestination)
+                alerts.forEach { item -> OverviewAlertCard(item) { onOpenDestination(item.destination) } }
             }
             "countdown" -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 CountdownCards(state.countdowns, onOpenDestination)
@@ -552,44 +555,42 @@ internal fun OverviewItemKind.isOverviewAlert(): Boolean =
     this == OverviewItemKind.ScheduleChange || this == OverviewItemKind.GradeUpdate
 
 @Composable
-internal fun OverviewAlerts(items: List<OverviewItem>, onOpenDestination: (OverviewDestination) -> Unit) {
-    for (kind in listOf(OverviewItemKind.ScheduleChange, OverviewItemKind.GradeUpdate)) {
-        val group = items.filter { it.kind == kind }
-        if (group.isNotEmpty()) AlertGroup(group, onOpenDestination)
-    }
-}
-
-@Composable
-private fun AlertGroup(items: List<OverviewItem>, onOpenDestination: (OverviewDestination) -> Unit) {
+internal fun OverviewAlertCard(
+    item: OverviewItem,
+    expandStack: Boolean = false,
+    bottomClearance: Dp = 0.dp,
+    onClick: () -> Unit,
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        onClick = hapticClick(onClick),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.90f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
     ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            items.forEachIndexed { index, item ->
-                Surface(
-                    onClick = { onOpenDestination(item.destination) },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    color = Color.Transparent,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        OutlinedRoundedSymbol(
-                            item.icon,
-                            tint = MaterialTheme.colorScheme.primary,
-                            contentDescription = null,
-                        )
-                        ItemText(item, modifier = Modifier.weight(1f))
-                        OutlinedRoundedSymbol("keyboard_arrow_right", size = 18.dp, contentDescription = null)
-                    }
+        Row(
+            Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp + bottomClearance),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
+                Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+                    OutlinedRoundedSymbol(item.icon, tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        contentDescription = null, size = 20.dp)
                 }
-                if (index < items.lastIndex) ListDivider(start = 48.dp)
             }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(item.title, style = MaterialTheme.typography.titleSmall, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis)
+                if (item.supportingText.isNotBlank()) {
+                    Text(item.supportingText, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis)
+                }
+            }
+            OutlinedRoundedSymbol(if (expandStack) "keyboard_arrow_down" else "keyboard_arrow_right",
+                size = 18.dp, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

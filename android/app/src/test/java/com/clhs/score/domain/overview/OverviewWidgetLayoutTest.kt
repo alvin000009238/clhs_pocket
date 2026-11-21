@@ -141,8 +141,8 @@ class OverviewWidgetLayoutTest {
 
     @Test fun defaultsIncludeCompactWeatherAndKeepPersonalWidgetChoicesOptIn() {
         val widgets = defaultOverviewWidgets()
-        assertEquals(listOf("schedule", "alerts", "weather", "calendar", "announcements"), widgets.map { it.type })
-        assertEquals(5, widgets.map { it.id }.toSet().size)
+        assertEquals(listOf("schedule", "weather", "calendar", "announcements"), widgets.map { it.type })
+        assertEquals(widgets.size, widgets.map { it.id }.toSet().size)
         assertTrue(widgets.all { it.enabled && it.config() != null })
         assertEquals(3, (widgets.first { it.type == "calendar" }.config() as OverviewWidgetConfig.ListItems).limit)
         assertEquals(2, (widgets.first { it.type == "announcements" }.config() as OverviewWidgetConfig.ListItems).limit)

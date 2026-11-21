@@ -261,7 +261,7 @@ class OverviewEditorTest {
         val before = vm.editor.value.draft!!
         vm.resetLayout()
         assertTrue(vm.editor.value.canUndoReset)
-        assertEquals(listOf("schedule", "alerts", "weather", "calendar", "announcements"), vm.editor.value.draft!!.map { it.type })
+        assertEquals(listOf("schedule", "weather", "calendar", "announcements"), vm.editor.value.draft!!.map { it.type })
         vm.undoReset()
         assertEquals(before, vm.editor.value.draft)
         assertFalse(vm.editor.value.canUndoReset)

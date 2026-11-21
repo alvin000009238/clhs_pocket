@@ -74,7 +74,7 @@ internal fun OverviewDateTimeHeader(
     val animated by animateFloatAsState(if (docked || forceCompact) 1f else 0f,
         spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
         label = "date-card-morph")
-    val fraction = if (forceCompact) 1f else animated.coerceIn(0f, 1f)
+    val fraction = animated.coerceIn(0f, 1f)
     val headerScroll = with(density) { scrollOffset.toDp() }.coerceIn(0.dp, travel)
     val height = lerp(expandedHeight, compactHeight, fraction)
     val width = lerp(expandedWidth, dockWidth, fraction)

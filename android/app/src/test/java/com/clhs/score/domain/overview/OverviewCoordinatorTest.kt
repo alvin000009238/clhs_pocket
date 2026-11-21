@@ -166,7 +166,7 @@ class OverviewCoordinatorTest {
     fun heroIncludesOnlyChangesForItsDisplayedDateAndDescribesActualChangedFields() {
         val report = weekReport(withChange = true)
         val hero = scheduleOverviewHero(report, monday)!!
-        assertEquals(listOf("教室 202 → 305"), hero.scheduleChanges.map { it.supportingText })
+        assertEquals(listOf("數學 · 教室 202 → 305"), hero.scheduleChanges.map { it.supportingText })
         assertEquals(OverviewDestination.Schedule, hero.scheduleChanges.single().destination)
         assertTrue(scheduleOverviewHero(report, monday.withHour(17))!!.scheduleChanges.isEmpty())
         assertTrue(scheduleOverviewHero(report.copy(changes = emptyList()), monday)!!.scheduleChanges.isEmpty())
@@ -447,9 +447,9 @@ class OverviewCoordinatorTest {
             ScheduleChange(ScheduleChangeType.REMOVED, 1, 1, semesterItem = ScheduleItem(1, 1, "國文")),
         ))
         val beforeClass = monday.withHour(7)
-        assertEquals(listOf("第 1 節停課"), scheduleOverviewItems(report, beforeClass).map { it.title })
+        assertEquals(listOf("今日第一節停課"), scheduleOverviewItems(report, beforeClass).map { it.title })
         val withTomorrow = report.copy(items = listOf(ScheduleItem(2, 1, "英文")))
-        assertEquals(listOf("第 1 節停課"), scheduleOverviewItems(withTomorrow, beforeClass)
+        assertEquals(listOf("今日第一節停課"), scheduleOverviewItems(withTomorrow, beforeClass)
             .filter { it.kind == OverviewItemKind.ScheduleChange }.map { it.title })
         assertTrue(scheduleOverviewItems(report, beforeClass.plusWeeks(1)).isEmpty())
         assertTrue(scheduleOverviewItems(report, beforeClass.withHour(17)).isEmpty())

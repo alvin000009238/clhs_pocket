@@ -105,7 +105,7 @@ class OverviewLayoutRepositoryTest {
         val dao = OverviewTestLayoutDao()
         val repository = OverviewLayoutRepository(dao, settings)
         val defaults = repository.observe().first()
-        assertEquals(listOf("schedule", "alerts", "weather", "calendar", "announcements"), defaults.map { it.type })
+        assertEquals(listOf("schedule", "weather", "calendar", "announcements"), defaults.map { it.type })
         assertFalse(dao.metadata()!!.importedLegacy)
         assertTrue(defaults.all { it.enabled && it.config() != null })
         repository.save(emptyList())
