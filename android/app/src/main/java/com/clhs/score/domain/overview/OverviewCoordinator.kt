@@ -255,7 +255,7 @@ class OverviewCoordinator(
                         emit(OverviewUpdate.Schedule(refreshed, refreshing = false, failed = false))
                     }
                     needsWeeklyBootstrap = false
-                    pendingSnapshot = cachedReport?.takeIf { scheduleRefreshDelayMillis(it, schoolNow()) > 0 }
+                    pendingSnapshot = cachedReport.takeIf { scheduleRefreshDelayMillis(it, schoolNow()) > 0 }
                         ?.let { com.clhs.score.data.CachedScheduleReport(it, clock.instant().toEpochMilli()) }
                 }
             }
