@@ -4,9 +4,30 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import com.clhs.score.ui.PocketOverflowMenuState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PocketOverflowMenuStateTest {
+    @Test
+    fun anchorReleaseKeepsMenuOpenAndEndsPointerOwnership() {
+        val expansion = mutableListOf<Boolean>()
+        var executions = 0
+        val state = PocketOverflowMenuState { expansion += it }
+        state.items += item(Rect(100f, 200f, 300f, 250f)) { executions++ }
+
+        state.start(Offset(120f, 220f))
+        assertEquals(listOf(true), expansion)
+        state.finish(execute = true, keepOpen = true)
+        state.finish(execute = false)
+        state.finish(execute = true)
+
+        assertEquals(listOf(true), expansion)
+        assertEquals(0, executions)
+        assertFalse(state.dragging)
+        assertNull(state.pointer)
+    }
+
     @Test
     fun releaseRunsOnlyTheEnabledItemUnderTheFinalPointerOnce() {
         val expansion = mutableListOf<Boolean>()
@@ -27,7 +48,8 @@ class PocketOverflowMenuStateTest {
     @Test
     fun outsideDisabledAndCancelledReleasesNeverExecute() {
         var executions = 0
-        val state = PocketOverflowMenuState {}
+        val expansion = mutableListOf<Boolean>()
+        val state = PocketOverflowMenuState { expansion += it }
         val target = item(Rect(100f, 200f, 300f, 250f)) { executions++ }
         state.items += target
 
@@ -41,6 +63,7 @@ class PocketOverflowMenuStateTest {
         state.finish(execute = false)
 
         assertEquals(0, executions)
+        assertEquals(listOf(true, false, true, false, true, false), expansion)
     }
 
     @Test

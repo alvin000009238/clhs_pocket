@@ -3,7 +3,6 @@ package com.clhs.score.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.width
@@ -23,6 +22,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.window.PopupProperties
 import com.clhs.score.ui.theme.ScoreTheme
@@ -47,14 +47,14 @@ internal class PocketOverflowMenuState(
         setExpanded(true)
     }
 
-    internal fun finish(execute: Boolean) {
-        val action = if (execute) items.firstOrNull {
+    internal fun finish(execute: Boolean, keepOpen: Boolean = false) {
+        if (!dragging) return
+        val action = if (execute && !keepOpen) items.firstOrNull {
             it.enabled && pointer?.let { position -> it.bounds().contains(position) } == true
         }?.onClick else null
-        val wasDragging = dragging
         dragging = false
         pointer = null
-        if (wasDragging) setExpanded(false)
+        if (!keepOpen) setExpanded(false)
         action?.invoke()
     }
 }
@@ -67,12 +67,11 @@ internal fun Modifier.pocketOverflowMenuAnchor(
     .pointerInput(state, enabled) {
         if (!enabled) return@pointerInput
         awaitEachGesture {
-            // Start after IconButton handles this down; otherwise the long-press waiter sees
-            // that same consumed down in Main and cancels before its timeout can begin.
-            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Main)
-            val held = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+            val down = awaitFirstDown(pass = PointerEventPass.Initial)
             val coordinates = state.anchor?.takeIf { it.isAttached } ?: return@awaitEachGesture
-            state.start(coordinates.localToScreen(held.position))
+            // Own down and up before IconButton can turn this stream into another click.
+            down.consume()
+            state.start(coordinates.localToScreen(down.position))
             try {
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -83,7 +82,8 @@ internal fun Modifier.pocketOverflowMenuAnchor(
                     event.changes.forEach { it.consume() }
                     if (consumed) break
                     if (!change.pressed) {
-                        state.finish(execute = true)
+                        val overAnchor = Rect(Offset.Zero, coordinates.size.toSize()).contains(change.position)
+                        state.finish(execute = true, keepOpen = overAnchor)
                         break
                     }
                 }
