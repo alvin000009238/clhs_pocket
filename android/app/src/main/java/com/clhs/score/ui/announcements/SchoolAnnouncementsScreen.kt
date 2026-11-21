@@ -63,6 +63,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.SnackbarHost
@@ -496,6 +497,17 @@ private fun AnnouncementList(
             contentPadding = readingContentPadding(navigationContentPadding(PaddingValues(start = 16.dp, top = topPadding + 8.dp, end = 16.dp, bottom = 88.dp))),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (uiState.searchQuery.isNotEmpty()) {
+                item(key = "announcement-search-status") {
+                    InputChip(
+                        selected = false,
+                        onClick = onClearSearch,
+                        label = { Text("搜尋：${uiState.searchQuery}", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        trailingIcon = { OutlinedRoundedSymbol("close", contentDescription = null) },
+                        modifier = Modifier.semantics { contentDescription = "清除搜尋：${uiState.searchQuery}" },
+                    )
+                }
+            }
             if (uiState.hasFilters) {
                 item(key = "announcement-filter-status") {
                     TextButton(onClick = onClearFilters) { Text("已套用公告篩選 · 清除") }
