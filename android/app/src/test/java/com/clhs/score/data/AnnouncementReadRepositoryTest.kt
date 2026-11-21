@@ -68,7 +68,7 @@ class AnnouncementReadRepositoryTest {
         reading.markRead("later")
         assertEquals(baseline, metadata.loadState())
         metadata.setEnabled(false)
-        metadata.applySelectedUnitIds(setOf("44"), emptyList(), 123L)
+        metadata.applySelectedUnitIds(setOf("44"), AnnouncementReminderSnapshot(emptyMap()), 123L)
         reading.discover(listOf(notice("later", "2026/10/01")))
         assertTrue(reading.unreadIds.first().isEmpty())
     }
@@ -87,9 +87,9 @@ class AnnouncementReadRepositoryTest {
         assertFalse(reading.discoveryAvailable.value)
         assertNotNull(reading.errorMessage.value)
         dao.fail = false
-        reading.discoverForDisplay(listOf(notice("later", "2026/10/01")))
+        reading.discoverForDisplay(listOf(notice("another-page", "2026/10/01")))
         assertTrue(reading.discoveryAvailable.value)
-        assertTrue("later" in reading.unreadIds.first())
+        assertEquals(unread + setOf("later", "another-page"), reading.unreadIds.first())
     }
 
     @Test fun reminderMutationCannotClearLegacyUnreadBeforeMigrationSucceeds() = runTest {

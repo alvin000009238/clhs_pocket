@@ -172,11 +172,11 @@ fun AppShell(
     val navigator = remember(navigationState) { AppNavigator(navigationState) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
-    fun openAnnouncement(announcement: com.clhs.score.data.SchoolAnnouncement) {
-        if (announcement.contentType.equals("url", ignoreCase = true)) {
-            if (announcement.externalUrl != null) {
-                if (context.openAnnouncementUrl(announcement.externalUrl)) {
-                    announcementReminderViewModel.markRead(announcement.id)
+    fun openAnnouncement(id: String, category: String, externalUrl: String?, isExternal: Boolean) {
+        if (isExternal) {
+            if (externalUrl != null) {
+                if (context.openAnnouncementUrl(externalUrl)) {
+                    announcementReminderViewModel.markRead(id)
                 }
             } else android.widget.Toast.makeText(
                 context,
@@ -184,8 +184,16 @@ fun AppShell(
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
         } else {
-            navigator.navigate(SchoolAnnouncementDetailRoute(announcement.id, announcement.category))
+            navigator.navigate(SchoolAnnouncementDetailRoute(id, category))
         }
+    }
+    fun openAnnouncement(announcement: com.clhs.score.data.SchoolAnnouncement) {
+        openAnnouncement(
+            announcement.id,
+            announcement.category,
+            announcement.externalUrl,
+            announcement.contentType.equals("url", ignoreCase = true),
+        )
     }
     val navigationMotion = PocketMotion.navigation()
     val useFakeData = BuildConfig.USE_FAKE_DATA
@@ -288,6 +296,7 @@ fun AppShell(
         onDismissExportResult()
     }
 
+    var refreshAnnouncementsFromNotification by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(launchTarget, navigator, settings.hasCompletedOnboarding) {
         if (!settings.hasCompletedOnboarding) return@LaunchedEffect
         when (launchTarget) {
@@ -301,7 +310,10 @@ fun AppShell(
             is AppLaunchTarget.Announcement -> navigator.navigate(
                 SchoolAnnouncementDetailRoute(launchTarget.id, launchTarget.category),
             )
-            AppLaunchTarget.Announcements -> navigator.navigate(SchoolAnnouncementsRoute)
+            AppLaunchTarget.Announcements -> {
+                refreshAnnouncementsFromNotification = true
+                navigator.navigate(SchoolAnnouncementsRoute)
+            }
             null -> return@LaunchedEffect
         }
         if (launchTarget !is AppLaunchTarget.GradeExam) onLaunchTargetHandled()
@@ -462,15 +474,9 @@ fun AppShell(
                                     pendingGradeTarget = destination.yearValue to destination.examValue
                                 }
                                 is OverviewDestination.Announcement -> {
-                                    if (destination.externalUrl != null) {
-                                        if (context.openAnnouncementUrl(destination.externalUrl)) {
-                                            announcementReminderViewModel.markRead(destination.id)
-                                        }
-                                    } else {
-                                        navigator.navigate(
-                                            SchoolAnnouncementDetailRoute(destination.id, destination.category),
-                                        )
-                                    }
+                                    openAnnouncement(
+                                        destination.id, destination.category, destination.externalUrl, destination.isExternal,
+                                    )
                                 }
                             }
                         },
@@ -792,6 +798,12 @@ fun AppShell(
                     val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<SchoolAnnouncementsViewModel>(
                         factory = SchoolAnnouncementsViewModel.factory(context),
                     )
+                    LaunchedEffect(refreshAnnouncementsFromNotification) {
+                        if (refreshAnnouncementsFromNotification) {
+                            refreshAnnouncementsFromNotification = false
+                            viewModel.refreshLatest()
+                        }
+                    }
                     val bookmarksViewModel = androidx.lifecycle.viewmodel.compose.viewModel<AnnouncementBookmarksViewModel>(
                         factory = AnnouncementBookmarksViewModel.factory(context),
                     )
@@ -806,7 +818,9 @@ fun AppShell(
                         unreadIds = announcementReminderUiState.unreadIds,
                         isReadingAvailable = announcementReminderUiState.isReadingAvailable,
                         isMarkingAllRead = announcementReminderUiState.isMarkingAllRead,
+                        markedReadSnapshot = announcementReminderUiState.markedReadSnapshot,
                         onMarkAllRead = announcementReminderViewModel::markAllRead,
+                        onMarkedReadSnapshotConsumed = announcementReminderViewModel::consumeMarkedReadSnapshot,
                         onBack = { navigator.goBack() },
                         onRefresh = viewModel::refresh,
                         onLoadMore = viewModel::loadMore,
@@ -832,7 +846,7 @@ fun AppShell(
                     )
                     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
                     LaunchedEffect(uiState.detail?.id) {
-                        uiState.detail?.id?.let(announcementReminderViewModel::markRead)
+                        uiState.detail?.takeUnless { it.isExternal }?.id?.let(announcementReminderViewModel::markRead)
                     }
                     val bookmarksViewModel = androidx.lifecycle.viewmodel.compose.viewModel<AnnouncementBookmarksViewModel>(
                         factory = AnnouncementBookmarksViewModel.factory(context),
@@ -843,6 +857,9 @@ fun AppShell(
                         onBack = { navigator.goBack() },
                         onRetry = viewModel::retry,
                         onOpenUrl = { context.openAnnouncementUrl(it) },
+                        onOpenExternal = { detail ->
+                            openAnnouncement(detail.id, detail.category, detail.externalUrl, isExternal = true)
+                        },
                         officialUrl = schoolAnnouncementOfficialUrl(route.id),
                         isBookmarked = bookmarksState.bookmarks.any { it.id == route.id },
                         onToggleBookmark = {
@@ -850,7 +867,8 @@ fun AppShell(
                                 bookmarksViewModel.toggle(com.clhs.score.data.SchoolAnnouncement(
                                     id = detail.id, title = detail.title, date = detail.date,
                                     category = detail.category, unit = detail.unit, issuer = detail.issuer,
-                                    isPinned = false, contentType = "html",
+                                    isPinned = false, contentType = if (detail.isExternal) "url" else "html",
+                                    externalUrl = detail.externalUrl,
                                 ))
                             }
                         },

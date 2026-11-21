@@ -143,6 +143,7 @@ private fun SchoolAnnouncementsPreview(
     ScoreTheme {
         com.clhs.score.ui.announcements.SchoolAnnouncementsScreen(
             uiState = state,
+            unreadIds = state.announcements.take(1).map { it.id }.toSet(),
             onBack = {},
             onRefresh = {},
             onLoadMore = {},
@@ -169,6 +170,27 @@ private fun SchoolAnnouncementDetailPreview() {
             onRetry = {},
             onOpenUrl = {},
             officialUrl = FakeData.announcementDetail.officialUrl,
+        )
+    }
+}
+
+@Preview(name = "School Announcement External Link", showBackground = true, widthDp = 390, heightDp = 844)
+@Composable
+private fun SchoolAnnouncementExternalLinkPreview() {
+    val detail = FakeData.announcementDetail.copy(
+        isExternal = true,
+        externalUrl = "https://example.org/announcement",
+        htmlContent = "",
+        images = emptyList(),
+        attachments = emptyList(),
+    )
+    ScoreTheme {
+        com.clhs.score.ui.announcements.SchoolAnnouncementDetailScreen(
+            uiState = SchoolAnnouncementDetailUiState(isLoading = false, detail = detail),
+            onBack = {},
+            onRetry = {},
+            onOpenUrl = {},
+            officialUrl = detail.officialUrl,
         )
     }
 }

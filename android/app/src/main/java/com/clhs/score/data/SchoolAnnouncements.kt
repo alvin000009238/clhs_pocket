@@ -83,6 +83,8 @@ data class SchoolAnnouncementDetail(
     val images: List<SchoolAnnouncementImage>,
     val attachments: List<SchoolAnnouncementAttachment>,
     val officialUrl: String,
+    val isExternal: Boolean = false,
+    val externalUrl: String? = null,
 )
 
 class NetworkSchoolAnnouncementsRepository(
@@ -346,12 +348,19 @@ internal object SchoolAnnouncementParser {
         val item = parseArray(source, "Invalid announcement detail").firstOrNull() as? JsonObject
             ?: throw IOException("Invalid announcement detail")
         if (item.int("rcode")?.let { it != 200 } == true) throw IOException("Announcement detail is unavailable")
-        val id = item.string("newsId")?.takeIf(String::isNotBlank) ?: requestedId
-        val decodedHtml = decodePercentEncoded(item.string("content").orEmpty())
+        val responseId = item.string("newsId")?.takeIf(String::isNotBlank)
+        val title = item.string("title")?.takeIf(String::isNotBlank)
+        if ((responseId != null && responseId != requestedId) || (responseId == null && title == null)) {
+            throw IOException("Invalid announcement detail")
+        }
+        val id = requestedId
+        val isExternal = item.string("content_type").equals("url", ignoreCase = true)
+        val content = item.string("content").orEmpty()
+        val decodedHtml = if (isExternal) "" else decodePercentEncoded(content)
         val article = parseArticle(decodedHtml)
         return SchoolAnnouncementDetail(
             id = id,
-            title = item.string("title").orEmpty().ifBlank { "未命名消息" },
+            title = title ?: "未命名消息",
             date = item.string("time").orEmpty(),
             category = categoryHint,
             unit = item.string("unit").orEmpty(),
@@ -360,6 +369,8 @@ internal object SchoolAnnouncementParser {
             images = article.images,
             attachments = parseAttachments(item.string("attachedfile"), id),
             officialUrl = announcementUrl(id),
+            isExternal = isExternal,
+            externalUrl = if (isExternal) safeAnnouncementWebUrl(content) else null,
         )
     }
 

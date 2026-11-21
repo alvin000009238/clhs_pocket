@@ -55,6 +55,8 @@ class AnnouncementReadRepository internal constructor(
     private val metadata: AnnouncementReminderRepository,
     private val today: () -> LocalDate = { LocalDate.now(ZoneId.of("Asia/Taipei")) },
 ) {
+    private val discoveryMutex = Mutex()
+    private val pendingDates = mutableMapOf<String, String>()
     private val migrationMutex = Mutex()
     private var initializedCutoff: LocalDate? = null
     val discoveryAvailable = MutableStateFlow(true)
@@ -75,11 +77,24 @@ class AnnouncementReadRepository internal constructor(
     }
 
     suspend fun discover(announcements: List<SchoolAnnouncement>) {
-        val cutoff = initialize()
-        dao.insertDiscovered(announcements.distinctBy(SchoolAnnouncement::id)
-            .filter { it.id.isNotBlank() && announcementStartsUnread(it.date, cutoff) }
-            .map { AnnouncementReadState(it.id, false) })
-        discoveryAvailable.value = true
+        discoveryMutex.withLock {
+            for (announcement in announcements) {
+                if (announcement.id.isNotBlank() && pendingDates[announcement.id].isNullOrBlank()) {
+                    pendingDates[announcement.id] = announcement.date
+                }
+            }
+            try {
+                val cutoff = initialize()
+                dao.insertDiscovered(pendingDates.mapNotNull { (id, date) ->
+                    if (announcementStartsUnread(date, cutoff)) AnnouncementReadState(id, false) else null
+                })
+                pendingDates.clear()
+                discoveryAvailable.value = true
+            } catch (error: Exception) {
+                if (error !is CancellationException) discoveryAvailable.value = false
+                throw error
+            }
+        }
     }
 
     // Public content remains available when reading-state storage is temporarily unavailable.
@@ -88,7 +103,6 @@ class AnnouncementReadRepository internal constructor(
             discover(announcements)
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            discoveryAvailable.value = false
             errorMessage.value = "無法儲存公告閱讀狀態，請稍後重新整理。"
         }
     }
@@ -118,9 +132,9 @@ class AnnouncementReadRepository internal constructor(
     }
 }
 
-internal fun announcementStartsUnread(date: String, cutoff: LocalDate): Boolean {
-    val published = runCatching {
-        LocalDate.parse(date.trim().substringBefore(' ').substringBefore('T').replace('/', '-'))
-    }.getOrNull()
-    return published == null || !published.isBefore(cutoff)
-}
+internal fun announcementStartsUnread(date: String, cutoff: LocalDate): Boolean =
+    parseAnnouncementDate(date)?.isBefore(cutoff) != true
+
+internal fun parseAnnouncementDate(date: String): LocalDate? = runCatching {
+    LocalDate.parse(date.trim().substringBefore(' ').substringBefore('T').replace('/', '-'))
+}.getOrNull()
