@@ -62,6 +62,21 @@ class SchoolAnnouncementsViewModel(
         loadFirstPage(includeCache = false, keyword = _uiState.value.searchQuery)
     }
 
+    fun refreshLatest() {
+        val current = _uiState.value
+        val isFiltered = current.hasFilters || current.searchQuery.isNotEmpty()
+        if (isFiltered) {
+            _uiState.update {
+                it.copy(
+                    searchQuery = "", unitId = ALL_UNITS_ID, categoryId = ALL_UNITS_ID,
+                    announcements = emptyList(), pageIndex = 0, hasMore = false, lastUpdatedAt = null,
+                    errorMessage = null, noticeMessage = null, loadMoreError = null,
+                )
+            }
+        }
+        loadFirstPage(includeCache = isFiltered || current.lastUpdatedAt == null)
+    }
+
     fun search(keyword: String) {
         val normalizedKeyword = keyword.trim().take(SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH)
         if (normalizedKeyword == _uiState.value.searchQuery) {

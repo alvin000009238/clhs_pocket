@@ -41,7 +41,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
@@ -66,12 +65,12 @@ import com.clhs.score.data.SchoolCalendarEvent
 import com.clhs.score.ui.announcements.AnnouncementCard
 import com.clhs.score.ui.announcements.AnnouncementListFooter
 import com.clhs.score.ui.announcements.orderAnnouncements
-import com.clhs.score.ui.announcements.shouldPrefetchAnnouncements
+import com.clhs.score.ui.announcements.PrefetchAnnouncementPages
+import com.clhs.score.ui.announcements.announcementItemKey
 import com.clhs.score.viewmodel.SchoolAnnouncementsUiState
 import com.clhs.score.viewmodel.SchoolCalendarUiState
 import com.clhs.score.ui.theme.PocketMotion
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.distinctUntilChanged
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -122,10 +121,6 @@ fun CampusSearchScreen(
         orderAnnouncements(announcements.announcements, unreadIds)
     }
     val currentSearch by rememberUpdatedState(onSearch)
-    val currentAnnouncements by rememberUpdatedState(announcements)
-    val currentQuery by rememberUpdatedState(query)
-    val currentFilter by rememberUpdatedState(filter)
-    val currentLoadMore by rememberUpdatedState(onLoadMore)
     val placementMotion = PocketMotion.contentReflow<IntOffset>()
     val effectsMotion = PocketMotion.stateChange<Float>()
 
@@ -145,20 +140,12 @@ fun CampusSearchScreen(
         if (previousFilter != filter) listState.scrollToItem(0)
         previousFilter = filter
     }
-    LaunchedEffect(listState) {
-        snapshotFlow {
-            val state = currentAnnouncements
-            currentFilter != CampusSearchFilter.Calendar &&
-                currentQuery.isNotEmpty() && currentQuery == state.searchQuery &&
-                shouldPrefetchAnnouncements(
-                    state,
-                    listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1,
-                    listState.layoutInfo.totalItemsCount,
-                )
-        }.distinctUntilChanged().collect { shouldLoad ->
-            if (shouldLoad) currentLoadMore()
-        }
-    }
+    PrefetchAnnouncementPages(
+        listState = listState,
+        uiState = announcements,
+        enabled = filter != CampusSearchFilter.Calendar && query.isNotEmpty() && query == announcements.searchQuery,
+        onLoadMore = onLoadMore,
+    )
 
     FloatingSubpageLayout(
         onBack = onBack,
@@ -278,7 +265,7 @@ fun CampusSearchScreen(
                                 announcements.announcements.isEmpty(), "沒有符合的公告", onRetryAnnouncements)
                         }
                         if (!announcementsLoading) {
-                            itemsIndexed(messages, key = { _, announcement -> "announcement-${announcement.id}" }) { index, announcement ->
+                            itemsIndexed(messages, key = { _, announcement -> announcementItemKey(announcement.id) }) { index, announcement ->
                                 AnnouncementCard(
                                     announcement = announcement,
                                     isUnread = announcement.id in unreadIds,

@@ -2,6 +2,7 @@ package com.clhs.score.domain.overview
 
 import com.clhs.score.data.AnnouncementBookmark
 import com.clhs.score.data.SchoolAnnouncement
+import com.clhs.score.data.parseAnnouncementDate
 import java.time.Duration
 import java.time.LocalDate
 
@@ -19,7 +20,7 @@ internal fun OverviewState.importantAnnouncements(
     }
     val comparator = config.announcementPriority.fold(compareBy<SchoolAnnouncement> { 0 }) { order, priority ->
         order.thenByDescending { matches(it.id, it.isPinned, priority) }
-    }.thenByDescending { runCatching { LocalDate.parse(it.date.replace('/', '-')) }.getOrNull() ?: LocalDate.MIN }
+    }.thenByDescending { parseAnnouncementDate(it.date) ?: LocalDate.MIN }
     return candidates.filter { item -> config.announcementPriority.any { matches(item.id, item.isPinned, it) } }
         .sortedWith(comparator).take(config.limit).map(::announcementOverviewItem)
 }

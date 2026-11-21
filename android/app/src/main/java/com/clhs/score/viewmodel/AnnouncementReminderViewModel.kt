@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -42,9 +43,10 @@ data class AnnouncementReminderUiState(
     val isApplyingUnits: Boolean = false,
     val unitApplySucceeded: Boolean? = null,
     val unreadIds: Set<String> = emptySet(),
-    val isReadingAvailable: Boolean = false,
+    val isReadingAvailable: Boolean = true,
     val isMarkingAllRead: Boolean = false,
     val readingError: String? = null,
+    val markedReadSnapshot: Set<String>? = null,
 )
 
 data class AnnouncementReminderCheckResult(
@@ -80,12 +82,30 @@ class AnnouncementReminderViewModel internal constructor(
                 combine(reading.unreadIds, reading.discoveryAvailable) { ids, available -> ids to available }
                     .retryWhen { error, _ ->
                         if (error is CancellationException) throw error
-                        _uiState.update { it.copy(isReadingAvailable = false, readingError = "公告閱讀狀態暫時無法取得，請稍後再試。") }
+                        _uiState.update {
+                            if (it.isReadingAvailable) it.copy(
+                                isReadingAvailable = false,
+                                readingError = "公告閱讀狀態暫時無法取得，請稍後再試。",
+                            ) else it
+                        }
                         delay(5_000.milliseconds)
                         true
                     }.collect { (ids, available) ->
                         _uiState.update { it.copy(unreadIds = ids, isReadingAvailable = available) }
                     }
+            }
+            viewModelScope.launch {
+                reading.discoveryAvailable.collectLatest { available ->
+                    if (available) return@collectLatest
+                    while (!reading.discoveryAvailable.value) {
+                        delay(5_000.milliseconds)
+                        try {
+                            reading.discover(emptyList())
+                        } catch (error: Exception) {
+                            if (error is CancellationException) throw error
+                        }
+                    }
+                }
             }
             viewModelScope.launch {
                 reading.errorMessage.collect { message ->
@@ -139,8 +159,8 @@ class AnnouncementReminderViewModel internal constructor(
             _uiState.update { it.copy(isChecking = true, checkResult = null) }
             try {
                 val state = repository.loadState()
-                val announcements = loadSnapshot(state.selectedUnitIds, emptySet())
-                readRepository?.discover(announcements)
+                val announcements = loadSnapshot(state.selectedUnitIds)
+                readRepository?.discover(announcements.announcements)
                 repository.enableWithBaseline(state.selectedUnitIds, announcements, System.currentTimeMillis())
                 analyticsLogger.logEvent(
                     AnalyticsEvents.ANNOUNCEMENT_REMINDER_START,
@@ -169,8 +189,8 @@ class AnnouncementReminderViewModel internal constructor(
         unitApplyJob = viewModelScope.launch {
             _uiState.update { it.copy(isApplyingUnits = true, unitApplySucceeded = null) }
             try {
-                val announcements = loadSnapshot(unitIds, emptySet())
-                readRepository?.discover(announcements)
+                val announcements = loadSnapshot(unitIds)
+                readRepository?.discover(announcements.announcements)
                 repository.applySelectedUnitIds(unitIds, announcements, System.currentTimeMillis())
                 _uiState.update { it.copy(isApplyingUnits = false, unitApplySucceeded = true) }
             } catch (error: Exception) {
@@ -205,6 +225,7 @@ class AnnouncementReminderViewModel internal constructor(
         viewModelScope.launch {
             try {
                 reading.markAllRead(snapshot)
+                _uiState.update { it.copy(markedReadSnapshot = snapshot) }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 _uiState.update { it.copy(readingError = "無法將公告全部標為已讀，請稍後再試。") }
@@ -212,6 +233,10 @@ class AnnouncementReminderViewModel internal constructor(
                 _uiState.update { it.copy(isMarkingAllRead = false) }
             }
         }
+    }
+
+    fun consumeMarkedReadSnapshot() {
+        _uiState.update { it.copy(markedReadSnapshot = null) }
     }
 
     fun consumeReadingError() {
@@ -225,10 +250,8 @@ class AnnouncementReminderViewModel internal constructor(
 
     private suspend fun loadSnapshot(
         selectedUnitIds: Set<String>,
-        knownIds: Set<String>,
     ) = loadAnnouncementReminderSnapshot(
         selectedUnitIds = selectedUnitIds,
-        knownIds = knownIds,
         loadPage = { pageIndex, unitId ->
             announcementsRepository.loadPage(pageIndex = pageIndex, unitId = unitId)
         },

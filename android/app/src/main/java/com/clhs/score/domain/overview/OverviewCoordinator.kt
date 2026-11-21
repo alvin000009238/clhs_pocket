@@ -17,6 +17,7 @@ import com.clhs.score.data.displayChanges
 import com.clhs.score.data.displayItems
 import com.clhs.score.data.SchoolAnnouncementPage
 import com.clhs.score.data.SchoolAnnouncement
+import com.clhs.score.data.parseAnnouncementDate
 import com.clhs.score.data.SchoolCalendarEvent
 import com.clhs.score.data.SchoolCalendarSnapshot
 import com.clhs.score.data.parseYearTermOrNull
@@ -628,9 +629,14 @@ internal fun announcementOverviewItem(announcement: SchoolAnnouncement): Overvie
         title = announcement.title,
         supportingText = listOf(announcement.unit, announcement.date).filter(String::isNotBlank).joinToString(" · "),
         label = if (announcement.isPinned) "置頂公告" else "公告",
-        displayDate = runCatching { LocalDate.parse(announcement.date.replace('/', '-')) }.getOrNull(),
+        displayDate = parseAnnouncementDate(announcement.date),
         icon = "campaign",
-        destination = OverviewDestination.Announcement(announcement.id, announcement.category, announcement.externalUrl),
+        destination = OverviewDestination.Announcement(
+            announcement.id,
+            announcement.category,
+            announcement.externalUrl,
+            isExternal = announcement.contentType.equals("url", ignoreCase = true),
+        ),
         order = 60,
     )
 
