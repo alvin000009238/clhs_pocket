@@ -2,7 +2,6 @@ package com.clhs.score.ui.schedule
 
 import com.clhs.score.ui.navigation.navigationContentPadding
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.layout.Arrangement
@@ -131,6 +130,7 @@ fun ScheduleCustomizationsScreen(
         when {
             state.isLoading || state.loadFailed || state.overrides.isEmpty() -> Column(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(contentPadding),
+                verticalArrangement = if (state.isLoading || state.loadFailed) Arrangement.Top else Arrangement.Center,
             ) {
                 when {
                     state.isLoading -> LoadingCustomizationList()
@@ -304,10 +304,14 @@ private fun CustomizationRow(
     onRestore: () -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onEdit),
+        onClick = onEdit,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = enabled,
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            disabledContentColor = MaterialTheme.colorScheme.onSurface,
         ),
     ) {
         Row(

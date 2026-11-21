@@ -415,8 +415,8 @@ private fun CalendarEventCard(
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(
                 modifier = Modifier.weight(1f),
@@ -552,7 +552,7 @@ private fun eventTimeText(event: SchoolCalendarEvent): String {
     if (event.isAllDay) {
         val lastDate = event.endExclusive.toLocalDate().minusDays(1)
         return if (lastDate > event.start.toLocalDate()) {
-            "全天\n${event.start.monthValue}/${event.start.dayOfMonth}－${lastDate.monthValue}/${lastDate.dayOfMonth}"
+            "全天 ${event.start.monthValue}/${event.start.dayOfMonth}－${lastDate.monthValue}/${lastDate.dayOfMonth}"
         } else {
             "全天"
         }
