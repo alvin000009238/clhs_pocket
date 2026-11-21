@@ -208,6 +208,7 @@ fun GradesScreen(
     }
     var showGradeSelection by rememberSaveable { mutableStateOf(false) }
     var showMoreMenu by rememberSaveable { mutableStateOf(false) }
+    val overflowMenu = rememberPocketOverflowMenuState { showMoreMenu = it }
     var showGradeReminderDetails by rememberSaveable { mutableStateOf(false) }
     var showExportDialog by rememberSaveable { mutableStateOf(false) }
     var notificationsAvailable by remember {
@@ -420,7 +421,7 @@ fun GradesScreen(
                     Box {
                         IconButton(
                             onClick = { showMoreMenu = true },
-                            modifier = Modifier.semantics {
+                            modifier = Modifier.pocketOverflowMenuAnchor(overflowMenu).semantics {
                                 if (summaryDisplay.needsCreditAttention) stateDescription = "學分待確認"
                             },
                             shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
@@ -433,12 +434,12 @@ fun GradesScreen(
                                 )
                             }
                         }
-                        DropdownMenu(
+                        PocketOverflowDropdownMenu(state = overflowMenu,
                             expanded = showMoreMenu,
                             onDismissRequest = { showMoreMenu = false },
                             offset = DpOffset(x = 0.dp, y = 10.dp),
                         ) {
-                            DropdownMenuItem(
+                            PocketOverflowMenuItem(
                                 text = { Text("學分設定") },
                                 trailingIcon = { if (summaryDisplay.needsCreditAttention) Badge() },
                                 modifier = Modifier.semantics {
@@ -450,14 +451,14 @@ fun GradesScreen(
                                     onOpenCreditSettings()
                                 },
                             )
-                            DropdownMenuItem(
+                            PocketOverflowMenuItem(
                                 text = { Text("段考更新提醒") },
                                 onClick = {
                                     showMoreMenu = false
                                     showGradeReminderDetails = true
                                 },
                             )
-                            DropdownMenuItem(
+                            PocketOverflowMenuItem(
                                 text = { Text("匯出成績") },
                                 enabled = !state.isExporting,
                                 onClick = {
