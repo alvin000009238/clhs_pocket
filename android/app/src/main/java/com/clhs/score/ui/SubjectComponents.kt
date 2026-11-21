@@ -40,13 +40,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.clhs.score.data.GradeStandard
 import com.clhs.score.data.SubjectAnalysis
 import com.clhs.score.data.cleanSubjectName
@@ -146,33 +142,33 @@ internal fun SubjectCard(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-                val buildRankString: (Int?, Int?, String) -> AnnotatedString = { rank, count, scope ->
-                    val rankStr = formatRank(rank?.toDouble(), count, true)
-                    val pctStr = subjectPercentLabel(rank, count, scope)
-                    buildAnnotatedString {
-                        append(rankStr)
-                        if (rankStr != "--" && pctStr != "--") {
-                            withStyle(SpanStyle(color = onSurfaceVariant, fontSize = 12.sp)) {
-                                append(" • $pctStr")
-                            }
-                        }
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val ranks: @Composable (Modifier) -> Unit = { modifier ->
+                    SubjectRankChip(
+                        modifier = modifier,
+                        label = "班排",
+                        rank = subject.classRank,
+                        count = subject.classRankCount,
+                        scope = "班級",
+                    )
+                    if (subject.yearRank != null) {
+                        SubjectRankChip(
+                            modifier = modifier,
+                            label = "校排",
+                            rank = subject.yearRank,
+                            count = subject.yearRankCount,
+                            scope = "年級",
+                        )
                     }
                 }
-
-                InfoChip(
-                    modifier = Modifier.weight(1f),
-                    label = "班排",
-                    value = buildRankString(subject.classRank, subject.classRankCount, "班級"),
-                )
-
-                if (subject.yearRank != null) {
-                    InfoChip(
-                        modifier = Modifier.weight(1f),
-                        label = "校排",
-                        value = buildRankString(subject.yearRank, subject.yearRankCount, "年級"),
-                    )
+                if (maxWidth < 260.dp * density.fontScale) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ranks(Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ranks(Modifier.weight(1f))
+                    }
                 }
             }
 
@@ -209,6 +205,36 @@ internal fun SubjectCard(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SubjectRankChip(
+    modifier: Modifier,
+    label: String,
+    rank: Int?,
+    count: Int?,
+    scope: String,
+) {
+    val rankLabel = formatRank(rank?.toDouble(), count, true)
+    val percentile = subjectPercentLabel(rank, count, scope)
+    Column(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            text = rankLabel,
+            style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            softWrap = false,
+        )
+        if (rankLabel != "--" && percentile != "--") {
+            Text(percentile, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
