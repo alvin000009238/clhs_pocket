@@ -1,5 +1,10 @@
 package com.clhs.score.ui.schedule
 
+import com.clhs.score.ui.rememberPocketOverflowMenuState
+import com.clhs.score.ui.PocketOverflowDropdownMenu
+import com.clhs.score.ui.pocketOverflowMenuAnchor
+import com.clhs.score.ui.PocketOverflowMenuItem
+
 import com.clhs.score.ui.navigation.navigationContentPadding
 
 import androidx.compose.foundation.clickable
@@ -26,8 +31,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -86,6 +89,7 @@ fun ScheduleCustomizationsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var showMoreMenu by remember { mutableStateOf(false) }
+    val overflowMenu = rememberPocketOverflowMenuState { showMoreMenu = it }
     var showRestoreAllDialog by remember { mutableStateOf(false) }
     var editingOverride by remember { mutableStateOf<ScheduleSubjectOverride?>(null) }
 
@@ -102,17 +106,18 @@ fun ScheduleCustomizationsScreen(
         actions = {
             if (state.overrides.isNotEmpty()) {
                 IconButton(
+                    modifier = Modifier.pocketOverflowMenuAnchor(overflowMenu, !state.isSaving),
                     onClick = { showMoreMenu = true },
                     enabled = !state.isSaving,
                     shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
                 ) {
                     OutlinedRoundedSymbol("more_vert", contentDescription = "更多選項")
                 }
-                DropdownMenu(offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
+                PocketOverflowDropdownMenu(state = overflowMenu, offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
                     expanded = showMoreMenu,
                     onDismissRequest = { showMoreMenu = false },
                 ) {
-                    DropdownMenuItem(
+                    PocketOverflowMenuItem(
                         text = { Text("全部還原") },
                         onClick = {
                             showMoreMenu = false
