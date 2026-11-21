@@ -4,6 +4,17 @@
 )
 
 package com.clhs.score.ui
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.animation.Crossfade
 
 import com.clhs.score.ui.theme.pocketMeshBackground
 
@@ -186,7 +197,15 @@ fun GradesScreen(
     val waitingForNotificationGrant = rememberSaveable { mutableStateOf(false) }
     val waitingForBatteryOptimizationGrant = rememberSaveable { mutableStateOf(false) }
     var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
+    var showGradeTabs by rememberSaveable { mutableStateOf(false) }
+    val currentShowGradeTabs by rememberUpdatedState(showGradeTabs)
+    var navigationBounds by remember { mutableStateOf(Rect.Zero) }
+    var contentPosition by remember { mutableStateOf(Offset.Zero) }
     val navigationCompact = com.clhs.score.ui.navigation.LocalNavigationCompact.current
+    val expandNavigation = com.clhs.score.ui.navigation.LocalExpandNavigation.current
+    LaunchedEffect(navigationCompact) {
+        if (navigationCompact) showGradeTabs = false
+    }
     var showMoreMenu by rememberSaveable { mutableStateOf(false) }
     var showGradeReminderDetails by rememberSaveable { mutableStateOf(false) }
     var showExportDialog by rememberSaveable { mutableStateOf(false) }
@@ -213,6 +232,7 @@ fun GradesScreen(
         else -> overviewScrollState
     }
     com.clhs.score.ui.navigation.RegisterRootScroll {
+        showGradeTabs = false
         if (currentScrollState.value > 0) currentScrollState.animateScrollTo(0)
     }
     fun refreshReminderPrerequisites() {
@@ -258,6 +278,7 @@ fun GradesScreen(
     DisposableEffect(lifecycleOwner, inspectionMode) {
         if (inspectionMode) return@DisposableEffect onDispose { }
         val observer = LifecycleEventObserver observer@{ _, event ->
+            if (event == Lifecycle.Event.ON_STOP) showGradeTabs = false
             if (event != Lifecycle.Event.ON_RESUME) {
                 return@observer
             }
@@ -371,7 +392,16 @@ fun GradesScreen(
     androidx.compose.runtime.CompositionLocalProvider(
         com.clhs.score.ui.navigation.LocalNavigationClearance provides navigationClearance + tabsHeight + 16.dp,
     ) {
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize()
+            .onGloballyPositioned { contentPosition = it.positionInRoot() }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    if (currentShowGradeTabs && !navigationBounds.contains(down.position + contentPosition)) {
+                        showGradeTabs = false
+                    }
+                }
+            }) {
             RootFloatingScaffold(
                 dynamicColor = dynamicColor,
                 actions = {
@@ -548,33 +578,76 @@ fun GradesScreen(
                 exit = fadeOut(PocketMotion.stateChange()) +
                     scaleOut(animationSpec = PocketMotion.contentReflow(), targetScale = 0.94f),
             ) {
-                Box(
+                BoxWithConstraints(
                     modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth().height(tabsHeight),
                     contentAlignment = Alignment.Center,
                 ) {
+                    val expandedWidth = maxWidth
+                    val navigationWidth by animateDpAsState(
+                        targetValue = if (showGradeTabs) expandedWidth else 88.dp.coerceAtMost(expandedWidth),
+                        animationSpec = PocketMotion.contentReflow(),
+                        label = "成績分頁展開收合",
+                    )
                     Surface(
-                        modifier = Modifier.fillMaxWidth().height(tabsHeight).testTag("gradesPageNavigation"),
+                        modifier = Modifier.width(navigationWidth).height(tabsHeight)
+                            .onGloballyPositioned { navigationBounds = it.boundsInRoot() }
+                            .testTag("gradesPageNavigation"),
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.82f),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
-                        PrimaryTabRow(
-                            selectedTabIndex = pagerState.currentPage,
-                            containerColor = Color.Transparent,
-                            divider = {},
-                        ) {
-                            GradesDestination.entries.forEach { destination ->
-                                Tab(
-                                    selected = pagerState.currentPage == destination.ordinal,
-                                    enabled = state.report != null && state.analysis != null && !navigationCompact,
+                        Crossfade(
+                            targetState = showGradeTabs,
+                            animationSpec = PocketMotion.stateChange(),
+                            label = "成績分頁內容",
+                        ) { expanded ->
+                            if (expanded) {
+                                PrimaryTabRow(
+                                    modifier = Modifier.requiredWidth(expandedWidth),
+                                    selectedTabIndex = pagerState.currentPage,
+                                    containerColor = Color.Transparent,
+                                    divider = {},
+                                ) {
+                                    GradesDestination.entries.forEach { destination ->
+                                        Tab(
+                                            selected = pagerState.currentPage == destination.ordinal,
+                                            enabled = showGradeTabs && !navigationCompact && state.report != null && state.analysis != null,
+                                            onClick = hapticClick {
+                                                showGradeTabs = false
+                                                pagerScope.launch { pagerState.animateScrollToPage(destination.ordinal) }
+                                            },
+                                            modifier = Modifier.height(tabsHeight),
+                                            text = {
+                                                Text(destination.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                                            },
+                                        )
+                                    }
+                                }
+                            } else {
+                                TextButton(
+                                    enabled = !showGradeTabs && !navigationCompact && state.report != null && state.analysis != null,
                                     onClick = hapticClick {
-                                        pagerScope.launch { pagerState.animateScrollToPage(destination.ordinal) }
+                                        expandNavigation()
+                                        showGradeTabs = true
                                     },
-                                    modifier = Modifier.height(tabsHeight),
-                                    text = {
-                                        Text(destination.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                                    modifier = Modifier.fillMaxWidth().height(tabsHeight).semantics {
+                                        contentDescription = "切換成績分頁"
+                                        stateDescription = GradesDestination.entries[pagerState.currentPage].label
                                     },
-                                )
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        GradesDestination.entries.forEach { destination ->
+                                            val selected = pagerState.currentPage == destination.ordinal
+                                            Box(
+                                                Modifier.size(if (selected) 8.dp else 6.dp)
+                                                    .background(
+                                                        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        CircleShape,
+                                                    ),
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -630,7 +703,6 @@ private fun GradeSelectionHeader(
         ?: if (state.isLoadingStructure) "載入中" else "選擇考試"
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("成績", style = MaterialTheme.typography.headlineSmall)
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val stackSelectors = maxWidth < 280.dp * androidx.compose.ui.platform.LocalDensity.current.fontScale
             val yearSelector: @Composable (Modifier) -> Unit = { modifier ->

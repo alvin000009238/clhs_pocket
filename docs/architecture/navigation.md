@@ -43,7 +43,7 @@ flowchart TD
 - 新頂層目的地先擴充 `TopLevelDestination` 與 `AppRoute`，不要把 state 藏在 Navigation Bar／Rail Composable。
 - 外部入口先轉為 `AppLaunchTarget`；Widget、deep link 與通知不得在 UI 內另建 navigation state。
 - 不要在根層、登入頁或成績頁各自用 `BackHandler` 重複攔截 Predictive Back；交由 `NavDisplay`。
-- 成績頁的「摘要、科目、分析」是 feature 內 secondary navigation，固定浮在底部主導覽上方，直接顯示三個分頁名稱與選取狀態，單次點擊切換；左右滑動同步更新分頁，各頁保留自己的捲動位置。沒有可顯示的成績時停用切換。沿用 shell 的 compact 訊號淡出／縮小及恢復顯示，隱藏過渡期間隨主導覽列上緣下移。分頁最少 48dp 且隨字體增加高度，其高度及間距加入 feature 內的 LocalNavigationClearance，內容與 Snackbar 同步避讓；Rail 版面同樣固定在內容區底部。
+- 成績頁的「摘要、科目、分析」是 feature 內 secondary navigation，固定浮在底部主導覽上方，預設收合為三點指示器，點擊展開後顯示分頁名稱與選取狀態，選擇分頁或點擊外側後收合；左右滑動同步更新分頁，各頁保留自己的捲動位置。沒有可顯示的成績時停用切換。沿用 shell 的 compact 訊號淡出／縮小及恢復顯示，隱藏過渡期間隨主導覽列上緣下移。分頁最少 48dp 且隨字體增加高度，其高度及間距加入 feature 內的 LocalNavigationClearance，內容與 Snackbar 同步避讓；Rail 版面同樣固定在內容區底部。
 - 成績科目卡片展開時優先顯示頂端，保留系統狀態列及右上操作膠囊的實際高度；整張卡片連同安全間距放得下時，才捲動至底端避開主導覽與成績分頁。卡片過高時對齊頂端，讓使用者往下閱讀。自動定位沿用 feature 的完整底部 clearance；列表原有捲動留白與 Snackbar 避讓不變。
 - 課表／成績／校園使用 RootFloatingScaffold，將品牌列與頂部安全間距放進捲動內容，不縮小 viewport；PocketBrand 與首頁共用 SVG 衍生向量、Outfit 與動態色彩規則。右側操作膠囊常駐，按鈕形狀固定。成績在捲動內容頂部顯示學期／考試選擇器，窄螢幕或大字體時上下排列；分頁固定浮在主導覽上方。Guest／restore 保留品牌及個人入口，AuthGate 繼續負責私人資料。
 

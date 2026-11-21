@@ -171,6 +171,8 @@ class ScoreUiTest {
         }
         settleUi()
 
+        composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
+        settleUi()
         val tab = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)
         composeRule.onNode(hasText("摘要") and tab).assertIsDisplayed()
         composeRule.onNode(hasText("科目") and tab).assertIsDisplayed()
@@ -279,6 +281,8 @@ class ScoreUiTest {
         }
 
         settleUi()
+        composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
+        settleUi()
         composeRule.onNode(hasText("科目") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick()
         settleUi()
         composeRule.onAllNodesWithText("班級五標").assertCountEquals(0)
@@ -306,10 +310,14 @@ class ScoreUiTest {
         }
         settleUi()
 
+        composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
+        settleUi()
         composeRule.onNode(hasText("科目") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick()
         settleUi()
         composeRule.onNodeWithText("國文").performScrollTo().assertIsDisplayed()
 
+        composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
+        settleUi()
         composeRule.onNode(hasText("分析") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick()
         settleUi()
         composeRule.onNodeWithText("成績模擬器").performScrollTo().assertIsDisplayed()

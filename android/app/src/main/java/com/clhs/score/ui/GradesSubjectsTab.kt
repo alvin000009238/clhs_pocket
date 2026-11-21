@@ -27,9 +27,9 @@ import com.clhs.score.data.SubjectAnalysis
 import com.clhs.score.data.cleanSubjectName
 
 internal enum class GradeSubjectSort(val label: String) {
-    SchoolOrder("學校順序"),
-    ScoreAscending("分數低到高"),
+    SchoolOrder("預設"),
     ScoreDescending("分數高到低"),
+    ScoreAscending("分數低到高"),
 }
 
 internal fun gradeSubjectsForDisplay(
