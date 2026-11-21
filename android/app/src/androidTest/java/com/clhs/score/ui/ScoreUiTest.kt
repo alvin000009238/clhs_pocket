@@ -28,6 +28,8 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -45,6 +47,7 @@ import com.clhs.score.data.buildGradeTrend
 import com.clhs.score.data.cleanSubjectName
 import com.clhs.score.ui.theme.ScoreTheme
 import com.clhs.score.viewmodel.GradesUiState
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -174,10 +177,17 @@ class ScoreUiTest {
         composeRule.onNode(hasText("摘要") and tab).assertIsDisplayed()
         composeRule.onNode(hasText("科目") and tab).assertIsDisplayed()
         composeRule.onNode(hasText("分析") and tab).assertIsDisplayed()
-        composeRule.onAllNodesWithText("114-上").assertCountEquals(0)
-        composeRule.onNodeWithContentDescription("選擇成績").performClick()
-        composeRule.onNodeWithText("114-上").assertIsDisplayed()
-        composeRule.onNode(hasText("期末考") and hasClickAction()).assertIsDisplayed()
+        // Each precomposed pager page has a header; the initial page is Overview.
+        composeRule.onAllNodesWithContentDescription("選擇學期").onFirst().assertIsDisplayed().performClick()
+        composeRule.onNode(hasText("114學年度 上學期") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).assertIsDisplayed()
+        androidx.test.espresso.Espresso.pressBack()
+        composeRule.onAllNodesWithText("114-上").onFirst().assertIsDisplayed()
+        composeRule.onAllNodesWithContentDescription("選擇考試").onFirst().assertIsDisplayed().performClick()
+        composeRule.onNode(hasText("期中考") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, false)).assertIsDisplayed()
+        composeRule.onNode(hasText("期末考") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).assertIsDisplayed()
         androidx.test.espresso.Espresso.pressBack()
         composeRule.onAllNodesWithText("全部科目").assertCountEquals(0)
         composeRule.onAllNodesWithText("圖表").assertCountEquals(0)
@@ -189,6 +199,51 @@ class ScoreUiTest {
         composeRule.onAllNodesWithText("科目分析").assertCountEquals(0)
         composeRule.onAllNodesWithText("圖表分析").assertCountEquals(0)
         composeRule.onAllNodesWithText("更多資料").assertCountEquals(0)
+    }
+
+    @Test
+    fun gradeSelectorsHonorReturningToCurrentOptionsWhileLoading() {
+        var loading by mutableStateOf(false)
+        val requestedExams = mutableListOf<String>()
+        val requestedYears = mutableListOf<String>()
+        val selected = SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)
+        composeRule.setContent {
+            ScoreTheme {
+                TestGradesScreen(
+                    isLoadingGrades = loading,
+                    onSelectYear = { requestedYears += it },
+                    onSelectExam = {
+                        requestedExams += it
+                        loading = true
+                    },
+                )
+            }
+        }
+        settleUi()
+
+        // Unchanged selections are no-ops while idle.
+        composeRule.onAllNodesWithContentDescription("選擇學期").onFirst().performClick()
+        composeRule.onNode(hasText("114學年度 上學期") and selected).performClick()
+        settleUi()
+        composeRule.onAllNodesWithContentDescription("選擇考試").onFirst().performClick()
+        composeRule.onNode(hasText("期末考") and selected).performClick()
+        settleUi()
+
+        // The displayed report remains E2 while E1 is loading; E2 must still dispatch.
+        composeRule.onAllNodesWithContentDescription("選擇考試").onFirst().performClick()
+        composeRule.onNode(hasText("期中考") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, false)).performClick()
+        settleUi()
+        composeRule.onAllNodesWithContentDescription("選擇考試").onFirst().performClick()
+        composeRule.onNode(hasText("期末考") and selected).performClick()
+        settleUi()
+        composeRule.onAllNodesWithContentDescription("選擇學期").onFirst().performClick()
+        composeRule.onNode(hasText("114學年度 上學期") and selected).performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(listOf("E1", "E2"), requestedExams)
+            assertEquals(listOf("114_1"), requestedYears)
+        }
     }
 
     @Test
@@ -204,8 +259,9 @@ class ScoreUiTest {
         }
         settleUi()
 
-        composeRule.onNodeWithContentDescription("選擇成績").performClick()
-        composeRule.onNode(hasText("期末考") and hasClickAction()).assertIsDisplayed()
+        composeRule.onAllNodesWithContentDescription("選擇考試").onFirst().performScrollTo().assertIsDisplayed().performClick()
+        composeRule.onNode(hasText("期末考") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).assertIsDisplayed()
         androidx.test.espresso.Espresso.pressBack()
         composeRule.onAllNodesWithText("班級前", substring = true)[0].performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("類組前", substring = true).performScrollTo().assertIsDisplayed()
@@ -224,6 +280,7 @@ class ScoreUiTest {
             }
         }
 
+        settleUi()
         composeRule.onNodeWithContentDescription("切換成績分頁").performClick()
         settleUi()
         composeRule.onNode(hasText("科目") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick()
@@ -336,6 +393,9 @@ class ScoreUiTest {
         isLoadingTrend: Boolean = false,
         showTrend: Boolean = true,
         trendError: String? = null,
+        isLoadingGrades: Boolean = false,
+        onSelectYear: (String) -> Unit = {},
+        onSelectExam: (String) -> Unit = {},
     ) {
         val report = MockGradeSystem.generateReport(StudentScenario.NORMAL)
         val analysis = buildGradeAnalysis(report)
@@ -368,13 +428,14 @@ class ScoreUiTest {
                 report = report,
                 analysis = analysis,
                 isLoadingTrend = isLoadingTrend,
+                isLoadingGrades = isLoadingGrades,
                 trendError = trendError,
                 trend = trend,
                 expandedSubjectKeys = expanded,
             ),
             snackbarHost = {},
-            onSelectYear = {},
-            onSelectExam = {},
+            onSelectYear = onSelectYear,
+            onSelectExam = onSelectExam,
             onReload = {},
             onToggleSubject = { subjectName ->
                 val key = cleanSubjectName(subjectName)

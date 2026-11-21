@@ -279,6 +279,39 @@ class OverviewWidgetLayoutTest {
         assertEquals(event.id, (widget.config() as OverviewWidgetConfig.SchoolEvent).eventId)
     }
 
+    @Test fun tabletGridsFillEveryRowWithListsSideBySideOrSpanningTheRow() {
+        val widgets = (listOf(weather("weather"), weather("rain", OverviewWidgetSize(2, 1)).copy(type = "countdown")) +
+            defaultOverviewWidgets() + weather("tail", OverviewWidgetSize(2, 1)))
+            .map { if (OverviewWidgetDefinitions[it.type]?.multiple == false) it.copy(size = OverviewWidgetSize(4, 1)) else it }
+        for (columns in listOf(6, 8)) {
+            val placements = OverviewLayoutEngine.arrange(widgets, columns)
+            assertNoOverlap(placements, columns)
+            assertEquals(widgets.map { it.id }, placements.sortedWith(
+                compareBy<OverviewPlacement> { it.row }.thenBy { it.column }).map { it.id })
+            for (row in placements.map { it.row }.toSet()) {
+                assertEquals("row $row at $columns columns", columns, placements.filter { it.row == row }.sumOf { it.columns })
+            }
+            val lists = placements.filter { p -> widgets.first { it.id == p.id }.type in setOf("alerts", "calendar", "announcements") }
+            assertTrue(lists.all { it.columns == columns / 2 || it.columns == columns })
+            assertEquals(columns / 2, lists[0].columns)
+            assertEquals(lists[0].row, lists[1].row)
+            assertEquals(columns, placements.last().columns)
+        }
+    }
+
+    @Test fun phoneGridsAndLegacyOrderKeepReadingOrderPacking() {
+        val widgets = listOf(weather("a", OverviewWidgetSize(2, 1)), weather("b", OverviewWidgetSize(4, 2)),
+            weather("c", OverviewWidgetSize(2, 2)).copy(ownRow = true))
+        for (columns in listOf(2, 4)) assertEquals(OverviewLayoutEngine.pack(widgets, columns), OverviewLayoutEngine.arrange(widgets, columns))
+        for (columns in listOf(6, 8)) {
+            assertEquals(OverviewLayoutEngine.pack(widgets, columns, legacyOrder = true),
+                OverviewLayoutEngine.arrange(widgets, columns, legacyOrder = true))
+            val alone = OverviewLayoutEngine.arrange(widgets, columns).last()
+            assertEquals(columns, alone.columns)
+            assertEquals(0, alone.column)
+        }
+    }
+
     private fun weather(id: String, size: OverviewWidgetSize = OverviewWidgetSize(2, 2)) =
         OverviewWidgetInstance.create("weather", OverviewWidgetConfig.Weather()).copy(id = id, size = size)
 

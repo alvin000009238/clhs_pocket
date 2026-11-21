@@ -30,6 +30,8 @@ internal val PocketTypography = Typography().let { base ->
         headlineMedium = base.headlineMedium.roundedHeading(),
         headlineSmall = base.headlineSmall.roundedHeading(),
         titleLarge = base.titleLarge.roundedHeading(),
+        titleMedium = base.titleMedium.copy(letterSpacing = 0.sp),
+        titleSmall = base.titleSmall.copy(letterSpacing = 0.sp),
         displayLargeEmphasized = base.displayLargeEmphasized.roundedHeading(),
         displayMediumEmphasized = base.displayMediumEmphasized.roundedHeading(),
         displaySmallEmphasized = base.displaySmallEmphasized.roundedHeading(),
@@ -37,5 +39,7 @@ internal val PocketTypography = Typography().let { base ->
         headlineMediumEmphasized = base.headlineMediumEmphasized.roundedHeading(),
         headlineSmallEmphasized = base.headlineSmallEmphasized.roundedHeading(),
         titleLargeEmphasized = base.titleLargeEmphasized.roundedHeading(),
+        titleMediumEmphasized = base.titleMediumEmphasized.copy(letterSpacing = 0.sp),
+        titleSmallEmphasized = base.titleSmallEmphasized.copy(letterSpacing = 0.sp),
     )
 }
