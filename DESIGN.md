@@ -132,7 +132,7 @@ YouBike 由使用者新增並選站。2×1 顯示總量與一般／電輔數量�
 
 `ui/GeneralSettingsScreen.kt` 對 Guest 開放，使用 `SettingsSection`、`SettingsGroup`、`SettingsRow` 與 `SettingsSwitchRow`，集中外觀、啟動、通知與排程暫停、使用統計、關於。執行資訊與排程可靠性收合在「進階背景設定」。共用元件是否使用緊湊模式由呼叫端決定。整列保留觸控回饋及右側值；更新狀態放在箭頭左側。開發者選項與桌面課表 Widget 設定沿用同一選項列樣式，保留原有控制與選取語意。
 
-設定與功能入口的選項列共用 `PocketOptionIcon`：44dp medium 圓角主題色容器內放置 24dp 圖示，圖示與文字間距 16dp。主文字使用 `titleMediumEmphasized`，說明使用 `bodySmall` 並保留 4dp 行距；列高隨換行增加，不截斷說明。設定列及開關列的水平內距皆為 16dp，避免不同 Material 元件預設縮排造成錯位。開關、勾選與箭頭保留各自語意。資料紀錄、搜尋結果、篩選籤與導覽列使用自己的資訊結構。
+設定與功能入口的選項列共用 `PocketOptionIcon`：44dp medium 圓角主題色容器內放置 24dp 圖示，圖示與文字間距 16dp。主文字使用 `titleMediumEmphasized`，說明使用 `bodySmall` 並保留 4dp 行距；列高隨換行增加，不截斷說明。右側值在文字區有足夠空間時與標題同行，空間不足時換行，不擠壓標題或截斷版本資訊；箭頭與載入指示仍留在列尾。停用時，主文字、說明與圖示一致降低強調，開關保留停用與選取語意。設定列及開關列的水平內距皆為 16dp，避免不同 Material 元件預設縮排造成錯位。開關、勾選與箭頭保留各自語意。資料紀錄、搜尋結果、篩選籤與導覽列使用自己的資訊結構。
 
 個人與在校紀錄子頁使用 `FloatingSubpageLayout`，不顯示頁面標題；右上操作與返回按鈕浮在內容上方。在校紀錄學期膠囊與內容右緣共用 20dp 內距；下拉更新使用 Expressive `LoadingIndicator`，並提供無障礙自訂動作。
 
