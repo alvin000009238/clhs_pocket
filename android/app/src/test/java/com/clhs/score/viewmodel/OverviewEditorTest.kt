@@ -241,7 +241,10 @@ class OverviewEditorTest {
         vm.putWidget(OverviewWidgetInstance.create("weather", OverviewWidgetConfig.Weather()))
         vm.putWidget(OverviewWidgetInstance.create("weather", OverviewWidgetConfig.Weather()))
         vm.putWidget(OverviewWidgetInstance.create("youbike", OverviewWidgetConfig.YouBike()))
-        assertEquals(2, vm.editor.value.draft!!.count { it.type == "weather" })
+        val weather = vm.editor.value.draft!!.filter { it.type == "weather" }
+        assertEquals(initial.count { it.type == "weather" } + 2, weather.size)
+        assertEquals(weather.size, weather.map { it.id }.toSet().size)
+        assertTrue(weather.map { it.id }.containsAll(initial.filter { it.type == "weather" }.map { it.id }))
         assertEquals(1, vm.editor.value.draft!!.count { it.type == "youbike" })
         assertEquals(0, dao.saveAttempts)
     }
@@ -258,7 +261,7 @@ class OverviewEditorTest {
         val before = vm.editor.value.draft!!
         vm.resetLayout()
         assertTrue(vm.editor.value.canUndoReset)
-        assertEquals(listOf("schedule", "alerts", "calendar", "announcements"), vm.editor.value.draft!!.map { it.type })
+        assertEquals(listOf("schedule", "weather", "calendar", "announcements"), vm.editor.value.draft!!.map { it.type })
         vm.undoReset()
         assertEquals(before, vm.editor.value.draft)
         assertFalse(vm.editor.value.canUndoReset)

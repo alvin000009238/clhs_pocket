@@ -30,12 +30,12 @@ internal fun YouBikeCard(
     Surface(onClick = hapticClick(onRefresh), enabled = !editing && !state.isRefreshing, modifier = modifier.fillMaxWidth(), shape = PocketVisual.metricShape,
         color = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = if (expanded) 16.dp else 8.dp),
-            verticalArrangement = if (expanded) Arrangement.SpaceBetween else Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.padding(horizontal = OverviewSpacing.content, vertical = if (expanded) 14.dp else 8.dp),
+            verticalArrangement = if (expanded) Arrangement.spacedBy(8.dp, Alignment.CenterVertically) else Arrangement.spacedBy(4.dp)) {
             val snapshot = state.snapshot
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                 Text(stationName, Modifier.weight(1f).padding(end = if (editing) 40.dp else 0.dp),
-                    style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.titleSmall,
+                    style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.titleMediumEmphasized,
                     maxLines = if (expanded) 2 else 1, overflow = TextOverflow.Ellipsis)
                 if (state.isManuallyRefreshing && state.isRefreshing && !editing) {
                     LoadingIndicator(Modifier.size(24.dp).clearAndSetSemantics { contentDescription = "正在更新 YouBike" })
@@ -55,17 +55,19 @@ internal fun YouBikeCard(
                 val stale = snapshot.isStale(now)
                 val rows = listOf(listOf("可借車" to snapshot.availableBikes, (if (compact) "可還車" else "可還車位") to snapshot.emptyDocks)) +
                     if (expanded) listOf(listOf("一般" to snapshot.ordinaryBikes, "電輔車" to snapshot.electricBikes)) else emptyList()
-                rows.forEach { metrics ->
+                rows.forEachIndexed { rowIndex, metrics ->
+                    if (rowIndex > 0) HorizontalDivider(color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.16f))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     metrics.forEach { (label, count) ->
                         Column(Modifier.weight(1f).clearAndSetSemantics { contentDescription = "$label ${count ?: "無資料"}" },
                             verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Crossfade(count, animationSpec = PocketMotion.stateChange(), label = label) { number ->
-                                Text(number?.toString() ?: "—", style = if (expanded) MaterialTheme.typography.displaySmallEmphasized
+                                Text(number?.toString() ?: "—", style = if (expanded && rowIndex == 0) MaterialTheme.typography.displaySmallEmphasized
+                                    else if (expanded) MaterialTheme.typography.headlineSmallEmphasized
                                     else MaterialTheme.typography.titleLargeEmphasized,
                                     maxLines = 1, softWrap = false)
                             }
-                            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(label, style = MaterialTheme.typography.labelMedium)
                         }
                     }
                     }

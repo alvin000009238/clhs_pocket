@@ -35,7 +35,7 @@ internal fun OverviewWidgetPicker(
                 Text("選擇元件，再設定內容與尺寸", Modifier.padding(top = 8.dp, bottom = 8.dp),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            items(OverviewWidgetDefinitions.all, key = { it.type }) { definition ->
+            items(OverviewWidgetDefinitions.all.filterNot { it.type == "alerts" }, key = { it.type }) { definition ->
                 val existing = widgets.firstOrNull { it.type == definition.type }
                 val available = definition.multiple || existing == null || !existing.enabled
                 val accent = when (definition.type) {
@@ -68,7 +68,7 @@ internal fun OverviewWidgetPicker(
                                 "weather" -> "溫度、降雨與天氣預報"
                                 "youbike" -> "常用站點的可借車與空位"
                                 "countdown" -> "讓重要日子一目了然"
-                                "alerts" -> "掌握調課與成績更新"
+                                "alerts" -> "掌握最新成績更新"
                                 "calendar" -> "近期校園行程"
                                 else -> "關注學校的重要消息"
                             }, style = MaterialTheme.typography.bodyMedium, overflow = TextOverflow.Ellipsis)
