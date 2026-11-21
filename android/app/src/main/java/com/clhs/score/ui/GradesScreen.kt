@@ -800,7 +800,11 @@ private fun GradeSelectionMenu(
             }
             OutlinedRoundedSymbol(icon = "keyboard_arrow_down", contentDescription = null)
         }
-        DropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
+        DropdownMenu(
+            expanded = expanded && enabled,
+            onDismissRequest = { expanded = false },
+            offset = DpOffset(x = 0.dp, y = 10.dp),
+        ) {
             items { expanded = false }
         }
     }
