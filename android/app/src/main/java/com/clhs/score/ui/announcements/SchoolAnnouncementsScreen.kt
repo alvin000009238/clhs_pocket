@@ -1,5 +1,10 @@
 package com.clhs.score.ui.announcements
 
+import com.clhs.score.ui.rememberPocketOverflowMenuState
+import com.clhs.score.ui.PocketOverflowDropdownMenu
+import com.clhs.score.ui.pocketOverflowMenuAnchor
+import com.clhs.score.ui.PocketOverflowMenuItem
+
 import com.clhs.score.ui.navigation.navigationContentPadding
 
 import android.text.Html
@@ -58,6 +63,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.SnackbarHost
@@ -164,6 +170,7 @@ fun SchoolAnnouncementsScreen(
     var showFilters by rememberSaveable { mutableStateOf(false) }
     var showBookmarks by rememberSaveable { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
+    val overflowMenu = rememberPocketOverflowMenuState { showMoreMenu = it }
     var searchText by rememberSaveable { mutableStateOf(uiState.searchQuery) }
     LaunchedEffect(uiState.searchQuery) {
         if (uiState.searchQuery.isEmpty()) searchText = ""
@@ -274,16 +281,17 @@ fun SchoolAnnouncementsScreen(
                 searchLabel = "搜尋公告", collapsedWidth = 96.dp,
             ) {
             IconButton(
+                modifier = Modifier.pocketOverflowMenuAnchor(overflowMenu),
                 onClick = { showMoreMenu = true },
                 shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
             ) {
                 OutlinedRoundedSymbol(icon = "more_vert", contentDescription = "更多選項")
             }
-            DropdownMenu(offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
+            PocketOverflowDropdownMenu(state = overflowMenu, offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
                 expanded = showMoreMenu,
                 onDismissRequest = { showMoreMenu = false },
             ) {
-                DropdownMenuItem(
+                PocketOverflowMenuItem(
                     text = { Text(if (isMarkingAllRead) "正在標記全部已讀" else "全部已讀") },
                     enabled = isReadingAvailable && !isMarkingAllRead && unreadIds.isNotEmpty(),
                     leadingIcon = { OutlinedRoundedSymbol("done_all", contentDescription = null) },
@@ -292,17 +300,17 @@ fun SchoolAnnouncementsScreen(
                         onMarkAllRead()
                     },
                 )
-                DropdownMenuItem(
+                PocketOverflowMenuItem(
                     text = { Text(if (bookmarkCount > 0) "已收藏公告（$bookmarkCount）" else "已收藏公告") },
                     leadingIcon = { OutlinedRoundedSymbol("bookmark", contentDescription = null) },
                     onClick = { showMoreMenu = false; clearFocusAndHideKeyboard(); showBookmarks = true },
                 )
-                DropdownMenuItem(
+                PocketOverflowMenuItem(
                     text = { Text(if (uiState.hasFilters) "篩選公告（已套用）" else "篩選公告") },
                     leadingIcon = { OutlinedRoundedSymbol("filter_list", contentDescription = null) },
                     onClick = { showMoreMenu = false; clearFocusAndHideKeyboard(); showFilters = true; onRefreshFilters() },
                 )
-                DropdownMenuItem(
+                PocketOverflowMenuItem(
                     text = { Text("公告更新提醒") },
                     onClick = {
                         showMoreMenu = false
@@ -465,6 +473,17 @@ private fun AnnouncementList(
                         "公告閱讀狀態暫時無法取得",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+            if (uiState.searchQuery.isNotEmpty()) {
+                item(key = "announcement-search-status") {
+                    InputChip(
+                        selected = false,
+                        onClick = onClearSearch,
+                        label = { Text("搜尋：${uiState.searchQuery}", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        trailingIcon = { OutlinedRoundedSymbol("close", contentDescription = null) },
+                        modifier = Modifier.semantics { contentDescription = "清除搜尋：${uiState.searchQuery}" },
                     )
                 }
             }

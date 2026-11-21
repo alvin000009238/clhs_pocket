@@ -31,6 +31,30 @@ private fun ScheduleCustomizationsPreview() {
         )
     }
 }
+
+class CustomizationStateProvider : androidx.compose.ui.tooling.preview.PreviewParameterProvider<com.clhs.score.viewmodel.ScheduleCustomizationsUiState> {
+    override val values = sequenceOf(
+        com.clhs.score.viewmodel.ScheduleCustomizationsUiState(),
+        com.clhs.score.viewmodel.ScheduleCustomizationsUiState(isLoading = false),
+        com.clhs.score.viewmodel.ScheduleCustomizationsUiState(isLoading = false, loadFailed = true),
+    )
+}
+
+@Preview(name = "自訂科目 · 狀態", widthDp = 390, heightDp = 844)
+@Preview(name = "自訂科目 · 短視窗大字體", widthDp = 640, heightDp = 320, fontScale = 2f)
+@Preview(name = "自訂科目 · 窄短視窗大字體", widthDp = 320, heightDp = 400, fontScale = 2f)
+@Composable
+private fun ScheduleCustomizationStatePreview(
+    @androidx.compose.ui.tooling.preview.PreviewParameter(CustomizationStateProvider::class)
+    state: com.clhs.score.viewmodel.ScheduleCustomizationsUiState,
+) {
+    ScoreTheme {
+        ScheduleCustomizationsScreen(
+            state = state, onBack = {}, onRetry = {}, onSaveOverride = { _, _ -> },
+            onRemoveOverride = { _, _ -> }, onReplaceOverrides = { _, _ -> }, onNoticeShown = {},
+        )
+    }
+}
 @Preview(name = "日期與週次對齊", widthDp = 360, heightDp = 800)
 @Composable
 private fun ScheduleWeekHeaderAlignmentPreview() = ScheduleWeekDensityPreview()
