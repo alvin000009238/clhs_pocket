@@ -96,7 +96,7 @@ internal fun OverviewWidgetGrid(
     BoxWithConstraints(modifier.fillMaxSize().clipToBounds()) {
         val columns = OverviewLayoutEngine.columns(maxWidth.value, density.fontScale)
         val placements = remember(widgets, columns, legacyOrder) {
-            OverviewLayoutEngine.pack(widgets.map { widget ->
+            OverviewLayoutEngine.arrange(widgets.map { widget ->
                 if (OverviewWidgetDefinitions[widget.type]?.multiple == false)
                     widget.copy(size = OverviewWidgetSize(4, 1)) else widget
             }, columns, legacyOrder)
@@ -295,7 +295,7 @@ internal fun OverviewWidgetGrid(
                                 Offset(0f, topOf(row.first()) - gap / 2f))
                         } + DragSlot(original.lastIndex, true, Offset(0f, activeRowTops.last() - gap / 2f))
                         val dragHalfSize = Offset((placement.columns * widthPitch - gap) / 2f, heightOf(placement) / 2f)
-                        val small = placement.columns < columns && definition?.multiple == true
+                        val small = minOf(widget.size.columns, columns) < columns && definition?.multiple == true
                         val threshold = with(density) { 16.dp.toPx() }
                         var accepted = centers.first { it.index == from }.copy(ownRow = widget.ownRow)
                         updateDrag = {
