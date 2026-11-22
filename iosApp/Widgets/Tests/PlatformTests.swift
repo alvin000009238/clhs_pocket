@@ -304,11 +304,18 @@ final class PlatformTests: XCTestCase {
         XCTAssertFalse(data.calls.contains("snapshot"))
         XCTAssertFalse(data.calls.contains("grades"), "no grade check behind the lock")
         XCTAssertNil(coordinator.store.loadData(), "nothing is published to the widget")
+        // The public announcement list is still fetched and checked, by the refresh itself.
+        XCTAssertEqual(data.calls, ["loadAnnouncements", "headlines"])
 
         locked = false
         await coordinator.refresh(deviceNow: lessonTime)
         XCTAssertTrue(data.calls.contains("prepare"))
         XCTAssertNotNil(coordinator.store.loadData(), "the same refresh publishes once the lock is open")
+        let unlocked = data.calls.drop { $0 != "prepare" }
+        XCTAssertLessThan(
+            try XCTUnwrap(unlocked.firstIndex(of: "loadAnnouncements")), try XCTUnwrap(unlocked.lastIndex(of: "headlines")),
+            "the list is fetched before it is compared"
+        )
 
         // With no shell installed (a cold background launch) the stored setting decides.
         coordinator.isLocked = nil

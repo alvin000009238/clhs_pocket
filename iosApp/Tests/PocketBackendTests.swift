@@ -284,6 +284,39 @@ final class PocketBackendTests: XCTestCase {
         XCTAssertTrue(saved.isEmpty)
     }
 
+    /// A launch in the background has no announcement list in memory and no screen to load one.
+    func testAnnouncementReminderFetchesTheListItselfOnAColdStart() async throws {
+        let list = #"[{"pageNum":0,"totalPages":1},{"newsId":"n1","title":"校慶公告","time":"2026/11/18","attr_name":"一般","name":"教務處","top":"0","content_type":"content"}]"#
+        StubURLProtocol.install { request in
+            request.url.path.hasSuffix("news_query_json.php") ? StubURLProtocol.text(list) : .failure(.notConnectedToInternet)
+        }
+        addTeardownBlock { @MainActor in
+            PocketLive.shared.clearAll()
+            PocketData.shared.useDemo()
+        }
+        PocketData.shared.useLive()
+        let controller = LiveDataController(backend: backend())
+        let data = LivePlatformData(live: controller) { true }
+        let now = Date()
+        XCTAssertNil(data.announcementHeadlines(at: now), "nothing is known before the list is fetched")
+
+        await data.loadAnnouncements()
+        XCTAssertEqual(data.announcementHeadlines(at: now)?.map(\.id), ["n1"])
+        func listRequests() -> Int { StubURLProtocol.requests.filter { $0.url.path.hasSuffix("news_query_json.php") }.count }
+        XCTAssertEqual(listRequests(), 1)
+
+        // A list fetched a moment ago is not fetched again; an old one is.
+        await data.loadAnnouncements()
+        XCTAssertEqual(listRequests(), 1)
+        await controller.loadAnnouncementsIfStale(now: now.addingTimeInterval(16 * 60))
+        XCTAssertEqual(listRequests(), 2)
+
+        // While the demo is showing the school's list is left alone.
+        let aside = LivePlatformData(live: LiveDataController(backend: backend())) { false }
+        await aside.loadAnnouncements()
+        XCTAssertEqual(listRequests(), 2)
+    }
+
     func testLoginRightAfterLogoutKeepsTheNewAccountAndNothingOfTheOldOne() async throws {
         let controller = LiveDataController(backend: backend())
         try await controller.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "first"])

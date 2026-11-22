@@ -121,19 +121,41 @@ final class PocketPlatformCoordinator: NSObject {
         }
         let generation = sessionGeneration
         let isCurrent: @MainActor () -> Bool = { [unowned self] in generation == sessionGeneration && isSignedIn }
-        // One rule for every caller, foreground or background task: behind the app lock nothing of
-        // the student's is read, fetched or published. The device being unlocked changes nothing;
-        // what is already on the widget and in the scheduled reminders stays as it is.
-        guard !lockIsClosed else {
-            scheduleBackgroundRefresh()
-            return
-        }
-        await data.prepare()
-        guard isCurrent(), !lockIsClosed else { return }
         let shared = settings.shared(at: deviceNow)
         // As on Android, the quiet window only stops background grade and
         // announcement checks; the widget snapshot and course reminders continue.
         let paused = PocketPlatform.shared.isBackgroundPaused(nowMillis: deviceNow.epochMillis, settings: shared)
+        // One rule for every caller, foreground or background task: behind the app lock nothing of
+        // the student's is read, fetched or published. The device being unlocked changes nothing;
+        // what is already on the widget and in the scheduled reminders stays as it is.
+        if !lockIsClosed {
+            await refreshPersonal(deviceNow: deviceNow, settings: shared, paused: paused, isCurrent: isCurrent)
+        }
+        // School announcements are public and need no account, so this check also runs behind the
+        // lock. It fetches the list itself: a background launch has none in memory.
+        if !paused, isCurrent(), !Task.isCancelled {
+            await data.loadAnnouncements()
+            let scheduleNow = PlatformClock.scheduleNow(deviceNow: deviceNow)
+            if isCurrent(), !Task.isCancelled, let headlines = data.announcementHeadlines(at: scheduleNow) {
+                await notifications.checkAnnouncements(headlines, now: deviceNow, settings: shared)
+            }
+        }
+        // A sign-out during the awaits above already ran its own cleanup; run it
+        // again so nothing this pass scheduled or published survives.
+        guard isCurrent() else {
+            if !isSignedIn { try? await clearSessionData() }
+            return
+        }
+        scheduleBackgroundRefresh()
+    }
+
+    /// The part of a refresh that touches the student's own data: session restore, the widget
+    /// snapshot, course reminders, the grade check and the Live Activity.
+    private func refreshPersonal(
+        deviceNow: Date, settings shared: PlatformNotificationSettings, paused: Bool, isCurrent: @MainActor () -> Bool
+    ) async {
+        await data.prepare()
+        guard isCurrent(), !lockIsClosed else { return }
         let scheduleNow = PlatformClock.scheduleNow(deviceNow: deviceNow)
         let snapshot = data.scheduleSnapshot(scheduleNow: scheduleNow, deviceNow: deviceNow)
         let (change, json) = snapshot.resolved(stored: store.loadData(), now: deviceNow)
@@ -152,32 +174,20 @@ final class PocketPlatformCoordinator: NSObject {
         if plansFromSnapshot {
             await notifications.syncCourseReminders(snapshotJSON: json, now: deviceNow, settings: shared, isCurrent: isCurrent)
         }
-        // The checks below reach the network; a background task that ran out of time stops here.
-        if !paused, isCurrent(), !Task.isCancelled {
+        // The check below reaches the network; a background task that ran out of time stops here.
+        if !paused, isCurrent(), !Task.isCancelled, !lockIsClosed {
             let gradeAlert = await data.gradeNotification(at: deviceNow, settings: shared)
             if isCurrent() { await notifications.deliver(gradeAlert) }
-            if isCurrent(), !Task.isCancelled, let headlines = data.announcementHeadlines(at: scheduleNow) {
-                await notifications.checkAnnouncements(headlines, now: deviceNow, settings: shared)
-            }
         }
-        // A sign-out during the awaits above already ran its own cleanup; run it
-        // again so nothing this pass scheduled or published survives.
-        guard isCurrent() else {
-            if !isSignedIn { try? await clearSessionData() }
-            return
+        guard isCurrent(), plansFromSnapshot else { return }
+        let glance = json.flatMap { ScheduleSnapshot.decode(Data($0.utf8)) }?.glance(at: deviceNow)
+        await LessonActivityController.sync(
+            glance: glance, enabled: settings.liveActivity && !notifications.isCoursePaused(at: deviceNow)
+        )
+        // A sign-out or「暫停一日」while the activity was being started must not leave it running.
+        if !isCurrent() || !settings.liveActivity || notifications.isCoursePaused(at: Date()) {
+            await LessonActivityController.endAll()
         }
-        if plansFromSnapshot {
-            let glance = json.flatMap { ScheduleSnapshot.decode(Data($0.utf8)) }?.glance(at: deviceNow)
-            await LessonActivityController.sync(
-                glance: glance, enabled: settings.liveActivity && !notifications.isCoursePaused(at: deviceNow)
-            )
-            // A sign-out or「暫停一日」while the activity was being started must not leave it running.
-            if !isCurrent() || !settings.liveActivity || notifications.isCoursePaused(at: Date()) {
-                await LessonActivityController.endAll()
-            }
-            guard isCurrent() else { return }
-        }
-        scheduleBackgroundRefresh()
     }
 
     /// Sign-out, revocation and account switches. A failed snapshot deletion
