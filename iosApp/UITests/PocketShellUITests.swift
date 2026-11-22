@@ -33,6 +33,16 @@ final class PocketShellUITests: XCTestCase {
         // end that process so this launch really starts with the arguments above.
         app.terminate()
         app.launch()
+        // The first test of a run can attach to the process Xcode pre-launched with only the scheme's
+        // arguments, which shows onboarding at the default text size. That process ignored this
+        // launch, so start a fresh one and require the arguments to take effect this time.
+        if onboarded, app.buttons["onboarding-next"].exists {
+            XCTContext.runActivity(named: "Relaunch: the running process did not receive the launch arguments") { _ in
+                app.terminate()
+                app.launch()
+            }
+            XCTAssertFalse(app.buttons["onboarding-next"].exists, "launch arguments were not applied")
+        }
     }
 
     /// iPad only: the same screen on the wider landscape grid, then back to portrait.
@@ -389,6 +399,8 @@ final class PocketShellUITests: XCTestCase {
 
         let credits = app.buttons["simulator-credits"]
         for _ in 0..<4 where !credits.isHittable { app.swipeDown() }
+        // At accessibility sizes the swipes can leave it hittable but under the navigation bar.
+        reveal(credits)
         credits.tap()
         XCTAssertTrue(app.buttons["credits-done"].waitForExistence(timeout: 5))
         capture("34-credits")
@@ -646,8 +658,10 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "核定日期：115/10/16")).firstMatch.waitForExistence(timeout: 5))
         capture("59b-merits-penalty-approval")
 
-        // Search last: an active search replaces the tab bar on iPad.
-        tab("校園").tap()
+        // Search last: an active search replaces the tab bar on iPad. Go back with the page's own back
+        // button: on this scrolled page the minimised tab bar may only expand instead of popping.
+        app.navigationBars["獎懲紀錄"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["campus-公告"].waitForExistence(timeout: 5))
         app.buttons["campus-公告"].tap()
         let search = app.searchFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 5))
