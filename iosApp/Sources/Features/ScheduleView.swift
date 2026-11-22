@@ -90,8 +90,10 @@ struct ScheduleView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Picker("班級", selection: Binding(get: { model.scheduleClass }, set: { model.scheduleClass = $0 })) {
+                        // An empty value is the student's own timetable; every school class keeps its own code.
+                        Text("我的課表").tag("")
                         ForEach(store.classes()) { item in
-                            Text(item.title).tag(item.id == store.classes().first?.id ? "" : item.id)
+                            Text(item.title).tag(item.id)
                         }
                     }
                     if schedule.isAvailable, let image = shareImage {

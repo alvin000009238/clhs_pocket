@@ -27,8 +27,7 @@ internal object DemoSchedule {
     /** Blocks never merge across the lunch break between periods 4 and 5. */
     private const val LAST_MORNING_PERIOD = 4
     private const val SCHOOL_DAYS = 5
-
-    private val ownClass get() = PocketData.current.scheduleClasses.firstOrNull()
+    const val OWN_SCHEDULE_TITLE = "我的課表"
 
     private val periods = PERIOD_TIMES.mapIndexed { index, time -> PocketPeriod(index + 1, time.start, time.end) }
 
@@ -54,8 +53,15 @@ internal object DemoSchedule {
         val overrides: List<ScheduleSubjectOverride> = emptyList(),
     )
 
-    private fun classOf(view: View) =
-        PocketData.current.scheduleClasses.firstOrNull { it.value == view.classValue } ?: ownClass
+    /**
+     * The school's class list covers every class, so its first entry is not the student's own class.
+     * The own timetable takes its title from the class number the school put in the report.
+     */
+    private fun className(view: View, report: ScheduleReport?): String {
+        val classNo = view.classValue.ifEmpty { report?.classNo.orEmpty() }
+        val named = PocketData.current.scheduleClasses.firstOrNull { classNo.isNotEmpty() && it.value == classNo }?.text
+        return named ?: if (view.classValue.isEmpty()) OWN_SCHEDULE_TITLE else view.classValue
+    }
 
     /** Null while the live schedule has not been loaded, or is not valid for the requested week. */
     private fun report(scope: ScheduleScope, clock: PocketClock, view: View = View()): ScheduleReport? =
@@ -109,7 +115,7 @@ internal object DemoSchedule {
             scope = scope,
             scopeLabel = if (isWeek) "本週課表" else "學期課表",
             termText = if (source == null) "" else "$year 學年度 第 $term 學期",
-            className = classOf(view)?.text.orEmpty(),
+            className = className(view, source),
             rangeText = "${monday.shortText()} – ${monday.shiftDays(SCHOOL_DAYS - 1L).shortText()}",
             weekText = source?.weekNo?.let { "第 $it 週" }.orEmpty(),
             days = days,

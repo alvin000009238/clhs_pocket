@@ -3,6 +3,7 @@ package com.clhs.score.shared.app
 import com.clhs.score.shared.time.shiftDays
 import com.clhs.score.data.ScheduleScope
 import com.clhs.score.data.FakeScheduleData
+import com.clhs.score.data.ScheduleClassOption
 import kotlin.test.assertFalse
 import com.clhs.score.data.YearTermOption
 import com.clhs.score.data.ExamOption
@@ -193,6 +194,31 @@ class DemoPocketDataSourceTest {
             assertFalse(PocketScheduleStore.schedule(PocketScheduleScope.CURRENT_WEEK, clock, "101", 0, "[]").isAvailable)
             PocketLive.putSchedule("101", FakeScheduleData.report("115_1", "101", ScheduleScope.CURRENT_WEEK, today))
             assertTrue(PocketScheduleStore.schedule(PocketScheduleScope.CURRENT_WEEK, clock, "101", 0, "[]").isAvailable)
+        } finally {
+            PocketLive.clearAll()
+            PocketData.useDemo()
+        }
+    }
+
+    @Test
+    fun ownTimetableIsNeverTitledWithTheFirstSchoolClass() {
+        val clock = PocketClock(2026, 11, 18, 3, 635)
+        val today = clock.date()
+        fun title(classValue: String) = PocketScheduleStore.schedule(PocketScheduleScope.CURRENT_WEEK, clock, classValue, 0, "[]").className
+        PocketData.useLive()
+        try {
+            PocketLive.clearAll()
+            PocketLive.scheduleClasses = listOf(ScheduleClassOption("高一 01 班", "101"), ScheduleClassOption("高二 30 班", "230"))
+            assertEquals("我的課表", title(""), "nothing loaded yet")
+            PocketLive.putSchedule("", FakeScheduleData.report("115_1", "", ScheduleScope.CURRENT_WEEK, today))
+            assertEquals("我的課表", title(""), "the school did not name the class")
+            PocketLive.clearAll()
+            PocketLive.scheduleClasses = listOf(ScheduleClassOption("高一 01 班", "101"), ScheduleClassOption("高二 30 班", "230"))
+            PocketLive.putSchedule("", FakeScheduleData.report("115_1", "230", ScheduleScope.CURRENT_WEEK, today))
+            assertEquals("高二 30 班", title(""))
+            // Every class keeps its own code and name, the first one included.
+            PocketLive.putSchedule("101", FakeScheduleData.report("115_1", "101", ScheduleScope.CURRENT_WEEK, today))
+            assertEquals("高一 01 班", title("101"))
         } finally {
             PocketLive.clearAll()
             PocketData.useDemo()
