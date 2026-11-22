@@ -620,7 +620,10 @@ final class PocketShellUITests: XCTestCase {
         // and does not reselect the tab). Only a real tab-bar button is ever returned.
         guard app.tabBars.firstMatch.waitForExistence(timeout: 2) else {
             // On iPad the sidebar-adaptable tabs sit in a top bar or sidebar, not in a tab bar.
-            return app.buttons[title].firstMatch
+            // A slow first launch can also land here before the tab bar appears, so wait for the tab.
+            let button = app.buttons[title].firstMatch
+            _ = button.waitForExistence(timeout: 10)
+            return button
         }
         let button = app.tabBars.buttons[title]
         for _ in 0..<4 where !button.waitForExistence(timeout: 2) {
