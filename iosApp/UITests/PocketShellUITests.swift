@@ -953,9 +953,12 @@ final class PocketShellUITests: XCTestCase {
 
     /// Picks the first library photo for the avatar, then removes it again.
     private func pickProfilePhoto() {
-        app.swipeDown()
         let avatar = app.buttons["profile-photo"].firstMatch
         XCTAssertTrue(avatar.waitForExistence(timeout: 5))
+        // 個人 is a sheet: swiping down while it is already scrolled to the top dismisses it,
+        // so only scroll back up while the avatar is out of reach.
+        for _ in 0..<4 where !avatar.isHittable { app.scrollViews.firstMatch.swipeDown(velocity: .slow) }
+        XCTAssertTrue(avatar.isHittable, "the avatar is on screen")
         XCTAssertEqual(avatar.label, "設定大頭貼")
         avatar.tap()
         let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
