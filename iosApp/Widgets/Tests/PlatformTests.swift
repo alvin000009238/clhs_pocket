@@ -468,6 +468,16 @@ final class PlatformTests: XCTestCase {
         XCTAssertGreaterThan(center.coursePausedUntilMillis, 0)
         XCTAssertEqual(center.capabilities.consume(token), .schedule, "pausing keeps the notification openable")
 
+        // A notification left on screen past its token's lifetime can neither pause nor open.
+        center.coursePausedUntilMillis = 0
+        let old = center.capabilities.issue(for: "pause-test-3", link: .schedule, now: lessonTime)
+        let later = lessonTime.addingTimeInterval(NotificationCapabilityStore.lifetime + 60)
+        await coordinator.pauseCourseRemindersForToday(capability: old, now: later)
+        XCTAssertEqual(center.coursePausedUntilMillis, 0, "an expired token must not pause")
+        XCTAssertFalse(center.capabilities.isValid(old, now: later))
+        XCTAssertNil(center.capabilities.link(for: old, now: later))
+        XCTAssertTrue(center.capabilities.isValid(old, now: lessonTime))
+
         // Sign-out revokes the token, so a notification left on screen can no longer pause.
         let stale = center.capabilities.issue(for: "pause-test-2", link: .schedule)
         await coordinator.sessionChanged(signedIn: false)

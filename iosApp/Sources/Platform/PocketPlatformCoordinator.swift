@@ -291,7 +291,7 @@ final class PocketPlatformCoordinator: NSObject {
     /// and is not consumed, so the notification can still be opened), and the
     /// action itself requires the device to be unlocked.
     func pauseCourseRemindersForToday(capability: String?, now: Date = Date()) async {
-        guard isSignedIn, let capability, notifications.capabilities.isValid(capability) else { return }
+        guard isSignedIn, let capability, notifications.capabilities.isValid(capability, now: now) else { return }
         await notifications.pauseCourseRemindersForToday(now: now)
         await LessonActivityController.endAll()
     }
