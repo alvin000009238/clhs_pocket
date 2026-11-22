@@ -81,7 +81,7 @@ data class PocketSimulation(
     val hasChanges: Boolean,
     /** Where the credits in use come from and whether they are stored, e.g. 「推算・待確認」. */
     val creditSourceText: String = "",
-    /** Credits were edited or inferred but not yet confirmed and stored: show the red dot. */
+    /** The credits in use differ from the stored ones (or are edited/inferred and never stored): show the red dot. */
     val creditsPending: Boolean = false,
 )
 
@@ -250,7 +250,11 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
     private var included: Set<String> = simulatable
     private var inferred: SimulatorCredits.Inference? = null
     private var source = SOURCE_DEFAULT
-    private var confirmed = false
+
+    /** The credits last stored for this exam and account, if any; the ones in use are confirmed only when they match. */
+    private var stored: StoredCredits? = null
+    private val current get() = StoredCredits(defaults.keys.sorted(), credits, source)
+    private val confirmed get() = stored == current
 
     fun setCredits(name: String, value: Int) {
         if (name in defaults) {
@@ -258,7 +262,6 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
             if (next != credits) {
                 credits = next
                 source = SOURCE_MANUAL
-                confirmed = false
             }
         }
         inferred = null
@@ -276,7 +279,7 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
         if (!valid) return false
         credits = saved.credits
         source = saved.source
-        confirmed = true
+        stored = current
         inferred = null
         return true
     }
@@ -288,7 +291,7 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
     }
 
     /** Call once [creditsJson] has been stored. */
-    fun markCreditsSaved() { confirmed = true }
+    fun markCreditsSaved() { stored = current }
 
     fun setScore(name: String, value: Double) {
         if (name !in simulatable || !value.isFinite()) return
@@ -303,7 +306,6 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
 
     fun reset() {
         source = SOURCE_DEFAULT
-        confirmed = false
         credits = defaults
         adjusted = emptyMap()
         included = simulatable
@@ -335,7 +337,6 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
         inferred?.candidates?.getOrNull(index)?.let {
             credits = defaults + it
             source = SOURCE_INFERRED
-            confirmed = false
         }
     }
 
@@ -409,9 +410,11 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
                 confirmed -> "自訂・已儲存"
                 source == SOURCE_INFERRED -> "推算・待確認"
                 source == SOURCE_MANUAL -> "自訂・未儲存"
+                stored != null -> "預設・未儲存"
                 else -> "預設"
             },
-            creditsPending = !confirmed && source != SOURCE_DEFAULT,
+            // Defaults need saving only to replace credits stored earlier.
+            creditsPending = !confirmed && (source != SOURCE_DEFAULT || stored != null),
         )
     }
 }

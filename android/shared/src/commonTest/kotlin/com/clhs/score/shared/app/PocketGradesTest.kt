@@ -51,8 +51,10 @@ class PocketGradesTest {
         assertEquals(false, fresh.restoreCredits(stored.replace("\"${row.name}\":$changed", "\"${row.name}\":9")))
         assertEquals(row.credits, fresh.state().rows.first().credits)
 
+        // Going back to the defaults replaces the stored credits, so it has to be saved too.
         reopened.reset()
-        assertEquals("預設", reopened.state().creditSourceText)
+        assertEquals("預設・未儲存", reopened.state().creditSourceText)
+        assertEquals(true, reopened.state().creditsPending)
     }
 
     @Test
@@ -82,6 +84,25 @@ class PocketGradesTest {
         assertEquals("--", empty.averageText)
         assertEquals(0, empty.deltaSign)
         assertEquals("", empty.deltaText)
+    }
+
+    @Test
+    fun revertingStoredCustomCreditsToTheDefaultsIsPendingSoTheDefaultsCanBeStored() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        val row = simulator.state().rows.first()
+        simulator.setCredits(row.name, if (row.credits == 4) 3 else row.credits + 1)
+        simulator.markCreditsSaved()
+
+        simulator.reset()
+        assertEquals(true, simulator.state().creditsPending, "the stored custom credits no longer match")
+        val defaults = assertNotNull(simulator.creditsJson())
+        simulator.markCreditsSaved()
+        assertEquals(false, simulator.state().creditsPending)
+
+        val reopened = assertNotNull(PocketGrades.simulator(exam))
+        assertTrue(reopened.restoreCredits(defaults))
+        assertEquals(row.credits, reopened.state().rows.first().credits)
+        assertEquals(false, reopened.state().creditsPending)
     }
 
     @Test
