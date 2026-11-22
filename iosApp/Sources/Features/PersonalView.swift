@@ -29,6 +29,28 @@ struct PersonalView: View {
                         .padding(12)
                     }
 
+                    section("啟動") {
+                        Toggle(isOn: $model.startOnSchedule) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "calendar.day.timeline.left")
+                                    .foregroundStyle(PocketColor.primary)
+                                    .frame(width: 28)
+                                    .accessibilityHidden(true)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("啟動時開啟課表").foregroundStyle(PocketColor.onSurface)
+                                    Text("從主畫面開啟時直接顯示課表")
+                                        .font(.footnote)
+                                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                                }
+                            }
+                        }
+                        .tint(PocketColor.primary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 48)
+                        .accessibilityIdentifier("start-on-schedule")
+                    }
+
                     section("設定") {
                         VStack(spacing: 0) {
                             navRow("bell.badge", "通知", model.notificationsEnabled ? "已開啟" : "已關閉") { NotificationSettingsView() }
@@ -41,7 +63,13 @@ struct PersonalView: View {
                             PocketRowDivider().padding(.leading, 52)
                             navRow("externaldrive", "資料管理", "匯入、匯出與刪除") { DataSettingsView() }
                             PocketRowDivider().padding(.leading, 52)
+                            navRow("chart.bar", "使用統計", "各功能使用次數") { UsageStatisticsView() }
+                            PocketRowDivider().padding(.leading, 52)
                             navRow("info.circle", "關於", "") { AboutView() }
+                            if model.developerEnabled {
+                                PocketRowDivider().padding(.leading, 52)
+                                navRow("hammer", "開發者選項", "更多進階設定") { DeveloperSettingsView() }
+                            }
                         }
                     }
 
@@ -100,6 +128,7 @@ struct PersonalView: View {
             }
         }
         .preferredColorScheme(model.appearance.colorScheme)
+        .onAppear { model.usage.record(.personalOpen) }
         .sheet(isPresented: $showingLogin) {
             LoginView()
         }

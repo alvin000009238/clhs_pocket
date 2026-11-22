@@ -81,6 +81,8 @@ final class AppModel {
         static let pauseStart = "backgroundPauseStart"
         static let pauseEnd = "backgroundPauseEnd"
         static let weatherSource = "weatherSource"
+        static let startOnSchedule = "startOnSchedule"
+        static let developer = "developerEnabled"
     }
 
     private let source: PocketDataSource = PocketEnvironment.shared.demo()
@@ -120,6 +122,18 @@ final class AppModel {
     var hasCompletedOnboarding: Bool {
         didSet { defaults.set(hasCompletedOnboarding, forKey: Key.onboarding) }
     }
+
+    /// Android's「啟動時開啟課表」: a cold launch opens the schedule instead of 首頁.
+    var startOnSchedule: Bool {
+        didSet { defaults.set(startOnSchedule, forKey: Key.startOnSchedule) }
+    }
+
+    /// Unlocked by tapping the version ten times on the About page, as on Android.
+    var developerEnabled: Bool {
+        didSet { defaults.set(developerEnabled, forKey: Key.developer) }
+    }
+
+    var usage: UsageStatisticsStore { UsageStatisticsStore(defaults: defaults) }
 
     var appearance: PocketAppearance {
         didSet { defaults.set(appearance.rawValue, forKey: Key.appearance) }
@@ -303,7 +317,10 @@ final class AppModel {
         let lockEnabled = lockSetting.isEnabled
         appLockEnabled = lockEnabled
         bookmarkedAnnouncementIds = Set(defaults.stringArray(forKey: Key.bookmarks) ?? [])
-        selectedTab = PocketLaunch.initialTab.flatMap(PocketTab.init) ?? .home
+        let opensSchedule = defaults.bool(forKey: Key.startOnSchedule)
+        startOnSchedule = opensSchedule
+        developerEnabled = defaults.bool(forKey: Key.developer)
+        selectedTab = PocketLaunch.initialTab.flatMap(PocketTab.init) ?? (opensSchedule ? .schedule : .home)
         // `-demoClock 2026-11-18T10:35` pins time for previews, tests and screenshots (Debug only).
         fixedClock = PocketLaunch.demoClock.flatMap(AppModel.parseClock)
         storedClock = fixedClock ?? AppModel.systemClock()
@@ -335,6 +352,8 @@ final class AppModel {
         }
         // With storage unavailable the widget and reminders keep what they have; no demo lessons.
         accountError = storageFailure
+        usage.record(.appOpen)
+        usage.record(UsageMetric(tab: selectedTab))
     }
 
     var sharedWeatherSource: WeatherSource { weatherSource == "cwa" ? .cwa : .openMeteo }
@@ -426,6 +445,7 @@ final class AppModel {
             paths[tab] = []
         } else {
             selectedTab = tab
+            usage.record(UsageMetric(tab: tab))
         }
     }
 
@@ -527,8 +547,8 @@ final class AppModel {
         let next = stored.doCopy(
             themeMode: theme, dynamicColor: stored.dynamicColor, amoledBlack: stored.amoledBlack,
             notificationsEnabled: notificationsEnabled, preferExactCourseAlarms: stored.preferExactCourseAlarms,
-            developerEnabled: stored.developerEnabled, appLockEnabled: appLockEnabled, weatherSource: sharedWeatherSource,
-            startOnSchedule: stored.startOnSchedule, scheduleDisplayMode: stored.scheduleDisplayMode,
+            developerEnabled: developerEnabled, appLockEnabled: appLockEnabled, weatherSource: sharedWeatherSource,
+            startOnSchedule: startOnSchedule, scheduleDisplayMode: stored.scheduleDisplayMode,
             profileAvatarShapeIndex: stored.profileAvatarShapeIndex, hasCompletedOnboarding: hasCompletedOnboarding,
             backgroundPauseEnabled: pauseEnabled, backgroundPauseStartMinute: Int32(pauseStart),
             backgroundPauseEndMinute: Int32(pauseEnd), overview: PocketDashboard.shared.instances(layout: dashboardLayout),
@@ -576,6 +596,8 @@ final class AppModel {
         pauseStart = Int(restored.backgroundPauseStartMinute)
         pauseEnd = Int(restored.backgroundPauseEndMinute)
         pauseEnabled = restored.backgroundPauseEnabled
+        startOnSchedule = restored.startOnSchedule
+        developerEnabled = restored.developerEnabled
         notifyAnnouncements = restored.announcementReminderEnabled
         notifyLessons = restored.remindBeforeClass
         if !restored.notificationsEnabled { notificationsEnabled = false }
@@ -612,6 +634,9 @@ final class AppModel {
         unreadAnnouncementIds = live == nil ? PocketCampusStore.shared.defaultUnreadIds() : []
         bookmarkedAnnouncementIds = []
         weatherSource = "open-meteo"
+        startOnSchedule = false
+        developerEnabled = false
+        usage.clear()
         syncingUnread = false
         resettingPreferences = false
         // Pending reminders, the widget snapshot and Live Activities go with the data, and the

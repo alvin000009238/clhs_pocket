@@ -14,7 +14,7 @@ enum SettingsFormat {
     }
 }
 
-private struct SettingsForm<Content: View>: View {
+struct SettingsForm<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
 
@@ -541,6 +541,9 @@ private struct FontLicenseText: View {
 
 struct AboutView: View {
     @Environment(AppModel.self) private var model
+    @State private var versionTaps = 0
+    @State private var developerMessage: String?
+    private static let sourceCode = URL(string: "https://github.com/alvin000009238/clhs_pocket")!
 
     var body: some View {
         SettingsForm(title: "關於") {
@@ -554,13 +557,43 @@ struct AboutView: View {
                 .padding(.vertical, 12)
             }
             Section {
-                LabeledContent("版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
+                Button {
+                    tapVersion()
+                } label: {
+                    LabeledContent("版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
+                        .foregroundStyle(PocketColor.onSurface)
+                }
+                .accessibilityIdentifier("about-version")
+                if let developerMessage {
+                    Text(developerMessage).font(.footnote).foregroundStyle(PocketColor.primary)
+                        .accessibilityIdentifier("about-developer-message")
+                }
                 LabeledContent("資料來源", value: model.dataSource.isDemo ? "示範資料" : "校務系統")
+                Link(destination: Self.sourceCode) {
+                    LabeledContent("原始碼", value: "GitHub").foregroundStyle(PocketColor.onSurface)
+                }
+                .accessibilityIdentifier("about-source")
                 NavigationLink("開放原始碼授權") { FontLicensesView() }
                     .accessibilityIdentifier("about-licenses")
             } footer: {
                 Text(model.live != nil ? "非學校官方 App。登入資訊只保存在這台裝置的鑰匙圈，登出後會一併清除。" : "非學校官方 App。示範模式僅提供虛構資料，不會連線到校務系統，也不會儲存任何帳號資訊。")
             }
+        }
+    }
+
+    /// Ten taps on the version unlock 開發者選項, matching Android.
+    private func tapVersion() {
+        guard !model.developerEnabled else {
+            developerMessage = "開發者選項已開啟"
+            return
+        }
+        versionTaps += 1
+        if versionTaps >= 10 {
+            versionTaps = 0
+            model.developerEnabled = true
+            developerMessage = "已開啟開發者選項"
+        } else if versionTaps >= 5 {
+            developerMessage = "再點 \(10 - versionTaps) 下即可開啟開發者選項"
         }
     }
 }
