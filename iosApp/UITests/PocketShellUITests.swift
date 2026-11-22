@@ -355,13 +355,65 @@ final class PocketShellUITests: XCTestCase {
         capture("43-schedule-menu")
 
         // The demo can show another class and come back to the student's own timetable.
+        // The class title is followed by the term, e.g.「高二 31 班 · 115 學年度 第 1 學期」.
+        func classTitle(_ name: String) -> XCUIElement {
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
+        }
         app.buttons["高二 31 班"].tap()
-        XCTAssertTrue(app.staticTexts["高二 31 班"].waitForExistence(timeout: 5))
+        XCTAssertTrue(classTitle("高二 31 班").waitForExistence(timeout: 5))
         capture("43b-schedule-other-class")
         app.buttons["schedule-menu"].tap()
         app.buttons["我的課表"].tap()
-        XCTAssertTrue(app.staticTexts["高二 30 班"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.staticTexts["高二 31 班"].exists)
+        XCTAssertTrue(classTitle("高二 30 班").waitForExistence(timeout: 5))
+        XCTAssertFalse(classTitle("高二 31 班").exists)
+    }
+
+    func testScheduleTermClassAndWeekCanBeChosen() {
+        launch(onboarded: true, session: "demo")
+        tab("課表").tap()
+        XCTAssertTrue(app.staticTexts["schedule-range"].waitForExistence(timeout: 10))
+
+        // Any week the school lists, not just two weeks around this one.
+        app.buttons["schedule-menu"].tap()
+        app.buttons["schedule-pick-week"].tap()
+        XCTAssertTrue(app.navigationBars["選擇週次"].waitForExistence(timeout: 5))
+        capture("45-schedule-week-picker")
+        let week = app.buttons["schedule-week-2026-12-14"]
+        for _ in 0..<6 where !week.isHittable { app.swipeUp() }
+        week.tap()
+        XCTAssertTrue(app.staticTexts["schedule-range"].label.contains("12/14"), app.staticTexts["schedule-range"].label)
+        // Week 21 is the last one the school lists.
+        XCTAssertFalse(app.buttons["schedule-next-week"].isEnabled)
+        app.buttons["schedule-previous-week"].tap()
+        XCTAssertTrue(app.staticTexts["schedule-range"].label.contains("12/7"))
+        capture("46-schedule-chosen-week")
+        app.buttons["schedule-this-week"].tap()
+
+        // 重新選擇: the previous term, another class and the semester timetable.
+        app.buttons["schedule-menu"].tap()
+        app.buttons["schedule-rechoose"].tap()
+        XCTAssertTrue(app.staticTexts["選擇課表範圍"].waitForExistence(timeout: 5))
+        capture("47-schedule-choice")
+        app.buttons["schedule-choice-year"].tap()
+        let older = app.buttons["114學年度第2學期"]
+        XCTAssertTrue(older.waitForExistence(timeout: 5))
+        older.tap()
+        app.buttons["schedule-choice-class"].tap()
+        app.buttons["高二 31 班"].tap()
+        app.buttons["學期課表"].tap()
+        capture("48-schedule-choice-filled")
+        app.buttons["schedule-choice-confirm"].tap()
+        let range = app.staticTexts["schedule-range"]
+        XCTAssertTrue(waitUntil { range.label == "114 學年度 第 2 學期" }, range.label)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "高二 31 班")).firstMatch.exists)
+        capture("49-schedule-chosen-term")
+
+        // Cancelling a new choice keeps the timetable that was showing.
+        app.buttons["schedule-menu"].tap()
+        app.buttons["schedule-rechoose"].tap()
+        XCTAssertTrue(app.buttons["schedule-choice-cancel"].waitForExistence(timeout: 5))
+        app.buttons["schedule-choice-cancel"].tap()
+        XCTAssertTrue(waitUntil { range.label == "114 學年度 第 2 學期" }, range.label)
     }
 
     func testCampusAnnouncementsCalendarAndRecords() {

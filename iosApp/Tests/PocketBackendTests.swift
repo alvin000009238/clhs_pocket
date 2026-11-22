@@ -209,6 +209,45 @@ final class PocketBackendTests: XCTestCase {
         try await controller.logout()
     }
 
+    func testTheChosenTermAndClassAreRequestedAndBecomeTheStudentsTimetable() async throws {
+        let timetable = """
+        {"payload":{"weeks":[{"items":[
+          {"SubjectName":"英語文","WeekDay":"2","SectionSeq":"3","TeacherNameDisplay":"範例教師","ClassroomName":"示範教室"}
+        ]}]}}
+        """
+        let controller = LiveDataController(backend: backend())
+        try await controller.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "web"])
+        let tokenPage = Self.tokenPage
+        StubURLProtocol.install { request in
+            guard request.url.host == "shcloud2.k12ea.gov.tw" else { return .failure(.notConnectedToInternet) }
+            if request.method == "GET" { return StubURLProtocol.text(tokenPage) }
+            switch request.url.lastPathComponent {
+            case "GetYearTermList": return StubURLProtocol.text(#"[{"Text":"115 上","Value":"115_1"},{"Text":"114 下","Value":"114_2"}]"#)
+            case "GetClassNoList": return StubURLProtocol.text(#"[{"Text":"一年 1 班","Value":"101"},{"Text":"二年 30 班","Value":"230"}]"#)
+            case "GetTimeTable": return StubURLProtocol.text(timetable)
+            default: return StubURLProtocol.text("[]")
+            }
+        }
+        controller.scheduleChoice = .init(yearValue: "114_2", classValue: "230")
+        let revision = controller.scheduleRevision
+        await controller.loadSchedule(classValue: "230", yearValue: "114_2")
+
+        let classLists = StubURLProtocol.requests.filter { $0.url.lastPathComponent == "GetClassNoList" }
+        XCTAssertFalse(classLists.isEmpty)
+        XCTAssertTrue(classLists.allSatisfy { $0.body.contains("Year=114") && $0.body.contains("Term=2") }, "classes of the chosen term, not the newest")
+        let posts = StubURLProtocol.requests.filter { $0.url.lastPathComponent == "GetTimeTable" }
+        XCTAssertFalse(posts.isEmpty)
+        for post in posts {
+            XCTAssertTrue(post.body.contains("ClassNo=230"), post.body)
+            XCTAssertTrue(post.body.contains("TimetableType=Class"), post.body)
+            XCTAssertTrue(post.body.contains("Year=114") && post.body.contains("Term=2"), post.body)
+            XCTAssertFalse(post.body.contains("StudentNo="), post.body)
+        }
+        // The chosen class is what the home page, the widget and the reminders plan from.
+        XCTAssertGreaterThan(controller.scheduleRevision, revision)
+        try await controller.logout()
+    }
+
     func testSubjectOverridesAreStoredInOrderAndRolledBackWhenTheyCannotBeSaved() async throws {
         let controller = LiveDataController(backend: backend())
         try await controller.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "web"])

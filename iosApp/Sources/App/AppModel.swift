@@ -72,6 +72,8 @@ final class AppModel {
         static let notifications = "notificationsEnabled"
         static let dashboard = "dashboardLayout"
         static let overrides = "scheduleSubjectOverrides"
+        static let scheduleClass = "scheduleClass"
+        static let scheduleYear = "scheduleYear"
         static let unread = "unreadAnnouncementIds"
         static let bookmarks = "bookmarkedAnnouncementIds"
         static let lessonAlerts = "notifyLessons"
@@ -128,7 +130,7 @@ final class AppModel {
     var session: PocketSession {
         didSet {
             defaults.set(session.rawValue, forKey: Key.session)
-            if oldValue != session { demoScheduleClass = "" }
+            if oldValue != session { demoScheduleClass = ""; demoScheduleYear = "" }
             syncSource()
             guard live != nil, oldValue != session else { return }
             // The demo account and real data never share read state.
@@ -273,6 +275,9 @@ final class AppModel {
         if defaults.string(forKey: Key.dashboard) == nil { dashboardLayout = PocketDashboard.shared.defaultLayout() }
         if usesLiveData { unreadAnnouncementIds = [] }
         if let live {
+            live.scheduleChoice = .init(
+                yearValue: defaults.string(forKey: Key.scheduleYear) ?? "", classValue: defaults.string(forKey: Key.scheduleClass) ?? ""
+            )
             PocketPlatformCoordinator.shared.data = LivePlatformData(live: live) { [weak self] in self?.usesLiveData ?? false }
         } else if storageFailure == nil {
             PocketPlatformCoordinator.shared.data = DemoPlatformData()
@@ -313,7 +318,7 @@ final class AppModel {
     func signIn(studentNo: String, cookies: [String: String]) async -> String? {
         guard let live else { return "示範模式無法登入校務系統" }
         do {
-            defaults.removeObject(forKey: "scheduleClass")
+            forgetScheduleChoice()
             try await live.login(studentNo: studentNo, cookies: cookies)
             session = .guest
             hasCompletedOnboarding = true
@@ -388,7 +393,7 @@ final class AppModel {
 
     func signOut() {
         let wasDemo = session == .demo
-        defaults.removeObject(forKey: "scheduleClass")
+        forgetScheduleChoice()
         session = .guest
         paths = [:]
         guard !wasDemo, let live else { return }
@@ -408,16 +413,64 @@ final class AppModel {
         get {
             access(keyPath: \.scheduleClass)
             if session == .demo { return demoScheduleClass }
-            return usesLiveData && live?.session != nil ? defaults.string(forKey: "scheduleClass") ?? "" : ""
+            return usesLiveData && live?.session != nil ? defaults.string(forKey: Key.scheduleClass) ?? "" : ""
         }
         set {
             withMutation(keyPath: \.scheduleClass) {
-                if session == .demo { demoScheduleClass = newValue } else { defaults.set(newValue, forKey: "scheduleClass") }
+                if session == .demo {
+                    demoScheduleClass = newValue
+                } else {
+                    defaults.set(newValue, forKey: Key.scheduleClass)
+                    live?.scheduleChoice.classValue = newValue
+                }
             }
         }
     }
 
+    /// The term the timetable screen shows, a school year option such as `115_1`; empty for the
+    /// newest term. Kept and cleared together with `scheduleClass`.
+    var scheduleYear: String {
+        get {
+            access(keyPath: \.scheduleYear)
+            if session == .demo { return demoScheduleYear }
+            return usesLiveData && live?.session != nil ? defaults.string(forKey: Key.scheduleYear) ?? "" : ""
+        }
+        set {
+            withMutation(keyPath: \.scheduleYear) {
+                if session == .demo {
+                    demoScheduleYear = newValue
+                } else {
+                    defaults.set(newValue, forKey: Key.scheduleYear)
+                    live?.scheduleChoice.yearValue = newValue
+                }
+            }
+        }
+    }
+
+    /// Whether the signed-in student still has to choose a term and class, as Android asks before
+    /// the first timetable. The demo shows its sample timetable straight away.
+    var needsScheduleChoice: Bool {
+        access(keyPath: \.scheduleYear)
+        return session != .demo && usesLiveData && live?.session != nil && defaults.string(forKey: Key.scheduleYear) == nil
+    }
+
+    /// Stores the student's choice. A different term or class drops the timetables loaded for
+    /// the previous one, so its lessons never show under the new title.
+    func chooseSchedule(yearValue: String, classValue: String) {
+        let changed = yearValue != scheduleYear || classValue != scheduleClass
+        if changed, session != .demo, usesLiveData { PocketLive.shared.clearSchedules() }
+        scheduleYear = yearValue
+        scheduleClass = classValue
+    }
+
+    private func forgetScheduleChoice() {
+        defaults.removeObject(forKey: Key.scheduleClass)
+        defaults.removeObject(forKey: Key.scheduleYear)
+        live?.scheduleChoice = .init()
+    }
+
     @ObservationIgnored private var demoScheduleClass = ""
+    @ObservationIgnored private var demoScheduleYear = ""
 
     /// Deletes a settings file that can no longer be read (「設定檔已損壞，請重設設定後再試一次」),
     /// so settings and backups work again with the defaults.
@@ -539,7 +592,7 @@ final class AppModel {
         appearance = .system
         dashboardLayout = PocketDashboard.shared.defaultLayout()
         localScheduleOverrides = "[]"
-        defaults.removeObject(forKey: "scheduleClass")
+        forgetScheduleChoice()
         // The demo's unread markers belong to the demo's own announcements only.
         unreadAnnouncementIds = live == nil ? PocketCampusStore.shared.defaultUnreadIds() : []
         bookmarkedAnnouncementIds = []
