@@ -8,7 +8,7 @@ internal data class GradeSummaryDisplay(
     val isTotalEstimated: Boolean = false,
     val isAverageEstimated: Boolean = false,
     val hasOfficialAverage: Boolean = false,
-    val needsCreditAttention: Boolean = true,
+    val needsCreditAttention: Boolean = false,
 )
 
 internal fun gradeSummaryDisplay(

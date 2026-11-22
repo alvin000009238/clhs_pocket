@@ -427,12 +427,8 @@ fun GradesScreen(
                             onDismissRequest = { showMoreMenu = false },
                             offset = DpOffset(x = 0.dp, y = 10.dp),
                         ) {
-                            PocketOverflowMenuItem(
-                                text = { Text("學分設定") },
-                                trailingIcon = { if (summaryDisplay.needsCreditAttention) Badge() },
-                                modifier = Modifier.semantics {
-                                    if (summaryDisplay.needsCreditAttention) stateDescription = "學分待確認"
-                                },
+                            GradeCreditSettingsMenuItem(
+                                needsAttention = summaryDisplay.needsCreditAttention,
                                 enabled = state.report != null && state.selectedYearValue != null && state.selectedExamValue != null,
                                 onClick = {
                                     showMoreMenu = false
@@ -1412,6 +1408,30 @@ private fun EmptyPanel(message: String, onReload: () -> Unit) {
             Text("重新整理")
         }
     }
+}
+
+@Composable
+internal fun GradeCreditSettingsMenuItem(
+    needsAttention: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    PocketOverflowMenuItem(
+        text = {
+            Column {
+                Text("學分設定")
+                if (needsAttention) {
+                    Text(
+                        "學分待確認",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        enabled = enabled,
+        onClick = onClick,
+    )
 }
 
 private fun diffSentence(diff: Double): String = when {

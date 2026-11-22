@@ -53,7 +53,8 @@ internal fun SimulatorCreditUiState.summaryDisplay(
 ): GradeSummaryDisplay {
     report ?: return GradeSummaryDisplay()
     val compatible = year != null && exam != null && identity == simulatorCreditIdentity(studentNo, year, exam, report)
-    return gradeSummaryDisplay(report, if (compatible) appliedCredits else emptyMap(), compatible && isAppliedStateReliable)
+    val display = gradeSummaryDisplay(report, if (compatible) appliedCredits else emptyMap(), compatible && isAppliedStateReliable)
+    return if (compatible && !isLoading) display else display.copy(needsCreditAttention = false)
 }
 
 internal class SimulatorCreditStateOwner(
