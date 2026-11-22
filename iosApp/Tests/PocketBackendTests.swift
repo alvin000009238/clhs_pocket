@@ -1,4 +1,5 @@
 import Security
+import os
 import XCTest
 @testable import CLHSPocket
 @preconcurrency import PocketShared
@@ -237,6 +238,115 @@ final class PocketBackendTests: XCTestCase {
         await controller.subjectOverridesSettled()
         XCTAssertEqual(controller.subjectOverrides, before, "an edit that was not stored is taken back")
         XCTAssertNotNil(controller.lastError)
+    }
+
+    func testDeleteAllStopsPublicRequestsStillOnTheWireFromWritingAnythingBack() async throws {
+        let list = #"[{"pageNum":0,"totalPages":1},{"newsId":"n1","title":"校慶公告","time":"2026/11/18","attr_name":"一般","name":"教務處","top":"0","content_type":"content"}]"#
+        // The first announcement request is held back until the test lets it answer.
+        let gate = DispatchSemaphore(value: 0)
+        let holding = OSAllocatedUnfairLock(initialState: true)
+        let sent = expectation(description: "the announcement request is on the wire")
+        sent.assertForOverFulfill = false
+        StubURLProtocol.install { request in
+            guard request.url.path.hasSuffix("news_query_json.php") else { return .failure(.notConnectedToInternet) }
+            if holding.withLock({ $0 }) {
+                sent.fulfill()
+                _ = gate.wait(timeout: .now() + 5)
+            }
+            return StubURLProtocol.text(list)
+        }
+        addTeardownBlock { @MainActor in PocketLive.shared.clearAll() }
+        let controller = LiveDataController(backend: backend())
+        controller.syncBookmarks(["n1"])
+        await controller.bookmarksSettled()
+
+        let refresh = Task { await controller.refreshPublic(weatherSource: .openMeteo) }
+        await fulfillment(of: [sent], timeout: 5)
+        let deletion = Task { try await controller.deleteAllData() }
+        try await Task.sleep(for: .milliseconds(100))
+        holding.withLock { $0 = false }
+        gate.signal()
+        try await deletion.value
+        await refresh.value
+
+        let left = (FileManager.default.subpaths(atPath: root.path) ?? []).filter {
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path, isDirectory: &isDirectory)
+                && !isDirectory.boolValue
+        }
+        XCTAssertEqual(left, [], "the late answer must not put the cache or the read state back")
+        XCTAssertTrue(PocketLive.shared.listedAnnouncements.isEmpty)
+
+        // The bookmark selection went with the data: a later refresh lists n1 without saving it again.
+        await controller.refreshPublic(weatherSource: .openMeteo)
+        XCTAssertEqual(PocketLive.shared.listedAnnouncements.map(\.id), ["n1"])
+        let saved = try await controller.backend.call { try await $0.bookmarkedAnnouncements(token: $1) }
+        XCTAssertTrue(saved.isEmpty)
+    }
+
+    /// Replaying the onboarding into the demo while signed in, then restarting the app.
+    func testDemoDoesNotPublishOverAStoredAccountAfterARestart() async throws {
+        let suite = "live-account-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        let now = Date()
+        func demoShowing(_ controller: LiveDataController) -> LivePlatformData {
+            LivePlatformData(live: controller) { false }
+        }
+
+        // No account on the device: the demo owns the widget and the reminders.
+        let guest = LiveDataController(backend: backend(), defaults: defaults)
+        XCTAssertNotEqual(demoShowing(guest).scheduleSnapshot(scheduleNow: now, deviceNow: now), .unknown)
+
+        let signedIn = LiveDataController(backend: backend(), defaults: defaults)
+        try await signedIn.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "web"])
+
+        // After a restart nothing is in memory; the session is not restored while the demo shows.
+        let restarted = LiveDataController(backend: backend(), defaults: defaults)
+        XCTAssertNil(restarted.session)
+        let data = demoShowing(restarted)
+        XCTAssertEqual(data.scheduleSnapshot(scheduleNow: now, deviceNow: now), .unknown, "the account's snapshot stays")
+        XCTAssertNil(data.announcementHeadlines(at: now))
+        let alert = await data.gradeNotification(at: now, settings: PlatformSettings.shared.shared(at: now))
+        XCTAssertNil(alert)
+
+        // Once the account is gone the demo may publish again, also after another restart.
+        try await signedIn.logout()
+        let later = LiveDataController(backend: backend(), defaults: defaults)
+        XCTAssertNotEqual(demoShowing(later).scheduleSnapshot(scheduleNow: now, deviceNow: now), .unknown)
+    }
+
+    /// A launch in the background has no announcement list in memory and no screen to load one.
+    func testAnnouncementReminderFetchesTheListItselfOnAColdStart() async throws {
+        let list = #"[{"pageNum":0,"totalPages":1},{"newsId":"n1","title":"校慶公告","time":"2026/11/18","attr_name":"一般","name":"教務處","top":"0","content_type":"content"}]"#
+        StubURLProtocol.install { request in
+            request.url.path.hasSuffix("news_query_json.php") ? StubURLProtocol.text(list) : .failure(.notConnectedToInternet)
+        }
+        addTeardownBlock { @MainActor in
+            PocketLive.shared.clearAll()
+            PocketData.shared.useDemo()
+        }
+        PocketData.shared.useLive()
+        let controller = LiveDataController(backend: backend())
+        let data = LivePlatformData(live: controller) { true }
+        let now = Date()
+        XCTAssertNil(data.announcementHeadlines(at: now), "nothing is known before the list is fetched")
+
+        await data.loadAnnouncements()
+        XCTAssertEqual(data.announcementHeadlines(at: now)?.map(\.id), ["n1"])
+        func listRequests() -> Int { StubURLProtocol.requests.filter { $0.url.path.hasSuffix("news_query_json.php") }.count }
+        XCTAssertEqual(listRequests(), 1)
+
+        // A list fetched a moment ago is not fetched again; an old one is.
+        await data.loadAnnouncements()
+        XCTAssertEqual(listRequests(), 1)
+        await controller.loadAnnouncementsIfStale(now: now.addingTimeInterval(16 * 60))
+        XCTAssertEqual(listRequests(), 2)
+
+        // While the demo is showing the school's list is left alone.
+        let aside = LivePlatformData(live: LiveDataController(backend: backend())) { false }
+        await aside.loadAnnouncements()
+        XCTAssertEqual(listRequests(), 2)
     }
 
     func testLoginRightAfterLogoutKeepsTheNewAccountAndNothingOfTheOldOne() async throws {

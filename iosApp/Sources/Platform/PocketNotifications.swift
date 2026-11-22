@@ -136,13 +136,20 @@ final class NotificationCapabilityStore {
         return entry["link"].flatMap(PocketDeepLink.init(rawValue:))
     }
 
+    /// The entry for `token` while it can still be redeemed. Expired entries are only removed
+    /// when the next token is issued, so every reader checks the date itself.
+    private func live(_ token: String, now: Date) -> [String: String]? {
+        guard let entry = entries[token], !Self.isExpired(entry, now: now) else { return nil }
+        return entry
+    }
+
     /// Where `token` leads, without redeeming it.
-    func link(for token: String) -> PocketDeepLink? {
-        entries[token]?["link"].flatMap(PocketDeepLink.init(rawValue:))
+    func link(for token: String, now: Date = Date()) -> PocketDeepLink? {
+        live(token, now: now)?["link"].flatMap(PocketDeepLink.init(rawValue:))
     }
 
     /// Whether `token` is still outstanding, without redeeming it.
-    func isValid(_ token: String) -> Bool { entries[token] != nil }
+    func isValid(_ token: String, now: Date = Date()) -> Bool { live(token, now: now) != nil }
 
     func revoke(identifiers: [String]) {
         let ids = Set(identifiers)
