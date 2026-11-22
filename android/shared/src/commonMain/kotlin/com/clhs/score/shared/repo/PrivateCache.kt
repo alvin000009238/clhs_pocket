@@ -147,9 +147,46 @@ class PrivateCache(private val files: FileStore, private val now: () -> Long) {
             )
         }
 
+    /**
+     * The profile photo the student picked on iOS, as base64 image data. It lives in the private
+     * area, so logout and delete-all remove it with the rest of the account's data and nobody
+     * else ever reads it. Unreadable or another student's photo is a miss.
+     */
+    suspend fun loadProfilePhoto(studentNo: String): String? =
+        lock.withLock { loadCached(PROFILE_PHOTO, studentNo, String.serializer())?.first }
+
+    /** Null removes the photo. Returns false when [shouldCommit] refused; throws [StorageException] when it failed. */
+    suspend fun saveProfilePhoto(studentNo: String, base64: String?, shouldCommit: () -> Boolean): Boolean =
+        lock.withLock {
+            when {
+                base64 != null -> write(PROFILE_PHOTO, studentNo, String.serializer(), base64, shouldCommit)
+                !shouldCommit() -> false
+                else -> {
+                    files.delete(PROFILE_PHOTO).orThrow("Photo delete")
+                    true
+                }
+            }
+        }
+
     /** Removes all cached school data. Throws [StorageException] when anything could not be deleted. */
     suspend fun clearSchoolData() {
         lock.withLock { files.deleteTree(FileStore.PRIVATE).orThrow("Private cache delete") }
+    }
+
+    /** Removes cached grades, simulator credits, the term structure and the student profile; throws [StorageException] when any remain. */
+    suspend fun clearGradeData() {
+        lock.withLock {
+            val results = listOf(files.deleteTree(GRADES), files.deleteTree(SIMULATOR), files.delete(STRUCTURE), files.delete(STUDENT))
+            if (results.any { !it.succeeded }) throw StorageException("Grade cache delete failed")
+        }
+    }
+
+    /** Removes every cached timetable; throws [StorageException] when any remain. */
+    suspend fun clearScheduleData() {
+        lock.withLock {
+            val results = listOf(files.deleteTree(SCHEDULES), files.delete(LATEST_SCHEDULE))
+            if (results.any { !it.succeeded }) throw StorageException("Schedule cache delete failed")
+        }
     }
 
     /** Deletes both override locations, attempting each; throws [StorageException] when either remains. */
@@ -165,6 +202,10 @@ class PrivateCache(private val files: FileStore, private val now: () -> Long) {
         const val STRUCTURE = "${FileStore.PRIVATE}/structure.json"
         const val STUDENT = "${FileStore.PRIVATE}/student.json"
         const val LATEST_SCHEDULE = "${FileStore.PRIVATE}/schedule-latest.json"
+        const val GRADES = "${FileStore.PRIVATE}/grades"
+        const val SIMULATOR = "${FileStore.PRIVATE}/simulator"
+        const val SCHEDULES = "${FileStore.PRIVATE}/schedule"
+        const val PROFILE_PHOTO = "${FileStore.PRIVATE}/profile-photo.json"
         const val LEGACY_OVERRIDES = "${FileStore.SETTINGS}/subject-overrides.json"
         const val OVERRIDES_DIRECTORY = "${FileStore.SETTINGS}/subject-overrides"
         fun overridesPath(studentNo: String) = "$OVERRIDES_DIRECTORY/${fileKey(studentNo)}.json"

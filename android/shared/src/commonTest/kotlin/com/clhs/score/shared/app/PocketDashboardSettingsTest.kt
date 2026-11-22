@@ -2,6 +2,7 @@ package com.clhs.score.shared.app
 
 import com.clhs.score.data.WeatherLocation
 import com.clhs.score.data.WeatherSource
+import com.clhs.score.data.YouBikeSnapshot
 import com.clhs.score.data.YouBikeStation
 import com.clhs.score.domain.overview.AnnouncementPriority
 import com.clhs.score.domain.overview.OverviewWidgetConfig
@@ -101,6 +102,39 @@ class PocketDashboardSettingsTest {
             ))
             assertEquals("20°", PocketLive.weather(location, WeatherSource.CWA)?.temperatureText)
             assertEquals(null, PocketLive.weather(location, WeatherSource.OPEN_METEO))
+        } finally {
+            PocketLive.clearAll()
+        }
+    }
+
+    /** A removed or re-pointed widget leaves no reading behind for a place nobody shows. */
+    @Test
+    fun unusedLiveReadingsAreDropped() {
+        val weather = OverviewWidgetInstance.create("weather", OverviewWidgetConfig.Weather())
+        val bike = OverviewWidgetInstance.create("youbike", OverviewWidgetConfig.YouBike())
+        val layout = layoutOf(weather, bike)
+        val request = PocketDashboard.weatherRequests(layout).single()
+        val station = PocketDashboard.youBikeStationsIn(layout).single()
+        val reading = WeatherSnapshot(
+            source = request.source, locationLabel = request.location.name, temperatureCelsius = 20,
+            apparentTemperatureCelsius = null, condition = "陰", precipitationProbability = null,
+            precipitationStart = null, precipitationEndExclusive = null, fetchedAt = instantOfEpochMilli(0),
+        )
+        val bikes = YouBikeSnapshot(3, 4, 7, 2, 1, true, instantOfEpochMilli(0), instantOfEpochMilli(0))
+        try {
+            PocketLive.putWeather(request.location, request.source, reading)
+            PocketLive.putWeather(request.location, WeatherSource.CWA, reading)
+            PocketLive.putYouBike(station.id, bikes)
+            PocketLive.putYouBike("gone", bikes)
+            PocketDashboard.dropUnusedLiveData(layout)
+            assertEquals("20°", PocketLive.weather(request.location, request.source)?.temperatureText)
+            assertEquals(null, PocketLive.weather(request.location, WeatherSource.CWA))
+            assertEquals("3", PocketLive.youBike(station)?.bikesText)
+            assertEquals(null, PocketLive.youBike(station.copy(id = "gone")))
+
+            PocketDashboard.dropUnusedLiveData(layoutOf())
+            assertEquals(null, PocketLive.weather(request.location, request.source))
+            assertEquals(null, PocketLive.youBike(station))
         } finally {
             PocketLive.clearAll()
         }

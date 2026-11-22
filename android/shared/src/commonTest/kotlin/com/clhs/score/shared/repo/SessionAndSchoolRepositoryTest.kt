@@ -372,6 +372,68 @@ class SessionAndSchoolRepositoryTest {
     }
 
     @Test
+    fun profilePhotoBelongsToOneAccountAndGoesWithLogout() = runTest {
+        val rig = rig()
+        val session = rig.vault.establishSession(login)
+        rig.repository.activateSession(session)
+        rig.repository.saveProfilePhoto(session, "cGhvdG8=")
+        assertEquals("cGhvdG8=", rig.repository.loadProfilePhoto(session))
+        account(rig).clearLocalData(LocalDataArea.entries)
+        assertEquals("cGhvdG8=", rig.repository.loadProfilePhoto(session), "clearing caches keeps the photo")
+        assertNull(rig.cache.loadProfilePhoto("DEMO-002"), "another student never reads it")
+
+        rig.repository.logout()
+        assertTrue(files.area(FileStore.PRIVATE).isEmpty())
+        assertFailsWith<CancellationException> { rig.repository.saveProfilePhoto(session, "bGF0ZQ==") }
+        assertTrue(files.area(FileStore.PRIVATE).isEmpty(), "a photo picked before logout is not stored after it")
+
+        val next = rig.vault.establishSession(login.copy(studentNo = "DEMO-002"))
+        rig.repository.activateSession(next)
+        assertNull(rig.repository.loadProfilePhoto(next))
+        rig.repository.saveProfilePhoto(next, "bmV4dA==")
+        rig.repository.saveProfilePhoto(next, null)
+        assertNull(rig.repository.loadProfilePhoto(next))
+    }
+
+    @Test
+    fun clearingLocalDataKeepsTheSessionSettingsAndUnchosenAreas() = runTest {
+        val rig = rig()
+        val session = rig.vault.establishSession(login)
+        rig.repository.activateSession(session)
+        SettingsStore(files) { 0L }.save(PocketSettings(appLockEnabled = true))
+        listOf("grades/a.json", "simulator/a.json", "structure.json", "student.json", "schedule/a.json", "schedule-latest.json")
+            .forEach { files.write("${FileStore.PRIVATE}/$it", "x", 0L) }
+        files.write("${FileStore.PUBLIC}/school-calendar.ics", "x", 0L)
+
+        account(rig).clearLocalData(listOf(LocalDataArea.GRADE_CACHE))
+        assertEquals(setOf("${FileStore.PRIVATE}/schedule/a.json", "${FileStore.PRIVATE}/schedule-latest.json"), files.area(FileStore.PRIVATE))
+        assertEquals(1, files.area(FileStore.PUBLIC).size)
+        assertTrue(rig.vault.isAuthorized(session))
+        assertTrue(SettingsStore(files) { 0L }.load().appLockEnabled)
+
+        account(rig).clearLocalData(listOf(LocalDataArea.SCHEDULE_CACHE, LocalDataArea.PUBLIC_CACHE))
+        assertTrue(files.area(FileStore.PRIVATE).isEmpty())
+        assertTrue(files.area(FileStore.PUBLIC).isEmpty())
+        assertEquals(session, SessionVault(secure, files).loadSession())
+    }
+
+    @Test
+    fun aFailedLocalDataClearIsReportedAndTheOtherAreasAreStillCleared() = runTest {
+        val rig = rig()
+        files.write("${FileStore.PRIVATE}/grades/a.json", "x", 0L)
+        files.write("${FileStore.PUBLIC}/school-calendar.ics", "x", 0L)
+        files.failDeletes += "${FileStore.PRIVATE}/grades"
+        val error = assertFailsWith<SessionCleanupException> {
+            account(rig, web = false).clearLocalData(LocalDataArea.entries)
+        }
+        assertEquals(
+            setOf(SessionCleanupFailure.PRIVATE_CACHE_DELETE_FAILED, SessionCleanupFailure.WEB_DATA_DELETE_FAILED),
+            error.failures,
+        )
+        assertTrue(files.area(FileStore.PUBLIC).isEmpty())
+    }
+
+    @Test
     fun switchAccountSignsOutCompletelyBeforeTheNewLogin() = runTest {
         val rig = rig { request -> if (request.method == "GET") response(tokenPage) else response(SchoolFixtures.gradeJson) }
         val first = rig.repository.loginWithCookies("DEMO-001", mapOf("ASP.NET_SessionId" to "one"))

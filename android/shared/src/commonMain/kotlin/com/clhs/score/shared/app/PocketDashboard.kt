@@ -425,6 +425,10 @@ object PocketDashboard {
     fun youBikeStationsIn(layout: String): List<YouBikeStation> = decode(layout).filter { it.enabled }
         .mapNotNull { (it.config() as? OverviewWidgetConfig.YouBike)?.station }.distinctBy { it.id }
 
+    /** Drops live weather and YouBike readings that no enabled widget in [layout] shows. */
+    fun dropUnusedLiveData(layout: String) =
+        PocketLive.retainWidgetData(weatherRequests(layout), youBikeStationsIn(layout).map { it.id })
+
     private fun WeatherLocation.choice() = PocketChoice(id, name, county)
     private fun YouBikeStation.choice() = PocketChoice(id, name, listOf(district, address).filter(String::isNotBlank).joinToString(" · "))
 

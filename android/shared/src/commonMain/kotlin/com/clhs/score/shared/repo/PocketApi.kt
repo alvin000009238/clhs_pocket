@@ -53,6 +53,11 @@ class PocketApi(private val services: PocketServices) {
     @Throws(Exception::class)
     suspend fun deleteAllData(token: CancelToken?) = pocketCall(token) { services.account.deleteAllData() }
 
+    /** Clears the chosen caches while staying signed in; see [AccountService.clearLocalData]. */
+    @Throws(Exception::class)
+    suspend fun clearLocalData(areas: List<LocalDataArea>, token: CancelToken?) =
+        pocketCall(token) { services.account.clearLocalData(areas) }
+
     @Throws(Exception::class)
     suspend fun hasPendingCleanup(token: CancelToken?): Boolean = pocketCall(token) { services.hasPendingCleanup() }
 
@@ -135,6 +140,16 @@ class PocketApi(private val services: PocketServices) {
     @Throws(Exception::class)
     suspend fun saveSubjectOverrides(session: AuthenticatedSession, overrides: List<ScheduleSubjectOverride>, token: CancelToken?) =
         pocketCall(token) { services.school.saveSubjectOverrides(session, overrides) }
+
+    /** The signed-in student's profile photo as base64 image data; null when none is stored. */
+    @Throws(Exception::class)
+    suspend fun profilePhoto(session: AuthenticatedSession, token: CancelToken?): String? =
+        pocketCall(token) { services.school.loadProfilePhoto(session) }
+
+    /** Stores the profile photo in the account's private area; null removes it. */
+    @Throws(Exception::class)
+    suspend fun saveProfilePhoto(session: AuthenticatedSession, base64: String?, token: CancelToken?) =
+        pocketCall(token) { services.school.saveProfilePhoto(session, base64) }
 
     /** The simulator credits the student confirmed for one exam; null when none are stored. */
     @Throws(Exception::class)

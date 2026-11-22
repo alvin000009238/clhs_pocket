@@ -228,6 +228,12 @@ object PocketLive : PocketSource {
     }
     fun putYouBike(stationId: String, snapshot: YouBikeSnapshot) { bikesByStation[stationId] = snapshot }
 
+    /** Forgets readings for places and stations no widget asks for any more. */
+    fun retainWidgetData(weather: List<PocketWeatherRequest>, stationIds: List<String>) {
+        weatherByLocation.keys.retainAll(weather.map { weatherKey(it.location, it.source) }.toSet())
+        bikesByStation.keys.retainAll(stationIds.toSet())
+    }
+
     private fun semesterKey(semester: RecordSemester) = "${semester.year}/${semester.term}"
     override fun attendance(semester: RecordSemester): AttendanceRecord? = attendanceBySemester[semesterKey(semester)]
     fun putAttendance(semester: RecordSemester, record: AttendanceRecord) { attendanceBySemester[semesterKey(semester)] = record }

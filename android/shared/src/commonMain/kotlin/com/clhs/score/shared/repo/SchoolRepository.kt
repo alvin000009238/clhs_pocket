@@ -291,6 +291,18 @@ class SchoolRepository(
         requireCurrent(session, generation)
     }
 
+    suspend fun loadProfilePhoto(session: AuthenticatedSession): String? {
+        val generation = capture(session)
+        return cache.loadProfilePhoto(session.studentNo).also { requireCurrent(session, generation) }
+    }
+
+    /** A photo picked by an account that has since signed out is never stored. */
+    suspend fun saveProfilePhoto(session: AuthenticatedSession, base64: String?) {
+        val generation = capture(session)
+        cache.saveProfilePhoto(session.studentNo, base64) { isCurrent(session, generation) }
+        requireCurrent(session, generation)
+    }
+
     private suspend fun CachedSchedule.withOverrides(session: AuthenticatedSession) =
         CachedSchedule(report.copy(subjectOverrides = cache.loadSubjectOverrides(session.studentNo)), capturedAtEpochMillis)
 
