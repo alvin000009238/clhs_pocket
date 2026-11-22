@@ -621,7 +621,10 @@ final class PocketShellUITests: XCTestCase {
         capture("58-attendance")
         app.buttons["records-categories"].tap()
         XCTAssertTrue(app.navigationBars["全部分類"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["公假"].exists, "every category the school counts, not only the highlights")
+        // At accessibility text sizes the half-height sheet shows only the first categories.
+        let leave = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "公假")).firstMatch
+        for _ in 0..<4 where !leave.exists { app.navigationBars["全部分類"].swipeUp() }
+        XCTAssertTrue(leave.exists, "every category the school counts, not only the highlights")
         capture("58b-attendance-categories")
         app.buttons["關閉"].tap()
         let history = app.buttons["records-history"]
