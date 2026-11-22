@@ -178,7 +178,10 @@ object PocketLive : PocketSource {
     override fun announcementDetail(id: String): SchoolAnnouncementDetail? = details[id]
     fun putAnnouncementDetail(detail: SchoolAnnouncementDetail) { details[detail.id] = detail }
     override var savedAnnouncements: List<SchoolAnnouncement> = emptyList()
-    val listedAnnouncements: List<SchoolAnnouncement> get() = announcementList
+    /** The first page plus any later pages the list has loaded, so bookmarks there can be saved. */
+    val listedAnnouncements: List<SchoolAnnouncement> get() = (announcementList + pagedAnnouncements).distinctBy { it.id }
+    private var pagedAnnouncements: List<SchoolAnnouncement> = emptyList()
+    fun putPagedAnnouncements(items: List<SchoolAnnouncement>) { pagedAnnouncements = items }
 
     override fun events(clock: PocketClock): List<SchoolCalendarEvent> = eventList
     fun putEvents(items: List<SchoolCalendarEvent>) { eventList = items }
@@ -265,6 +268,7 @@ object PocketLive : PocketSource {
         clearPrivate()
         announcementList = emptyList()
         savedAnnouncements = emptyList()
+        pagedAnnouncements = emptyList()
         details.clear()
         eventList = emptyList()
         weatherByLocation.clear()
