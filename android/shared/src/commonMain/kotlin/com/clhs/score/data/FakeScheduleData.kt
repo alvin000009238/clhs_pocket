@@ -28,6 +28,25 @@ object FakeScheduleData {
             }
         }
 
+    /** The school's week list for [yearValue]: 21 weeks from the Monday of the term's first week. */
+    fun weeks(yearValue: String): List<ScheduleWeekOption> {
+        val (academicYear, academicTerm) = parseYearTermOrNull(yearValue) ?: return emptyList()
+        val first = firstWeekStart(academicYear, academicTerm)
+        return (1..21).map { number ->
+            val start = first.shiftDays(7L * (number - 1))
+            ScheduleWeekOption("第${number}週", number.toString(), start.toString(), start.shiftDays(6).toString())
+        }
+    }
+
+    private fun firstWeekStart(academicYear: String, academicTerm: String): LocalDate {
+        val semesterStart = if (academicTerm == "1") {
+            localDateOf(academicYear.toInt() + 1911, 8, 1)
+        } else {
+            localDateOf(academicYear.toInt() + 1912, 2, 1)
+        }
+        return semesterStart.shiftDays(-(semesterStart.weekday().isoNumber - 1).toLong())
+    }
+
     val classes = listOf(
         ScheduleClassOption("高二 30 班", "230"),
         ScheduleClassOption("高二 31 班", "231"),
@@ -41,12 +60,7 @@ object FakeScheduleData {
     ): ScheduleReport {
         val weekStart = today.shiftDays(-(today.weekday().isoNumber - 1).toLong())
         val (academicYear, academicTerm) = requireNotNull(parseYearTermOrNull(yearValue))
-        val semesterStart = if (academicTerm == "1") {
-            localDateOf(academicYear.toInt() + 1911, 8, 1)
-        } else {
-            localDateOf(academicYear.toInt() + 1912, 2, 1)
-        }
-        val firstWeekStart = semesterStart.shiftDays(-(semesterStart.weekday().isoNumber - 1).toLong())
+        val firstWeekStart = firstWeekStart(academicYear, academicTerm)
         val weekNo = ((weekStart.epochDay() - firstWeekStart.epochDay()) / 7 + 1)
             .coerceAtLeast(1).toString()
         val classroom = classes.firstOrNull { it.value == classNo }?.text

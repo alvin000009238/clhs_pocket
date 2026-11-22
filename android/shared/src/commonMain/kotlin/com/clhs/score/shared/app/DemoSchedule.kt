@@ -51,6 +51,8 @@ internal object DemoSchedule {
         val classValue: String = "",
         val weekOffset: Int = 0,
         val overrides: List<ScheduleSubjectOverride> = emptyList(),
+        /** The chosen term; empty for the source's default. */
+        val yearValue: String = "",
     )
 
     /**
@@ -65,7 +67,7 @@ internal object DemoSchedule {
 
     /** Null while the live schedule has not been loaded, or is not valid for the requested week. */
     private fun report(scope: ScheduleScope, clock: PocketClock, view: View = View()): ScheduleReport? =
-        PocketData.current.schedule(scope, clock.date().shiftDays(7L * view.weekOffset), view.classValue)
+        PocketData.current.schedule(scope, clock.date().shiftDays(7L * view.weekOffset), view.classValue, view.yearValue)
 
     private fun slots(scope: PocketScheduleScope, clock: PocketClock, view: View): List<Slot> {
         val isWeek = scope == PocketScheduleScope.CURRENT_WEEK

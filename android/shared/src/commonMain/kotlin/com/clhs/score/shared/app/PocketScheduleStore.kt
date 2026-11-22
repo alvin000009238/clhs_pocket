@@ -4,6 +4,9 @@ import com.clhs.score.data.FakeScheduleData
 import com.clhs.score.data.SCHEDULE_SUBJECT_OVERRIDE_MAX_LENGTH
 import com.clhs.score.data.ScheduleSubjectOverride
 import com.clhs.score.data.normalizedOrNull
+import com.clhs.score.shared.time.daysUntil
+import com.clhs.score.shared.time.parseLocalDateOrNull
+import com.clhs.score.shared.time.shiftDays
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
@@ -42,6 +45,48 @@ object PocketScheduleStore {
     fun overridesJson(models: List<ScheduleSubjectOverride>): String = encode(models)
 
     fun classes(): List<PocketChoice> = PocketData.current.scheduleClasses.map { PocketChoice(it.value, it.text, "") }
+
+    /** Terms to choose from, newest first, as the school lists them. */
+    fun years(): List<PocketChoice> = PocketData.current.scheduleYears.map { PocketChoice(it.value, it.text, "") }
+
+    /**
+     * The school's weeks of [yearValue]: id is the week's Monday (ISO date), detail its date range.
+     * Null while the list has not been loaded.
+     */
+    fun weeks(yearValue: String): List<PocketChoice>? = PocketData.current.scheduleWeeks(yearValue)?.mapNotNull { week ->
+        val start = parseLocalDateOrNull(week.startDate) ?: return@mapNotNull null
+        val end = parseLocalDateOrNull(week.endDate) ?: start.shiftDays(6)
+        PocketChoice(week.startDate, week.text, "${start.shortText()} – ${end.shortText()}")
+    }
+
+    /** Whole weeks from the week of [clock] to the week starting on [startDate]; null when the date is malformed. */
+    fun weekOffset(clock: PocketClock, startDate: String): Int? {
+        val start = parseLocalDateOrNull(startDate) ?: return null
+        val monday = clock.date().shiftDays(-(clock.dayOfWeek - 1).toLong())
+        val days = monday.daysUntil(start)
+        return (if (days >= 0) days / 7 else (days - 6) / 7).toInt()
+    }
+
+    /**
+     * The timetable of the chosen term and class, any number of weeks away. Unlike [schedule]
+     * the week is not limited, because the student can pick any week the school lists.
+     */
+    fun chosenSchedule(
+        scope: PocketScheduleScope,
+        clock: PocketClock,
+        yearValue: String,
+        classValue: String,
+        weekOffset: Int,
+        overrides: String,
+    ): PocketSchedule = DemoSchedule.schedule(
+        scope, clock,
+        DemoSchedule.View(
+            classValue,
+            if (scope == PocketScheduleScope.CURRENT_WEEK) weekOffset else 0,
+            decode(overrides),
+            yearValue,
+        ),
+    )
 
     fun schedule(
         scope: PocketScheduleScope,
