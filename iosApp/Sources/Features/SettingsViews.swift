@@ -359,9 +359,9 @@ struct DataSettingsView: View {
             } footer: {
                 Text("備份與 Android 版通用，包含外觀、首頁配置、通知偏好、安靜時段與登入後的自訂科目名稱，不包含帳號、密碼或成績。")
             }
-            if let message {
+            if let shown = message {
                 Section {
-                    Text(message).font(.subheadline).accessibilityIdentifier("data-message")
+                    Text(shown).font(.subheadline).accessibilityIdentifier("data-message")
                     if settingsDamaged {
                         Button("重設設定", systemImage: "arrow.counterclockwise", role: .destructive) {
                             Task {
