@@ -117,7 +117,7 @@ data class ScoreDistribution(
     val isMine: Boolean,
 )
 
-private val YEAR_TERM_PATTERN = Regex("^(\\d+)_(\\d+)$")
+private val YEAR_TERM_PATTERN get() = Regex("^(\\d+)_(\\d+)$")
 
 fun parseYearTermOrNull(value: String?): Pair<String, String>? =
     value?.trim()?.let(YEAR_TERM_PATTERN::matchEntire)?.destructured?.let { (year, term) ->
@@ -147,7 +147,7 @@ fun getSubjectBaseName(name: String): String {
         .trim()
 }
 
-private val SubjectSuffixRegex = Regex("""([A-Z甲乙]|I{1,3}|IV|V)$""")
+private val SubjectSuffixRegex get() = Regex("""([A-Z甲乙]|I{1,3}|IV|V)$""")
 
 fun GradeReport.weightedAverage(): Double =
     examSummary?.averageScoreDisplay?.toDoubleOrNull() ?: 0.0

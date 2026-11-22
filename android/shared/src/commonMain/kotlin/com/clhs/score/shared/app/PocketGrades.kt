@@ -97,7 +97,7 @@ private data class StoredCredits(
 private const val SOURCE_DEFAULT = "default"
 private const val SOURCE_MANUAL = "manual"
 private const val SOURCE_INFERRED = "inferred"
-private val creditJson = Json { ignoreUnknownKeys = true }
+private val creditJson get() = Json { ignoreUnknownKeys = true }
 
 /** Subject detail, analysis and summary text built from the shared grade analysis. */
 object PocketGrades {

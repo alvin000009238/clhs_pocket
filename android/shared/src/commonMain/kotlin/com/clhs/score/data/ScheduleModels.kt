@@ -27,7 +27,7 @@ data class PeriodTime(val start: String, val end: String) {
     val multiLine: String get() = "$start\n$end"
 }
 
-val PERIOD_TIMES = listOf(
+val PERIOD_TIMES get() = listOf(
     PeriodTime("08:10", "09:00"),
     PeriodTime("09:10", "10:00"),
     PeriodTime("10:10", "11:00"),
@@ -333,7 +333,7 @@ private fun JsonElement.isRecognizedEmptySchedule(): Boolean = when (this) {
     else -> false
 }
 
-private val EMPTY_SCHEDULE_CONTAINERS = setOf("Data", "data", "Result", "result", "items", "payload", "weeks")
+private val EMPTY_SCHEDULE_CONTAINERS get() = setOf("Data", "data", "Result", "result", "items", "payload", "weeks")
 
 private fun parseScheduleItems(root: JsonElement): List<ScheduleItem> {
     val items = mutableListOf<ScheduleItem>()
@@ -389,7 +389,7 @@ private fun JsonObject.intField(vararg names: String): Int? =
 private fun JsonObject.dateField(vararg names: String): String? =
     stringField(*names)?.take(10)
 
-val predefinedColors = listOf(
+val predefinedColors get() = listOf(
     0xFF984357,
     0xFF699C5E,
     0xFF5D70C3,
@@ -422,7 +422,7 @@ val predefinedColors = listOf(
     0xFF1481B3,
 )
 
-val darkPredefinedColors = listOf(
+val darkPredefinedColors get() = listOf(
     0xFFDD8898,
     0xFFAADA9F,
     0xFFA3B7FE,

@@ -21,7 +21,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-val OverviewLayoutJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+val OverviewLayoutJson get() = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
 fun OverviewWidgetConfig.Weather.resourceKey(): String = OverviewLayoutJson.encodeToString(this)
 

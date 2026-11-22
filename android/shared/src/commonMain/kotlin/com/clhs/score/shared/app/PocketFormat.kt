@@ -17,7 +17,7 @@ import com.clhs.score.shared.time.schoolEpochMillis
 import com.clhs.score.shared.time.weekday
 import com.clhs.score.shared.time.yearNumber
 
-internal val WEEKDAY_LABELS = listOf("一", "二", "三", "四", "五", "六", "日")
+internal val WEEKDAY_LABELS get() = listOf("一", "二", "三", "四", "五", "六", "日")
 
 internal fun PocketClock.date(): LocalDate = localDateOf(year, month, day)
 internal fun PocketClock.dateTime(): LocalDateTime = date().at(localTimeOf(minuteOfDay / 60, minuteOfDay % 60))

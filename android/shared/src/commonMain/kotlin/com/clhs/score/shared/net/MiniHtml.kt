@@ -10,12 +10,13 @@ internal sealed interface HtmlToken {
     class End(val name: String) : HtmlToken
 }
 
-internal val VOID_HTML_TAGS = setOf(
+internal val VOID_HTML_TAGS get() = setOf(
     "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr",
 )
-private val RAW_TEXT_TAGS = setOf("script", "style")
+private val RAW_TEXT_TAGS get() = setOf("script", "style")
 
 internal fun tokenizeHtml(source: String): List<HtmlToken> {
+    val rawTextTags = RAW_TEXT_TAGS
     val tokens = ArrayList<HtmlToken>()
     val text = StringBuilder()
     var index = 0
@@ -98,7 +99,7 @@ internal fun tokenizeHtml(source: String): List<HtmlToken> {
                 index = minOf(cursor + 1, source.length)
                 tokens.add(HtmlToken.Start(name, attributes, selfClosing))
                 // HTML ignores `/>` on non-void elements: `<script/>` still starts raw script text.
-                if (name in RAW_TEXT_TAGS) {
+                if (name in rawTextTags) {
                     val close = source.indexOf("</$name", index, ignoreCase = true)
                     val rawEnd = if (close < 0) source.length else close
                     if (rawEnd > index) tokens.add(HtmlToken.Text(source.substring(index, rawEnd)))
@@ -115,7 +116,7 @@ internal fun tokenizeHtml(source: String): List<HtmlToken> {
     return tokens
 }
 
-private val NAMED_ENTITIES = mapOf(
+private val NAMED_ENTITIES get() = mapOf(
     "amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'", "nbsp" to "\u00A0",
     "ensp" to "\u2002", "emsp" to "\u2003", "thinsp" to "\u2009", "zwnj" to "\u200C", "zwj" to "\u200D",
     "ndash" to "\u2013", "mdash" to "\u2014", "lsquo" to "\u2018", "rsquo" to "\u2019", "sbquo" to "\u201A",
@@ -136,16 +137,17 @@ private val NAMED_ENTITIES = mapOf(
     "tilde" to "\u02DC", "alpha" to "\u03B1", "beta" to "\u03B2", "gamma" to "\u03B3", "delta" to "\u03B4",
     "pi" to "\u03C0", "sigma" to "\u03C3", "omega" to "\u03C9", "Delta" to "\u0394", "Omega" to "\u03A9",
 )
-private val ENTITY = Regex("&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,7});")
+private val ENTITY get() = Regex("&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,7});")
 
 internal fun decodeHtmlEntities(value: String): String {
     if ('&' !in value) return value
+    val named = NAMED_ENTITIES
     return ENTITY.replace(value) { match ->
         val body = match.groupValues[1]
         when {
             body.startsWith("#x") || body.startsWith("#X") -> codePointText(body.substring(2).toIntOrNull(16))
             body.startsWith("#") -> codePointText(body.substring(1).toIntOrNull())
-            else -> NAMED_ENTITIES[body]
+            else -> named[body]
         } ?: match.value
     }
 }

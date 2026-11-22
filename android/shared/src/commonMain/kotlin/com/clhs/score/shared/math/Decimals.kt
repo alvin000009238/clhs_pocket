@@ -28,7 +28,7 @@ operator fun BigDecimal.plus(other: BigDecimal): BigDecimal = add(other)
 operator fun BigDecimal.minus(other: BigDecimal): BigDecimal = subtract(other)
 operator fun BigDecimal.times(other: BigDecimal): BigDecimal = multiply(other)
 
-val DECIMAL_ZERO: BigDecimal = BigDecimal(0)
+val DECIMAL_ZERO: BigDecimal get() = BigDecimal(0)
 
 /** Same contract as `BigDecimal.valueOf(double)`. */
 expect fun decimalValueOf(value: Double): BigDecimal

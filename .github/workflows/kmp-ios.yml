@@ -66,6 +66,7 @@ jobs:
                   break
           ')"
           test -n "$UDID"
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
           # Ad hoc signing keeps the Keychain and App Group entitlements the unit tests and widget need.
           # Unit tests first, in their own run: when the unit-test host starts in the same run as
           # the UI flows it sometimes hangs before connecting to the test runner.
@@ -74,6 +75,16 @@ jobs:
           TEST_RUNNER_SHOT_DIR="$RUNNER_TEMP/pocket-shots" xcodebuild \
             -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket \
             -destination "id=$UDID" CODE_SIGN_IDENTITY=- -only-testing:CLHSPocketUITests test
+      - name: Release build survives a fresh launch with no arguments
+        run: |
+          # Release links the optimised Kotlin framework, like the archive that ships to devices.
+          DERIVED="$RUNNER_TEMP/release-sim"
+          xcodebuild -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket -configuration Release \
+            -destination "id=$SIM_UDID" -derivedDataPath "$DERIVED" CODE_SIGN_IDENTITY=- build \
+            | tee "$RUNNER_TEMP/release-sim.log"
+          grep -q "linkReleaseFrameworkIosSimulatorArm64" "$RUNNER_TEMP/release-sim.log"
+          python3 .github/scripts/ios_release_launch_check.py --udid "$SIM_UDID" \
+            --app "$DERIVED/Build/Products/Release-iphonesimulator/CLHSPocket.app"
       - name: Upload UI test screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

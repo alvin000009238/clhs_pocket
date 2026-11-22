@@ -66,7 +66,7 @@ data class SchoolAnnouncementDetail(
 )
 
 const val ALL_UNITS_ID = "-1"
-val ANNOUNCEMENT_UNIT_ID_REGEX = Regex("-1|[0-9]+")
+val ANNOUNCEMENT_UNIT_ID_REGEX get() = Regex("-1|[0-9]+")
 
 fun defaultAnnouncementUnits(): List<AnnouncementUnit> = listOf(AnnouncementUnit(ALL_UNITS_ID, "全部"))
 

@@ -52,14 +52,14 @@ internal class LatestWrite {
     }
 }
 
-private val storeJson = Json { ignoreUnknownKeys = true }
-
 /** Public school announcements with a first-page cache and local read / bookmark state. */
 class AnnouncementsRepository(
     private val client: PublicAnnouncementsClient,
     private val files: FileStore,
     private val now: () -> Long,
 ) {
+    private val storeJson = Json { ignoreUnknownKeys = true }
+
     @Serializable
     private data class ReadState(val cutoff: String, val read: Map<String, Boolean> = emptyMap())
 

@@ -29,7 +29,7 @@ actual fun localTimeOf(hour: Int, minute: Int): LocalTime = PortableLocalTime.of
 actual fun LocalTime.hourNumber(): Int = hour
 actual fun LocalTime.minuteNumber(): Int = minute
 
-actual val LOCAL_DATE_TIME_MIN: LocalDateTime = PortableLocalDateTime.MIN
+actual val LOCAL_DATE_TIME_MIN: LocalDateTime get() = PortableLocalDateTime.MIN
 actual operator fun LocalDateTime.compareTo(other: LocalDateTime): Int =
     date.epochDay.compareTo(other.date.epochDay).takeIf { it != 0 } ?: time.nanoOfDay.compareTo(other.time.nanoOfDay)
 actual fun LocalDateTime.datePart(): LocalDate = date

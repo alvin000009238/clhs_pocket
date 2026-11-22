@@ -92,7 +92,7 @@ data class WidgetTimelineEntry(
     val nextLessonId: Int? = null,
 )
 
-private val snapshotJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+private val snapshotJson get() = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
 fun WidgetScheduleSnapshot.encode(): String = snapshotJson.encodeToString(WidgetScheduleSnapshot.serializer(), this)
 

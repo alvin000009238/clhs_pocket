@@ -110,4 +110,4 @@ expect fun isValidTimeZoneId(id: String): Boolean
 expect fun randomUuidString(): String
 
 /** Chronological order; `java.time.LocalDateTime` is not `Comparable<LocalDateTime>` in common code. */
-val LOCAL_DATE_TIME_ORDER: Comparator<LocalDateTime> = Comparator { a, b -> a.compareTo(b) }
+val LOCAL_DATE_TIME_ORDER: Comparator<LocalDateTime> get() = Comparator { a, b -> a.compareTo(b) }

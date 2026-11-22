@@ -13,7 +13,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-val SchoolJson = Json {
+val SchoolJson get() = Json {
     ignoreUnknownKeys = true
     isLenient = true
 }

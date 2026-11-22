@@ -13,7 +13,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-val ANNOUNCEMENT_CHECK_INTERVALS_MINUTES = listOf(30, 60, 180, 360, 720, 1_440)
+val ANNOUNCEMENT_CHECK_INTERVALS_MINUTES get() = listOf(30, 60, 180, 360, 720, 1_440)
 
 /**
  * Device-wide preferences persisted on iOS. Fields that only drive Android behaviour
