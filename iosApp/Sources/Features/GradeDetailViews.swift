@@ -669,20 +669,15 @@ struct SubjectTrendView: View {
     var body: some View {
         let trend = trends.trend(yearValues: chosenYears, subjectKeys: subjectKeys)
         ScrollView {
-            Group {
-                if sizeClass == .regular {
-                    HStack(alignment: .top, spacing: PocketMetrics.sectionSpacing) {
-                        chartCard(trend).frame(maxWidth: .infinity)
-                        controls(trend).frame(width: 320)
-                    }
-                } else {
-                    VStack(spacing: PocketMetrics.cardSpacing) {
-                        chartCard(trend)
-                        controls(trend)
-                    }
-                }
+            // One column on every width: the chart gets the whole width, the choices sit below it.
+            VStack(spacing: PocketMetrics.cardSpacing) {
+                chartCard(trend)
+                controls(trend)
             }
-            .pocketPage()
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, PocketMetrics.screenPadding)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
         }
         .background(PocketColor.background)
         .navigationTitle("成績折線圖")
@@ -747,8 +742,17 @@ struct SubjectTrendView: View {
 
     private func chart(_ trend: PocketSubjectTrend) -> some View {
         let labels = trend.exams.map(\.label)
-        let visible = sizeClass == .regular ? min(labels.count, 8) : min(labels.count, 4)
-        return Chart {
+        // Up to six exams fit an iPhone (twelve an iPad); more scroll sideways, starting at the newest.
+        let visible = sizeClass == .regular ? min(labels.count, 12) : min(labels.count, 6)
+        let scrolls = labels.count > visible
+        return VStack(alignment: .leading, spacing: 8) {
+        if scrolls {
+            Label("左右滑動查看其他 \(labels.count - visible) 次考試", systemImage: "arrow.left.and.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(PocketColor.primary)
+                .accessibilityIdentifier("trend-scroll-hint")
+        }
+        Chart {
             ForEach(Array(trend.segments.enumerated()), id: \.offset) { index, segment in
                 let tint = TrendPalette.color(Int(segment.colorIndex)).opacity(opacity(segment.baseName))
                 ForEach([(segment.fromIndex, segment.fromScore), (segment.toIndex, segment.toScore)], id: \.0) { point in
@@ -771,25 +775,33 @@ struct SubjectTrendView: View {
             if let selectedExam, let exam = trend.exams.first(where: { $0.label == selectedExam }) {
                 RuleMark(x: .value("考試", selectedExam))
                     .foregroundStyle(PocketColor.onSurfaceVariant.opacity(0.3))
-                    .annotation(position: .top, spacing: 4, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                    .annotation(position: .top, spacing: 4, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                         tooltip(trend, exam: exam)
                     }
             }
         }
         .chartXScale(domain: labels)
         .chartYScale(domain: trend.minScore...trend.maxScore)
-        .chartXSelection(value: $selectedExam)
-        .chartScrollableAxes(labels.count > visible ? .horizontal : [])
+        // A tap keeps the callout open, as Android's point tooltip; tapping the same exam closes it.
+        .chartGesture { proxy in
+            SpatialTapGesture().onEnded { value in
+                let exam = proxy.value(atX: value.location.x, as: String.self)
+                selectedExam = exam == selectedExam ? nil : exam
+            }
+        }
+        .chartScrollableAxes(scrolls ? .horizontal : [])
         .chartXVisibleDomain(length: max(visible, 1))
+        .chartScrollPosition(initialX: labels.last ?? "")
         .chartXAxis {
             AxisMarks(values: labels) { value in
                 AxisGridLine()
-                AxisValueLabel(centered: false, collisionResolution: .disabled) {
+                AxisValueLabel(centered: true, collisionResolution: .disabled) {
                     if let label = value.as(String.self), let exam = trend.exams.first(where: { $0.label == label }) {
                         VStack(spacing: 0) {
                             Text(exam.termLabel)
-                            Text(exam.examName)
+                            Text(sizeClass == .regular ? exam.examName : Self.shortExamName(exam.examName))
                         }
+                        .lineLimit(1)
                         .font(.caption2)
                         .foregroundStyle(PocketColor.onSurfaceVariant)
                     }
@@ -802,12 +814,37 @@ struct SubjectTrendView: View {
                 AxisValueLabel().font(.caption2)
             }
         }
-        .frame(height: sizeClass == .regular ? 360 : 280)
+        .frame(height: sizeClass == .regular ? 520 : 320)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityLabel("成績折線圖")
         .accessibilityValue(trend.description_)
         .accessibilityChartDescriptor(SubjectTrendChartDescriptor(trend: trend))
         .accessibilityIdentifier("subject-trend-chart")
+        if let exam = trend.exams.first(where: { $0.label == selectedExam }) {
+            Text(selectionSummary(trend, exam: exam))
+                .font(.footnote.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(PocketColor.onSurface)
+                .accessibilityIdentifier("trend-selection")
+        }
+        }
+    }
+
+    /// 第一次段考 → 一段, 期末考 → 期末, so six exams fit side by side on an iPhone.
+    private static func shortExamName(_ name: String) -> String {
+        let ordinals = ["第一次": "一", "第二次": "二", "第三次": "三"]
+        for (long, short) in ordinals where name.hasPrefix(long) {
+            return short + (name.contains("段考") ? "段" : String(name.dropFirst(long.count).prefix(1)))
+        }
+        if name.hasSuffix("考"), name.count == 3 { return String(name.prefix(2)) }
+        return String(name.prefix(3))
+    }
+
+    private func selectionSummary(_ trend: PocketSubjectTrend, exam: PocketTrendExam) -> String {
+        let values = trend.series.compactMap { line in
+            line.values.first { $0.examIndex == exam.index }.map { "\(line.label) \($0.scoreText)" }
+        }
+        return "\(exam.label)：\(values.isEmpty ? "沒有成績" : values.joined(separator: "、"))"
     }
 
     private func tooltip(_ trend: PocketSubjectTrend, exam: PocketTrendExam) -> some View {
@@ -859,14 +896,17 @@ struct SubjectTrendView: View {
     }
 
     private func controls(_ trend: PocketSubjectTrend) -> some View {
-        PocketCard(padding: 8) {
+        let layout = sizeClass == .regular ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+        return PocketCard(padding: 8) {
             VStack(spacing: 0) {
-                controlRow("比較學期", detail: trend.yearsText, symbol: "calendar") { showsYears = true }
-                    .accessibilityIdentifier("trend-years")
-                PocketRowDivider().padding(.leading, 12)
-                controlRow("調整對比科目", detail: trend.subjectsText, symbol: "books.vertical") { showsSubjects = true }
-                    .accessibilityIdentifier("trend-subjects")
-                    .disabled(trend.availableSubjects.isEmpty)
+                layout {
+                    controlRow("比較學期", detail: trend.yearsText, symbol: "calendar") { showsYears = true }
+                        .accessibilityIdentifier("trend-years")
+                    if sizeClass == .regular { Divider().frame(height: 40) } else { PocketRowDivider().padding(.leading, 12) }
+                    controlRow("調整對比科目", detail: trend.subjectsText, symbol: "books.vertical") { showsSubjects = true }
+                        .accessibilityIdentifier("trend-subjects")
+                        .disabled(trend.availableSubjects.isEmpty)
+                }
                 if !loading, !trend.loadMessage.isEmpty {
                     PocketRowDivider().padding(.leading, 12)
                     Label(trend.loadMessage, systemImage: "exclamationmark.triangle")
