@@ -34,8 +34,21 @@ final class LiveDataController {
     /// zh-TW message of the most recent failure, safe to show.
     var lastError: String?
 
-    init(backend: PocketBackend) {
+    @ObservationIgnored private let defaults: UserDefaults
+    private static let accountStoredKey = "live.accountStored"
+
+    /// Whether a school account is stored on this device, as last seen by a sign-in, a restore or
+    /// a sign-out. It survives a restart, unlike `session`, which is nil until the session is
+    /// restored and is never restored while the demo is showing. Whoever decides if the demo may
+    /// publish to the widget and the reminders asks this, not the session in memory.
+    private(set) var hasStoredAccount: Bool {
+        get { defaults.bool(forKey: Self.accountStoredKey) }
+        set { defaults.set(newValue, forKey: Self.accountStoredKey) }
+    }
+
+    init(backend: PocketBackend, defaults: UserDefaults = .standard) {
         self.backend = backend
+        self.defaults = defaults
     }
 
     private func publish() { revision += 1 }
@@ -196,6 +209,7 @@ final class LiveDataController {
         do {
             session = try await backend.restoreSession()
             restoreSettled = true
+            hasStoredAccount = session != nil
         } catch {
             session = nil
             if error.kind != .cancelled { lastError = error.message }
@@ -227,6 +241,7 @@ final class LiveDataController {
         // already queued behind this login and removes what was just stored.
         guard epoch == accountEpoch else { throw PocketError(kind: .cancelled, message: "登入已取消") }
         session = established
+        hasStoredAccount = true
         publish()
         await refreshPrivate()
     }
@@ -248,6 +263,7 @@ final class LiveDataController {
     private func endSessionInMemory() {
         accountEpoch += 1
         session = nil
+        hasStoredAccount = false
         subjectOverrides = nil
         lastGradeCheck = nil
         loadingAuthorization = nil
@@ -602,7 +618,9 @@ struct LivePlatformData: PlatformDataProviding {
 
     /// The demo is showing on a device that also holds a school account: that account's widget,
     /// reminders and notifications are left exactly as they are.
-    private var standsAside: Bool { !isActive() && live.session != nil }
+    /// Decided from what is stored, not from memory: after a restart in demo mode the session is
+    /// not restored, and the account's snapshot and reminders must still be left alone.
+    private var standsAside: Bool { !isActive() && (live.session != nil || live.hasStoredAccount) }
 
     /// A cold background launch has nothing in memory: restore the session and the cached timetable.
     func prepare() async {

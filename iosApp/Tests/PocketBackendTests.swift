@@ -284,6 +284,38 @@ final class PocketBackendTests: XCTestCase {
         XCTAssertTrue(saved.isEmpty)
     }
 
+    /// Replaying the onboarding into the demo while signed in, then restarting the app.
+    func testDemoDoesNotPublishOverAStoredAccountAfterARestart() async throws {
+        let suite = "live-account-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        let now = Date()
+        func demoShowing(_ controller: LiveDataController) -> LivePlatformData {
+            LivePlatformData(live: controller) { false }
+        }
+
+        // No account on the device: the demo owns the widget and the reminders.
+        let guest = LiveDataController(backend: backend(), defaults: defaults)
+        XCTAssertNotEqual(demoShowing(guest).scheduleSnapshot(scheduleNow: now, deviceNow: now), .unknown)
+
+        let signedIn = LiveDataController(backend: backend(), defaults: defaults)
+        try await signedIn.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "web"])
+
+        // After a restart nothing is in memory; the session is not restored while the demo shows.
+        let restarted = LiveDataController(backend: backend(), defaults: defaults)
+        XCTAssertNil(restarted.session)
+        let data = demoShowing(restarted)
+        XCTAssertEqual(data.scheduleSnapshot(scheduleNow: now, deviceNow: now), .unknown, "the account's snapshot stays")
+        XCTAssertNil(data.announcementHeadlines(at: now))
+        let alert = await data.gradeNotification(at: now, settings: PlatformSettings.shared.shared(at: now))
+        XCTAssertNil(alert)
+
+        // Once the account is gone the demo may publish again, also after another restart.
+        try await signedIn.logout()
+        let later = LiveDataController(backend: backend(), defaults: defaults)
+        XCTAssertNotEqual(demoShowing(later).scheduleSnapshot(scheduleNow: now, deviceNow: now), .unknown)
+    }
+
     /// A launch in the background has no announcement list in memory and no screen to load one.
     func testAnnouncementReminderFetchesTheListItselfOnAColdStart() async throws {
         let list = #"[{"pageNum":0,"totalPages":1},{"newsId":"n1","title":"校慶公告","time":"2026/11/18","attr_name":"一般","name":"教務處","top":"0","content_type":"content"}]"#
