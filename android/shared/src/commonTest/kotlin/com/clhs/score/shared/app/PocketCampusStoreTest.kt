@@ -37,6 +37,31 @@ class PocketCampusStoreTest {
     }
 
     @Test
+    fun aLoadedDetailOpenedFromTheBookmarksSurvivesRemovingTheBookmark() {
+        val old = com.clhs.score.data.SchoolAnnouncement("old-1", "舊公告", "2026-09-01", "一般", "教務處", "", false, "")
+        PocketData.useLive()
+        try {
+            PocketLive.putAnnouncements(DemoCampus.demoAnnouncements(clock))
+            PocketLive.savedAnnouncements = listOf(old)
+            PocketLive.putAnnouncementDetail(
+                com.clhs.score.data.SchoolAnnouncementDetail(
+                    "old-1", "舊公告", "2026-09-01", "一般", "教務處", "", "<p>內文</p>", emptyList(), emptyList(),
+                    "https://www.clhs.tyc.edu.tw/a",
+                ),
+            )
+            assertEquals("舊公告", PocketCampusStore.announcementDetail(clock, "old-1")?.title)
+            // Unbookmarking drops the kept copy; the loaded page keeps its content.
+            PocketLive.savedAnnouncements = emptyList()
+            val detail = PocketCampusStore.announcementDetail(clock, "old-1")
+            assertEquals(listOf("內文"), detail?.paragraphs)
+            assertFalse(detail!!.isPinned)
+        } finally {
+            PocketLive.clearAll()
+            PocketData.useDemo()
+        }
+    }
+
+    @Test
     fun homeAnnouncementsCarryTheirBookmark() {
         val id = DemoCampus.sharedAnnouncements(clock).last().id
         val rows = DemoCampus.importantAnnouncements(

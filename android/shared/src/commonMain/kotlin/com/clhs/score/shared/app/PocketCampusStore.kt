@@ -120,13 +120,15 @@ object PocketCampusStore {
 
     fun announcementDetail(clock: PocketClock, id: String): PocketAnnouncementDetail? {
         val item = DemoCampus.sharedAnnouncements(clock).firstOrNull { it.id == id }
-            ?: PocketData.current.savedAnnouncements.firstOrNull { it.id == id } ?: return null
+            ?: PocketData.current.savedAnnouncements.firstOrNull { it.id == id }
         if (!PocketData.isDemo) {
             // Null until the live detail has been loaded; the list row is not a substitute for the body.
+            // A loaded detail stands on its own: removing the bookmark of an announcement that is only
+            // known from the bookmarks must not empty the page that is showing it.
             val live = PocketData.current.announcementDetail(id) ?: return null
             return PocketAnnouncementDetail(
                 id = live.id, title = live.title, dateText = live.date, unit = live.unit, category = live.category,
-                isPinned = item.isPinned,
+                isPinned = item?.isPinned == true,
                 paragraphs = plainParagraphs(live.htmlContent),
                 attachments = live.attachments.map { file ->
                     PocketAttachment(file.name, file.sizeBytes?.let { bytes -> if (bytes >= 1_048_576) "${bytes / 1_048_576} MB" else "${(bytes + 1023) / 1024} KB" }.orEmpty(), file.url)
@@ -136,6 +138,7 @@ object PocketCampusStore {
                 images = live.images.map { PocketAnnouncementImage(it.url, it.description, it.canPreview) },
             )
         }
+        item ?: return null
         return PocketAnnouncementDetail(
             id = item.id,
             title = item.title,
