@@ -272,6 +272,33 @@ final class SchoolWebPolicyTests: XCTestCase {
     }
 
     @MainActor
+    func testSchoolPagesFinishTheirAgentLikeSafariOnTheDevice() {
+        XCTAssertEqual(SchoolWebPolicy.safariApplicationName(idiom: .phone, systemVersion: "26.5.1"), "Version/26.5 Mobile/15E148 Safari/604.1")
+        XCTAssertEqual(SchoolWebPolicy.safariApplicationName(idiom: .pad, systemVersion: "18"), "Version/18.0 Safari/605.1.15")
+    }
+
+    /// The school login page refuses WKWebView's default agent, which has no Version/ or Safari/ part.
+    @MainActor
+    func testSchoolWebViewPagesSeeASafariUserAgentWithoutAnAppMark() async throws {
+        for hook in [true, false] {
+            let coordinator = SchoolWebCoordinator(page: .constant(SchoolWebPageState()), onLogin: nil, onAuthenticationExpired: nil)
+            let webView = coordinator.makeWebView(installLoginHook: hook)
+            webView.navigationDelegate = nil
+            webView.loadHTMLString("<p id=ua></p><script>ua.textContent = navigator.userAgent</script>", baseURL: nil)
+            var agent = ""
+            for _ in 0..<50 where agent.isEmpty {
+                try await Task.sleep(for: .milliseconds(100))
+                agent = (try? await webView.evaluateJavaScript("document.getElementById('ua')?.textContent ?? ''") as? String) ?? ""
+            }
+            XCTAssertTrue(agent.hasPrefix("Mozilla/5.0 ("), agent)
+            XCTAssertTrue(agent.contains("(KHTML, like Gecko) Version/"), agent)
+            XCTAssertTrue(agent.hasSuffix(UIDevice.current.userInterfaceIdiom == .pad ? " Safari/605.1.15" : " Mobile/15E148 Safari/604.1"), agent)
+            for mark in ["CLHSPocket", "com.clhs", "PocketShared", "; wv"] { XCTAssertFalse(agent.contains(mark), agent) }
+            print("School web view user agent: \(agent)")
+        }
+    }
+
+    @MainActor
     func testADialogIsAnsweredOnlyOnce() {
         var answers: [Bool] = []
         let reply = DialogReply { answers.append($0) }

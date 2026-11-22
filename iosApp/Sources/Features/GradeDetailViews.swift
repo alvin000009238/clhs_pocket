@@ -337,7 +337,8 @@ private struct GradeSimulatorContent: View {
         }
         .task(id: examValue) {
             // Credits the student confirmed for this exam and account earlier.
-            guard let live = model.live, let json = await live.simulatorCredits(examValue: examValue) else { return }
+            // `account` is nil in the demo: it never reads or writes the stored account's credits.
+            guard let live = model.account, let json = await live.simulatorCredits(examValue: examValue) else { return }
             if simulator.restoreCredits(json: json) { revision += 1 }
         }
     }
@@ -495,11 +496,13 @@ private struct CreditsSheet: View {
 
     /// Stores the credits for this exam and account; only a stored set counts as confirmed.
     private func saveCredits(_ live: LiveDataController) {
+        guard let json = simulator.creditsJson() else { return }
         saving = true
         Task {
             do {
-                try await live.saveSimulatorCredits(examValue: examValue, json: simulator.creditsJson())
-                simulator.markCreditsSaved()
+                try await live.saveSimulatorCredits(examValue: examValue, json: json)
+                // Only the snapshot written counts as saved; edits made meanwhile stay pending.
+                simulator.markCreditsSaved(json: json)
                 saveMessage = nil
             } catch {
                 saveMessage = "學分未能儲存：\(PocketError(error).message)"
@@ -542,7 +545,7 @@ private struct CreditsSheet: View {
                         }
                     }
                     .accessibilityIdentifier("credits-source")
-                    if let live = model.live, live.session != nil {
+                    if let live = model.account, live.session != nil {
                         Button(saving ? "儲存中…" : "儲存學分", systemImage: "square.and.arrow.down") { saveCredits(live) }
                             .disabled(!state.creditsPending || saving)
                             .accessibilityIdentifier("credits-save")

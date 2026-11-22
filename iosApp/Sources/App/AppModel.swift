@@ -128,6 +128,7 @@ final class AppModel {
     var session: PocketSession {
         didSet {
             defaults.set(session.rawValue, forKey: Key.session)
+            if oldValue != session { demoScheduleClass = "" }
             syncSource()
             guard live != nil, oldValue != session else { return }
             // The demo account and real data never share read state.
@@ -402,15 +403,21 @@ final class AppModel {
 
     /// The class the timetable screen shows: empty for the student's own timetable. Kept across
     /// launches; signing out or switching account returns to the student's own.
+    /// The demo keeps its choice in memory, so it never replaces the school account's.
     var scheduleClass: String {
         get {
             access(keyPath: \.scheduleClass)
+            if session == .demo { return demoScheduleClass }
             return usesLiveData && live?.session != nil ? defaults.string(forKey: "scheduleClass") ?? "" : ""
         }
         set {
-            withMutation(keyPath: \.scheduleClass) { defaults.set(newValue, forKey: "scheduleClass") }
+            withMutation(keyPath: \.scheduleClass) {
+                if session == .demo { demoScheduleClass = newValue } else { defaults.set(newValue, forKey: "scheduleClass") }
+            }
         }
     }
+
+    @ObservationIgnored private var demoScheduleClass = ""
 
     /// Deletes a settings file that can no longer be read (「設定檔已損壞，請重設設定後再試一次」),
     /// so settings and backups work again with the defaults.
