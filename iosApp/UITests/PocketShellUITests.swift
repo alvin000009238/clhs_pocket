@@ -242,10 +242,13 @@ final class PocketShellUITests: XCTestCase {
         launch(onboarded: true, session: "demo")
         XCTAssertTrue(app.buttons["home-edit"].waitForExistence(timeout: 10))
         var issues: [String] = []
-        for (index, tab) in ["首頁", "課表", "成績", "校園"].enumerated() {
+        // Each root screen is recognised by its own content. The tab's selected trait is not
+        // usable for this: on the iPad Air 11-inch the compact top tab bar never reports any tab as
+        // selected (it does on the 13-inch), so it would not say which screen is being audited.
+        let roots = [("首頁", "home-edit"), ("課表", "schedule-range"), ("成績", "grades-simulator"), ("校園", "campus-公告")]
+        for (index, (tab, marker)) in roots.enumerated() {
             if index > 0 { self.tab(tab).tap() }
-            let selected = self.tab(tab)
-            XCTAssertTrue(waitUntil { selected.isSelected }, "\(tab) tab never became selected")
+            XCTAssertTrue(app.descendants(matching: .any)[marker].firstMatch.waitForExistence(timeout: 10), "the \(tab) screen never appeared")
             try app.performAccessibilityAudit(for: [.sufficientElementDescription, .hitRegion]) { issue in
                 let element = issue.element
                 issues.append("\(tab): \(issue.compactDescription) [\(element?.identifier ?? "") | \(element?.label ?? "") | \(element?.elementType.rawValue ?? 0) | \(element?.frame.debugDescription ?? "")]")
@@ -365,6 +368,15 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue((chart.value as? String)?.hasPrefix("6 次考試的成績趨勢。") ?? false, chart.debugDescription)
         XCTAssertTrue(app.buttons["trend-legend-數學"].exists)
         capture("52-subject-trend-chart")
+        // All six exams fit without scrolling; a tap keeps the selected exam's values on screen.
+        XCTAssertFalse(app.descendants(matching: .any)["trend-scroll-hint"].exists)
+        chart.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5)).tap()
+        let selection = app.staticTexts["trend-selection"]
+        XCTAssertTrue(selection.waitForExistence(timeout: 5))
+        XCTAssertTrue(selection.label.contains("國文 "), selection.label)
+        capture("52b-subject-trend-selected")
+        chart.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil { !selection.exists })
         app.buttons["trend-legend-數學"].tap()
         XCTAssertTrue(app.buttons["trend-legend-數學"].isSelected)
         capture("53-subject-trend-highlight")
@@ -406,6 +418,16 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(restore.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["數學 → 數學A"].exists)
         capture("41b-schedule-custom-subjects")
+        // Editing from the list, as Android's 自訂 dialog does.
+        app.buttons["custom-subject-edit-數學"].tap()
+        let name = app.textFields["custom-subject-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        XCTAssertEqual(name.value as? String, "數學A")
+        name.tap()
+        name.typeText("B")
+        capture("41c-schedule-custom-subject-edit")
+        app.buttons["custom-subject-save"].tap()
+        XCTAssertTrue(app.staticTexts["數學 → 數學AB"].waitForExistence(timeout: 5))
         restore.tap()
         XCTAssertTrue(app.staticTexts["尚未自訂科目"].waitForExistence(timeout: 5))
         app.buttons["關閉"].tap()
