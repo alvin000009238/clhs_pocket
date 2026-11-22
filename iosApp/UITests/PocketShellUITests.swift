@@ -382,6 +382,18 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "數學A")).firstMatch.waitForExistence(timeout: 5))
         capture("41-schedule-override")
 
+        // 自訂科目 lists every override and restores the school's name.
+        app.buttons["schedule-menu"].tap()
+        app.buttons["schedule-custom-subjects"].tap()
+        let restore = app.buttons["custom-subject-restore-數學"]
+        XCTAssertTrue(restore.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["數學 → 數學A"].exists)
+        capture("41b-schedule-custom-subjects")
+        restore.tap()
+        XCTAssertTrue(app.staticTexts["尚未自訂科目"].waitForExistence(timeout: 5))
+        app.buttons["關閉"].tap()
+        XCTAssertTrue(waitUntil { !self.app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "數學A")).firstMatch.exists })
+
         app.buttons["schedule-next-week"].tap()
         XCTAssertTrue(app.staticTexts["schedule-range"].label.contains("11/23"))
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "上課中")).firstMatch.exists)

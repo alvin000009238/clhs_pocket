@@ -22,6 +22,8 @@ struct ScheduleView: View {
     @State private var loadingOptions = false
     @State private var optionsError: String?
     @State private var showsWeekPicker = false
+    @State private var showsCustomSubjects = false
+    @State private var confirmsRestoreAll = false
     @State private var loadingWeeks = false
     @State private var weeksError: String?
     /// Bumped by 查詢課表 and 重試 so the same choice is fetched again.
@@ -129,6 +131,8 @@ struct ScheduleView: View {
                         Button("選擇週次", systemImage: "calendar") { showsWeekPicker = true }
                             .accessibilityIdentifier("schedule-pick-week")
                     }
+                    Button("自訂科目", systemImage: "pencil.and.list.clipboard") { showsCustomSubjects = true }
+                        .accessibilityIdentifier("schedule-custom-subjects")
                     Picker("班級", selection: Binding(
                         get: { model.scheduleClass },
                         set: { model.chooseSchedule(yearValue: model.scheduleYear, classValue: $0) }
@@ -182,6 +186,81 @@ struct ScheduleView: View {
             weekPicker
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showsCustomSubjects) {
+            customSubjects
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    // MARK: Custom subjects
+
+    /// Android's 自訂科目 page: every override in one place, each restorable, or all at once.
+    private var customSubjects: some View {
+        let store = PocketScheduleStore.shared
+        let overrides = store.overrides(overrides: model.scheduleOverrides)
+        return NavigationStack {
+            Group {
+                if overrides.isEmpty {
+                    ContentUnavailableView(
+                        "尚未自訂科目", systemImage: "pencil.and.list.clipboard",
+                        description: Text("點選課表中的課程，即可自訂顯示的科目、教師與教室。")
+                    )
+                } else {
+                    List {
+                        Section {
+                            ForEach(overrides, id: \.original) { item in
+                                HStack(alignment: .center, spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(item.subject.isEmpty ? item.original : "\(item.original) → \(item.subject)")
+                                            .font(.body.weight(.semibold))
+                                            .foregroundStyle(PocketColor.onSurface)
+                                        let extra = [
+                                            item.teacher.isEmpty ? nil : "教師：\(item.teacher)",
+                                            item.classroom.isEmpty ? nil : "教室：\(item.classroom)",
+                                        ].compactMap { $0 }
+                                        if !extra.isEmpty {
+                                            Text(extra.joined(separator: "・"))
+                                                .font(.subheadline)
+                                                .foregroundStyle(PocketColor.onSurfaceVariant)
+                                        }
+                                    }
+                                    .accessibilityElement(children: .combine)
+                                    Spacer(minLength: 8)
+                                    Button("還原") {
+                                        model.scheduleOverrides = store.clearOverride(overrides: model.scheduleOverrides, original: item.original)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .accessibilityLabel("還原\(item.original)")
+                                    .accessibilityIdentifier("custom-subject-restore-\(item.original)")
+                                }
+                                .frame(minHeight: 44)
+                            }
+                        } footer: {
+                            Text("還原後會恢復顯示校方提供的名稱、教師與教室。")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("自訂科目")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("關閉") { showsCustomSubjects = false }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("全部還原") { confirmsRestoreAll = true }
+                        .disabled(overrides.isEmpty)
+                        .accessibilityIdentifier("custom-subjects-restore-all")
+                }
+            }
+            .confirmationDialog("全部還原？", isPresented: $confirmsRestoreAll, titleVisibility: .visible) {
+                Button("全部還原", role: .destructive) { model.scheduleOverrides = "[]" }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("所有科目將恢復顯示校方提供的名稱、教師與教室。")
+            }
         }
     }
 
