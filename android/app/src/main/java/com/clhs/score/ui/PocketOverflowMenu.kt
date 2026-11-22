@@ -100,7 +100,7 @@ private fun PocketOverflowMenuPreview() {
     ScoreTheme {
         Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.extraSmall) {
             Column(Modifier.width(220.dp)) {
-                PocketOverflowMenuItem(text = { Text("學分設定") }, onClick = {}, enabled = false)
+                GradeCreditSettingsMenuItem(needsAttention = true, enabled = true, onClick = {})
                 PocketOverflowMenuItem(text = { Text("段考更新提醒") }, onClick = {})
                 PocketOverflowMenuItem(text = { Text("匯出成績") }, onClick = {})
             }

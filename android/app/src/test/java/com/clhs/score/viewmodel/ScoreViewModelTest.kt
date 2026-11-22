@@ -26,6 +26,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -378,6 +379,28 @@ class ScoreViewModelTest {
         assertEquals("114_1_E2", viewModel.gradesState.value.selectedExamValue)
         assertEquals("第二次段考", viewModel.gradesState.value.report?.examSummary?.examName)
         assertEquals(false, viewModel.gradesState.value.isLoadingGrades)
+    }
+
+    @Test
+    fun reminderTargetDoesNotPairTheNewExamWithThePreviousReport() = runTest(dispatcher) {
+        val repository = ControllableGradeRepository()
+        val viewModel = createViewModel(repository)
+        runCurrent()
+        repository.structureDeferred.complete(FakeData.structure)
+        runCurrent()
+        repository.completeFetch("114_1_E4", FakeData.latestReport())
+        runCurrent()
+        assertEquals("期末考", viewModel.gradesState.value.report?.examSummary?.examName)
+
+        viewModel.openGradeReminderTarget("114_1", "114_1_E2")
+        runCurrent()
+        assertEquals("114_1_E2", viewModel.gradesState.value.selectedExamValue)
+        assertNull(viewModel.gradesState.value.report)
+        assertNull(viewModel.gradesState.value.analysis)
+
+        repository.completeFetch("114_1_E2", FakeData.previousReport())
+        runCurrent()
+        assertEquals("第二次段考", viewModel.gradesState.value.report?.examSummary?.examName)
     }
 
     @Test
