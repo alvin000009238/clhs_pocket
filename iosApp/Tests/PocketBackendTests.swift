@@ -1,6 +1,7 @@
 import Observation
 import Security
 import os
+import UIKit
 import XCTest
 @testable import CLHSPocket
 @preconcurrency import PocketShared
@@ -447,6 +448,52 @@ final class PocketBackendTests: XCTestCase {
         XCTAssertEqual(remaining, [])
         XCTAssertNil(KeychainStore(service: service).read(key: "weather.cwa-api-key.v1").text)
         XCTAssertNil(KeychainStore(service: service).read(key: "school.session.v1").text)
+    }
+
+    func testProfilePhotoIsStoredForTheAccountAndRemovedByLogout() async throws {
+        let backend = backend()
+        let session = try await backend.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "web"])
+        let photo = try XCTUnwrap(ProfilePhoto.prepared(UIGraphicsImageRenderer(size: CGSize(width: 2000, height: 1000)).pngData { context in
+            UIColor.systemTeal.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2000, height: 1000))
+        }))
+        XCTAssertEqual(UIImage(data: photo)?.size, CGSize(width: 512, height: 256), "a picked photo is scaled down before it is stored")
+        try await backend.call { try await $0.saveProfilePhoto(session: session, base64: photo.base64EncodedString(), token: $1) }
+        let stored = try await backend.call { try await $0.profilePhoto(session: session, token: $1) }
+        XCTAssertEqual(stored.flatMap { Data(base64Encoded: $0) }, photo)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("private/profile-photo.json").path),
+                      "the photo lives in the protected private area")
+
+        try await backend.call { try await $0.clearLocalData(areas: [.gradeCache, .scheduleCache, .publicCache, .webData], token: $1) }
+        let kept = try await backend.call { try await $0.profilePhoto(session: session, token: $1) }
+        XCTAssertNotNil(kept, "clearing caches keeps the photo and the session")
+        XCTAssertEqual(KeychainStore(service: service).read(key: "school.session.v1").succeeded, true)
+
+        try await backend.logout()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("private/profile-photo.json").path))
+        let next = try await backend.login(studentNo: "DEMO-002", cookies: ["ASP.NET_SessionId": "next"])
+        let other = try await backend.call { try await $0.profilePhoto(session: next, token: $1) }
+        XCTAssertNil(other, "the next account never sees the previous photo")
+    }
+
+    func testClearingCachesThatCannotBeDeletedIsReported() async throws {
+        let backend = backend()
+        _ = try await backend.login(studentNo: "DEMO-001", cookies: ["ASP.NET_SessionId": "web"])
+        cleaner.succeeds = false
+        let failure = await error { try await backend.call { try await $0.clearLocalData(areas: [.webData], token: $1) } }
+        XCTAssertEqual(failure?.kind, .cleanupIncomplete)
+        XCTAssertEqual(failure?.cleanupFailures, ["WEB_DATA_DELETE_FAILED"])
+        cleaner.succeeds = true
+    }
+
+    func testFeedbackLinkOnlyOpensGoogleForms() {
+        XCTAssertNotNil(FeedbackForm.allowedURL(FeedbackForm.target))
+        XCTAssertNotNil(FeedbackForm.allowedURL("https://docs.google.com/forms/d/e/example/viewform"))
+        for rejected in ["http://forms.gle/AbCdEf", "https://forms.gle/", "https://forms.gle.evil.example/AbCdEf",
+                         "https://forms.gle@evil.example/AbCdEf", "https://user@forms.gle/AbCdEf", "https://forms.gle:8443/AbCdEf",
+                         "https://docs.google.com/document/d/x", ""] {
+            XCTAssertNil(FeedbackForm.allowedURL(rejected), rejected)
+        }
     }
 
     func testSettingsBackupRoundTripsThroughAFileAndRejectsForeignOrOversizedFiles() async throws {

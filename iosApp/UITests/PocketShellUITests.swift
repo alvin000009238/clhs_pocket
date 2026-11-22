@@ -543,6 +543,36 @@ final class PocketShellUITests: XCTestCase {
         app.navigationBars.buttons.firstMatch.tap()
 
         open("settings-資料管理")
+        let json = app.buttons["data-json"]
+        XCTAssertTrue(json.waitForExistence(timeout: 5))
+        json.tap()
+        let editor = app.textViews["json-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        XCTAssertTrue(NSPredicate(format: "value CONTAINS %@", "clhs-pocket").evaluate(with: editor) || (editor.value as? String)?.contains("clhs-pocket") == true,
+                      "the editor starts with the current settings")
+        capture("67a-settings-json-editor")
+        let apply = app.buttons["json-apply"]
+        reveal(apply)
+        apply.tap()
+        XCTAssertTrue(app.buttons["import-confirm"].waitForExistence(timeout: 5), "valid JSON is previewed before it is applied")
+        capture("67b-settings-json-preview")
+        app.buttons["import-confirm"].tap()
+        XCTAssertTrue(app.staticTexts["json-message"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["json-message"].label, "已套用設定。")
+        editor.tap()
+        editor.typeText("}}")
+        reveal(apply)
+        apply.tap()
+        let invalid = app.staticTexts["json-message"]
+        XCTAssertTrue(invalid.waitForExistence(timeout: 5))
+        XCTAssertTrue(NSPredicate(format: "label != %@", "已套用設定。").evaluate(with: invalid), "broken JSON is rejected, not applied")
+        XCTAssertFalse(app.buttons["import-confirm"].exists)
+        capture("67c-settings-json-invalid")
+        let reset = app.buttons["json-reset"]
+        reveal(reset)
+        reset.tap()
+        XCTAssertTrue(invalid.waitForNonExistence(timeout: 5))
+        app.navigationBars.buttons.firstMatch.tap()
         capture("67-settings-data")
         app.buttons["data-delete"].tap()
         XCTAssertTrue(app.buttons["data-delete-confirm"].firstMatch.waitForExistence(timeout: 5))
@@ -572,6 +602,7 @@ final class PocketShellUITests: XCTestCase {
         toggle("start-on-schedule")
         capture("70-personal-start-on-schedule")
         XCTAssertFalse(app.buttons["settings-開發者選項"].exists, "developer options stay hidden until unlocked")
+        pickProfilePhoto()
 
         open("settings-使用統計")
         let opens = app.descendants(matching: .any)["usage-personal_open"]
@@ -582,6 +613,7 @@ final class PocketShellUITests: XCTestCase {
 
         open("settings-關於")
         XCTAssertTrue(app.descendants(matching: .any)["about-source"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["about-feedback"].exists, "意見回饋 opens the same form as Android")
         let version = app.buttons["about-version"]
         for _ in 0..<10 { version.tap() }
         XCTAssertTrue(app.staticTexts["about-developer-message"].waitForExistence(timeout: 5))
@@ -589,13 +621,24 @@ final class PocketShellUITests: XCTestCase {
         app.navigationBars.buttons.firstMatch.tap()
 
         open("settings-開發者選項")
-        let caches = app.switches["storage-caches"]
-        XCTAssertTrue(caches.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.switches["storage-appData"].isEnabled, "account data is only removed by sign-out or delete")
-        toggle("storage-caches")
-        app.buttons["storage-clear"].tap()
-        XCTAssertTrue(app.staticTexts["storage-freed"].waitForExistence(timeout: 5))
+        let cache = app.switches["storage-cache"]
+        XCTAssertTrue(cache.waitForExistence(timeout: 5))
+        for category in ["gradeCache", "scheduleCache", "session", "webData"] {
+            XCTAssertTrue(app.switches["storage-\(category)"].isEnabled, category)
+        }
+        XCTAssertFalse(app.switches["storage-settings"].isEnabled, "settings are only removed by 刪除資料")
+        toggle("storage-gradeCache")
+        toggle("storage-scheduleCache")
+        toggle("storage-cache")
         capture("73-settings-developer")
+        app.buttons["storage-clear"].tap()
+        let confirm = app.buttons["storage-clear-confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        XCTAssertTrue(app.staticTexts["storage-freed"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["storage-error"].exists, "every chosen area was cleared")
+        capture("73b-settings-developer-cleared")
+        XCTAssertTrue(app.buttons["settings-使用統計"].exists || app.switches["storage-cache"].exists, "clearing caches keeps the demo signed in")
         let diagnostics = app.buttons["developer-diagnostics"]
         reveal(diagnostics)
         diagnostics.tap()
@@ -636,6 +679,27 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         reveal(row)
         row.tap()
+    }
+
+    /// Picks the first library photo for the avatar, then removes it again.
+    private func pickProfilePhoto() {
+        app.swipeDown()
+        let avatar = app.buttons["profile-photo"].firstMatch
+        XCTAssertTrue(avatar.waitForExistence(timeout: 5))
+        XCTAssertEqual(avatar.label, "設定大頭貼")
+        avatar.tap()
+        let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 15), "the photo picker opens")
+        capture("70a-personal-photo-picker")
+        // The picker runs out of process, so its cells report as not hittable; tap where the cell is.
+        photo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.buttons["更換大頭貼"].firstMatch.waitForExistence(timeout: 15), "the picked photo is shown")
+        capture("70b-personal-photo")
+        app.buttons["profile-photo"].firstMatch.press(forDuration: 1.2)
+        let remove = app.buttons["profile-photo-remove"].firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 5))
+        remove.tap()
+        XCTAssertTrue(app.buttons["設定大頭貼"].firstMatch.waitForExistence(timeout: 5), "the photo can be removed")
     }
 
     /// Scrolls until the element can be tapped.
