@@ -1,4 +1,5 @@
 import Security
+import os
 import XCTest
 @testable import CLHSPocket
 @preconcurrency import PocketShared
@@ -237,6 +238,50 @@ final class PocketBackendTests: XCTestCase {
         await controller.subjectOverridesSettled()
         XCTAssertEqual(controller.subjectOverrides, before, "an edit that was not stored is taken back")
         XCTAssertNotNil(controller.lastError)
+    }
+
+    func testDeleteAllStopsPublicRequestsStillOnTheWireFromWritingAnythingBack() async throws {
+        let list = #"[{"pageNum":0,"totalPages":1},{"newsId":"n1","title":"校慶公告","time":"2026/11/18","attr_name":"一般","name":"教務處","top":"0","content_type":"content"}]"#
+        // The first announcement request is held back until the test lets it answer.
+        let gate = DispatchSemaphore(value: 0)
+        let holding = OSAllocatedUnfairLock(initialState: true)
+        let sent = expectation(description: "the announcement request is on the wire")
+        sent.assertForOverFulfill = false
+        StubURLProtocol.install { request in
+            guard request.url.path.hasSuffix("news_query_json.php") else { return .failure(.notConnectedToInternet) }
+            if holding.withLock({ $0 }) {
+                sent.fulfill()
+                _ = gate.wait(timeout: .now() + 5)
+            }
+            return StubURLProtocol.text(list)
+        }
+        addTeardownBlock { @MainActor in PocketLive.shared.clearAll() }
+        let controller = LiveDataController(backend: backend())
+        controller.syncBookmarks(["n1"])
+        await controller.bookmarksSettled()
+
+        let refresh = Task { await controller.refreshPublic(weatherSource: .openMeteo) }
+        await fulfillment(of: [sent], timeout: 5)
+        let deletion = Task { try await controller.deleteAllData() }
+        try await Task.sleep(for: .milliseconds(100))
+        holding.withLock { $0 = false }
+        gate.signal()
+        try await deletion.value
+        await refresh.value
+
+        let left = (FileManager.default.subpaths(atPath: root.path) ?? []).filter {
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path, isDirectory: &isDirectory)
+                && !isDirectory.boolValue
+        }
+        XCTAssertEqual(left, [], "the late answer must not put the cache or the read state back")
+        XCTAssertTrue(PocketLive.shared.listedAnnouncements.isEmpty)
+
+        // The bookmark selection went with the data: a later refresh lists n1 without saving it again.
+        await controller.refreshPublic(weatherSource: .openMeteo)
+        XCTAssertEqual(PocketLive.shared.listedAnnouncements.map(\.id), ["n1"])
+        let saved = try await controller.backend.call { try await $0.bookmarkedAnnouncements(token: $1) }
+        XCTAssertTrue(saved.isEmpty)
     }
 
     func testLoginRightAfterLogoutKeepsTheNewAccountAndNothingOfTheOldOne() async throws {

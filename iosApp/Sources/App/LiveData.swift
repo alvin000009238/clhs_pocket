@@ -43,13 +43,25 @@ final class LiveDataController {
     @ObservationIgnored private var bookmarkIds: Set<String> = []
     @ObservationIgnored private var bookmarkSync: Task<Void, Never>?
 
+    /// Public requests started before a delete-all belong to the data that was deleted. The number
+    /// goes up with every delete; work that began under an older one is cancelled, is waited for
+    /// before the files are removed, and may no longer put anything in memory.
+    @ObservationIgnored private var publicEpoch = 0
+    @ObservationIgnored private var publicWork: Task<Void, Never>?
+    @ObservationIgnored private var announcementWork: Task<Void, Never>?
+    @ObservationIgnored private var announcementsLoadedAt: Date?
+
+    private func isCurrentPublic(_ epoch: Int) -> Bool { epoch == publicEpoch && !Task.isCancelled }
+
     /// Keeps a copy of every bookmarked announcement, so one that has left the first page of the
     /// school's list can still be listed and opened. `ids` is the student's current selection.
     func syncBookmarks(_ ids: Set<String>) {
         bookmarkIds = ids
         let earlier = bookmarkSync
+        let epoch = publicEpoch
         bookmarkSync = Task {
             await earlier?.value
+            guard isCurrentPublic(epoch) else { return }
             let live = PocketLive.shared
             do {
                 var stored = try await backend.call { try await $0.bookmarkedAnnouncements(token: $1) }
@@ -57,9 +69,11 @@ final class LiveDataController {
                 let listed = live.listedAnnouncements
                 let changes = stored.filter { !ids.contains($0.id) } + listed.filter { ids.contains($0.id) && !known.contains($0.id) }
                 for item in changes {
+                    guard isCurrentPublic(epoch) else { return }
                     _ = try await backend.call { try await $0.toggleAnnouncementBookmark(announcement: item, token: $1) }
                 }
                 if !changes.isEmpty { stored = try await backend.call { try await $0.bookmarkedAnnouncements(token: $1) } }
+                guard isCurrentPublic(epoch) else { return }
                 live.savedAnnouncements = stored
             } catch {
                 // The bookmark itself is kept by the app; only the offline copy is missing.
@@ -72,32 +86,90 @@ final class LiveDataController {
 
     /// Announcements, calendar, weather and YouBike need no account.
     func refreshPublic(weatherSource: WeatherSource, force: Bool = false) async {
-        guard !isLoadingPublic else { return }
+        // A second caller waits for the refresh in flight instead of starting another.
+        if let publicWork { return await publicWork.value }
+        let epoch = publicEpoch
+        let work = Task { await loadPublic(weatherSource: weatherSource, force: force, epoch: epoch) }
+        publicWork = work
+        await work.value
+        if epoch == publicEpoch { publicWork = nil }
+    }
+
+    private func loadPublic(weatherSource: WeatherSource, force: Bool, epoch: Int) async {
         isLoadingPublic = true
-        defer { isLoadingPublic = false; publish() }
+        defer {
+            if epoch == publicEpoch { isLoadingPublic = false }
+            publish()
+        }
         let live = PocketLive.shared
-        do {
-            let page = try await backend.call { try await $0.announcements(pageIndex: 0, keyword: "", unitId: "-1", categoryId: "-1", token: $1) }
-            live.putAnnouncements(items: page.announcements)
-            announcementsLoaded = true
-        } catch { lastError = error.message }
+        await fetchAnnouncements(epoch: epoch)
+        guard isCurrentPublic(epoch) else { return }
         syncBookmarks(bookmarkIds)
         await bookmarkSync?.value
+        guard isCurrentPublic(epoch) else { return }
         publish()
         do {
             let snapshot = try await backend.call { try await $0.calendar(forceRefresh: force, token: $1) }
+            guard isCurrentPublic(epoch) else { return }
             live.putEvents(items: snapshot.feed.events)
-        } catch { lastError = error.message }
+        } catch { if isCurrentPublic(epoch) { lastError = error.message } }
         publish()
         for location in live.weatherLocations {
+            guard isCurrentPublic(epoch) else { return }
             if let load = try? await backend.call({ try await $0.weather(source: weatherSource, location: location, forceRefresh: force, token: $1) }),
-               let snapshot = load.snapshot {
+               let snapshot = load.snapshot, isCurrentPublic(epoch) {
                 live.putWeather(locationId: location.id, snapshot: snapshot)
             }
         }
-        if let loads = try? await backend.call({ try await $0.youBike(stations: live.youBikeStations, forceRefresh: force, token: $1) }) {
+        guard isCurrentPublic(epoch) else { return }
+        if let loads = try? await backend.call({ try await $0.youBike(stations: live.youBikeStations, forceRefresh: force, token: $1) }),
+           isCurrentPublic(epoch) {
             for load in loads { if let snapshot = load.snapshot { live.putYouBike(stationId: load.stationId, snapshot: snapshot) } }
         }
+    }
+
+    /// The first page of the school's announcement list.
+    private func fetchAnnouncements(epoch: Int) async {
+        do {
+            let page = try await backend.call { try await $0.announcements(pageIndex: 0, keyword: "", unitId: "-1", categoryId: "-1", token: $1) }
+            guard isCurrentPublic(epoch) else { return }
+            PocketLive.shared.putAnnouncements(items: page.announcements)
+            announcementsLoaded = true
+            announcementsLoadedAt = Date()
+        } catch {
+            if isCurrentPublic(epoch), error.kind != .cancelled { lastError = error.message }
+        }
+    }
+
+    /// For the announcement reminder: fetches the list unless it was fetched in the last
+    /// `maxAge` seconds. A launch in the background has no list in memory and nothing else loads
+    /// one there; in the foreground the regular refresh has usually just done it.
+    func loadAnnouncementsIfStale(maxAge: TimeInterval = 15 * 60, now: Date = Date()) async {
+        if let loaded = announcementsLoadedAt, now.timeIntervalSince(loaded) < maxAge { return }
+        if let publicWork { return await publicWork.value }
+        if let announcementWork { return await announcementWork.value }
+        let epoch = publicEpoch
+        let work = Task {
+            await fetchAnnouncements(epoch: epoch)
+            publish()
+        }
+        announcementWork = work
+        await work.value
+        if epoch == publicEpoch { announcementWork = nil }
+    }
+
+    /// Ends every public request that is under way and waits until none of them can write again.
+    private func revokePublicWork() async {
+        publicEpoch += 1
+        bookmarkIds = []
+        let pending = [publicWork, announcementWork, bookmarkSync].compactMap { $0 }
+        publicWork = nil
+        announcementWork = nil
+        bookmarkSync = nil
+        isLoadingPublic = false
+        announcementsLoadedAt = nil
+        for task in pending { task.cancel() }
+        for task in pending { await task.value }
     }
 
     // MARK: Account
@@ -240,6 +312,10 @@ final class LiveDataController {
 
     func deleteAllData() async throws(PocketError) {
         endSessionInMemory()
+        // Requests still on the wire would otherwise write the announcement cache, the read state
+        // and the bookmarks back after they were deleted. They are stopped and waited for first,
+        // so whatever they managed to store is removed with everything else.
+        await revokePublicWork()
         PocketLive.shared.clearAll()
         announcementsLoaded = false
         publish()
@@ -532,6 +608,12 @@ struct LivePlatformData: PlatformDataProviding {
     func prepare() async {
         guard isActive(), UIApplication.shared.isProtectedDataAvailable else { return }
         await live.restoreOnce()
+    }
+
+    /// Public data, so no session is needed; skipped while the demo is showing.
+    func loadAnnouncements() async {
+        guard isActive() else { return }
+        await live.loadAnnouncementsIfStale()
     }
 
     func scheduleSnapshot(scheduleNow: Date, deviceNow: Date) -> PlatformSnapshot {
