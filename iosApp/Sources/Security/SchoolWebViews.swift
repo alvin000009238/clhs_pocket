@@ -8,6 +8,19 @@ enum SchoolWebPolicy {
     static let loginURL = URL(string: "https://shcloud2.k12ea.gov.tw/CLHSTYC/Auth/Auth/CloudLogin")!
     static let homeURL = URL(string: "https://shcloud2.k12ea.gov.tw/CLHSTYC/ICampus/Home/Index2")!
 
+    /// The school login page turns away WKWebView's default agent as an in-app browser, so school
+    /// pages finish it the way Safari does. WebKit keeps the platform part, which matches Safari on
+    /// the device: the iPhone agent, or the desktop-class one on iPad.
+    @MainActor
+    static func safariApplicationName(
+        idiom: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom,
+        systemVersion: String = UIDevice.current.systemVersion
+    ) -> String {
+        let parts = systemVersion.split(separator: ".")
+        let version = "\(parts.first.flatMap { Int($0) } ?? 18).\(parts.dropFirst().first.flatMap { Int($0) } ?? 0)"
+        return idiom == .pad ? "Version/\(version) Safari/605.1.15" : "Version/\(version) Mobile/15E148 Safari/604.1"
+    }
+
     /// HTTPS on the school host and the default port, nothing else.
     static func isTrusted(_ url: URL?) -> Bool {
         guard let url, url.scheme?.lowercased() == "https", url.host?.lowercased() == host,
@@ -223,6 +236,7 @@ final class SchoolWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, 
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.upgradeKnownHostsToHTTPS = true
+        configuration.applicationNameForUserAgent = SchoolWebPolicy.safariApplicationName()
         if installLoginHook {
             configuration.userContentController.addUserScript(WKUserScript(
                 source: SchoolWebPolicy.loginHook, injectionTime: .atDocumentStart, forMainFrameOnly: true
