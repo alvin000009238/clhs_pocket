@@ -110,10 +110,11 @@ internal object DemoSource : PocketSource {
         val classNo = scheduleClasses.firstOrNull { it.value == classValue } ?: scheduleClasses.first()
         return FakeScheduleData.report(FakeScheduleData.currentYearValue(today), classNo.value, scope, today)
     }
-    override val scheduleYears get() = FakeScheduleData.years
+    // The demo clock decides the terms, so a fixed demo date always offers the same choice.
+    override val scheduleYears get() = today?.let(FakeScheduleData::years) ?: FakeScheduleData.years
     override fun schedule(scope: ScheduleScope, today: LocalDate, classValue: String, yearValue: String): ScheduleReport {
         val classNo = scheduleClasses.firstOrNull { it.value == classValue } ?: scheduleClasses.first()
-        val year = yearValue.takeIf { value -> scheduleYears.any { it.value == value } } ?: FakeScheduleData.currentYearValue(today)
+        val year = yearValue.takeIf { value -> scheduleYears.any { it.value == value } } ?: scheduleYears.first().value
         return FakeScheduleData.report(year, classNo.value, scope, today)
     }
     override fun scheduleWeeks(yearValue: String): List<ScheduleWeekOption> = FakeScheduleData.weeks(yearValue)

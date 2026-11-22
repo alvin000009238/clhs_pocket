@@ -1,6 +1,5 @@
 package com.clhs.score.shared.app
 
-import com.clhs.score.data.FakeScheduleData
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -18,7 +17,7 @@ class PocketScheduleChoiceTest {
     fun theDemoOffersEveryTermAndTheChosenTermIsTheOneShown() {
         val years = store.years()
         assertTrue(years.size >= 2, "a choice needs more than one term")
-        assertEquals(FakeScheduleData.currentYearValue(), years.first().id)
+        assertNotEquals(years[0].id, years[1].id)
 
         val older = years[1]
         val (year, term) = older.id.split("_")

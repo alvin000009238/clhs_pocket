@@ -18,15 +18,18 @@ object FakeScheduleData {
     }
 
     val years: List<ScheduleYearTermOption>
-        get() {
-            val current = currentYearValue()
-            val (year, term) = requireNotNull(parseYearTermOrNull(current))
-            val previous = if (term == "2") "${year}_1" else "${year.toInt() - 1}_2"
-            return listOf(current, previous).map { value ->
-                val (academicYear, academicTerm) = requireNotNull(parseYearTermOrNull(value))
-                ScheduleYearTermOption("${academicYear}學年度第${academicTerm}學期", value)
-            }
+        get() = years(schoolToday())
+
+    /** The term of [today] and the one before it, newest first. */
+    fun years(today: LocalDate): List<ScheduleYearTermOption> {
+        val current = currentYearValue(today)
+        val (year, term) = requireNotNull(parseYearTermOrNull(current))
+        val previous = if (term == "2") "${year}_1" else "${year.toInt() - 1}_2"
+        return listOf(current, previous).map { value ->
+            val (academicYear, academicTerm) = requireNotNull(parseYearTermOrNull(value))
+            ScheduleYearTermOption("${academicYear}學年度第${academicTerm}學期", value)
         }
+    }
 
     /** The school's week list for [yearValue]: 21 weeks from the Monday of the term's first week. */
     fun weeks(yearValue: String): List<ScheduleWeekOption> {
