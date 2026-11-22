@@ -1,6 +1,8 @@
 package com.clhs.score.data
 
 import com.clhs.score.shared.time.Instant
+import com.clhs.score.shared.time.LocalDate
+import com.clhs.score.shared.time.parseLocalDateOrNull
 
 const val SCHOOL_ANNOUNCEMENTS_WEB_URL = "https://www.clhs.tyc.edu.tw/ischool/publish_page/0/"
 const val SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH = 100
@@ -59,9 +61,14 @@ data class SchoolAnnouncementDetail(
     val images: List<SchoolAnnouncementImage>,
     val attachments: List<SchoolAnnouncementAttachment>,
     val officialUrl: String,
+    val isExternal: Boolean = false,
+    val externalUrl: String? = null,
 )
 
 const val ALL_UNITS_ID = "-1"
 val ANNOUNCEMENT_UNIT_ID_REGEX = Regex("-1|[0-9]+")
 
 fun defaultAnnouncementUnits(): List<AnnouncementUnit> = listOf(AnnouncementUnit(ALL_UNITS_ID, "全部"))
+
+fun parseAnnouncementDate(date: String): LocalDate? =
+    parseLocalDateOrNull(date.trim().substringBefore(' ').substringBefore('T').replace('/', '-'))

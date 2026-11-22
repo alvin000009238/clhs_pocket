@@ -26,10 +26,10 @@ class AnnouncementReminderRepositoryTest {
         )
         val repository = AnnouncementReminderRepository(store)
         val requestedUnits = repository.loadState().selectedUnitIds
-        val staleAnnouncements = listOf(announcement("old-unit"))
+        val staleAnnouncements = snapshot(announcement("old-unit"))
 
         // The unit-page request finishes before the earlier enable request.
-        repository.applySelectedUnitIds(setOf("44"), listOf(announcement("current-unit")), 10L)
+        repository.applySelectedUnitIds(setOf("44"), snapshot(announcement("current-unit"), unitId = "44"), 10L)
         repository.setIntervalMinutes(180)
         val before = repository.loadState()
         val failure = runCatching {
@@ -39,15 +39,15 @@ class AnnouncementReminderRepositoryTest {
         assertTrue("A baseline for $requestedUnits must not enable ${before.selectedUnitIds}", failure is IllegalStateException)
         assertEquals(before, repository.loadState())
 
-        repository.enableWithBaseline(before.selectedUnitIds, listOf(announcement("current-unit")), 30L)
+        repository.enableWithBaseline(before.selectedUnitIds, snapshot(announcement("current-unit"), unitId = "44"), 30L)
         val enabled = repository.loadState()
         assertTrue(enabled.enabled)
         assertEquals(setOf("44"), enabled.selectedUnitIds)
         assertEquals(180, enabled.intervalMinutes)
-        assertEquals(setOf("current-unit"), enabled.knownIds)
+        assertEquals(setOf("current-unit"), enabled.knownIdsByUnit["44"])
         assertTrue(enabled.baselineInitialized)
         assertEquals(30L, enabled.lastCheckedAtMillis)
-        assertTrue(repository.recordCheck(setOf("44"), listOf(announcement("current-unit")), 40L).isEmpty())
+        assertTrue(repository.recordCheck(setOf("44"), snapshot(announcement("current-unit"), unitId = "44"), 40L).isEmpty())
     }
 
     @Test
@@ -86,11 +86,11 @@ class AnnouncementReminderRepositoryTest {
         assertTrue(state.knownIds.isEmpty())
         assertTrue(state.unreadIds.isEmpty())
         assertEquals(0L, state.lastCheckedAtMillis)
-        val baseline = applyAnnouncementCheck(state, listOf(announcement("historical")), 100L)
+        val baseline = applyAnnouncementCheck(state, snapshot(announcement("historical"), unitId = "44"), 100L)
         assertTrue(baseline.newAnnouncements.isEmpty())
-        assertEquals(setOf("historical"), baseline.state.knownIds)
+        assertEquals(setOf("historical"), baseline.state.knownIdsByUnit["44"])
         val next = applyAnnouncementCheck(
-            baseline.state, listOf(announcement("new"), announcement("historical")), 200L,
+            baseline.state, snapshot(announcement("new"), announcement("historical"), unitId = "44"), 200L,
         )
         assertEquals(listOf("new"), next.newAnnouncements.map(SchoolAnnouncement::id))
     }
@@ -99,12 +99,12 @@ class AnnouncementReminderRepositoryTest {
     fun firstCheckOnlyCreatesBaseline() {
         val outcome = applyAnnouncementCheck(
             AnnouncementReminderState(enabled = true),
-            listOf(announcement("2"), announcement("1")),
+            snapshot(announcement("2"), announcement("1")),
             checkedAtMillis = 10L,
         )
 
         assertTrue(outcome.state.baselineInitialized)
-        assertEquals(setOf("2", "1"), outcome.state.knownIds)
+        assertEquals(setOf("2", "1"), outcome.state.knownIdsByUnit[ALL_UNITS_ID])
         assertTrue(outcome.state.unreadIds.isEmpty())
         assertTrue(outcome.newAnnouncements.isEmpty())
     }
@@ -119,13 +119,13 @@ class AnnouncementReminderRepositoryTest {
         )
         val outcome = applyAnnouncementCheck(
             state,
-            listOf(announcement("3"), announcement("3"), announcement("2"), announcement("1")),
+            snapshot(announcement("3"), announcement("3"), announcement("2"), announcement("1")),
             checkedAtMillis = 20L,
         )
 
         assertEquals(listOf("3", "2"), outcome.newAnnouncements.map(SchoolAnnouncement::id))
         assertEquals(setOf("3", "2", "old-unread"), outcome.state.unreadIds)
-        assertEquals(setOf("3", "2", "1"), outcome.state.knownIds)
+        assertEquals(setOf("3", "2", "1"), outcome.state.knownIdsByUnit[ALL_UNITS_ID])
     }
 
     @Test
@@ -159,11 +159,11 @@ class AnnouncementReminderRepositoryTest {
         )
         val outcome = applyAnnouncementCheck(
             state,
-            (501..1_100).map { announcement(it.toString()) },
+            AnnouncementReminderSnapshot(mapOf(ALL_UNITS_ID to (501..1_100).map { announcement(it.toString()) })),
             checkedAtMillis = 30L,
         )
 
-        assertEquals((501..1_000).map(Int::toString), outcome.state.knownIds.toList())
+        assertEquals((501..1_000).map(Int::toString), outcome.state.knownIdsByUnit.getValue(ALL_UNITS_ID).toList())
         assertEquals((501..600).map(Int::toString), outcome.state.unreadIds.toList())
         assertEquals("99+", announcementBadgeText(outcome.state.unreadIds.size))
         assertEquals("9", announcementBadgeText(9))
@@ -174,7 +174,7 @@ class AnnouncementReminderRepositoryTest {
         val calls = mutableListOf<Int>()
         val result = loadAnnouncementReminderSnapshot(
             selectedUnitIds = setOf(ALL_UNITS_ID),
-            knownIds = setOf("known"),
+            state = AnnouncementReminderState(knownIds = setOf("known")),
             loadPage = { pageIndex, _ ->
                 calls += pageIndex
                 when (pageIndex) {
@@ -186,7 +186,23 @@ class AnnouncementReminderRepositoryTest {
         )
 
         assertEquals(listOf(0, 1, 2), calls)
-        assertEquals(listOf("new-1", "new-2", "known"), result.map(SchoolAnnouncement::id))
+        assertEquals(listOf("new-1", "new-2", "known"), result.announcements.map(SchoolAnnouncement::id))
+    }
+
+    @Test
+    fun knownPinnedAnnouncementDoesNotStopPollingBeforeNewerAnnouncements() = runTest {
+        val result = loadAnnouncementReminderSnapshot(
+            selectedUnitIds = setOf(ALL_UNITS_ID),
+            state = AnnouncementReminderState(knownIds = setOf("pinned", "known")),
+            loadPage = { pageIndex, _ ->
+                when (pageIndex) {
+                    0 -> page(announcement("pinned", isPinned = true), pageIndex = 0, totalPages = 3)
+                    1 -> page(announcement("new"), announcement("known"), pageIndex = 1, totalPages = 3)
+                    else -> error("Polling should stop at the known ordinary announcement")
+                }
+            },
+        )
+        assertEquals(listOf("pinned", "new", "known"), result.announcements.map(SchoolAnnouncement::id))
     }
 
     @Test
@@ -194,7 +210,7 @@ class AnnouncementReminderRepositoryTest {
         val calls = mutableListOf<Int>()
         val result = loadAnnouncementReminderSnapshot(
             selectedUnitIds = setOf(ALL_UNITS_ID),
-            knownIds = setOf("known"),
+            state = AnnouncementReminderState(knownIds = setOf("known")),
             loadPage = { pageIndex, _ ->
                 calls += pageIndex
                 page(announcement("id-$pageIndex"), pageIndex = pageIndex, totalPages = 100)
@@ -202,7 +218,7 @@ class AnnouncementReminderRepositoryTest {
         )
 
         assertEquals((0 until ANNOUNCEMENT_REMINDER_MAX_PAGES).toList(), calls)
-        assertEquals(ANNOUNCEMENT_REMINDER_MAX_PAGES, result.size)
+        assertEquals(ANNOUNCEMENT_REMINDER_MAX_PAGES, result.announcements.size)
     }
 
     @Test
@@ -210,7 +226,6 @@ class AnnouncementReminderRepositoryTest {
         val calls = mutableListOf<Int>()
         val result = loadAnnouncementReminderSnapshot(
             selectedUnitIds = setOf(ALL_UNITS_ID),
-            knownIds = emptySet(),
             loadPage = { pageIndex, _ ->
                 calls += pageIndex
                 page(announcement("id-$pageIndex"), pageIndex = pageIndex, totalPages = 100)
@@ -218,14 +233,13 @@ class AnnouncementReminderRepositoryTest {
         )
 
         assertEquals(listOf(0, 1, 2), calls)
-        assertEquals(listOf("id-0", "id-1", "id-2"), result.map(SchoolAnnouncement::id))
+        assertEquals(listOf("id-0", "id-1", "id-2"), result.announcements.map(SchoolAnnouncement::id))
     }
 
     @Test
     fun baselineIncludesPinnedAnnouncementsThatCanMoveAcrossPageBoundary() = runTest {
         val baseline = loadAnnouncementReminderSnapshot(
             selectedUnitIds = setOf(ALL_UNITS_ID),
-            knownIds = emptySet(),
             loadPage = { pageIndex, _ ->
                 when (pageIndex) {
                     0 -> page(
@@ -250,7 +264,7 @@ class AnnouncementReminderRepositoryTest {
 
         val movedPinnedAnnouncement = loadAnnouncementReminderSnapshot(
             selectedUnitIds = setOf(ALL_UNITS_ID),
-            knownIds = baselineState.knownIds,
+            state = baselineState,
             loadPage = { pageIndex, _ ->
                 page(
                     announcement("pinned-older", isPinned = true),
@@ -275,7 +289,6 @@ class AnnouncementReminderRepositoryTest {
         val error = runCatching {
             loadAnnouncementReminderSnapshot(
                 selectedUnitIds = setOf("unit-a", "unit-b"),
-                knownIds = emptySet(),
                 loadPage = { pageIndex, unitId ->
                     if (unitId == "unit-b") throw IOException("network")
                     page(announcement("$unitId-$pageIndex"), pageIndex = pageIndex, totalPages = 1)
@@ -285,6 +298,66 @@ class AnnouncementReminderRepositoryTest {
 
         assertTrue(error is IOException)
     }
+
+    @Test
+    fun freshBaselineKeepsMoreThanFiveHundredAnnouncementsAcrossUnits() {
+        val units = (1..10).map(Int::toString).toSet()
+        val snapshot = AnnouncementReminderSnapshot(units.associateWith { unit ->
+            (1..60).map { announcement("$unit-$it") }
+        })
+        val state = AnnouncementReminderState(enabled = true, selectedUnitIds = units)
+
+        val initial = applyAnnouncementCheck(state, snapshot, 1L)
+        assertTrue(initial.newAnnouncements.isEmpty())
+        assertEquals(units, initial.state.knownIdsByUnit.keys)
+        assertEquals(600, initial.state.knownIdsByUnit.values.sumOf { it.size })
+        assertTrue(applyAnnouncementCheck(initial.state, snapshot, 2L).newAnnouncements.isEmpty())
+    }
+
+    @Test
+    fun legacyMultiUnitBaselineRecoversMissingUnitsAndDeduplicatesFutureAlerts() = runTest {
+        val store = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = { temporaryFolder.root.resolve("multi-unit.preferences_pb") },
+        )
+        val repository = AnnouncementReminderRepository(store)
+        val units = (1..10).map { it.toString().padStart(2, '0') }.toSet()
+        val older = units.associateWith { unit ->
+            (1..60).map { announcement("$unit-$it") }
+        }
+        val legacy = older.values.flatten().take(500).map(SchoolAnnouncement::id).toSet()
+        repository.restoreSnapshot(AnnouncementReminderState(
+            enabled = true, selectedUnitIds = units, baselineInitialized = true, knownIds = legacy,
+        ))
+
+        val migrationRequests = mutableListOf<Pair<String, Int>>()
+        val migration = loadAnnouncementReminderSnapshot(units, repository.loadState()) { index, unit ->
+            migrationRequests += unit to index
+            page(*older.getValue(unit).drop(index * 20).take(20).toTypedArray(), pageIndex = index, totalPages = 20)
+        }
+        val rebuilt = repository.recordCheck(units, migration, 10L)
+        assertTrue(rebuilt.isEmpty())
+        assertEquals(listOf("10" to 0, "10" to 1, "10" to 2), migrationRequests.filter { it.first == "10" })
+        val reloaded = AnnouncementReminderRepository(store).loadState()
+        assertEquals(60, reloaded.knownIdsByUnit.getValue("10").size)
+        assertEquals(legacy, reloaded.knownIds)
+
+        val requests = mutableListOf<Pair<String, Int>>()
+        val next = loadAnnouncementReminderSnapshot(units, reloaded) { index, unit ->
+            requests += unit to index
+            val new = if (unit in setOf("09", "10")) listOf(announcement("shared-new")) else emptyList()
+            page(*(new + older.getValue(unit)).take(20).toTypedArray(), pageIndex = index, totalPages = 20)
+        }
+        assertEquals(units.map { it to 0 }, requests)
+        val new = repository.recordCheck(units, next, 20L)
+        assertEquals(listOf("shared-new"), new.map(SchoolAnnouncement::id))
+
+        repository.setEnabled(false)
+        assertTrue(repository.loadState().knownIdsByUnit.isEmpty())
+    }
+
+    private fun snapshot(vararg announcements: SchoolAnnouncement, unitId: String = ALL_UNITS_ID) =
+        AnnouncementReminderSnapshot(mapOf(unitId to announcements.toList()))
 
     private fun announcement(id: String, isPinned: Boolean = false) = SchoolAnnouncement(
         id = id,

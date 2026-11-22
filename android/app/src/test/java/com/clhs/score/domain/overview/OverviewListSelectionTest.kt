@@ -46,6 +46,15 @@ class OverviewListSelectionTest {
         assertEquals(listOf("pinned"), state.importantAnnouncements(OverviewWidgetConfig.ListItems(), emptySet(), emptyList()).map { it.title })
     }
 
+    @Test fun unavailableExternalLinkKeepsItsExternalDestination() {
+        val link = announcement("link").copy(contentType = "url")
+        val state = OverviewState(announcements = listOf(link))
+
+        val item = state.importantAnnouncements(OverviewWidgetConfig.ListItems(), setOf(link.id), emptyList()).single()
+
+        assertEquals(OverviewDestination.Announcement(link.id, link.category, isExternal = true), item.destination)
+    }
+
     @Test fun durationFilterUsesFullDurationExclusiveEndAndRunsBeforeLimit() {
         val start = LocalDateTime.parse("2026-10-01T00:00:00")
         val events = listOf(

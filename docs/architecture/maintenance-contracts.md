@@ -55,7 +55,7 @@
 
 檢查：`LatestCacheFileTest`、`SchoolAnnouncementsTest`、`SchoolCalendarTest`、`WeatherRepositoryTest`、`YouBikeRepositoryTest`、`OverviewCoordinatorTest`、`OverviewWidgetCoordinatorTest`、`OverviewReliabilityTest`、`OverviewEditorTest`、`OverviewLayoutRepositoryTest`、`OverviewWidgetLayoutTest`、`ActiveSessionResolverTest`、`SessionStoreTest`。公開 API 契約用本機 fixture；CI 不依賴校網即時回應。
 
-- 公告列表的單位與類別選項共用官網首頁及既有單位 HTML 快取；伺服器篩選以 `flock=unit_<ID>-attr_<ID>` 組合，全部省略該條件。搜尋、重新整理、分頁保留兩個篩選 ID，切換條件取消舊查詢並回到第一頁；清除關鍵字保留篩選。僅無關鍵字、無篩選的第一頁可寫一般公告快取，列表篩選不改公告提醒的單位偏好。檢查 `SchoolAnnouncementsTest`、`SchoolAnnouncementsViewModelTest`。
+- 公告列表的單位與類別選項共用官網首頁及既有單位 HTML 快取；伺服器篩選以 `flock=unit_<ID>-attr_<ID>` 組合，全部省略該條件。搜尋、重新整理、分頁保留兩個篩選 ID，切換條件取消舊查詢並回到第一頁；列表與校園搜尋接近尾端時預取，未讀排序只改變索引且畫面仍是同一批公告時不再次預取；清除關鍵字保留篩選。僅無關鍵字、無篩選的第一頁可寫一般公告快取，列表篩選不改公告提醒的單位偏好。檢查 `SchoolAnnouncementsTest`、`SchoolAnnouncementsViewModelTest`。
 
 ## 背景提醒與通知
 
@@ -74,10 +74,10 @@
 - `GradeReportDiffer` 比對可見資訊及區塊新增／移除，不比 rawResult、HTTP 格式或學生資料時間戳。啟動可補排未過期工作，不因每次 state 更新重排。
 - 公告更新提醒權威讀取必須傳遞 I/O 失敗給 Worker retry；ViewModel 保留前值／排程並標示 unavailable，每五秒可取消地重新訂閱。驗證 `AnnouncementReminderRepositoryTest` 與 `SettingsIoRecoveryTest`。
 - 公告更新提醒 `school_announcement_poll` 與 FCM、段考更新提醒獨立；不要求忽略電池最佳化。多單位依序查詢並按 ID 去重。
-- 首次啟用／更換單位讀最新三頁建立不通知的基準；已有 known ID 時查到已知項目或最多 20 頁。啟用基準提交時須在同一 DataStore 交易內比對查詢時的接收單位；單位已變更則拒絕舊結果、保留目前設定並回報失敗，讓使用者重新啟用。使用 v2 基準及未讀 keys，不沿用舊篩選結果。
-- 一筆新公告直達詳情，多筆到列表；以一次性 capability 發出通知 action。停用或權限撤銷只清通知比對基準，保留單位／頻率偏好及 Room 閱讀紀錄。更換提醒單位重建通知基準，不清閱讀紀錄。
+- 首次啟用／更換單位讀最新三頁建立不通知的基準；每個查詢單位各保存最多 500 個 ID；已有該單位基準時查到已知的非置頂項目或最多 20 頁。從 v2 共用基準升級的多單位設定最多讀三頁重建各單位基準，僅通知既有非置頂交界前且跨單位未見的公告；找不到交界的單位先建立基準。啟用基準提交時須在同一 DataStore 交易內比對查詢時的接收單位；單位已變更則拒絕舊結果、保留目前設定並回報失敗，讓使用者重新啟用。v3 基準沿用可辨識的 v2 紀錄，通知跨單位按公告 ID 去重。
+- 一筆新公告直達詳情，多筆回到既有公告列表或開啟列表，並清除列表篩選後重新載入最新公告；以一次性 capability 發出通知 action。停用或權限撤銷只清通知比對基準，保留單位／頻率偏好及 Room 閱讀紀錄。更換提醒單位重建通知基準，不清閱讀紀錄。
 - 公告閱讀狀態由 `AnnouncementReadRepository.kt` 的單表 Room 管理，僅 `announcementKey`（API `newsId`）與 `isRead`。無閱讀紀錄且發布日期早於固定 cutoff 時視為已讀、不插入；等於／晚於 cutoff 或無法解析日期時首次發現插入未讀。cutoff 為首次導入時的 Asia/Taipei 日期，放在原提醒 DataStore；列表日期及詳情時間一律比較日期，不以當天時分秒推測新舊。先以 insert-ignore 匯入 `unread_ids_v2`，Room 成功後才保存遷移完成並移除舊 unread key；失敗保留 cutoff／舊未讀供重試，提醒狀態修改須先完成遷移。通知 `known_ids_v2` 不由閱讀操作修改。
-- 列表快取、搜尋、分頁、首頁第一頁與 Worker 查詢沿用既有資料取得流程，只登記已取得公告；不抓全庫、不另建公告 cache。列表／首頁／入口 Badge 共用 Room 未讀集合。詳情成功載入或合法外部連結 Intent 成功啟動後才寫入已讀；失敗保留未讀並提示。全部已讀僅更新操作開始時的 key 快照，分批更新置於同一 Room transaction，之後發現的新公告維持未讀。Worker 閱讀登記失敗須 retry，不能先推進通知 baseline。檢查 `AnnouncementReadRepositoryTest`（JVM policy／遷移協作，使用記憶體 DAO，不代表真實裝置 SQLite 驗收）、`AnnouncementReminderRepositoryTest` 與 `SchoolAnnouncementsTest`。
+- 列表快取、搜尋、分頁、首頁第一頁與 Worker 查詢沿用既有資料取得流程，只登記已取得公告；不抓全庫、不另建公告 cache。列表／首頁／入口 Badge 共用 Room 未讀集合。前景登記失敗時保留待寫入的 ID 與日期，下次公告登記或閱讀狀態的定期重試一併寫入；整批成功後才恢復可用狀態。一般公告的有效詳情成功載入後寫入已讀；外部公告須成功啟動合法連結，從通知開啟時在詳情提供連結按鈕。失敗保留未讀並提示。全部已讀僅更新操作開始時的 key 快照，分批更新置於同一 Room transaction，之後發現的新公告維持未讀；本次快照更新成功並反映在列表後回到頂端。Worker 閱讀登記失敗須 retry，不能先推進通知 baseline。檢查 `AnnouncementReadRepositoryTest`（JVM policy／遷移協作，使用記憶體 DAO，不代表真實裝置 SQLite 驗收）、`AnnouncementReminderRepositoryTest` 與 `SchoolAnnouncementsTest`。
 - `MainActivity` 不信任裸 Intent extras；保留 `NotificationActionCapabilities` 與鎖。系統通知權限在 App 根層同步，僅使用者操作時 request；永久拒絕走系統設定。
 - FCM 推播使用 `general`／`app_updates`，跟隨開關訂閱；不承載私人 Session 或成績。段考 channel 保留 high importance，既有安裝仍受系統 channel 設定限制。
 - 執行資訊頁列出 App 所有 WorkManager 工作，只讀、不提供取消。Debug reminder receiver／Widget capture activity 保留 `android.permission.DUMP`；不得搬至 release。
@@ -113,7 +113,7 @@
 - 官方總分為加權總分。模擬使用 `Σ(科目成績 × 合計學分)`，平均除以採計學分總和；使用者設定及推算候選不回寫 `GradeReport`。同一份考試成績對應多門課時，只保存合計學分，不推測個別課程配置。
 - 成績頁摘要與模擬器入口共用 `data/GradeSummaryDisplay.kt`。官方總分、平均各自保留有效的 API 原文，包含真正的 0；空白、`--` 或非數字視為尚未公布，只有缺少的欄位才用目前範圍的 `appliedCredits` 試算並附 `*`。試算總分僅移除尾端小數 0，平均以 HALF_UP 顯示兩位小數，並顯示「* 非官方試算」。不改寫官方報表、分析、歷史、匯出、首頁或 Widget。官方平均不可用時隱藏 Hero 與近期變化的本次平均比較。
 - 滾動公布期間只以有效、無缺考／作弊註記的已公布分數及其學分計算分母，不能把缺漏或無效分數當成 0。整份已套用學分必須完整對應清理後的完整科目名稱，且全部為 1～4；沒有有效分數、缺學分或初次載入失敗時顯示 `--`，不標星號。同範圍重載失敗可保留既有有效 map 試算；換帳號、學期、考試或科目簽章不可沿用。
-- 成績更多選單與「學分設定」項目顯示紅點，無障礙狀態為「學分待確認」。只有已套用狀態可靠載入或成功儲存，且同時符合已公布的官方總分與平均，才能清除紅點。開啟選單／設定、編輯、選候選、恢復預設及僅按儲存不會獨立清除；缺少官方摘要或數值不符時持續提醒。草稿不影響摘要或紅點，可靠性與供編輯用的 `isLoaded` 分開記錄。
+- 目前考試的學分讀取結束後，缺少官方摘要、比對不符或讀取失敗時，成績更多按鈕顯示紅點，並提供「學分待確認」無障礙狀態。選單內的「學分設定」以文字顯示同一提示。尚無報表、學分屬於其他考試或仍在讀取時，暫不顯示提示。開啟選單或設定、編輯、選候選、恢復預設及僅按儲存都不影響提醒。草稿與已套用學分分開，讀取可靠性也與供編輯用的 `isLoaded` 分開記錄。
 - 未設定時先用國文、數學、英文各 4 學分，其餘各 2 學分；符合官方總分與平均時沿用，不符才推算調整。這是可調整的預設，不是固定限制。手動設定及推算支援每科 1～4 的整數，排除科目由採計選擇處理，最多 64 科。依清理後的完整科目名稱對應，不能縮寫合併；空白或重複名稱拒絕推算及保存。歷史分數提示亦僅比對完整名稱。
 - `SimulatorCredits` 以十進位計算。官方顯示值依其小數位視為正數 HALF_UP 的半單位區間，同時比對加權總分與平均；這是顯示精度的容差，不保證涵蓋校方其他截斷規則。原始科目分數須有效且無缺考／作弊註記；不能透過 0 學分略過無效分數。
 - 推算在背景執行，最多搜尋 50,000 節點、保留 32 組候選，達上限必須標示搜尋未完成，不能宣稱唯一或無解。完整搜尋僅一組時可先填入設定草稿，但仍標示未確認；多解由使用者選取或固定已知學分縮小範圍。候選吻合官方數值不代表校方確認了各科學分，也不將國文或數學無條件固定為 4。

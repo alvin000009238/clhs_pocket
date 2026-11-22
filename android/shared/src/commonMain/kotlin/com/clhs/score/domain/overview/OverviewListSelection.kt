@@ -4,9 +4,9 @@ import kotlin.time.Duration.Companion.days
 import com.clhs.score.shared.time.LOCAL_DATE_TIME_ORDER
 import com.clhs.score.shared.time.epochDay
 import com.clhs.score.shared.time.durationUntil
-import com.clhs.score.shared.time.parseLocalDateOrNull
 import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.SchoolAnnouncementPage
+import com.clhs.score.data.parseAnnouncementDate
 
 fun OverviewState.importantAnnouncementsFrom(
     config: OverviewWidgetConfig.ListItems,
@@ -22,7 +22,7 @@ fun OverviewState.importantAnnouncementsFrom(
     }
     val comparator = config.announcementPriority.fold(compareBy<SchoolAnnouncement> { 0 }) { order, priority ->
         order.thenByDescending { matches(it.id, it.isPinned, priority) }
-    }.thenByDescending { parseLocalDateOrNull(it.date.replace('/', '-'))?.epochDay() ?: Long.MIN_VALUE }
+    }.thenByDescending { parseAnnouncementDate(it.date)?.epochDay() ?: Long.MIN_VALUE }
     return candidates.filter { item -> config.announcementPriority.any { matches(item.id, item.isPinned, it) } }
         .sortedWith(comparator).take(config.limit).map(::announcementOverviewItem)
 }
@@ -52,8 +52,13 @@ fun announcementOverviewItem(announcement: SchoolAnnouncement): OverviewItem =
         title = announcement.title,
         supportingText = listOf(announcement.unit, announcement.date).filter(String::isNotBlank).joinToString(" · "),
         label = if (announcement.isPinned) "置頂公告" else "公告",
-        displayDate = parseLocalDateOrNull(announcement.date.replace('/', '-')),
+        displayDate = parseAnnouncementDate(announcement.date),
         icon = "campaign",
-        destination = OverviewDestination.Announcement(announcement.id, announcement.category, announcement.externalUrl),
+        destination = OverviewDestination.Announcement(
+            announcement.id,
+            announcement.category,
+            announcement.externalUrl,
+            isExternal = announcement.contentType.equals("url", ignoreCase = true),
+        ),
         order = 60,
     )

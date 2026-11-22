@@ -1,5 +1,10 @@
 package com.clhs.score.ui.announcements
 
+import com.clhs.score.ui.rememberPocketOverflowMenuState
+import com.clhs.score.ui.PocketOverflowDropdownMenu
+import com.clhs.score.ui.pocketOverflowMenuAnchor
+import com.clhs.score.ui.PocketOverflowMenuItem
+
 import com.clhs.score.ui.navigation.navigationContentPadding
 
 import android.text.Html
@@ -58,6 +63,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.SnackbarHost
@@ -121,8 +127,6 @@ import com.clhs.score.ui.theme.PocketMotion
 import com.clhs.score.viewmodel.AnnouncementBookmarksUiState
 import com.clhs.score.viewmodel.SchoolAnnouncementDetailUiState
 import com.clhs.score.viewmodel.SchoolAnnouncementsUiState
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -146,7 +150,9 @@ fun SchoolAnnouncementsScreen(
     unreadIds: Set<String> = emptySet(),
     isReadingAvailable: Boolean = true,
     isMarkingAllRead: Boolean = false,
+    markedReadSnapshot: Set<String>? = null,
     onMarkAllRead: () -> Unit = {},
+    onMarkedReadSnapshotConsumed: () -> Unit = {},
     bookmarksUiState: AnnouncementBookmarksUiState = AnnouncementBookmarksUiState(),
     onToggleBookmark: (SchoolAnnouncement) -> Unit = {},
     onBookmarkMessageConsumed: () -> Unit = {},
@@ -164,8 +170,11 @@ fun SchoolAnnouncementsScreen(
     var showFilters by rememberSaveable { mutableStateOf(false) }
     var showBookmarks by rememberSaveable { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
-    var returnToTopAfterMarkAllRead by rememberSaveable { mutableStateOf(false) }
+    val overflowMenu = rememberPocketOverflowMenuState { showMoreMenu = it }
     var searchText by rememberSaveable { mutableStateOf(uiState.searchQuery) }
+    LaunchedEffect(uiState.searchQuery) {
+        if (uiState.searchQuery.isEmpty()) searchText = ""
+    }
     val bookmarkCount = bookmarksUiState.bookmarks.size
     val bookmarkedIds = remember(bookmarksUiState.bookmarks) {
         bookmarksUiState.bookmarks.mapTo(mutableSetOf(), AnnouncementBookmark::id)
@@ -272,32 +281,36 @@ fun SchoolAnnouncementsScreen(
                 searchLabel = "搜尋公告", collapsedWidth = 96.dp,
             ) {
             IconButton(
+                modifier = Modifier.pocketOverflowMenuAnchor(overflowMenu),
                 onClick = { showMoreMenu = true },
                 shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
             ) {
                 OutlinedRoundedSymbol(icon = "more_vert", contentDescription = "更多選項")
             }
-            DropdownMenu(offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
+            PocketOverflowDropdownMenu(state = overflowMenu, offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
                 expanded = showMoreMenu,
                 onDismissRequest = { showMoreMenu = false },
             ) {
-                DropdownMenuItem(
+                PocketOverflowMenuItem(
                     text = { Text(if (isMarkingAllRead) "正在標記全部已讀" else "全部已讀") },
                     enabled = isReadingAvailable && !isMarkingAllRead && unreadIds.isNotEmpty(),
                     leadingIcon = { OutlinedRoundedSymbol("done_all", contentDescription = null) },
-                    onClick = { showMoreMenu = false; returnToTopAfterMarkAllRead = true; onMarkAllRead() },
+                    onClick = {
+                        showMoreMenu = false
+                        onMarkAllRead()
+                    },
                 )
-                DropdownMenuItem(
+                PocketOverflowMenuItem(
                     text = { Text(if (bookmarkCount > 0) "已收藏公告（$bookmarkCount）" else "已收藏公告") },
                     leadingIcon = { OutlinedRoundedSymbol("bookmark", contentDescription = null) },
                     onClick = { showMoreMenu = false; clearFocusAndHideKeyboard(); showBookmarks = true },
                 )
-                DropdownMenuItem(
+                PocketOverflowMenuItem(
                     text = { Text(if (uiState.hasFilters) "篩選公告（已套用）" else "篩選公告") },
                     leadingIcon = { OutlinedRoundedSymbol("filter_list", contentDescription = null) },
                     onClick = { showMoreMenu = false; clearFocusAndHideKeyboard(); showFilters = true; onRefreshFilters() },
                 )
-                DropdownMenuItem(
+                PocketOverflowMenuItem(
                     text = { Text("公告更新提醒") },
                     onClick = {
                         showMoreMenu = false
@@ -310,14 +323,6 @@ fun SchoolAnnouncementsScreen(
         },
     ) { pagePadding ->
         Column(modifier = Modifier.fillMaxSize()) {
-            if (!isReadingAvailable) {
-                Text(
-                    "公告閱讀狀態暫時無法取得",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
             PullToRefreshBox(
                 isRefreshing = uiState.isRefreshing,
                 onRefresh = hapticClick {
@@ -331,8 +336,9 @@ fun SchoolAnnouncementsScreen(
                 indicator = {},
             ) {
                 AnnouncementList(
-                    returnToTopAfterMarkAllRead = returnToTopAfterMarkAllRead,
-                    onMarkAllReadPositionRestored = { returnToTopAfterMarkAllRead = false },
+                    markedReadSnapshot = markedReadSnapshot,
+                    onMarkAllReadPositionRestored = onMarkedReadSnapshotConsumed,
+                    isReadingAvailable = isReadingAvailable,
                     topPadding = pagePadding.calculateTopPadding(),
                     uiState = uiState,
                     unreadIds = unreadIds,
@@ -406,8 +412,9 @@ private fun AnnouncementFilterSelector(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AnnouncementList(
-    returnToTopAfterMarkAllRead: Boolean,
+    markedReadSnapshot: Set<String>?,
     onMarkAllReadPositionRestored: () -> Unit,
+    isReadingAvailable: Boolean,
     topPadding: androidx.compose.ui.unit.Dp,
     uiState: SchoolAnnouncementsUiState,
     unreadIds: Set<String>,
@@ -421,14 +428,13 @@ private fun AnnouncementList(
     onOpenOfficialWebsite: () -> Unit,
 ) {
     val listState = rememberLazyListState()
-    val latestOnLoadMore by rememberUpdatedState(onLoadMore)
     val announcements = remember(uiState.announcements, unreadIds) {
         orderAnnouncements(uiState.announcements, unreadIds)
     }
     val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(returnToTopAfterMarkAllRead, unreadIds) {
-        if (returnToTopAfterMarkAllRead && unreadIds.isEmpty()) {
+    LaunchedEffect(markedReadSnapshot, unreadIds) {
+        if (markedReadSnapshot != null && markedReadSnapshot.none { it in unreadIds }) {
             listState.scrollToItem(0)
             onMarkAllReadPositionRestored()
         }
@@ -447,35 +453,7 @@ private fun AnnouncementList(
             previousCategoryId = uiState.categoryId
         }
     }
-    LaunchedEffect(
-        listState,
-        uiState.searchQuery,
-        uiState.unitId,
-        uiState.categoryId,
-        uiState.pageIndex,
-        uiState.announcements.size,
-        uiState.hasMore,
-        uiState.isInitialLoading,
-        uiState.isRefreshing,
-        uiState.errorMessage,
-        uiState.loadMoreError,
-    ) {
-        snapshotFlow {
-            val layoutInfo = listState.layoutInfo
-            layoutInfo.visibleItemsInfo.lastOrNull()?.index to layoutInfo.totalItemsCount
-        }
-            .distinctUntilChanged()
-            .collectLatest { (lastVisibleItemIndex, totalItemsCount) ->
-                if (shouldPrefetchAnnouncements(
-                        uiState = uiState,
-                        lastVisibleItemIndex = lastVisibleItemIndex ?: -1,
-                        totalItemsCount = totalItemsCount,
-                    )
-                ) {
-                    latestOnLoadMore()
-                }
-            }
-    }
+    PrefetchAnnouncementPages(listState, uiState, onLoadMore = onLoadMore)
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -489,6 +467,26 @@ private fun AnnouncementList(
             contentPadding = readingContentPadding(navigationContentPadding(PaddingValues(start = 16.dp, top = topPadding + 8.dp, end = 16.dp, bottom = 88.dp))),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (!isReadingAvailable) {
+                item(key = "announcement-reading-unavailable") {
+                    Text(
+                        "公告閱讀狀態暫時無法取得",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+            if (uiState.searchQuery.isNotEmpty()) {
+                item(key = "announcement-search-status") {
+                    InputChip(
+                        selected = false,
+                        onClick = onClearSearch,
+                        label = { Text("搜尋：${uiState.searchQuery}", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        trailingIcon = { OutlinedRoundedSymbol("close", contentDescription = null) },
+                        modifier = Modifier.semantics { contentDescription = "清除搜尋：${uiState.searchQuery}" },
+                    )
+                }
+            }
             if (uiState.hasFilters) {
                 item(key = "announcement-filter-status") {
                     TextButton(onClick = onClearFilters) { Text("已套用公告篩選 · 清除") }
@@ -539,7 +537,7 @@ private fun AnnouncementList(
                     )
                 }
                 else -> {
-                    itemsIndexed(announcements, key = { _, item -> item.id }) { index, announcement ->
+                    itemsIndexed(announcements, key = { _, item -> announcementItemKey(item.id) }) { index, announcement ->
                         AnnouncementCard(
                             announcement = announcement, index = index, count = announcements.size,
                             isUnread = announcement.id in unreadIds,
@@ -602,6 +600,63 @@ internal fun orderAnnouncements(
     compareByDescending<SchoolAnnouncement> { it.id in unreadIds }.thenByDescending { it.isPinned },
 )
 
+private const val ANNOUNCEMENT_ITEM_PREFIX = "school-announcement:"
+internal fun announcementItemKey(id: String): String = ANNOUNCEMENT_ITEM_PREFIX + id
+
+internal class AnnouncementPrefetchViewport {
+    private var requestedKeys = emptySet<String>()
+    private var requestedShortPage: Int? = null
+
+    fun shouldRequest(visibleKeys: List<String>, nearEnd: Boolean, shortPage: Int? = null): Boolean {
+        if (visibleKeys.isEmpty()) return false
+        val sameRows = visibleKeys.all(requestedKeys::contains)
+        if (!nearEnd) {
+            if (!sameRows) requestedKeys = emptySet()
+            return false
+        }
+        if (sameRows && (shortPage == null || shortPage == requestedShortPage)) return false
+        requestedKeys = visibleKeys.toSet()
+        requestedShortPage = shortPage
+        return true
+    }
+}
+
+@Composable
+internal fun PrefetchAnnouncementPages(
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    uiState: SchoolAnnouncementsUiState,
+    enabled: Boolean = true,
+    onLoadMore: () -> Unit,
+) {
+    val currentState by rememberUpdatedState(uiState)
+    val currentLoadMore by rememberUpdatedState(onLoadMore)
+    LaunchedEffect(listState, enabled, uiState.searchQuery, uiState.unitId, uiState.categoryId) {
+        if (!enabled) return@LaunchedEffect
+        val viewport = AnnouncementPrefetchViewport()
+        snapshotFlow {
+            val state = currentState
+            if (!state.canPrefetchAnnouncements()) return@snapshotFlow null
+            val layout = listState.layoutInfo
+            val visibleKeys = layout.visibleItemsInfo.mapNotNull {
+                (it.key as? String)?.takeIf { key -> key.startsWith(ANNOUNCEMENT_ITEM_PREFIX) }
+            }
+            val nearEnd = shouldPrefetchAnnouncements(
+                state, layout.visibleItemsInfo.lastOrNull()?.index ?: -1, layout.totalItemsCount,
+            )
+            val shortPage = state.pageIndex.takeIf { !listState.canScrollBackward && !listState.canScrollForward }
+            Triple(visibleKeys, nearEnd, shortPage)
+        }.collect { candidate ->
+            if (candidate != null && viewport.shouldRequest(candidate.first, candidate.second, candidate.third)) {
+                currentLoadMore()
+            }
+        }
+    }
+}
+
+private fun SchoolAnnouncementsUiState.canPrefetchAnnouncements(): Boolean =
+    hasMore && !isInitialLoading && !isRefreshing && !isLoadingMore &&
+        errorMessage == null && loadMoreError == null
+
 private const val ANNOUNCEMENT_PREFETCH_DISTANCE = 3
 
 internal fun shouldPrefetchAnnouncements(
@@ -609,15 +664,7 @@ internal fun shouldPrefetchAnnouncements(
     lastVisibleItemIndex: Int,
     totalItemsCount: Int,
 ): Boolean {
-    if (!uiState.hasMore ||
-        uiState.isInitialLoading ||
-        uiState.isRefreshing ||
-        uiState.isLoadingMore ||
-        uiState.errorMessage != null ||
-        uiState.loadMoreError != null
-    ) {
-        return false
-    }
+    if (!uiState.canPrefetchAnnouncements()) return false
     val prefetchStartIndex = (totalItemsCount - 1 - ANNOUNCEMENT_PREFETCH_DISTANCE).coerceAtLeast(0)
     return lastVisibleItemIndex >= prefetchStartIndex
 }
@@ -813,6 +860,7 @@ fun SchoolAnnouncementDetailScreen(
     onRetry: () -> Unit,
     onOpenUrl: (String) -> Unit,
     officialUrl: String,
+    onOpenExternal: (SchoolAnnouncementDetail) -> Unit = {},
     isBookmarked: Boolean = false,
     onToggleBookmark: () -> Unit = {},
 ) {
@@ -831,7 +879,7 @@ fun SchoolAnnouncementDetailScreen(
     ) { pagePadding ->
         when {
             uiState.isLoading -> Box(Modifier.padding(top = pagePadding.calculateTopPadding())) { AnnouncementDetailLoading() }
-            uiState.detail != null -> AnnouncementDetailContent(uiState.detail, onOpenUrl, pagePadding)
+            uiState.detail != null -> AnnouncementDetailContent(uiState.detail, onOpenUrl, onOpenExternal, pagePadding)
             else -> AnnouncementMessageState(
                 message = uiState.errorMessage ?: "請稍後再試一次。",
                 onAction = onRetry,
@@ -845,6 +893,7 @@ fun SchoolAnnouncementDetailScreen(
 private fun AnnouncementDetailContent(
     detail: SchoolAnnouncementDetail,
     onOpenUrl: (String) -> Unit,
+    onOpenExternal: (SchoolAnnouncementDetail) -> Unit,
     pagePadding: PaddingValues,
 ) {
     LazyColumn(
@@ -855,6 +904,13 @@ private fun AnnouncementDetailContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "detail-header") { AnnouncementDetailHeader(detail) }
+        if (detail.isExternal) {
+            item(key = "detail-external") {
+                FilledTonalButton(onClick = { onOpenExternal(detail) }) {
+                    Text("開啟公告連結")
+                }
+            }
+        }
         if (detail.htmlContent.isNotBlank()) {
             item(key = "detail-article") { AnnouncementHtml(detail.htmlContent, onOpenUrl) }
         }

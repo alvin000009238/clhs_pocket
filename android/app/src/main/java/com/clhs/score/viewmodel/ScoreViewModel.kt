@@ -100,6 +100,7 @@ data class GradesUiState(
     val analysis: GradeAnalysis? = null,
     val expandedSubjectKeys: Set<String> = emptySet(),
     val errorMessage: String? = null,
+    val loadErrorMessage: String? = null,
     val isExporting: Boolean = false,
     val exportResult: String? = null,
     val gradeReminderState: GradeReminderState = GradeReminderState(),
@@ -276,6 +277,7 @@ class ScoreViewModel(
                     analysis = null,
                     expandedSubjectKeys = emptySet(),
                     errorMessage = null,
+                    loadErrorMessage = null,
                     gradeReminderChangeSet = null,
                 )
             }
@@ -736,9 +738,13 @@ class ScoreViewModel(
             pendingReminderTarget = null
             gradeRequestId++
             _gradesState.update {
+                val sameExam = it.selectedYearValue == year.value && it.selectedExamValue == exam.value
                 it.copy(
                     selectedYearValue = year.value,
                     selectedExamValue = exam.value,
+                    report = it.report.takeIf { sameExam },
+                    analysis = it.analysis.takeIf { sameExam },
+                    gradeReminderChangeSet = it.gradeReminderChangeSet.takeIf { sameExam },
                     comparisonReport = null,
                     comparisonExamName = null,
                     comparisonError = null,
@@ -823,7 +829,9 @@ class ScoreViewModel(
         val requestId = ++structureRequestId
         structureJob?.cancel()
         structureJob = viewModelScope.launch {
-            _gradesState.update { it.copy(isLoadingStructure = true, errorMessage = null) }
+            _gradesState.update {
+                it.copy(isLoadingStructure = true, errorMessage = null, loadErrorMessage = null)
+            }
             runCatching { repository.loadStructure(currentSession, forceRefresh) }
                 .onSuccess { structure ->
                     if (requestId != structureRequestId) return@onSuccess
@@ -862,12 +870,17 @@ class ScoreViewModel(
                         pendingReminderTarget = null
                     }
                     _gradesState.update {
+                        val sameExam = it.selectedYearValue == selectedYear?.value && it.selectedExamValue == selectedExam?.value
                         it.copy(
                             isLoadingStructure = false,
                             structure = structure,
                             selectedYearValue = selectedYear?.value,
                             selectedExamValue = selectedExam?.value,
+                            report = it.report.takeIf { sameExam },
+                            analysis = it.analysis.takeIf { sameExam },
+                            gradeReminderChangeSet = it.gradeReminderChangeSet.takeIf { sameExam },
                             errorMessage = null,
+                            loadErrorMessage = null,
                         )
                     }
                     if (selectedYear != null && selectedExam != null) {
@@ -899,6 +912,7 @@ class ScoreViewModel(
                         it.copy(
                             isLoadingStructure = false,
                             errorMessage = error.message ?: "載入可查詢考試失敗",
+                            loadErrorMessage = "考試清單載入失敗，請稍後再試。",
                         )
                     }
                 }
@@ -947,6 +961,7 @@ class ScoreViewModel(
                     isLoadingTrend = false,
                     isLoadingSimulatorHistory = false,
                     errorMessage = null,
+                    loadErrorMessage = null,
                 )
             }
             runCatching { repository.fetchGrades(currentSession, yearValue, examValue, forceRefresh) }
@@ -983,6 +998,7 @@ class ScoreViewModel(
                             isLoadingTrend = false,
                             isLoadingSimulatorHistory = false,
                             errorMessage = error.message ?: "查詢成績失敗",
+                            loadErrorMessage = "成績載入失敗，請稍後再試。",
                         )
                     }
                 }
@@ -1032,6 +1048,7 @@ class ScoreViewModel(
                 simulatorHistoryLabel = null,
                 analysis = analysis,
                 errorMessage = null,
+                loadErrorMessage = null,
                 gradeReminderChangeSet = gradeReminderChangeSet,
             )
         }

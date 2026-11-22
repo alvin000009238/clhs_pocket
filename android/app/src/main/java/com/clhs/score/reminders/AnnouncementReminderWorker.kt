@@ -96,7 +96,7 @@ class AnnouncementReminderWorker(
             if (pause.contains(Instant.now())) return Result.success()
             val announcements = loadAnnouncementReminderSnapshot(
                 selectedUnitIds = state.selectedUnitIds,
-                knownIds = state.knownIds,
+                state = state,
                 loadPage = { pageIndex, unitId ->
                     announcementsRepository.loadPage(pageIndex = pageIndex, unitId = unitId)
                 },
@@ -104,13 +104,13 @@ class AnnouncementReminderWorker(
             if (!applicationContext.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)) {
                 return Result.success()
             }
-            readRepository.discover(announcements)
+            readRepository.discover(announcements.announcements)
             if (!applicationContext.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)) {
                 return Result.success()
             }
             val newAnnouncements = reminderRepository.recordCheck(
                 expectedUnitIds = state.selectedUnitIds,
-                announcements = announcements,
+                snapshot = announcements,
                 checkedAtMillis = System.currentTimeMillis(),
             )
             if (newAnnouncements.isNotEmpty()) notifier.show(newAnnouncements)
