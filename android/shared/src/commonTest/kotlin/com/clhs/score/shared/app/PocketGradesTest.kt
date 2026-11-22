@@ -33,7 +33,7 @@ class PocketGradesTest {
         assertEquals("自訂・未儲存", simulator.state().creditSourceText)
 
         val stored = assertNotNull(simulator.creditsJson())
-        simulator.markCreditsSaved()
+        simulator.markCreditsSaved(stored)
         assertEquals(false, simulator.state().creditsPending)
         assertEquals("自訂・已儲存", simulator.state().creditSourceText)
 
@@ -91,18 +91,35 @@ class PocketGradesTest {
         val simulator = assertNotNull(PocketGrades.simulator(exam))
         val row = simulator.state().rows.first()
         simulator.setCredits(row.name, if (row.credits == 4) 3 else row.credits + 1)
-        simulator.markCreditsSaved()
+        simulator.markCreditsSaved(assertNotNull(simulator.creditsJson()))
 
         simulator.reset()
         assertEquals(true, simulator.state().creditsPending, "the stored custom credits no longer match")
         val defaults = assertNotNull(simulator.creditsJson())
-        simulator.markCreditsSaved()
+        simulator.markCreditsSaved(defaults)
         assertEquals(false, simulator.state().creditsPending)
 
         val reopened = assertNotNull(PocketGrades.simulator(exam))
         assertTrue(reopened.restoreCredits(defaults))
         assertEquals(row.credits, reopened.state().rows.first().credits)
         assertEquals(false, reopened.state().creditsPending)
+    }
+
+    @Test
+    fun creditsEditedWhileASaveIsInFlightStayPending() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        val row = simulator.state().rows.first()
+        simulator.setCredits(row.name, if (row.credits == 4) 3 else row.credits + 1)
+        val written = assertNotNull(simulator.creditsJson())
+
+        simulator.setCredits(row.name, row.credits)
+        simulator.markCreditsSaved(written)
+        assertEquals(true, simulator.state().creditsPending, "only the earlier credits were stored")
+        assertEquals("自訂・未儲存", simulator.state().creditSourceText)
+
+        // Storing the credits now in use clears it.
+        simulator.markCreditsSaved(assertNotNull(simulator.creditsJson()))
+        assertEquals(false, simulator.state().creditsPending)
     }
 
     @Test

@@ -290,8 +290,13 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
         return creditJson.encodeToString(StoredCredits.serializer(), StoredCredits(defaults.keys.sorted(), credits, source))
     }
 
-    /** Call once [creditsJson] has been stored. */
-    fun markCreditsSaved() { stored = current }
+    /**
+     * Call once [json], an earlier [creditsJson], has been stored. Only that snapshot counts as stored:
+     * credits edited while it was being written stay pending.
+     */
+    fun markCreditsSaved(json: String) {
+        stored = runCatching { creditJson.decodeFromString<StoredCredits>(json) }.getOrNull() ?: stored
+    }
 
     fun setScore(name: String, value: Double) {
         if (name !in simulatable || !value.isFinite()) return

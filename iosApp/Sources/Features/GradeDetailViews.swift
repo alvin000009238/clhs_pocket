@@ -495,11 +495,13 @@ private struct CreditsSheet: View {
 
     /// Stores the credits for this exam and account; only a stored set counts as confirmed.
     private func saveCredits(_ live: LiveDataController) {
+        guard let json = simulator.creditsJson() else { return }
         saving = true
         Task {
             do {
-                try await live.saveSimulatorCredits(examValue: examValue, json: simulator.creditsJson())
-                simulator.markCreditsSaved()
+                try await live.saveSimulatorCredits(examValue: examValue, json: json)
+                // Only the snapshot written counts as saved; edits made meanwhile stay pending.
+                simulator.markCreditsSaved(json: json)
                 saveMessage = nil
             } catch {
                 saveMessage = "學分未能儲存：\(PocketError(error).message)"
