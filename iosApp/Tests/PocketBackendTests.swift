@@ -1,3 +1,4 @@
+import Observation
 import Security
 import os
 import XCTest
@@ -355,11 +356,13 @@ final class PocketBackendTests: XCTestCase {
         let first = try XCTUnwrap(controller.session)
 
         // As the app does it: logout is started and not awaited, then the next student signs in.
-        let logout = Task { try? await controller.logout() }
-        await Task.yield()
+        let revoked = expectation(description: "logout revokes the previous session")
+        withObservationTracking { _ = controller.session } onChange: { revoked.fulfill() }
+        let logout = Task { try await controller.logout() }
+        await fulfillment(of: [revoked], timeout: 5)
         XCTAssertNil(controller.session)
         try await controller.login(studentNo: "DEMO-002", cookies: ["ASP.NET_SessionId": "second"])
-        await logout.value
+        try await logout.value
         XCTAssertEqual(controller.session?.studentNo, "DEMO-002")
         let restored = try await self.backend().restoreSession()
         XCTAssertEqual(restored?.studentNo, "DEMO-002", "the earlier logout must not delete the new session")
@@ -369,10 +372,32 @@ final class PocketBackendTests: XCTestCase {
         XCTAssertEqual(controller.session?.studentNo, "DEMO-003")
 
         // A logout asked for while a login is still verifying wins: nothing is left signed in.
-        async let overtaken: Void? = try? controller.login(studentNo: "DEMO-004", cookies: ["ASP.NET_SessionId": "fourth"])
-        await Task.yield()
+        let verifying = expectation(description: "the fourth login is awaiting the school's verification response")
+        let gate = DispatchSemaphore(value: 0)
+        let holdNextVerification = OSAllocatedUnfairLock(initialState: true)
+        let tokenPage = Self.tokenPage
+        StubURLProtocol.install { request in
+            guard request.url.host == "shcloud2.k12ea.gov.tw" else { return .failure(.notConnectedToInternet) }
+            guard request.method == "GET" else { return StubURLProtocol.text("[]") }
+            let cookie = request.headers.first { $0.key.caseInsensitiveCompare("Cookie") == .orderedSame }?.value
+            if cookie == "ASP.NET_SessionId=fourth", holdNextVerification.withLock({ held in
+                defer { held = false }
+                return held
+            }) {
+                verifying.fulfill()
+                guard gate.wait(timeout: .now() + 10) == .success else { return .failure(.timedOut) }
+            }
+            return StubURLProtocol.text(tokenPage)
+        }
+        let overtaken = Task {
+            await self.error { try await controller.login(studentNo: "DEMO-004", cookies: ["ASP.NET_SessionId": "fourth"]) }
+        }
+        await fulfillment(of: [verifying], timeout: 5)
+        // Logout publishes its in-memory revocation before waiting for the queued login to finish.
+        withObservationTracking { _ = controller.revision } onChange: { gate.signal() }
         try await controller.logout()
-        _ = await overtaken
+        let interruptedLogin = await overtaken.value
+        XCTAssertEqual(interruptedLogin?.kind, .cancelled)
         XCTAssertNil(controller.session)
         let afterLogout = try await self.backend().restoreSession()
         XCTAssertNil(afterLogout)
