@@ -3,97 +3,6 @@ import SwiftUI
 
 // MARK: - Announcements
 
-struct AnnouncementListView: View {
-    @Environment(AppModel.self) private var model
-    @State private var category = "全部"
-    @State private var query = ""
-    @State private var filter: PocketAnnouncementFilter = .all
-
-    var body: some View {
-        let store = PocketCampusStore.shared
-        let items = store.announcements(
-            clock: model.clock, category: category, query: query, filter: filter,
-            unreadIds: model.unreadAnnouncementIds, bookmarkedIds: model.bookmarkedAnnouncementIds
-        )
-        let unread = Int(store.unreadCount(clock: model.clock, unreadIds: model.unreadAnnouncementIds))
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Picker("顯示", selection: $filter) {
-                    Text("全部").tag(PocketAnnouncementFilter.all)
-                    Text(unread > 0 ? "未讀 \(unread)" : "未讀").tag(PocketAnnouncementFilter.unread)
-                    Text("收藏").tag(PocketAnnouncementFilter.bookmarked)
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("announcement-filter")
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(store.categories(clock: model.clock), id: \.self) { name in
-                            let selected = name == category
-                            Button {
-                                category = name
-                            } label: {
-                                Text(name)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(selected ? PocketColor.onPrimary : PocketColor.onSurface)
-                                    .padding(.horizontal, 16)
-                                    .frame(minHeight: 40)
-                                    .background(selected ? PocketColor.primary : PocketColor.surfaceLow, in: .capsule)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityAddTraits(selected ? .isSelected : [])
-                            .accessibilityIdentifier("category-\(name)")
-                        }
-                    }
-                }
-                .scrollClipDisabled()
-
-                if items.isEmpty {
-                    ContentUnavailableView {
-                        Label(emptyTitle, systemImage: filter == .bookmarked ? "bookmark" : "tray")
-                    } description: {
-                        Text(emptyDetail)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 32)
-                } else {
-                    PocketCard(padding: 8) {
-                        AnnouncementRows(announcements: items)
-                    }
-                }
-            }
-            .frame(maxWidth: 720)
-            .pocketPage()
-        }
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜尋標題或處室")
-        .navigationTitle("公告")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("全部標為已讀", systemImage: "envelope.open") {
-                    model.unreadAnnouncementIds = []
-                }
-                .disabled(unread == 0)
-                .accessibilityIdentifier("announcements-read-all")
-            }
-        }
-    }
-
-    private var emptyTitle: String {
-        if !query.isEmpty { return "找不到符合的公告" }
-        switch filter {
-        case .unread: return "沒有未讀公告"
-        case .bookmarked: return "還沒有收藏"
-        default: return "這個分類沒有公告"
-        }
-    }
-
-    private var emptyDetail: String {
-        if !query.isEmpty { return "試試其他關鍵字，或切換分類。" }
-        return filter == .bookmarked ? "在公告內文點選書籤，就能在這裡找到。" : ""
-    }
-}
-
 private struct AnnouncementImageView: View {
     @Environment(\.openURL) private var openURL
     let image: PocketAnnouncementImage
@@ -310,9 +219,17 @@ struct CalendarListView: View {
     @State private var year = 0
     @State private var month = 0
     @State private var selectedDay: String?
+    @State private var query = ""
+    @State private var selectedEvent: PocketEventDetail?
+    @Environment(\.openURL) private var openURL
+
+    private func open(_ id: String) {
+        selectedEvent = PocketAnnouncementFeed.shared.eventDetail(clock: model.clock, id: id)
+    }
 
     var body: some View {
         let store = PocketCampusStore.shared
+        let searchText = PocketAnnouncementFeed.shared.normalizedQuery(query: query)
         let shownYear = year == 0 ? Int(model.clock.year) : year
         let shownMonth = month == 0 ? Int(model.clock.month) : month
         let data = store.month(clock: model.clock, year: Int32(shownYear), month: Int32(shownMonth))
@@ -325,7 +242,22 @@ struct CalendarListView: View {
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("calendar-mode")
 
-                if mode == 0 {
+                if !searchText.isEmpty {
+                    let results = PocketAnnouncementFeed.shared.searchEvents(clock: model.clock, query: searchText)
+                    Text("搜尋：\(searchText)")
+                        .font(.subheadline)
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                        .padding(.horizontal, 4)
+                    if results.isEmpty {
+                        ContentUnavailableView {
+                            Label("找不到符合「\(searchText)」的活動", systemImage: "calendar.badge.exclamationmark")
+                        } description: {
+                            Text("請嘗試其他關鍵字，或清除搜尋查看接下來的活動。")
+                        }
+                    } else {
+                        PocketCard(padding: 8) { EventRows(events: results, onSelect: open) }
+                    }
+                } else if mode == 0 {
                     if sizeClass == .regular {
                         HStack(alignment: .top, spacing: 20) {
                             monthCard(data).frame(maxWidth: .infinity)
@@ -341,14 +273,28 @@ struct CalendarListView: View {
                         .font(.subheadline)
                         .foregroundStyle(PocketColor.onSurfaceVariant)
                         .padding(.horizontal, 4)
-                    PocketCard(padding: 8) { EventRows(events: events) }
+                    PocketCard(padding: 8) { EventRows(events: events, onSelect: open) }
                 }
+                Text("部分重複活動請前往 Google 行事曆查看。")
+                    .font(.footnote)
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                    .padding(.horizontal, 4)
             }
             .frame(maxWidth: mode == 0 && sizeClass == .regular ? PocketMetrics.regularContentWidth : 720)
             .pocketPage()
         }
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜尋行事曆")
         .navigationTitle("行事曆")
         .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Google 行事曆", systemImage: "safari") {
+                    if let url = URL(string: PocketAnnouncementFeed.shared.SCHOOL_CALENDAR_URL) { openURL(url) }
+                }
+                .accessibilityIdentifier("calendar-google")
+            }
+        }
+        .sheet(item: $selectedEvent) { CalendarEventSheet(detail: $0) }
     }
 
     private func step(_ delta: Int, from data: PocketCalendarMonth) {
@@ -457,7 +403,7 @@ struct CalendarListView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
                 } else {
-                    EventRows(events: events)
+                    EventRows(events: events, onSelect: open)
                 }
             }
         }

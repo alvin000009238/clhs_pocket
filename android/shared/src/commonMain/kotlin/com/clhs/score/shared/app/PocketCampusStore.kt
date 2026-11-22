@@ -141,6 +141,7 @@ object PocketCampusStore {
     fun announcementDetail(clock: PocketClock, id: String): PocketAnnouncementDetail? {
         val item = DemoCampus.sharedAnnouncements(clock).firstOrNull { it.id == id }
             ?: PocketData.current.savedAnnouncements.firstOrNull { it.id == id }
+            ?: PocketAnnouncementFeed.demoAnnouncement(clock, id)
         if (!PocketData.isDemo) {
             // Null until the live detail has been loaded; the list row is not a substitute for the body.
             // A loaded detail stands on its own: removing the bookmark of an announcement that is only

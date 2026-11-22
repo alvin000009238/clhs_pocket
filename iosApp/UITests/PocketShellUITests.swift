@@ -588,9 +588,6 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["campus-公告"].tap()
         XCTAssertTrue(app.segmentedControls["announcement-filter"].waitForExistence(timeout: 5))
         capture("50-announcements")
-        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "category-")).element(boundBy: 1).tap()
-        capture("51-announcements-category")
-        app.buttons["category-全部"].tap()
 
         // Opening an announcement marks it read; bookmarking it fills the 收藏 filter.
         let unreadBefore = app.segmentedControls["announcement-filter"].buttons.element(boundBy: 1).label
@@ -656,6 +653,102 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.buttons["announcement-45040"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["announcement-45055"].exists)
         capture("54-announcements-search")
+    }
+
+    func testAnnouncementsScrollEveryPageFilterSearchAndRemind() {
+        launch(onboarded: true, session: "demo", extra: ["-demoAnnouncementLoadMoreFailure", "YES"])
+        tab("校園").tap()
+        XCTAssertTrue(app.buttons["campus-公告"].waitForExistence(timeout: 10))
+        capture("70-campus-hub")
+        app.buttons["campus-公告"].tap()
+        XCTAssertTrue(app.buttons["announcement-45055"].waitForExistence(timeout: 10))
+
+        // The second page fails once: the footer offers a retry instead of loading in a loop.
+        let retry = app.buttons["announcements-load-more-retry"]
+        for _ in 0..<12 where !(retry.exists && retry.isHittable) { app.swipeUp() }
+        XCTAssertTrue(retry.waitForExistence(timeout: 5))
+        capture("71-announcements-load-more-error")
+        retry.tap()
+        let end = app.staticTexts["announcements-end"]
+        for _ in 0..<30 where !end.exists { app.swipeUp() }
+        XCTAssertTrue(end.waitForExistence(timeout: 5), "scrolling reaches the last page")
+        capture("72-announcements-end")
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "announcement-4"))
+
+        // A notice from a later page opens and can be bookmarked.
+        let late = rows.allElementsBoundByIndex.last { $0.isHittable }
+        XCTAssertNotNil(late)
+        late?.tap()
+        XCTAssertTrue(app.buttons["announcement-bookmark"].waitForExistence(timeout: 5))
+        app.buttons["announcement-bookmark"].tap()
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["announcements-top"].waitForExistence(timeout: 5))
+        app.buttons["announcements-top"].tap()
+
+        app.buttons["announcements-menu"].tap()
+        XCTAssertTrue(app.buttons["announcements-filters"].waitForExistence(timeout: 5))
+        capture("73-announcements-menu")
+        app.buttons["announcements-filters"].tap()
+        XCTAssertTrue(app.buttons["filter-apply"].waitForExistence(timeout: 5))
+        app.buttons["filter-unit"].tap()
+        XCTAssertTrue(app.buttons["教學組"].waitForExistence(timeout: 5))
+        app.buttons["教學組"].tap()
+        capture("74-announcement-filters")
+        app.buttons["filter-apply"].tap()
+        XCTAssertTrue(app.buttons["announcements-clear-filters"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["announcement-45055"].exists)
+        capture("75-announcements-filtered")
+        app.buttons["announcements-clear-filters"].tap()
+        XCTAssertTrue(app.buttons["announcement-45055"].waitForExistence(timeout: 5))
+
+        app.segmentedControls["announcement-filter"].buttons["收藏"].tap()
+        XCTAssertGreaterThanOrEqual(rows.count, 1, "the later-page bookmark is listed")
+        capture("76-announcements-bookmarks")
+        app.segmentedControls["announcement-filter"].buttons["全部"].tap()
+
+        app.buttons["announcements-menu"].tap()
+        app.buttons["announcements-reminders"].tap()
+        XCTAssertTrue(app.switches["reminder-toggle"].waitForExistence(timeout: 5))
+        let unit = app.buttons["reminder-unit-101"]
+        // With large Dynamic Type the unit list starts below the fold.
+        for _ in 0..<6 where !unit.waitForExistence(timeout: 2) || !unit.isHittable { app.swipeUp() }
+        XCTAssertTrue(unit.isHittable)
+        unit.tap()
+        XCTAssertEqual(unit.value as? String, "已選取")
+        let allUnits = app.buttons["reminder-unit--1"]
+        for _ in 0..<6 where !allUnits.exists { app.swipeDown() }
+        XCTAssertEqual(allUnits.value as? String, "未選取")
+        capture("77-announcement-reminders")
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.segmentedControls["announcement-filter"].waitForExistence(timeout: 5))
+        app.navigationBars.buttons.firstMatch.tap()
+
+        let searchButton = app.buttons["搜尋公告與行事曆"].firstMatch
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 5))
+        searchButton.tap()
+        XCTAssertTrue(app.buttons["quick-期末考"].waitForExistence(timeout: 5))
+        capture("78-campus-search")
+        app.buttons["quick-期末考"].tap()
+        XCTAssertTrue(app.buttons["event-demo-e5"].waitForExistence(timeout: 5))
+        capture("79-campus-search-results")
+        app.buttons["event-demo-e5"].tap()
+        XCTAssertTrue(app.staticTexts["event-title"].waitForExistence(timeout: 5))
+        capture("80-calendar-event")
+        let addCountdown = app.buttons["event-add-countdown"]
+        // At accessibility text sizes the half-height sheet keeps its actions below the fold.
+        for _ in 0..<4 where !(addCountdown.exists && addCountdown.isHittable) { app.staticTexts["event-title"].swipeUp() }
+        addCountdown.tap()
+        XCTAssertTrue(app.buttons["已將「期末考」加入首頁倒數元件"].waitForExistence(timeout: 5))
+        app.buttons["完成"].tap()
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["campus-行事曆"].waitForExistence(timeout: 5))
+        app.buttons["campus-行事曆"].tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("段考")
+        XCTAssertTrue(app.buttons["event-demo-e3"].waitForExistence(timeout: 5))
+        capture("81-calendar-search")
     }
 
     func testSettingsScreensAndDeleteData() {
@@ -896,7 +989,10 @@ final class PocketShellUITests: XCTestCase {
         // and does not reselect the tab). Only a real tab-bar button is ever returned.
         guard app.tabBars.firstMatch.waitForExistence(timeout: 2) else {
             // On iPad the sidebar-adaptable tabs sit in a top bar or sidebar, not in a tab bar.
-            return app.buttons[title].firstMatch
+            // A slow first launch can also land here before the tab bar appears, so wait for the tab.
+            let button = app.buttons[title].firstMatch
+            _ = button.waitForExistence(timeout: 10)
+            return button
         }
         let button = app.tabBars.buttons[title]
         for _ in 0..<4 where !button.waitForExistence(timeout: 2) {

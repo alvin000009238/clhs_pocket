@@ -23,6 +23,8 @@ protocol PlatformDataProviding {
 extension PlatformDataProviding {
     func prepare() async {}
     func loadAnnouncements() async {}
+    /// Headlines of only the subscribed school units; nil when they are unknown.
+    func announcementHeadlines(unitIds: [String], at date: Date) async -> [AnnouncementHeadline]? { nil }
 }
 
 /// What a provider knows about the student's timetable.
@@ -71,6 +73,16 @@ struct DemoPlatformData: PlatformDataProviding {
 
     func announcementHeadlines(at date: Date) -> [AnnouncementHeadline]? {
         PocketPlatform.shared.demoAnnouncementHeadlines(clock: PlatformClock.pocketClock(at: date))
+    }
+
+    func announcementHeadlines(unitIds: [String], at date: Date) async -> [AnnouncementHeadline]? {
+        let clock = PlatformClock.pocketClock(at: date)
+        var seen = Set<String>()
+        return unitIds.flatMap {
+            PocketAnnouncementFeed.shared.demoPage(clock: clock, pageIndex: 0, keyword: "", unitId: $0, categoryId: "-1").announcements
+        }
+        .filter { seen.insert($0.id).inserted }
+        .map { AnnouncementHeadline(id: $0.id, title: $0.title) }
     }
 
     /// The demo timetable never changes on its own; alerts are sent from the demo menu.

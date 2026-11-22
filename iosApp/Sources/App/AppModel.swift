@@ -33,6 +33,8 @@ enum PocketRoute: Hashable {
     case subject(exam: String, name: String)
     case simulator(exam: String)
     case subjectTrend
+    case campusSearch
+    case announcementReminders
 }
 
 enum PocketAppearance: String, CaseIterable, Identifiable {

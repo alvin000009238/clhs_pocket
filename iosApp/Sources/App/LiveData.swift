@@ -207,6 +207,58 @@ final class LiveDataController {
         if epoch == publicEpoch { announcementWork = nil }
     }
 
+    /// One page of the school's announcement list for the paged list; nil when a delete-all
+    /// overtook it. The unfiltered first page also becomes the list the reminder compares against.
+    func announcementPage(_ index: Int, keyword: String, unitId: String, categoryId: String) async throws -> SchoolAnnouncementPage? {
+        let epoch = publicEpoch
+        let page = try await backend.call {
+            try await $0.announcements(pageIndex: Int32(index), keyword: keyword, unitId: unitId, categoryId: categoryId, token: $1)
+        }
+        guard isCurrentPublic(epoch) else { return nil }
+        if index == 0, keyword.isEmpty, unitId == "-1", categoryId == "-1" {
+            PocketLive.shared.putAnnouncements(items: page.announcements)
+            announcementsLoaded = true
+            announcementsLoadedAt = Date()
+            publish()
+        }
+        return page
+    }
+
+    func cachedAnnouncementPage() async -> SchoolAnnouncementPage? {
+        let epoch = publicEpoch
+        let page = try? await backend.call { try await $0.cachedAnnouncements(token: $1) }
+        return isCurrentPublic(epoch) ? page ?? nil : nil
+    }
+
+    func announcementFilters(cached: Bool) async throws -> AnnouncementFilterOptions {
+        if cached { return try await backend.call { try await $0.cachedAnnouncementFilters(token: $1) } }
+        return try await backend.call { try await $0.announcementFilters(token: $1) }
+    }
+
+    /// Later pages the list has loaded, so a bookmark set there can be saved offline.
+    func rememberPagedAnnouncements(_ items: [SchoolAnnouncement]) {
+        PocketLive.shared.putPagedAnnouncements(items: items)
+    }
+
+    /// For the reminder when only some units are subscribed: the newest page of each, as Android
+    /// checks them one by one. Nil when nothing could be fetched.
+    func announcementHeadlines(unitIds: [String]) async -> [AnnouncementHeadline]? {
+        let epoch = publicEpoch
+        var headlines: [AnnouncementHeadline] = []
+        var fetched = false
+        for unitId in unitIds {
+            guard isCurrentPublic(epoch) else { return nil }
+            guard let page = try? await backend.call({
+                try await $0.announcements(pageIndex: 0, keyword: "", unitId: unitId, categoryId: "-1", token: $1)
+            }) else { continue }
+            fetched = true
+            headlines += page.announcements.map { AnnouncementHeadline(id: $0.id, title: $0.title) }
+        }
+        guard fetched, isCurrentPublic(epoch) else { return nil }
+        var seen = Set<String>()
+        return headlines.filter { seen.insert($0.id).inserted }
+    }
+
     /// Ends every public request that is under way and waits until none of them can write again.
     private func revokePublicWork() async {
         publicEpoch += 1
@@ -805,6 +857,12 @@ struct LivePlatformData: PlatformDataProviding {
         guard !standsAside else { return nil }
         if isActive(), !live.announcementsLoaded { return nil }
         return shared.announcementHeadlines(at: date)
+    }
+
+    func announcementHeadlines(unitIds: [String], at date: Date) async -> [AnnouncementHeadline]? {
+        guard !standsAside else { return nil }
+        guard isActive() else { return await shared.announcementHeadlines(unitIds: unitIds, at: date) }
+        return await live.announcementHeadlines(unitIds: unitIds)
     }
 
     func gradeNotification(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification? {
