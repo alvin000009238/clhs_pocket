@@ -171,9 +171,35 @@ final class PocketShellUITests: XCTestCase {
         for _ in 0..<3 where !app.buttons["dashboard-row-1"].isHittable { app.swipeDown() }
         app.buttons["dashboard-row-1"].tap()
         XCTAssertTrue(app.segmentedControls["widget-size"].waitForExistence(timeout: 5))
-        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "choice-")).element(boundBy: 1).tap()
+        // Any township from the offline catalogue, not just the demo's four places.
+        search("weather-search", "台東 池上")
+        let township = app.buttons["choice-tw-10014060"]
+        XCTAssertTrue(township.waitForExistence(timeout: 5))
+        township.tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "已選擇：池上")).firstMatch.waitForExistence(timeout: 5))
+        let cwa = app.buttons["weather-source-CWA"]
+        reveal(cwa)
+        cwa.tap()
+        XCTAssertTrue(cwa.isSelected)
         capture("22-widget-settings-weather")
         app.navigationBars.buttons.firstMatch.tap()
+
+        // The YouBike widget searches stations instead of a fixed list.
+        let bikeRow = editorRow("YouBike")
+        reveal(bikeRow)
+        bikeRow.tap()
+        search("youbike-search", "中壢")
+        let station = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "choice-")).firstMatch
+        XCTAssertTrue(station.waitForExistence(timeout: 5))
+        let stationName = station.label.components(separatedBy: ",").first ?? ""
+        station.tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "已選擇")).firstMatch.waitForExistence(timeout: 5))
+        search("youbike-search", "不存在的站")
+        XCTAssertTrue(app.staticTexts["search-empty"].waitForExistence(timeout: 5))
+        capture("22b-widget-settings-youbike")
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(editorRow(String(stationName.prefix(4))).exists, "the editor row summarises the chosen station")
+        for _ in 0..<3 where !app.buttons["dashboard-row-2"].isHittable { app.swipeDown() }
 
         // Turn the first countdown into a custom one.
         app.buttons["dashboard-row-2"].tap()
@@ -193,6 +219,54 @@ final class PocketShellUITests: XCTestCase {
         capture("24-home-customised")
         app.swipeUp()
         capture("25-home-customised-lower")
+    }
+
+    func testDashboardListOptionsAndDiscardingADraft() {
+        launch(onboarded: true, session: "demo")
+        let edit = app.buttons["home-edit"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 40))
+        reveal(edit)
+        edit.tap()
+        XCTAssertTrue(app.buttons["dashboard-cancel"].waitForExistence(timeout: 5))
+
+        let announcements = editorRow("公告")
+        reveal(announcements)
+        announcements.tap()
+        let bookmarkedUp = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "priority-up-")).element(boundBy: 2)
+        reveal(bookmarkedUp)
+        let last = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "priority-")).element(boundBy: 2).label
+        bookmarkedUp.tap()
+        XCTAssertNotEqual(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "priority-")).element(boundBy: 2).label, last)
+        capture("26-widget-settings-announcements")
+        app.navigationBars.buttons.firstMatch.tap()
+
+        let calendar = editorRow("近期行程")
+        reveal(calendar)
+        calendar.tap()
+        toggle("calendar-hide-long")
+        XCTAssertTrue(app.otherElements["calendar-max-days"].waitForExistence(timeout: 5) || app.steppers["calendar-max-days"].exists)
+        capture("27-widget-settings-calendar")
+        app.navigationBars.buttons.firstMatch.tap()
+
+        // Cancelling asks before throwing away the draft; discarding restores the saved home.
+        let bikeRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "dashboard-row-", "YouBike"))
+        let savedBikes = bikeRows.count
+        let add = app.buttons["add-widget-youbike"]
+        reveal(add)
+        add.tap()
+        for _ in 0..<3 where !app.buttons["dashboard-cancel"].isHittable { app.swipeDown() }
+        XCTAssertTrue(app.buttons["dashboard-undo"].isEnabled)
+        app.buttons["dashboard-cancel"].tap()
+        let discard = app.buttons["dashboard-discard"].firstMatch
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        capture("28-dashboard-discard-dialog")
+        discard.tap()
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        reveal(edit)
+        edit.tap()
+        XCTAssertTrue(app.buttons["dashboard-cancel"].waitForExistence(timeout: 5))
+        XCTAssertEqual(bikeRows.count, savedBikes, "a discarded draft must not reach the saved home")
+        XCTAssertFalse(app.buttons["dashboard-undo"].isEnabled)
     }
 
     func testHomeWidgetsReorderByDragging() {
@@ -484,6 +558,74 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["login-submit"].tap()
         XCTAssertTrue(app.staticTexts["示範帳號 DEMO-000"].waitForExistence(timeout: 5))
         capture("69-personal-signed-in-again")
+    }
+
+    func testGeneralSettingsUsageAndDeveloperOptions() {
+        launch(onboarded: true, session: "demo")
+        XCTAssertTrue(app.buttons["personal-button"].firstMatch.waitForExistence(timeout: 10))
+        app.buttons["personal-button"].firstMatch.tap()
+        let startOnSchedule = app.switches["start-on-schedule"]
+        XCTAssertTrue(startOnSchedule.waitForExistence(timeout: 5))
+        reveal(startOnSchedule)
+        toggle("start-on-schedule")
+        capture("70-personal-start-on-schedule")
+        XCTAssertFalse(app.buttons["settings-開發者選項"].exists, "developer options stay hidden until unlocked")
+
+        open("settings-使用統計")
+        let opens = app.descendants(matching: .any)["usage-personal_open"]
+        XCTAssertTrue(opens.waitForExistence(timeout: 5))
+        XCTAssertTrue(opens.label.contains("1 次") || (opens.value as? String)?.contains("1 次") == true, "opening 個人 is counted")
+        capture("71-settings-usage")
+        app.navigationBars.buttons.firstMatch.tap()
+
+        open("settings-關於")
+        XCTAssertTrue(app.descendants(matching: .any)["about-source"].waitForExistence(timeout: 5))
+        let version = app.buttons["about-version"]
+        for _ in 0..<10 { version.tap() }
+        XCTAssertTrue(app.staticTexts["about-developer-message"].waitForExistence(timeout: 5))
+        capture("72-settings-about-developer")
+        app.navigationBars.buttons.firstMatch.tap()
+
+        open("settings-開發者選項")
+        let caches = app.switches["storage-caches"]
+        XCTAssertTrue(caches.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.switches["storage-appData"].isEnabled, "account data is only removed by sign-out or delete")
+        toggle("storage-caches")
+        app.buttons["storage-clear"].tap()
+        XCTAssertTrue(app.staticTexts["storage-freed"].waitForExistence(timeout: 5))
+        capture("73-settings-developer")
+        let diagnostics = app.buttons["developer-diagnostics"]
+        reveal(diagnostics)
+        diagnostics.tap()
+        let report = app.staticTexts["developer-report"]
+        XCTAssertTrue(report.waitForExistence(timeout: 5))
+        XCTAssertFalse(report.label.contains("DEMO-000"), "the diagnostic report never carries the account")
+        capture("74-settings-developer-report")
+        let disable = app.buttons["developer-disable"]
+        reveal(disable)
+        disable.tap()
+        XCTAssertTrue(app.buttons["settings-使用統計"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["settings-開發者選項"].exists)
+
+        // The preference is read at launch: the app now opens on 課表.
+        launch(onboarded: true, session: "demo", extra: ["-startOnSchedule", "YES"])
+        XCTAssertTrue(tab("課表").waitForExistence(timeout: 10))
+        XCTAssertTrue(waitUntil { self.tab("課表").isSelected })
+    }
+
+    private func search(_ identifier: String, _ text: String) {
+        let field = app.textFields[identifier]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        reveal(field)
+        field.tap()
+        if let value = field.value as? String, !value.isEmpty, value != field.placeholderValue {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count))
+        }
+        field.typeText(text)
+    }
+
+    private func editorRow(_ text: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "dashboard-row-", text)).firstMatch
     }
 
     private func open(_ identifier: String) {
