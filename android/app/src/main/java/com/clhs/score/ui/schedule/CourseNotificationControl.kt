@@ -8,7 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material3.DropdownMenuItem
+import com.clhs.score.ui.PocketOverflowMenuItem
 import androidx.compose.material3.Text
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -35,7 +35,7 @@ internal data class CourseNotificationControl(
 
 @Composable
 internal fun CourseNotificationMenu(onOpen: () -> Unit, dismiss: () -> Unit) {
-    DropdownMenuItem(
+    PocketOverflowMenuItem(
         text = { Text("當前課程通知") },
         onClick = { dismiss(); onOpen() },
     )

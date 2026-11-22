@@ -262,6 +262,26 @@ class SchoolAnnouncementsTest {
     }
 
     @Test
+    fun invalidDetailDoesNotResolveToAnAnnouncement() {
+        for (body in listOf("""[{}]""", """[{"rcode":200,"newsId":"other","title":"其他公告"}]""")) {
+            val result = runCatching { SchoolAnnouncementParser.parseDetail(body, "requested") }
+            assertTrue(result.exceptionOrNull() is java.io.IOException)
+        }
+    }
+
+    @Test
+    fun externalDetailPreservesLinkTypeEvenWhenUrlIsInvalid() {
+        val body = """[{"rcode":200,"newsId":"link","title":"公告","content_type":"url","content":"https://example.org/a"}]"""
+        val valid = SchoolAnnouncementParser.parseDetail(body, "link")
+        val invalid = SchoolAnnouncementParser.parseDetail(body.replace("https://example.org/a", "javascript:void(0)"), "link")
+
+        assertTrue(valid.isExternal)
+        assertEquals("https://example.org/a", valid.externalUrl)
+        assertTrue(invalid.isExternal)
+        assertNull(invalid.externalUrl)
+    }
+
+    @Test
     fun duplicateAttachmentsAreCollapsedByUrl() {
         val detail = SchoolAnnouncementParser.parseDetail(
             """

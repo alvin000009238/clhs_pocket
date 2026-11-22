@@ -54,7 +54,12 @@ sealed interface OverviewDestination {
     data class CalendarEvent(val id: String) : OverviewDestination
     data object Announcements : OverviewDestination
     data class GradeExam(val yearValue: String, val examValue: String) : OverviewDestination
-    data class Announcement(val id: String, val category: String, val externalUrl: String? = null) : OverviewDestination
+    data class Announcement(
+        val id: String,
+        val category: String,
+        val externalUrl: String? = null,
+        val isExternal: Boolean = externalUrl != null,
+    ) : OverviewDestination
 }
 
 data class OverviewItem(

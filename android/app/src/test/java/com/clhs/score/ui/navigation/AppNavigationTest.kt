@@ -11,6 +11,23 @@ import org.junit.Test
 
 class AppNavigationTest {
     @Test
+    fun reopeningAnnouncementRoutesReturnsToExistingEntries() {
+        val state = navigationStateForTest()
+        val navigator = AppNavigator(state)
+        val firstDetail = SchoolAnnouncementDetailRoute("100", "公告")
+        navigator.navigate(SchoolAnnouncementsRoute)
+        navigator.navigate(firstDetail)
+        navigator.navigate(SchoolAnnouncementDetailRoute("200", "公告"))
+
+        navigator.navigate(SchoolAnnouncementDetailRoute("100", ""))
+        assertEquals(listOf(CampusRoute, SchoolAnnouncementsRoute, firstDetail), state.currentBackStack.toList())
+
+        navigator.selectTopLevel(TopLevelDestination.Overview)
+        navigator.navigate(SchoolAnnouncementsRoute)
+        assertEquals(listOf(CampusRoute, SchoolAnnouncementsRoute), state.currentBackStack.toList())
+    }
+
+    @Test
     fun pushingAndPoppingPersonalKeepsRootGeometryAndChildHasNoOverlaySpace() {
         val state = navigationStateForTest()
         val navigator = AppNavigator(state)

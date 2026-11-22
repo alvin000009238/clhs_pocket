@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -469,7 +470,10 @@ internal fun SettingsRow(
     Surface(
         onClick = hapticClick(onClick),
         enabled = enabled,
-        modifier = Modifier.semantics { role = Role.Button },
+        modifier = Modifier.semantics {
+            role = Role.Button
+            if (loading) stateDescription = "載入中"
+        },
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
     ) {
@@ -484,18 +488,9 @@ internal fun SettingsRow(
                 PocketOptionIcon(icon, enabled = enabled)
                 if (iconBadge) Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape))
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMediumEmphasized)
-                supportingText?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.38f))
-                }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                value?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
-                if (loading) LoadingIndicator(Modifier.size(28.dp))
-                else OutlinedRoundedSymbol("keyboard_arrow_right", size = 24.dp, contentDescription = null)
-            }
+            OptionRowText(title, supportingText, enabled, Modifier.weight(1f), value)
+            if (loading) LoadingIndicator(Modifier.size(28.dp))
+            else OutlinedRoundedSymbol("keyboard_arrow_right", size = 24.dp, contentDescription = null)
         }
     }
 }
@@ -526,15 +521,46 @@ internal fun SettingsSwitchRow(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         PocketOptionIcon(icon, enabled = enabled)
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMediumEmphasized)
-            if (supportingText.isNotBlank()) Text(
-                supportingText,
+        OptionRowText(title, supportingText, enabled, Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+    }
+}
+
+@Composable
+private fun OptionRowText(
+    title: String,
+    supportingText: String?,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    value: String? = null,
+) {
+    val alpha = if (enabled) 1f else 0.38f
+    val supportingColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                title,
+                modifier = Modifier.padding(end = if (value.isNullOrBlank()) 0.dp else 8.dp)
+                    .align(Alignment.CenterVertically),
+                style = MaterialTheme.typography.titleMediumEmphasized,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
+            )
+            if (!value.isNullOrBlank()) Text(
+                value,
+                modifier = Modifier.align(Alignment.CenterVertically),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = supportingColor,
             )
         }
-        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+        if (!supportingText.isNullOrBlank()) Text(
+            supportingText,
+            style = MaterialTheme.typography.bodySmall,
+            color = supportingColor,
+        )
     }
 }
 

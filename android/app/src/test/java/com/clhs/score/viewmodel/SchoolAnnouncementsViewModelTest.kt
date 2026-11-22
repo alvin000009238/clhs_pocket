@@ -79,6 +79,31 @@ class SchoolAnnouncementsViewModelTest {
     }
 
     @Test
+    fun notificationRefreshReplacesFilteredResultsWithLatestFeed() = runTest(dispatcher) {
+        var latest = "initial"
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { _, keyword, unit, category ->
+                if (keyword.isEmpty() && unit == "-1" && category == "-1") page(announcement(latest))
+                else page(announcement("filtered"))
+            },
+        )
+        runCurrent()
+        viewModel.search("升學")
+        viewModel.setFilters("425", "12")
+        runCurrent()
+        assertEquals("filtered", viewModel.uiState.value.announcements.single().id)
+
+        latest = "notification"
+        viewModel.refreshLatest()
+        runCurrent()
+
+        assertFalse(viewModel.uiState.value.hasFilters)
+        assertEquals("", viewModel.uiState.value.searchQuery)
+        assertEquals("notification", viewModel.uiState.value.announcements.single().id)
+    }
+
+    @Test
     fun filterOptionsKeepCacheOnFailureAndRefreshOnRetry() = runTest(dispatcher) {
         val cached = AnnouncementFilterOptions(
             units = listOf(AnnouncementUnit("-1", "全部"), AnnouncementUnit("425", "首頁")),

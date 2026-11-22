@@ -1,8 +1,21 @@
 package com.clhs.score.data
 
+import com.clhs.score.shared.time.at
+import com.clhs.score.shared.time.localTimeOf
 import com.clhs.score.shared.time.parseInstant
+import com.clhs.score.shared.time.schoolToday
+import com.clhs.score.shared.time.shiftDays
 
 object FakeData {
+    val calendarEvents: List<SchoolCalendarEvent> by lazy {
+        val today = schoolToday()
+        val midnight = localTimeOf(0, 0)
+        listOf(
+            SchoolCalendarEvent("preview-exam", "期中考與試場準備", today.at(localTimeOf(8, 10)), today.at(localTimeOf(16, 0)), false, "各班教室"),
+            SchoolCalendarEvent("preview-event", "校園活動與跨領域探索成果發表", today.shiftDays(1).at(midnight), today.shiftDays(3).at(midnight), true, "活動中心"),
+        )
+    }
+
     val session = AuthenticatedSession(
         studentNo = "DEMO-000",
         apiToken = "fake-token",

@@ -26,6 +26,7 @@ data class AnnouncementReminderState(
     val knownIds: Set<String> = emptySet(),
     val unreadIds: Set<String> = emptySet(),
     val lastCheckedAtMillis: Long = 0L,
+    val knownIdsByUnit: Map<String, Set<String>> = emptyMap(),
 )
 
 internal data class AnnouncementCheckOutcome(
@@ -36,20 +37,28 @@ internal data class AnnouncementCheckOutcome(
 internal const val ANNOUNCEMENT_REMINDER_MAX_PAGES = 20
 internal const val ANNOUNCEMENT_REMINDER_BASELINE_MAX_PAGES = 3
 
+internal data class AnnouncementReminderSnapshot(val byUnit: Map<String, List<SchoolAnnouncement>>) {
+    val announcements: List<SchoolAnnouncement>
+        get() = byUnit.values.flatten().distinctBy(SchoolAnnouncement::id)
+}
+
 internal suspend fun loadAnnouncementReminderSnapshot(
     selectedUnitIds: Set<String>,
-    knownIds: Set<String>,
+    state: AnnouncementReminderState? = null,
     loadPage: suspend (pageIndex: Int, unitId: String) -> SchoolAnnouncementPage,
-): List<SchoolAnnouncement> {
+): AnnouncementReminderSnapshot {
     val units = if (ALL_UNITS_ID in selectedUnitIds) {
         listOf(ALL_UNITS_ID)
     } else {
         selectedUnitIds.sorted()
     }
 
-    return units.flatMap { unitId ->
+    return AnnouncementReminderSnapshot(units.associateWith { unitId ->
+        val unitBaseline = state?.knownIdsByUnit?.get(unitId)
+        val knownIds = unitBaseline ?: state?.knownIds.orEmpty()
+        val rebuildingMultiUnitBaseline = unitBaseline == null && units.size > 1
         buildList {
-            val maxPages = if (knownIds.isEmpty()) {
+            val maxPages = if (knownIds.isEmpty() || rebuildingMultiUnitBaseline) {
                 ANNOUNCEMENT_REMINDER_BASELINE_MAX_PAGES
             } else {
                 ANNOUNCEMENT_REMINDER_MAX_PAGES
@@ -59,44 +68,54 @@ internal suspend fun loadAnnouncementReminderSnapshot(
                 addAll(page.announcements)
                 if (
                     page.announcements.isEmpty() ||
-                    page.announcements.any { it.id in knownIds } ||
+                    page.announcements.any { !it.isPinned && it.id in knownIds } ||
                     pageIndex + 1 >= page.totalPages
                 ) {
                     break
                 }
             }
         }
-    }.distinctBy(SchoolAnnouncement::id)
+    })
 }
 
 internal fun applyAnnouncementCheck(
     state: AnnouncementReminderState,
-    announcements: List<SchoolAnnouncement>,
+    snapshot: AnnouncementReminderSnapshot,
     checkedAtMillis: Long,
 ): AnnouncementCheckOutcome {
-    val distinct = announcements.distinctBy(SchoolAnnouncement::id)
-    val currentIds = distinct.map(SchoolAnnouncement::id)
-    if (!state.baselineInitialized) {
-        return AnnouncementCheckOutcome(
-            state = state.copy(
-                baselineInitialized = true,
-                knownIds = boundedIds(currentIds, emptySet(), KNOWN_ID_LIMIT),
-                unreadIds = emptySet(),
-                lastCheckedAtMillis = checkedAtMillis,
-            ),
-            newAnnouncements = emptyList(),
-        )
+    val seenIds = state.knownIdsByUnit.values.flatten().toHashSet().apply { addAll(state.knownIds) }
+    val newAnnouncements = if (state.baselineInitialized) {
+        snapshot.byUnit.flatMap { (unitId, announcements) ->
+            val previous = state.knownIdsByUnit[unitId]
+            val candidates = when {
+                previous != null -> announcements
+                state.selectedUnitIds.size == 1 -> announcements
+                else -> {
+                    // The legacy set cannot establish a boundary for every selected unit.
+                    val boundary = announcements.indexOfFirst { !it.isPinned && it.id in state.knownIds }
+                    if (boundary < 0) emptyList() else announcements.take(boundary)
+                }
+            }
+            candidates.filterNot { it.id in seenIds }
+        }.distinctBy(SchoolAnnouncement::id)
+    } else {
+        emptyList()
     }
-
-    val newAnnouncements = distinct.filterNot { it.id in state.knownIds }
+    val nextByUnit = snapshot.byUnit.mapValues { (unitId, announcements) ->
+        val previous = state.knownIdsByUnit[unitId]
+            ?: state.knownIds.takeIf { state.selectedUnitIds.size == 1 }.orEmpty()
+        boundedIds(announcements.map(SchoolAnnouncement::id), previous, KNOWN_ID_LIMIT)
+    }
     return AnnouncementCheckOutcome(
         state = state.copy(
-            knownIds = boundedIds(currentIds, state.knownIds, KNOWN_ID_LIMIT),
-            unreadIds = boundedIds(
+            baselineInitialized = true,
+            knownIds = state.knownIds.takeIf { state.baselineInitialized && state.selectedUnitIds.size > 1 }.orEmpty(),
+            knownIdsByUnit = nextByUnit,
+            unreadIds = if (state.baselineInitialized) boundedIds(
                 newAnnouncements.map(SchoolAnnouncement::id),
                 state.unreadIds,
                 UNREAD_ID_LIMIT,
-            ),
+            ) else emptySet(),
             lastCheckedAtMillis = checkedAtMillis,
         ),
         newAnnouncements = newAnnouncements,
@@ -160,9 +179,9 @@ class AnnouncementReminderRepository internal constructor(
         }
     }
 
-    suspend fun enableWithBaseline(
+    internal suspend fun enableWithBaseline(
         expectedUnitIds: Set<String>,
-        announcements: List<SchoolAnnouncement>,
+        snapshot: AnnouncementReminderSnapshot,
         checkedAtMillis: Long,
     ) {
         initializeReading?.invoke()
@@ -172,7 +191,7 @@ class AnnouncementReminderRepository internal constructor(
             if (current.enabled) return@edit
             val outcome = applyAnnouncementCheck(
                 current.copy(enabled = true),
-                announcements,
+                snapshot,
                 checkedAtMillis,
             )
             writeState(prefs, outcome.state)
@@ -184,9 +203,9 @@ class AnnouncementReminderRepository internal constructor(
         dataStore.edit { prefs -> writeState(prefs, withAnnouncementInterval(stateFromPreferences(prefs), intervalMinutes)) }
     }
 
-    suspend fun applySelectedUnitIds(
+    internal suspend fun applySelectedUnitIds(
         unitIds: Set<String>,
-        announcements: List<SchoolAnnouncement>,
+        snapshot: AnnouncementReminderSnapshot,
         checkedAtMillis: Long,
     ) {
         initializeReading?.invoke()
@@ -194,7 +213,7 @@ class AnnouncementReminderRepository internal constructor(
             val current = stateFromPreferences(prefs)
             val changed = withAnnouncementUnits(current, unitIds)
             val applied = if (current.enabled) {
-                applyAnnouncementCheck(changed, announcements, checkedAtMillis).state
+                applyAnnouncementCheck(changed, snapshot, checkedAtMillis).state
             } else {
                 changed
             }
@@ -202,9 +221,9 @@ class AnnouncementReminderRepository internal constructor(
         }
     }
 
-    suspend fun recordCheck(
+    internal suspend fun recordCheck(
         expectedUnitIds: Set<String>,
-        announcements: List<SchoolAnnouncement>,
+        snapshot: AnnouncementReminderSnapshot,
         checkedAtMillis: Long,
     ): List<SchoolAnnouncement> {
         initializeReading?.invoke()
@@ -212,7 +231,7 @@ class AnnouncementReminderRepository internal constructor(
         dataStore.edit { prefs ->
             val current = stateFromPreferences(prefs)
             if (!current.enabled || current.selectedUnitIds != expectedUnitIds) return@edit
-            val outcome = applyAnnouncementCheck(current, announcements, checkedAtMillis)
+            val outcome = applyAnnouncementCheck(current, snapshot, checkedAtMillis)
             writeState(prefs, outcome.state)
             newAnnouncements = outcome.newAnnouncements
         }
@@ -267,6 +286,7 @@ internal fun withAnnouncementUnits(
     selectedUnitIds = normalizeUnitIds(unitIds),
     baselineInitialized = false,
     knownIds = emptySet(),
+    knownIdsByUnit = emptyMap(),
     unreadIds = emptySet(),
     lastCheckedAtMillis = 0L,
 )
@@ -289,6 +309,7 @@ internal fun stateFromPreferences(prefs: Preferences): AnnouncementReminderState
     knownIds = prefs[AnnouncementReminderRepository.KNOWN_IDS].orEmpty(),
     unreadIds = prefs[AnnouncementReminderRepository.UNREAD_IDS].orEmpty(),
     lastCheckedAtMillis = prefs[AnnouncementReminderRepository.LAST_CHECKED_AT] ?: 0L,
+    knownIdsByUnit = prefs[BASELINED_UNITS].orEmpty().associateWith { prefs[knownIdsKey(it)].orEmpty() },
 )
 
 private fun writeState(prefs: androidx.datastore.preferences.core.MutablePreferences, state: AnnouncementReminderState) {
@@ -297,6 +318,11 @@ private fun writeState(prefs: androidx.datastore.preferences.core.MutablePrefere
     prefs[AnnouncementReminderRepository.SELECTED_UNIT_IDS] = state.selectedUnitIds
     prefs[AnnouncementReminderRepository.BASELINE_INITIALIZED] = state.baselineInitialized
     prefs[AnnouncementReminderRepository.KNOWN_IDS] = state.knownIds
+    clearUnitBaselines(prefs)
+    if (state.knownIdsByUnit.isNotEmpty()) {
+        prefs[BASELINED_UNITS] = state.knownIdsByUnit.keys
+        state.knownIdsByUnit.forEach { (unitId, ids) -> prefs[knownIdsKey(unitId)] = ids }
+    }
     if (prefs[AnnouncementReminderRepository.READ_MIGRATION_COMPLETE] != true) {
         prefs[AnnouncementReminderRepository.UNREAD_IDS] = state.unreadIds
     }
@@ -306,6 +332,7 @@ private fun writeState(prefs: androidx.datastore.preferences.core.MutablePrefere
 private fun clearReminderProgress(prefs: androidx.datastore.preferences.core.MutablePreferences) {
     prefs[AnnouncementReminderRepository.BASELINE_INITIALIZED] = false
     prefs[AnnouncementReminderRepository.KNOWN_IDS] = emptySet()
+    clearUnitBaselines(prefs)
     if (prefs[AnnouncementReminderRepository.READ_MIGRATION_COMPLETE] == true) {
         prefs.remove(AnnouncementReminderRepository.UNREAD_IDS)
     } else {
@@ -313,6 +340,13 @@ private fun clearReminderProgress(prefs: androidx.datastore.preferences.core.Mut
     }
     prefs[AnnouncementReminderRepository.LAST_CHECKED_AT] = 0L
 }
+
+private fun clearUnitBaselines(prefs: androidx.datastore.preferences.core.MutablePreferences) {
+    prefs.remove(BASELINED_UNITS).orEmpty().forEach { prefs.remove(knownIdsKey(it)) }
+}
+
+private val BASELINED_UNITS = stringSetPreferencesKey("baselined_units_v3")
+private fun knownIdsKey(unitId: String) = stringSetPreferencesKey("known_ids_v3_unit_$unitId")
 
 private const val KNOWN_ID_LIMIT = 500
 private const val UNREAD_ID_LIMIT = 100

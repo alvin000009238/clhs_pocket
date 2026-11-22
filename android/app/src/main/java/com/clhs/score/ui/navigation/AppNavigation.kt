@@ -223,8 +223,17 @@ class AppNavigator(private val state: AppNavigationState) {
         if (parent != null && parent.route != route) state.topLevelRoute = parent.route
         if (parent?.route == route) {
             selectTopLevel(parent)
-        } else if (state.currentBackStack.lastOrNull() != route) {
-            state.currentBackStack.add(route)
+        } else {
+            val stack = state.currentBackStack
+            val existing = when (route) {
+                SchoolAnnouncementsRoute -> stack.indexOf(route)
+                is SchoolAnnouncementDetailRoute -> stack.indexOfFirst {
+                    it is SchoolAnnouncementDetailRoute && it.id == route.id
+                }
+                else -> if (stack.lastOrNull() == route) stack.lastIndex else -1
+            }
+            if (existing < 0) stack.add(route)
+            else while (stack.lastIndex > existing) stack.removeLastOrNull()
         }
     }
 

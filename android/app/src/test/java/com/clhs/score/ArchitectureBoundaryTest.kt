@@ -600,7 +600,7 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    fun announcementSearchLivesOnlyInFloatingToolbar() {
+    fun announcementSearchInputStaysInFloatingToolbar() {
         val source = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
         val listSource = source
             .substringAfter("private fun AnnouncementList(")
@@ -612,7 +612,8 @@ class ArchitectureBoundaryTest {
         assertTrue(listSource.contains("top = topPadding + 8.dp"))
         assertTrue(source.contains("PocketSearchToolbar("))
         assertTrue(source.contains("query = searchText"))
-        assertFalse(listSource.contains("announcement-search"))
+        assertFalse(listSource.contains("TextField("))
+        assertFalse(listSource.contains("PocketSearchToolbar("))
     }
 
     @Test
@@ -697,11 +698,11 @@ class ArchitectureBoundaryTest {
         val announcementsSource = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
         val personalSource = readSource("app/src/main/java/com/clhs/score/ui/PersonalScreen.kt")
         val reminderLabel = "text = { Text(\"公告更新提醒\") }"
-        val reminderMenu = announcementsSource.substringBefore(reminderLabel).substringAfterLast("DropdownMenuItem(") +
+        val reminderMenu = announcementsSource.substringBefore(reminderLabel).substringAfterLast("PocketOverflowMenuItem(") +
             announcementsSource.substringAfter(reminderLabel).substringBefore("onClick = {")
 
         assertTrue(announcementsSource.contains("more_vert"))
-        assertTrue(announcementsSource.contains("DropdownMenuItem("))
+        assertTrue(announcementsSource.contains("PocketOverflowMenuItem("))
         assertTrue(announcementsSource.contains("text = { Text(\"公告更新提醒\") }"))
         assertFalse(reminderMenu.contains("leadingIcon"))
         assertTrue(announcementsSource.contains("onOpenAnnouncementReminder()"))

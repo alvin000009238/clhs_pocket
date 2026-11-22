@@ -5,6 +5,7 @@ import com.clhs.score.notifications.NotificationAction
 import com.clhs.score.reminders.announcementNotificationAction
 import com.clhs.score.ui.announcements.orderAnnouncements
 import com.clhs.score.ui.announcements.shouldPrefetchAnnouncements
+import com.clhs.score.ui.announcements.AnnouncementPrefetchViewport
 import com.clhs.score.viewmodel.SchoolAnnouncementsUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,6 +16,26 @@ class AnnouncementPresentationTest {
     private val ordinary = SchoolAnnouncement("1", "一般", "2026/09/09", "公告", "", "", false, "")
     private val pinned = ordinary.copy(id = "2", isPinned = true)
     private val unread = ordinary.copy(id = "3")
+
+    @Test
+    fun reorderingPagesAboveTheSameViewportDoesNotRequestAnotherPage() {
+        val viewport = AnnouncementPrefetchViewport()
+        assertTrue(viewport.shouldRequest(listOf("18", "19", "20"), nearEnd = true))
+        assertFalse(viewport.shouldRequest(listOf("19", "20"), nearEnd = true))
+        assertFalse(viewport.shouldRequest(listOf("20", "18", "19"), nearEnd = true))
+        assertFalse(viewport.shouldRequest(listOf("21", "22"), nearEnd = false))
+        assertTrue(viewport.shouldRequest(listOf("18", "19", "20"), nearEnd = true))
+    }
+
+    @Test
+    fun shortViewportCanFillWhenNewRowsActuallyBecomeVisible() {
+        val viewport = AnnouncementPrefetchViewport()
+        assertTrue(viewport.shouldRequest(listOf("1"), nearEnd = true, shortPage = 0))
+        assertTrue(viewport.shouldRequest(listOf("1"), nearEnd = true, shortPage = 1))
+        assertFalse(viewport.shouldRequest(listOf("1"), nearEnd = true, shortPage = 1))
+        assertTrue(viewport.shouldRequest(listOf("1", "2"), nearEnd = true, shortPage = 2))
+        assertFalse(viewport.shouldRequest(listOf("1", "2"), nearEnd = true, shortPage = 2))
+    }
 
     @Test
     fun unreadPrecedesPinnedAndReadRestoresOrderIncludingAppendedPages() {
