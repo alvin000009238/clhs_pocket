@@ -399,6 +399,35 @@ final class AppModel {
     }
 
     var profile: PocketProfile { dataSource.profile() }
+
+    /// The photo on the personal page. A school account's is in its private store and goes with
+    /// logout and delete-all; the demo's stays in memory, so neither ever shows the other's.
+    var profilePhoto: Data? {
+        if session == .demo { return demoProfilePhoto }
+        return usesLiveData ? live?.profilePhoto : nil
+    }
+
+    private var demoProfilePhoto: Data?
+
+    func setProfilePhoto(_ photo: Data?) async throws(PocketError) {
+        if session == .demo {
+            demoProfilePhoto = photo
+        } else if usesLiveData, let live {
+            try await live.setProfilePhoto(photo)
+        }
+    }
+
+    /// Clears the chosen caches on this device and stays signed in.
+    func clearLocalData(_ areas: [LocalDataArea]) async throws(PocketError) {
+        guard !areas.isEmpty else { return }
+        if let live {
+            try await live.clearLocalData(areas)
+        } else if let backend = transferBackend {
+            try await backend.call { try await $0.clearLocalData(areas: areas, token: $1) }
+        } else {
+            throw PocketError(kind: .storage, message: "無法存取資料儲存空間")
+        }
+    }
     var isSignedIn: Bool { session == .demo || live?.session != nil }
     @ObservationIgnored private var restored = false
     /// True while delete-all puts the preferences back; their side effects stay off.
@@ -475,13 +504,23 @@ final class AppModel {
     }
 
     func signOut() {
+        Task { try? await clearSession() }
+    }
+
+    /// Signs out like 登出 and waits for the account cleanup, so a failure reaches the caller too.
+    func clearSession() async throws(PocketError) {
         let wasDemo = session == .demo
         defaults.removeObject(forKey: "scheduleClass")
+        demoProfilePhoto = nil
         session = .guest
         paths = [:]
         guard !wasDemo, let live else { return }
-        Task {
-            do { try await live.logout() } catch { accountError = Self.cleanupMessage(PocketError(error)) }
+        do {
+            try await live.logout()
+        } catch {
+            let failure = PocketError(error)
+            accountError = Self.cleanupMessage(failure)
+            throw failure
         }
     }
 
@@ -624,6 +663,7 @@ final class AppModel {
         // file, no refetched public data, no republished widget.
         resettingPreferences = true
         session = .guest
+        demoProfilePhoto = nil
         syncingUnread = true
         paths = [:]
         appearance = .system

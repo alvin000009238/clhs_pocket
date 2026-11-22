@@ -354,6 +354,12 @@ struct DataSettingsView: View {
                 .accessibilityIdentifier("data-export")
                 Button("匯入設定", systemImage: "square.and.arrow.down") { importing = true }
                     .accessibilityIdentifier("data-import")
+                NavigationLink {
+                    SettingsJSONEditorView()
+                } label: {
+                    Label("進階：JSON 編輯", systemImage: "curlybraces")
+                }
+                .accessibilityIdentifier("data-json")
             } header: {
                 Text("設定備份")
             } footer: {
@@ -436,6 +442,86 @@ struct DataSettingsView: View {
     }
 }
 
+/// 進階：JSON 編輯, as on Android: the backup as text, checked and previewed exactly like an
+/// imported file before anything is replaced.
+struct SettingsJSONEditorView: View {
+    @Environment(AppModel.self) private var model
+    @State private var draft = ""
+    @State private var message: String?
+    @State private var pendingImport: PendingImport?
+
+    var body: some View {
+        SettingsForm(title: "JSON 編輯") {
+            Section {
+                TextEditor(text: $draft)
+                    .font(.footnote.monospaced())
+                    .frame(minHeight: 240, maxHeight: 420)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .accessibilityLabel("設定 JSON")
+                    .accessibilityIdentifier("json-editor")
+            } header: {
+                Text("設定 JSON")
+            } footer: {
+                Text("套用前會先檢查內容並列出將變更的設定。自訂文字可能含個人資訊，請妥善保管。")
+            }
+            if let message {
+                Section {
+                    Text(message).font(.subheadline).accessibilityIdentifier("json-message")
+                }
+            }
+            Section {
+                Button("套用 JSON", systemImage: "checkmark.circle") { inspect() }
+                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("json-apply")
+                Button("複製", systemImage: "doc.on.doc") { UIPasteboard.general.string = draft }
+                    .disabled(draft.isEmpty)
+                    .accessibilityIdentifier("json-copy")
+                Button("重設草稿", systemImage: "arrow.counterclockwise") { Task { await load() } }
+                    .accessibilityIdentifier("json-reset")
+            }
+        }
+        .task { await load() }
+        .sheet(item: $pendingImport) { pending in
+            ImportPreviewView(pending: pending) { includeSubjects in
+                pendingImport = nil
+                Task {
+                    do {
+                        try await model.importSettings(pending.text, includeSubjects: includeSubjects)
+                        await load()
+                        message = "已套用設定。"
+                    } catch {
+                        message = PocketError(error).message
+                    }
+                }
+            }
+        }
+    }
+
+    /// The current settings, as an export would write them.
+    private func load() async {
+        do {
+            draft = try await model.exportSettings()
+            message = nil
+        } catch {
+            message = PocketError(error).message
+        }
+    }
+
+    private func inspect() {
+        let text = draft
+        Task {
+            do {
+                pendingImport = PendingImport(text: text, document: try await model.inspectSettings(text))
+                message = nil
+            } catch {
+                let failure = PocketError(error)
+                message = failure.kind == .invalidInput ? "這不是壢中 Pocket 的設定備份。" : failure.message
+            }
+        }
+    }
+}
+
 struct PendingImport: Identifiable {
     let id = UUID()
     let text: String
@@ -451,6 +537,7 @@ private struct ImportPreviewView: View {
     @State private var includeSubjects = true
 
     private var subjectCount: Int? { pending.document.subjects.map(\.count) }
+    private var disabledWidgets: Int { pending.document.overview.filter { !$0.enabled }.count }
 
     var body: some View {
         let settings = pending.document.settings
@@ -459,7 +546,9 @@ private struct ImportPreviewView: View {
                 Section("將套用的設定") {
                     LabeledContent("主題", value: settings.themeMode == .light ? "淺色" : settings.themeMode == .dark ? "深色" : "跟隨系統")
                     LabeledContent("天氣來源", value: settings.weatherSource == .cwa ? "中央氣象署" : "Open-Meteo")
-                    LabeledContent("首頁元件", value: "\(pending.document.overview.count) 個")
+                    LabeledContent("首頁元件", value: disabledWidgets > 0
+                        ? "\(pending.document.overview.count) 個（含 \(disabledWidgets) 個停用）"
+                        : "\(pending.document.overview.count) 個")
                     LabeledContent("安靜時段", value: settings.backgroundPauseEnabled
                         ? "\(SettingsFormat.time(Int(settings.backgroundPauseStartMinute))) – \(SettingsFormat.time(Int(settings.backgroundPauseEndMinute)))"
                         : "未啟用")
@@ -543,6 +632,8 @@ struct AboutView: View {
     @Environment(AppModel.self) private var model
     @State private var versionTaps = 0
     @State private var developerMessage: String?
+    @State private var feedbackMessage: String?
+    @Environment(\.openURL) private var openURL
     private static let sourceCode = URL(string: "https://github.com/alvin000009238/clhs_pocket")!
 
     var body: some View {
@@ -573,6 +664,19 @@ struct AboutView: View {
                     LabeledContent("原始碼", value: "GitHub").foregroundStyle(PocketColor.onSurface)
                 }
                 .accessibilityIdentifier("about-source")
+                Button {
+                    if let url = FeedbackForm.allowedURL(FeedbackForm.target) {
+                        openURL(url)
+                    } else {
+                        feedbackMessage = "暫時無法取得回饋表單，請稍後再試"
+                    }
+                } label: {
+                    LabeledContent("意見回饋", value: "Google 表單").foregroundStyle(PocketColor.onSurface)
+                }
+                .accessibilityIdentifier("about-feedback")
+                if let feedbackMessage {
+                    Text(feedbackMessage).font(.footnote).foregroundStyle(PocketColor.negative)
+                }
                 NavigationLink("開放原始碼授權") { FontLicensesView() }
                     .accessibilityIdentifier("about-licenses")
             } footer: {
@@ -595,5 +699,26 @@ struct AboutView: View {
         } else if versionTaps >= 5 {
             developerMessage = "再點 \(10 - versionTaps) 下即可開啟開發者選項"
         }
+    }
+}
+
+/// The feedback form Android opens. Android reads it from the Remote Config key
+/// `feedback_form_url`; iOS has no Firebase, so it ships the same value and the same check.
+enum FeedbackForm {
+    static let target = "https://forms.gle/T8tbh8qKk88pJyC98"
+
+    /// Only an https Google Forms link, as on Android (`isAllowedFeedbackFormUrl`).
+    static func allowedURL(_ value: String) -> URL? {
+        guard let components = URLComponents(string: value),
+              components.scheme?.lowercased() == "https",
+              components.user == nil, components.password == nil,
+              components.port == nil || components.port == 443,
+              let host = components.host?.lowercased() else { return nil }
+        switch host {
+        case "forms.gle": guard !components.path.isEmpty, components.path != "/" else { return nil }
+        case "docs.google.com": guard components.path.hasPrefix("/forms/") else { return nil }
+        default: return nil
+        }
+        return components.url
     }
 }

@@ -1,3 +1,4 @@
+import PhotosUI
 import PocketShared
 import SwiftUI
 
@@ -7,6 +8,8 @@ struct PersonalView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showingLogin = false
     @State private var confirmingSignOut = false
+    @State private var photoItem: PhotosPickerItem?
+    @State private var photoError: String?
 
     var body: some View {
         @Bindable var model = model
@@ -179,23 +182,80 @@ struct PersonalView: View {
         .accessibilityIdentifier("settings-\(title)")
     }
 
+    /// Tapping the avatar picks a photo; it is stored for this account only.
+    private func avatarPicker(_ profile: PocketProfile) -> some View {
+        PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
+            Group {
+                if let data = model.profilePhoto, let image = UIImage(data: data) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else if let initial = profile.studentName.first {
+                    Text(String(initial)).font(PocketFont.display(28, relativeTo: .title))
+                } else {
+                    Image(systemName: "person.fill").font(.title)
+                }
+            }
+            .foregroundStyle(PocketColor.onPrimary)
+            .frame(width: 64, height: 64)
+            .background(PocketColor.primary)
+            .clipShape(.circle)
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "camera.fill")
+                    .font(.caption2)
+                    .foregroundStyle(PocketColor.onSurface)
+                    .padding(5)
+                    .background(PocketColor.surface, in: .circle)
+                    .offset(x: 4, y: 4)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(model.profilePhoto == nil ? "設定大頭貼" : "更換大頭貼")
+        .accessibilityIdentifier("profile-photo")
+        .contextMenu {
+            if model.profilePhoto != nil {
+                Button("移除大頭貼", systemImage: "trash", role: .destructive) { savePhoto(nil) }
+                    .accessibilityIdentifier("profile-photo-remove")
+            }
+        }
+        .accessibilityActions {
+            if model.profilePhoto != nil {
+                Button("移除大頭貼") { savePhoto(nil) }
+            }
+        }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            photoItem = nil
+            Task {
+                guard let data = try? await item.loadTransferable(type: Data.self), let photo = ProfilePhoto.prepared(data) else {
+                    photoError = "無法讀取這張照片。"
+                    return
+                }
+                savePhoto(photo)
+            }
+        }
+        .alert("大頭貼", isPresented: Binding(get: { photoError != nil }, set: { if !$0 { photoError = nil } })) {
+            Button("好") { photoError = nil }
+        } message: {
+            Text(photoError ?? "")
+        }
+    }
+
+    private func savePhoto(_ photo: Data?) {
+        Task {
+            do {
+                try await model.setProfilePhoto(photo)
+            } catch {
+                photoError = "大頭貼未能儲存：\(PocketError(error).message)"
+            }
+        }
+    }
+
     @ViewBuilder
     private var profileCard: some View {
         if model.isSignedIn {
             let profile = model.profile
             PocketCard(fill: PocketColor.primaryContainer, padding: 24) {
                 HStack(spacing: 16) {
-                    Group {
-                        if let initial = profile.studentName.first {
-                            Text(String(initial)).font(PocketFont.display(28, relativeTo: .title))
-                        } else {
-                            Image(systemName: "person.fill").font(.title)
-                        }
-                    }
-                    .foregroundStyle(PocketColor.onPrimary)
-                    .frame(width: 64, height: 64)
-                    .background(PocketColor.primary, in: .circle)
-                    .accessibilityHidden(true)
+                    avatarPicker(profile)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(profile.studentName.isEmpty ? "已登入" : profile.studentName)
                             .font(PocketFont.display(26, relativeTo: .title))
@@ -212,9 +272,9 @@ struct PersonalView: View {
                             .padding(.top, 4)
                         }
                     }
+                    .accessibilityElement(children: .combine)
                 }
             }
-            .accessibilityElement(children: .combine)
         } else {
             PocketCard(fill: PocketColor.primaryContainer, padding: 24) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -277,5 +337,19 @@ struct PersonalView: View {
         .padding(.horizontal, 12)
         .frame(minHeight: 48)
         .contentShape(.rect)
+    }
+}
+
+/// A picked photo, scaled down to a small JPEG before it is stored with the account.
+enum ProfilePhoto {
+    static func prepared(_ data: Data, maxSide: CGFloat = 512) -> Data? {
+        guard let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 else { return nil }
+        let scale = min(1, maxSide / max(image.size.width, image.size.height))
+        let size = CGSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).jpegData(withCompressionQuality: 0.8) { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
     }
 }

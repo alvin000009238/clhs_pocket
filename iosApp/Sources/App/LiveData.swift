@@ -17,6 +17,8 @@ final class LiveDataController {
     /// The signed-in student's custom subject names as the schedule store's JSON; nil while signed
     /// out. They live in the account's protected store, which is also what the settings backup reads.
     private(set) var subjectOverrides: String?
+    /// The signed-in student's profile photo, kept in the account's private store; nil while signed out.
+    private(set) var profilePhoto: Data?
     @ObservationIgnored private var lastGradeCheck: Date?
     @ObservationIgnored private let gradeBaseline = GradeCheckBaseline()
     /// The one restore of the stored session; foreground and background launches share it.
@@ -138,6 +140,7 @@ final class LiveDataController {
         let before = widgetKeys(widgetLayout)
         let first = widgetLayout.isEmpty
         widgetLayout = layout
+        PocketDashboard.shared.dropUnusedLiveData(layout: layout)
         guard !first, !widgetKeys(layout).isSubset(of: before) else { return }
         let epoch = publicEpoch
         Task {
@@ -170,6 +173,8 @@ final class LiveDataController {
            isCurrentPublic(epoch) {
             for load in loads { if let snapshot = load.snapshot { live.putYouBike(stationId: load.stationId, snapshot: snapshot) } }
         }
+        // A widget removed or re-pointed while this was loading leaves nothing behind.
+        dashboard.dropUnusedLiveData(layout: widgetLayout)
     }
 
     /// The first page of the school's announcement list.
@@ -296,6 +301,7 @@ final class LiveDataController {
         session = nil
         hasStoredAccount = false
         subjectOverrides = nil
+        profilePhoto = nil
         lastGradeCheck = nil
         loadingAuthorization = nil
         isLoadingPrivate = false
@@ -353,6 +359,30 @@ final class LiveDataController {
         endSessionInMemory()
         let result: Result<Void, PocketError> = await serialized { [backend] in
             do { return .success(try await backend.logout()) } catch { return .failure(PocketError(error)) }
+        }
+        try result.get()
+    }
+
+    /// Stores the photo for the signed-in student only; nil removes it. Logout and delete-all
+    /// remove it with the rest of the account's private data.
+    func setProfilePhoto(_ photo: Data?) async throws(PocketError) {
+        guard let session else { return }
+        try await backend.call { try await $0.saveProfilePhoto(session: session, base64: photo?.base64EncodedString(), token: $1) }
+        guard self.session?.authorizationId == session.authorizationId else { return }
+        profilePhoto = photo
+        publish()
+    }
+
+    /// 開發者選項's selective clearing. Runs in turn with logout and login; anything chosen that
+    /// is still stored afterwards is thrown as `.cleanupIncomplete`.
+    func clearLocalData(_ areas: [LocalDataArea]) async throws(PocketError) {
+        let result: Result<Void, PocketError> = await serialized { [backend] in
+            do {
+                try await backend.call { try await $0.clearLocalData(areas: areas, token: $1) }
+                return .success(())
+            } catch {
+                return .failure(PocketError(error))
+            }
         }
         try result.get()
     }
@@ -419,6 +449,10 @@ final class LiveDataController {
             let overrides = try await backend.call { try await $0.subjectOverrides(session: session, token: $1) }
             guard current() else { return }
             subjectOverrides = PocketScheduleStore.shared.overridesJson(models: overrides)
+            // An unreadable photo is only a missing one; it never stops the grades from loading.
+            let photo = try? await backend.call { try await $0.profilePhoto(session: session, token: $1) }
+            guard current() else { return }
+            profilePhoto = photo.flatMap { Data(base64Encoded: $0) }
             let structure = try await backend.call { try await $0.loadStructure(session: session, forceRefresh: force, token: $1) }
             guard current() else { return }
             live.putStructure(items: structure)
