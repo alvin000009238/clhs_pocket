@@ -316,6 +316,19 @@ private struct GradeExportSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                // Status first, so it is visible at the medium detent however many terms there are.
+                Section {
+                    Text(message ?? "匯出所選考試的各科分數、班平均、排名與五標，可用試算表開啟。")
+                        .font(.footnote)
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                        .accessibilityIdentifier("export-message")
+                    if let file {
+                        ShareLink(item: file) {
+                            Label("分享 CSV 檔", systemImage: "square.and.arrow.up")
+                        }
+                        .accessibilityIdentifier("export-share")
+                    }
+                }
                 ForEach(terms, id: \.value) { term in
                     Section {
                         ForEach(term.exams, id: \.value) { exam in
@@ -351,29 +364,20 @@ private struct GradeExportSheet: View {
                         }
                     }
                 }
-                Section {
-                    if let file {
-                        ShareLink(item: file) {
-                            Label("分享 CSV 檔", systemImage: "square.and.arrow.up")
-                        }
-                        .accessibilityIdentifier("export-share")
-                    } else {
-                        Button {
-                            Task { await export() }
-                        } label: {
-                            if working { ProgressView() } else { Label("匯出", systemImage: "tablecells") }
-                        }
-                        .disabled(selection.isEmpty || working)
-                        .accessibilityIdentifier("export-confirm")
-                    }
-                } footer: {
-                    Text(message ?? "匯出所選考試的各科分數、班平均、排名與五標，可用試算表開啟。")
-                }
             }
             .navigationTitle("選擇要匯出的考試")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    if working {
+                        ProgressView()
+                    } else {
+                        Button("匯出") { Task { await export() } }
+                            .disabled(selection.isEmpty || file != nil)
+                            .accessibilityIdentifier("export-confirm")
+                    }
+                }
             }
         }
         .presentationDetents([.medium, .large])

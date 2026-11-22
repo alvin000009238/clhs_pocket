@@ -337,7 +337,7 @@ final class PocketShellUITests: XCTestCase {
         capture("36-grades-export")
         app.buttons["export-confirm"].tap()
         XCTAssertTrue(app.buttons["export-share"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["已匯出 2 次考試。"].exists)
+        XCTAssertEqual(app.staticTexts["export-message"].label, "已匯出 2 次考試。")
         capture("37-grades-exported")
     }
 
