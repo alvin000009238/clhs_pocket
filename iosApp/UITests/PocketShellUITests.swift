@@ -512,11 +512,16 @@ final class PocketShellUITests: XCTestCase {
     }
 
     private func tab(_ title: String) -> XCUIElement {
-        // The iOS 26 tab bar minimises while scrolled down; scroll back to restore it.
-        // A pull-to-refresh at the top can briefly delay it, so wait before swiping again.
-        for _ in 0..<4 where !app.tabBars.buttons[title].waitForExistence(timeout: 2) { app.swipeDown() }
-        let inTabBar = app.tabBars.buttons[title]
-        return inTabBar.exists ? inTabBar : app.buttons[title].firstMatch
+        // The iOS 26 tab bar minimises while scrolled down and then shows only the current tab,
+        // as a button whose value is "Collapsed". Scrolling back up does not always restore it,
+        // so expand it the way a user does: tap the collapsed bar (this keeps the scroll position
+        // and does not reselect the tab). Only a real tab-bar button is ever returned.
+        let button = app.tabBars.buttons[title]
+        for _ in 0..<4 where !button.waitForExistence(timeout: 2) {
+            let collapsed = app.tabBars.buttons.matching(NSPredicate(format: "value == %@", "Collapsed")).firstMatch
+            if collapsed.exists { collapsed.tap() } else { app.swipeDown() }
+        }
+        return button
     }
 
     func testAppLockCoversTheAppUntilUnlocked() {
