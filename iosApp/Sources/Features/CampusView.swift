@@ -53,11 +53,62 @@ struct CampusView: View {
                             AnnouncementRows(announcements: Array(announcements.dropFirst().prefix(5)))
                         }
                     }
+                    VStack(alignment: .leading, spacing: 8) {
+                        PocketSectionHeader(title: "學校連結") { EmptyView() }
+                        PocketCard(padding: 8) {
+                            CampusLinkRow(title: "學校網站", detail: "龍潭高中官方網站", systemImage: "globe",
+                                          url: PocketAnnouncementFeed.shared.SCHOOL_WEBSITE_URL)
+                            PocketRowDivider().padding(.leading, 60)
+                            CampusLinkRow(title: "Google 行事曆", detail: "查看完整行事曆", systemImage: "calendar.badge.clock",
+                                          url: PocketAnnouncementFeed.shared.SCHOOL_CALENDAR_URL)
+                        }
+                    }
                 }
             }
             .pocketPage()
         }
         .navigationTitle(PocketTab.campus.title)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink(value: PocketRoute.campusSearch) {
+                    Label("搜尋公告與行事曆", systemImage: "magnifyingglass")
+                }
+                .accessibilityIdentifier("campus-search")
+            }
+        }
+    }
+}
+
+private struct CampusLinkRow: View {
+    @Environment(\.openURL) private var openURL
+    let title: String
+    let detail: String
+    let systemImage: String
+    let url: String
+
+    var body: some View {
+        Button {
+            if let url = URL(string: url) { openURL(url) }
+        } label: {
+            HStack(spacing: 14) {
+                PocketIconTile(systemImage: systemImage)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.body.weight(.medium)).foregroundStyle(PocketColor.onSurface)
+                    Text(detail).font(.footnote).foregroundStyle(PocketColor.onSurfaceVariant)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.right").font(.footnote.weight(.semibold))
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("在瀏覽器開啟")
+        .accessibilityIdentifier("campus-link-\(title)")
     }
 }
 
@@ -187,6 +238,8 @@ struct AnnouncementRows: View {
 
 struct EventRows: View {
     let events: [PocketEventRow]
+    /// When set, each row opens the event.
+    var onSelect: ((String) -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -220,8 +273,25 @@ struct EventRows: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
+                .contentShape(.rect)
                 .accessibilityElement(children: .combine)
+                .modifier(EventRowTap(id: event.id, onSelect: onSelect))
             }
+        }
+    }
+}
+
+private struct EventRowTap: ViewModifier {
+    let id: String
+    let onSelect: ((String) -> Void)?
+
+    func body(content: Content) -> some View {
+        if let onSelect {
+            Button { onSelect(id) } label: { content }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("event-\(id)")
+        } else {
+            content
         }
     }
 }

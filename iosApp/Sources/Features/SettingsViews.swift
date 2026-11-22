@@ -77,6 +77,12 @@ struct NotificationSettingsView: View {
                 Toggle(isOn: binding(\.courseReminders)) { row("上課前提醒", "上課前 5 分鐘") }
                 Toggle(isOn: binding(\.gradeUpdates)) { row("成績更新", "不顯示分數與排名") }
                 Toggle(isOn: binding(\.announcements)) { row("學校公告", nil) }
+                NavigationLink {
+                    AnnouncementReminderView()
+                } label: {
+                    LabeledContent("公告提醒設定", value: "單位與檢查頻率")
+                }
+                .accessibilityIdentifier("settings-announcement-reminders")
             }
             .disabled(!settings.notificationsEnabled)
             Section {

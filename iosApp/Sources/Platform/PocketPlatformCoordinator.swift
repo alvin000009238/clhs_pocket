@@ -133,11 +133,17 @@ final class PocketPlatformCoordinator: NSObject {
         }
         // School announcements are public and need no account, so this check also runs behind the
         // lock. It fetches the list itself: a background launch has none in memory.
-        if !paused, isCurrent(), !Task.isCancelled {
+        if !paused, isCurrent(), !Task.isCancelled, settings.announcementCheckDue(at: deviceNow) {
             await data.loadAnnouncements()
             let scheduleNow = PlatformClock.scheduleNow(deviceNow: deviceNow)
-            if isCurrent(), !Task.isCancelled, let headlines = data.announcementHeadlines(at: scheduleNow) {
+            let units = settings.announcementUnitIds.filter { $0 != PocketAnnouncementFeed.shared.ALL_ID }
+            var headlines = data.announcementHeadlines(at: scheduleNow)
+            if !units.isEmpty, isCurrent(), !Task.isCancelled {
+                headlines = await data.announcementHeadlines(unitIds: units, at: scheduleNow)
+            }
+            if isCurrent(), !Task.isCancelled, let headlines {
                 await notifications.checkAnnouncements(headlines, now: deviceNow, settings: shared)
+                settings.announcementLastCheck = deviceNow
             }
         }
         // A sign-out during the awaits above already ran its own cleanup; run it
