@@ -474,10 +474,14 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["announcements-reminders"].tap()
         XCTAssertTrue(app.switches["reminder-toggle"].waitForExistence(timeout: 5))
         let unit = app.buttons["reminder-unit-101"]
-        XCTAssertTrue(unit.waitForExistence(timeout: 5))
+        // With large Dynamic Type the unit list starts below the fold.
+        for _ in 0..<6 where !unit.waitForExistence(timeout: 2) || !unit.isHittable { app.swipeUp() }
+        XCTAssertTrue(unit.isHittable)
         unit.tap()
         XCTAssertEqual(unit.value as? String, "已選取")
-        XCTAssertEqual(app.buttons["reminder-unit--1"].value as? String, "未選取")
+        let allUnits = app.buttons["reminder-unit--1"]
+        for _ in 0..<6 where !allUnits.exists { app.swipeDown() }
+        XCTAssertEqual(allUnits.value as? String, "未選取")
         capture("77-announcement-reminders")
         app.navigationBars.buttons.firstMatch.tap()
         XCTAssertTrue(app.segmentedControls["announcement-filter"].waitForExistence(timeout: 5))
@@ -494,7 +498,10 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["event-demo-e5"].tap()
         XCTAssertTrue(app.staticTexts["event-title"].waitForExistence(timeout: 5))
         capture("80-calendar-event")
-        app.buttons["event-add-countdown"].tap()
+        let addCountdown = app.buttons["event-add-countdown"]
+        // At accessibility text sizes the half-height sheet keeps its actions below the fold.
+        for _ in 0..<4 where !(addCountdown.exists && addCountdown.isHittable) { app.staticTexts["event-title"].swipeUp() }
+        addCountdown.tap()
         XCTAssertTrue(app.buttons["已將「期末考」加入首頁倒數元件"].waitForExistence(timeout: 5))
         app.buttons["完成"].tap()
         app.navigationBars.buttons.firstMatch.tap()
