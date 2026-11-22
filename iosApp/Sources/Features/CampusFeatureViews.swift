@@ -75,7 +75,7 @@ struct AnnouncementListView: View {
                     }
                     content(feed)
                 }
-                .frame(maxWidth: 720)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .pocketPage()
             }
             .overlay(alignment: .bottomTrailing) {
@@ -448,7 +448,7 @@ struct CampusSearchView: View {
                         .foregroundStyle(PocketColor.onSurfaceVariant)
                 }
             }
-            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .pocketPage()
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜尋公告、行事曆…")
