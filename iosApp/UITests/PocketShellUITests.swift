@@ -175,6 +175,7 @@ final class PocketShellUITests: XCTestCase {
         search("weather-search", "台東 池上")
         let township = app.buttons["choice-tw-10014060"]
         XCTAssertTrue(township.waitForExistence(timeout: 5))
+        reveal(township)
         township.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "已選擇：池上")).firstMatch.waitForExistence(timeout: 5))
         let cwa = app.buttons["weather-source-CWA"]
@@ -192,6 +193,7 @@ final class PocketShellUITests: XCTestCase {
         let station = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "choice-")).firstMatch
         XCTAssertTrue(station.waitForExistence(timeout: 5))
         let stationName = station.label.components(separatedBy: ",").first ?? ""
+        reveal(station)
         station.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "已選擇")).firstMatch.waitForExistence(timeout: 5))
         search("youbike-search", "不存在的站")
@@ -621,7 +623,8 @@ final class PocketShellUITests: XCTestCase {
         if let value = field.value as? String, !value.isEmpty, value != field.placeholderValue {
             field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count))
         }
-        field.typeText(text)
+        // Submitting closes the keyboard, which can cover the results at large text sizes.
+        field.typeText(text + "\n")
     }
 
     private func editorRow(_ text: String) -> XCUIElement {
