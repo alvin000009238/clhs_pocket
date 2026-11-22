@@ -1,7 +1,9 @@
 package com.clhs.score.shared.app
 
 import com.clhs.score.data.WeatherLocation
+import com.clhs.score.data.WeatherSource
 import com.clhs.score.data.YouBikeStation
+import com.clhs.score.domain.overview.AnnouncementPriority
 import com.clhs.score.domain.overview.OverviewLayoutEngine
 import com.clhs.score.domain.overview.OverviewLayoutJson
 import com.clhs.score.domain.overview.OverviewPlacement
@@ -52,7 +54,20 @@ data class PocketWidget(
     val events: List<PocketEventRow>,
     val announcements: List<PocketAnnouncement>,
     val alerts: List<PocketAlertRow>,
+    /** `OPEN_METEO` or `CWA` for a weather widget, empty otherwise. */
+    val weatherSource: String = "",
+    /** Whether the weather location has a 中央氣象署 forecast. */
+    val supportsCwa: Boolean = false,
+    /** Name of the selected location, station or event, with its area as detail. */
+    val selection: PocketChoice? = null,
+    /** Announcement priority, highest first (`id` is the stored name). */
+    val priorities: List<PocketChoice> = emptyList(),
+    /** Calendar: events longer than this many days are hidden; 0 shows every event. */
+    val maxEventDurationDays: Int = 0,
 )
+
+/** One weather reading the live data owner should load: the location and source a widget chose. */
+data class PocketWeatherRequest(val location: WeatherLocation, val source: WeatherSource)
 
 data class PocketWidgetType(val type: String, val title: String, val symbol: String, val detail: String, val canAdd: Boolean)
 
@@ -227,7 +242,7 @@ object PocketDashboard {
                 customTime = (config as? OverviewWidgetConfig.CustomCountdown)?.time.orEmpty(),
                 needsSignIn = locked,
                 hero = if (widget.type == "schedule" && !locked) DemoSchedule.hero(clock) else null,
-                weather = (config as? OverviewWidgetConfig.Weather)?.let { PocketData.current.weather(it.location) },
+                weather = (config as? OverviewWidgetConfig.Weather)?.let { PocketData.current.weather(it.location, it.source) },
                 youBike = (config as? OverviewWidgetConfig.YouBike)?.let { PocketData.current.youBike(it.station) },
                 countdown = countdown?.let {
                     PocketCountdown(it.id, it.label, it.title, it.supportingText.removeSuffix(" 開始").slashDate())
@@ -236,6 +251,18 @@ object PocketDashboard {
                 announcements = if (widget.type == "announcements" && list != null)
                     DemoCampus.importantAnnouncements(clock, list, unreadIds, bookmarkedIds).take(shown) else emptyList(),
                 alerts = if (widget.type == "alerts" && !locked) DemoSchedule.alerts(clock).take(ownRows * 2) else emptyList(),
+                weatherSource = (config as? OverviewWidgetConfig.Weather)?.source?.name.orEmpty(),
+                supportsCwa = (config as? OverviewWidgetConfig.Weather)?.location?.supportsCwa == true,
+                selection = when (config) {
+                    is OverviewWidgetConfig.Weather -> config.location.choice()
+                    is OverviewWidgetConfig.YouBike -> config.station.choice()
+                    is OverviewWidgetConfig.SchoolEvent -> PocketChoice(config.eventId, countdown?.title ?: config.title, countdown?.supportingText.orEmpty())
+                    else -> null
+                },
+                priorities = if (widget.type == "announcements") list?.announcementPriority.orEmpty().map {
+                    PocketChoice(it.name, it.title, "")
+                } else emptyList(),
+                maxEventDurationDays = list?.maxEventDurationDays ?: 0,
             )
         }
     }
@@ -341,6 +368,66 @@ object PocketDashboard {
         widget.withConfig(current.copy(limit = limit.coerceIn(1, 20)))
     }
 
+    /**
+     * Chooses a location from the Taiwan catalogue (or the current one) and a source for a weather
+     * widget. 中央氣象署 needs a township with a CWA forecast; other locations fall back to Open-Meteo,
+     * as Android's sheet disables the CWA choice for them.
+     */
+    fun setWeather(layout: String, id: String, locationId: String, source: String): String = update(layout, id) { widget ->
+        val current = widget.config() as? OverviewWidgetConfig.Weather ?: return@update widget
+        val location = if (locationId == current.location.id) current.location
+            else PocketWeatherCatalog.find(locationId) ?: return@update widget
+        val wanted = WeatherSource.entries.firstOrNull { it.name == source } ?: current.source
+        widget.withConfig(OverviewWidgetConfig.Weather(location, if (wanted == WeatherSource.CWA && !location.supportsCwa) WeatherSource.OPEN_METEO else wanted))
+    }
+
+    /** Any station found by a search, not only the demo list. Stations without a name or id are ignored. */
+    fun selectYouBikeStation(layout: String, id: String, station: YouBikeStation): String = update(layout, id) { widget ->
+        val next = widget.withConfig(OverviewWidgetConfig.YouBike(station))
+        if (widget.type == "youbike" && next.config() != null) next else widget
+    }
+
+    /** [order] holds every priority name once, highest first; anything else is ignored. */
+    fun setAnnouncementPriority(layout: String, id: String, order: List<String>): String = update(layout, id) { widget ->
+        val current = widget.config() as? OverviewWidgetConfig.ListItems ?: return@update widget
+        val priorities = order.mapNotNull { name -> AnnouncementPriority.entries.firstOrNull { it.name == name } }
+        if (widget.type != "announcements" || priorities.toSet() != AnnouncementPriority.entries.toSet() ||
+            priorities.size != AnnouncementPriority.entries.size) return@update widget
+        widget.withConfig(current.copy(announcementPriority = priorities))
+    }
+
+    /** Hides calendar events longer than [days]; 0 turns the filter off. */
+    fun setMaxEventDuration(layout: String, id: String, days: Int): String = update(layout, id) { widget ->
+        val current = widget.config() as? OverviewWidgetConfig.ListItems ?: return@update widget
+        if (widget.type != "calendar" || days < 0) return@update widget
+        widget.withConfig(current.copy(maxEventDurationDays = days.takeIf { it > 0 }))
+    }
+
+    /** Offline township search for the weather widget (see [PocketWeatherCatalog]). */
+    fun searchWeatherLocations(query: String): List<PocketChoice> = PocketWeatherCatalog.search(query).map { it.choice() }
+
+    /** Demo stand-in for the public YouBike search, matching name, district or address like Android. */
+    fun searchDemoYouBikeStations(query: String): List<YouBikeStation> {
+        val input = query.trim()
+        if (input.isBlank() || input.length > 120) return emptyList()
+        val wanted = input.replace('台', '臺')
+        return DemoLive.stations.filter { station ->
+            listOf(station.name, station.district, station.address).any { it.replace('台', '臺').contains(wanted, ignoreCase = true) }
+        }
+    }
+
+    /** Distinct readings the enabled weather widgets need, in layout order. */
+    fun weatherRequests(layout: String): List<PocketWeatherRequest> = decode(layout).filter { it.enabled }
+        .mapNotNull { (it.config() as? OverviewWidgetConfig.Weather)?.let { config -> PocketWeatherRequest(config.location, config.source) } }
+        .distinctBy { it.location.id to it.source }
+
+    /** Distinct stations the enabled YouBike widgets show, in layout order. */
+    fun youBikeStationsIn(layout: String): List<YouBikeStation> = decode(layout).filter { it.enabled }
+        .mapNotNull { (it.config() as? OverviewWidgetConfig.YouBike)?.station }.distinctBy { it.id }
+
+    private fun WeatherLocation.choice() = PocketChoice(id, name, county)
+    private fun YouBikeStation.choice() = PocketChoice(id, name, listOf(district, address).filter(String::isNotBlank).joinToString(" · "))
+
     fun weatherLocations(): List<PocketChoice> = PocketData.current.weatherLocations.map { PocketChoice(it.id, it.name, it.county) }
 
     fun youBikeStations(): List<PocketChoice> = PocketData.current.youBikeStations.map { PocketChoice(it.id, it.name, it.district + it.address) }
@@ -368,10 +455,16 @@ internal object DemoLive {
         YouBikeStation("500304011", "中壢火車站(後站)", 24.9527, 121.2262, "中壢區", "中和路"),
         YouBikeStation("500304025", "中原大學", 24.9573, 121.2409, "中壢區", "中北路"),
         YouBikeStation("500304040", "光明公園", 24.9652, 121.2188, "中壢區", "民族路"),
+        YouBikeStation("500304052", "中壢圖書館", 24.9585, 121.2244, "中壢區", "中美路"),
+        YouBikeStation("500305003", "平鎮區公所", 24.9459, 121.2182, "平鎮區", "環南路"),
+        YouBikeStation("500301012", "桃園火車站(前站)", 24.9893, 121.3135, "桃園區", "中正路"),
+        YouBikeStation("500308001", "高鐵桃園站", 25.0132, 121.2147, "中壢區", "高鐵北路"),
     )
 
     fun weather(location: WeatherLocation): PocketWeather {
-        val index = locations.indexOfFirst { it.id == location.id }.coerceAtLeast(0)
+        // Catalogue towns outside the fixed list still get a stable, distinct reading.
+        val index = locations.indexOfFirst { it.id == location.id }.takeIf { it >= 0 }
+            ?: (location.id.hashCode() and Int.MAX_VALUE) % 4
         val kinds = listOf(
             PocketWeatherKind.PARTLY_CLOUDY to "多雲時晴", PocketWeatherKind.CLOUDY to "陰天",
             PocketWeatherKind.SUNNY to "晴", PocketWeatherKind.RAIN to "短暫雨",

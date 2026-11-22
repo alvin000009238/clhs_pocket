@@ -16,6 +16,7 @@ import com.clhs.score.data.SchoolAnnouncementDetail
 import com.clhs.score.data.SchoolCalendarEvent
 import com.clhs.score.data.StudentInfo
 import com.clhs.score.data.WeatherLocation
+import com.clhs.score.data.WeatherSource
 import com.clhs.score.data.YearTermOption
 import com.clhs.score.data.YouBikeSnapshot
 import com.clhs.score.data.YouBikeStation
@@ -59,6 +60,8 @@ internal interface PocketSource {
     val weatherLocations: List<WeatherLocation>
     val youBikeStations: List<YouBikeStation>
     fun weather(location: WeatherLocation): PocketWeather?
+    /** A widget's own source; sources without a separate reading fall back to [weather]. */
+    fun weather(location: WeatherLocation, source: WeatherSource): PocketWeather? = weather(location)
     fun youBike(station: YouBikeStation): PocketYouBikeStation?
 
     val recordSemesters: List<RecordSemester>
@@ -183,9 +186,11 @@ object PocketLive : PocketSource {
     override fun events(clock: PocketClock): List<SchoolCalendarEvent> = eventList
     fun putEvents(items: List<SchoolCalendarEvent>) { eventList = items }
 
-    override fun weather(location: WeatherLocation): PocketWeather? = weatherByLocation[location.id]?.let { snapshot ->
+    override fun weather(location: WeatherLocation): PocketWeather? = weatherByLocation[location.id]?.let { render(location, it) }
+
+    private fun render(location: WeatherLocation, snapshot: WeatherSnapshot): PocketWeather {
         val text = snapshot.condition
-        PocketWeather(
+        return PocketWeather(
             location = location.name,
             temperatureText = "${snapshot.temperatureCelsius}°",
             condition = text,
@@ -203,6 +208,14 @@ object PocketLive : PocketSource {
         )
     }
     fun putWeather(locationId: String, snapshot: WeatherSnapshot) { weatherByLocation[locationId] = snapshot }
+
+    private fun weatherKey(location: WeatherLocation, source: WeatherSource) = "${location.id}|${source.name}"
+    override fun weather(location: WeatherLocation, source: WeatherSource): PocketWeather? =
+        weatherByLocation[weatherKey(location, source)]?.let { render(location, it) }
+    /** Reading for one widget's location and source, so two widgets on different sources stay apart. */
+    fun putWeather(location: WeatherLocation, source: WeatherSource, snapshot: WeatherSnapshot) {
+        weatherByLocation[weatherKey(location, source)] = snapshot
+    }
 
     override fun youBike(station: YouBikeStation): PocketYouBikeStation? = bikesByStation[station.id]?.let { snapshot ->
         val parts = listOfNotNull(
