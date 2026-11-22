@@ -659,6 +659,7 @@ struct SubjectTrendView: View {
     @State private var subjectKeys: [String] = []
     @State private var highlighted: String?
     @State private var selectedExam: String?
+    @State private var pageHeight: CGFloat = 0
     @State private var loading = false
     @State private var showsYears = false
     @State private var showsSubjects = false
@@ -680,6 +681,7 @@ struct SubjectTrendView: View {
             .padding(.bottom, 32)
         }
         .background(PocketColor.background)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pageHeight = $0 }
         .navigationTitle("成績折線圖")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: chosenYears) {
@@ -814,7 +816,7 @@ struct SubjectTrendView: View {
                 AxisValueLabel().font(.caption2)
             }
         }
-        .frame(height: sizeClass == .regular ? 520 : 320)
+        .frame(height: sizeClass == .regular ? max(420, pageHeight * 0.6) : 320)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityLabel("成績折線圖")
         .accessibilityValue(trend.description_)
