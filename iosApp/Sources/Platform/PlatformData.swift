@@ -10,6 +10,9 @@ import PocketShared
 protocol PlatformDataProviding {
     /// Loads what a refresh needs when the app was started in the background and nothing is in memory.
     func prepare() async
+    /// Brings the public announcement list up to date when it is missing or old. A background
+    /// launch has none in memory, and nobody else fetches it there.
+    func loadAnnouncements() async
     func scheduleSnapshot(scheduleNow: Date, deviceNow: Date) -> PlatformSnapshot
     /// Nil when the list is not known right now (not loaded, or the demo is showing).
     func announcementHeadlines(at date: Date) -> [AnnouncementHeadline]?
@@ -19,6 +22,7 @@ protocol PlatformDataProviding {
 
 extension PlatformDataProviding {
     func prepare() async {}
+    func loadAnnouncements() async {}
 }
 
 /// What a provider knows about the student's timetable.

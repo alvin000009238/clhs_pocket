@@ -45,6 +45,29 @@ private struct StubAuthenticator: DeviceAuthenticating {
 }
 
 @MainActor
+/// Records what a refresh asked the data provider for.
+private final class RecordingPlatformData: PlatformDataProviding {
+    var snapshot: PlatformSnapshot = .unknown
+    var headlines: [AnnouncementHeadline]?
+    private(set) var calls: [String] = []
+
+    func prepare() async { calls.append("prepare") }
+    func loadAnnouncements() async { calls.append("loadAnnouncements") }
+    func scheduleSnapshot(scheduleNow: Date, deviceNow: Date) -> PlatformSnapshot {
+        calls.append("snapshot")
+        return snapshot
+    }
+    func announcementHeadlines(at date: Date) -> [AnnouncementHeadline]? {
+        calls.append("headlines")
+        return headlines
+    }
+    func gradeNotification(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification? {
+        calls.append("grades")
+        return nil
+    }
+}
+
+@MainActor
 final class PlatformTests: XCTestCase {
     private var defaults: UserDefaults!
     private let suite = "PlatformTests"
@@ -250,6 +273,46 @@ final class PlatformTests: XCTestCase {
         let fallback = UnavailablePlatformData()
         XCTAssertEqual(fallback.scheduleSnapshot(scheduleNow: lessonTime, deviceNow: lessonTime), .unknown)
         XCTAssertNil(fallback.announcementHeadlines(at: lessonTime))
+    }
+
+    /// A background refresh runs with the device unlocked but the app still behind its lock.
+    func testRefreshBehindTheAppLockLoadsAndPublishesNothingPersonal() async throws {
+        let coordinator = PocketPlatformCoordinator.shared
+        let savedStore = coordinator.store, savedData = coordinator.data, savedLocked = coordinator.isLocked
+        let wasSignedIn = coordinator.isSignedIn
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = RecordingPlatformData()
+        data.snapshot = .available(try demoJSON(at: lessonTime))
+        var locked = false
+        coordinator.isLocked = { locked }
+        coordinator.store = ScheduleSnapshotStore(directory: directory)
+        coordinator.data = UnavailablePlatformData()
+        await coordinator.sessionChanged(signedIn: true)
+        coordinator.data = data
+        addTeardownBlock { @MainActor in
+            coordinator.isLocked = savedLocked
+            coordinator.data = savedData
+            await coordinator.sessionChanged(signedIn: wasSignedIn)
+            coordinator.store = savedStore
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        locked = true
+        await coordinator.refresh(deviceNow: lessonTime)
+        XCTAssertFalse(data.calls.contains("prepare"), "the stored session is not restored behind the lock")
+        XCTAssertFalse(data.calls.contains("snapshot"))
+        XCTAssertFalse(data.calls.contains("grades"), "no grade check behind the lock")
+        XCTAssertNil(coordinator.store.loadData(), "nothing is published to the widget")
+
+        locked = false
+        await coordinator.refresh(deviceNow: lessonTime)
+        XCTAssertTrue(data.calls.contains("prepare"))
+        XCTAssertNotNil(coordinator.store.loadData(), "the same refresh publishes once the lock is open")
+
+        // With no shell installed (a cold background launch) the stored setting decides.
+        coordinator.isLocked = nil
+        XCTAssertEqual(coordinator.lockIsClosed, AppLockSetting().isEnabled)
     }
 
     func testDeleteAllEndsThePlatformSessionAndReportsASnapshotThatCouldNotBeDeleted() async throws {

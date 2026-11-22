@@ -27,6 +27,10 @@ final class PocketPlatformCoordinator: NSObject {
     /// Installed by the app shell: true while the app lock covers the app. Links wait until it opens.
     var isLocked: (@MainActor () -> Bool)?
 
+    /// Whether the app lock is closed right now. A background launch that has no shell yet counts
+    /// as locked whenever the lock is switched on: the app always starts locked.
+    var lockIsClosed: Bool { isLocked?() ?? AppLockSetting().isEnabled }
+
     /// Mirrors `AppModel.isSignedIn` for background launches, which have no
     /// model. It is the coordinator's own key because `AppModel`'s `session`
     /// default can be shadowed by a launch argument.
@@ -60,7 +64,10 @@ final class PocketPlatformCoordinator: NSObject {
     func didFinishLaunching() {
         UNUserNotificationCenter.current().delegate = self
         SystemNotificationScheduler.registerCategories()
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: PocketPlatformID.refreshTask, using: nil) { task in
+        // The handler is main-actor code, so it is delivered on the main queue: iOS would otherwise
+        // call it on a background queue, where Swift 6 aborts a main-actor closure. The expiration
+        // handler runs on a queue of the system's choosing and is therefore `@Sendable`.
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: PocketPlatformID.refreshTask, using: .main) { task in
             guard let task = task as? BGAppRefreshTask else { return }
             let work = Task { @MainActor in
                 // Ask for the next run first: a refresh that runs out of time must not end the chain.
@@ -68,7 +75,7 @@ final class PocketPlatformCoordinator: NSObject {
                 await PocketPlatformCoordinator.shared.refresh()
                 task.setTaskCompleted(success: !Task.isCancelled)
             }
-            task.expirationHandler = { work.cancel() }
+            task.expirationHandler = { @Sendable in work.cancel() }
         }
     }
 
@@ -114,8 +121,15 @@ final class PocketPlatformCoordinator: NSObject {
         }
         let generation = sessionGeneration
         let isCurrent: @MainActor () -> Bool = { [unowned self] in generation == sessionGeneration && isSignedIn }
+        // One rule for every caller, foreground or background task: behind the app lock nothing of
+        // the student's is read, fetched or published. The device being unlocked changes nothing;
+        // what is already on the widget and in the scheduled reminders stays as it is.
+        guard !lockIsClosed else {
+            scheduleBackgroundRefresh()
+            return
+        }
         await data.prepare()
-        guard isCurrent() else { return }
+        guard isCurrent(), !lockIsClosed else { return }
         let shared = settings.shared(at: deviceNow)
         // As on Android, the quiet window only stops background grade and
         // announcement checks; the widget snapshot and course reminders continue.
