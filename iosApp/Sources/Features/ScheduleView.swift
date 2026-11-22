@@ -24,6 +24,7 @@ struct ScheduleView: View {
     @State private var showsWeekPicker = false
     @State private var showsCustomSubjects = false
     @State private var confirmsRestoreAll = false
+    @State private var editingOverride: PocketSubjectOverride?
     @State private var loadingWeeks = false
     @State private var weeksError: String?
     /// Bumped by 查詢課表 and 重試 so the same choice is fetched again.
@@ -228,6 +229,10 @@ struct ScheduleView: View {
                                     }
                                     .accessibilityElement(children: .combine)
                                     Spacer(minLength: 8)
+                                    Button("編輯") { editingOverride = item }
+                                        .buttonStyle(.bordered)
+                                        .accessibilityLabel("編輯\(item.original)")
+                                        .accessibilityIdentifier("custom-subject-edit-\(item.original)")
                                     Button("還原") {
                                         model.scheduleOverrides = store.clearOverride(overrides: model.scheduleOverrides, original: item.original)
                                     }
@@ -253,6 +258,17 @@ struct ScheduleView: View {
                     Button("全部還原") { confirmsRestoreAll = true }
                         .disabled(overrides.isEmpty)
                         .accessibilityIdentifier("custom-subjects-restore-all")
+                }
+            }
+            .sheet(item: Binding(
+                get: { editingOverride.map(EditedOverride.init) },
+                set: { editingOverride = $0?.value }
+            )) { edited in
+                CustomSubjectEditor(item: edited.value) { subject, teacher, classroom in
+                    model.scheduleOverrides = store.setOverride(
+                        overrides: model.scheduleOverrides, original: edited.value.original,
+                        subject: subject, teacher: teacher, classroom: classroom
+                    )
                 }
             }
             .confirmationDialog("全部還原？", isPresented: $confirmsRestoreAll, titleVisibility: .visible) {
@@ -815,6 +831,65 @@ private struct ScheduleCellView: View {
     }
 
     private var isCurrentText: Bool { cell.status == .current }
+}
+
+private struct EditedOverride: Identifiable {
+    let value: PocketSubjectOverride
+    var id: String { value.original }
+}
+
+/// Android's 自訂 dialog in 自訂科目: the school's subject keeps its key; blank fields use the school's value.
+private struct CustomSubjectEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let item: PocketSubjectOverride
+    let save: (String, String, String) -> Void
+    @State private var subject: String
+    @State private var teacher: String
+    @State private var classroom: String
+
+    init(item: PocketSubjectOverride, save: @escaping (String, String, String) -> Void) {
+        self.item = item
+        self.save = save
+        _subject = State(initialValue: item.subject.isEmpty ? item.original : item.subject)
+        _teacher = State(initialValue: item.teacher)
+        _classroom = State(initialValue: item.classroom)
+    }
+
+    private static func clamped(_ text: String) -> String {
+        String(text.prefix(Int(PocketScheduleStore.shared.maxOverrideLength())))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("科目名稱", text: $subject).accessibilityIdentifier("custom-subject-name")
+                    TextField("教師（留空使用原本的）", text: $teacher)
+                    TextField("教室（留空使用原本的）", text: $classroom)
+                } header: {
+                    Text("校方科目：\(item.original)")
+                } footer: {
+                    Text("套用到這個科目的每一堂課。每欄最多 \(PocketScheduleStore.shared.maxOverrideLength()) 個字。")
+                }
+            }
+            .onChange(of: subject) { _, value in subject = Self.clamped(value) }
+            .onChange(of: teacher) { _, value in teacher = Self.clamped(value) }
+            .onChange(of: classroom) { _, value in classroom = Self.clamped(value) }
+            .navigationTitle("自訂")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("儲存") {
+                        save(subject, teacher, classroom)
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("custom-subject-save")
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
 }
 
 private struct ScheduleCellSheet: View {
