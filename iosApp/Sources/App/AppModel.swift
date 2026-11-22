@@ -217,11 +217,12 @@ final class AppModel {
     func platformSettingsChanged() {
         Task { await PocketPlatformCoordinator.shared.refresh() }
     }
-    /// Stored in the Keychain and the preferences; see `AppLockSetting`.
+    /// Mirrors the lock for the settings screens. `lock` is the authority: it stores the setting
+    /// itself (see `AppLockSetting`) and changes only when that succeeds, so a value assigned here
+    /// that the lock did not accept is put back.
     var appLockEnabled: Bool {
         didSet {
-            guard oldValue != appLockEnabled, !AppLockSetting().set(appLockEnabled) else { return }
-            appLockEnabled = oldValue
+            if appLockEnabled != lock.isEnabled { appLockEnabled = lock.isEnabled }
         }
     }
 
@@ -250,7 +251,9 @@ final class AppModel {
         // `-demoClock 2026-11-18T10:35` pins time for previews, tests and screenshots (Debug only).
         fixedClock = PocketLaunch.demoClock.flatMap(AppModel.parseClock)
         storedClock = fixedClock ?? AppModel.systemClock()
-        lock = AppLockController(isEnabled: lockEnabled, authenticator: PocketLaunch.authenticator())
+        lock = AppLockController(
+            isEnabled: lockEnabled, authenticator: PocketLaunch.authenticator(), persist: { lockSetting.set($0) }
+        )
         PocketPlatformCoordinator.shared.unlockGate = AppLockRouteGate(lock: lock).pass
         PocketPlatformCoordinator.shared.isLocked = { [lock] in lock.isLocked }
         var storageFailure: String?

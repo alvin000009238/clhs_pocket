@@ -98,8 +98,16 @@ final class AppLockController {
     /// The prompt in flight; everyone who asks while it is up waits for the same answer.
     @ObservationIgnored private var unlocking: Task<Void, Never>?
 
-    init(isEnabled: Bool, authenticator: DeviceAuthenticating = SystemDeviceAuthenticator()) {
+    /// Stores the setting; false when it could not be stored. The controller changes state only
+    /// after this succeeds, so a lock that could not be recorded as off stays on.
+    @ObservationIgnored private let persist: @MainActor (Bool) -> Bool
+
+    init(
+        isEnabled: Bool, authenticator: DeviceAuthenticating = SystemDeviceAuthenticator(),
+        persist: @escaping @MainActor (Bool) -> Bool = { _ in true }
+    ) {
         self.authenticator = authenticator
+        self.persist = persist
         self.isEnabled = isEnabled
         isLocked = isEnabled
         promptsOnActivation = isEnabled
@@ -154,6 +162,9 @@ final class AppLockController {
         method = authenticator.method()
         let reason = enabled ? "啟用 App 鎖定" : "關閉 App 鎖定"
         guard await authenticator.authenticate(reason: reason) == .success else { return false }
+        // Fail closed: without a stored answer the lock keeps its current state. Reporting it as
+        // off while the Keychain still says on (or the reverse) would leave the two disagreeing.
+        guard persist(enabled) else { return false }
         isEnabled = enabled
         isLocked = false
         message = nil

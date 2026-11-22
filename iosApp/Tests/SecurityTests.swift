@@ -222,6 +222,29 @@ final class AppLockControllerTests: XCTestCase {
         XCTAssertFalse(kept)
         XCTAssertTrue(lock.isEnabled, "the lock cannot be switched off without authenticating")
     }
+
+    func testLockStaysOnWhenTurningItOffCannotBeStored() async {
+        var stores = false
+        var stored: [Bool] = []
+        let lock = AppLockController(isEnabled: true, authenticator: FakeAuthenticator()) { value in
+            stored.append(value)
+            return stores
+        }
+        await lock.unlock()
+
+        let changed = await lock.setEnabled(false)
+        XCTAssertFalse(changed)
+        XCTAssertTrue(lock.isEnabled, "a lock that could not be recorded as off is still on")
+        lock.scenePhaseChanged(to: .background)
+        XCTAssertTrue(lock.isLocked, "and it still locks")
+
+        await lock.unlock()
+        stores = true
+        let off = await lock.setEnabled(false)
+        XCTAssertTrue(off)
+        XCTAssertFalse(lock.isEnabled)
+        XCTAssertEqual(stored, [false, false])
+    }
 }
 
 final class SchoolWebPolicyTests: XCTestCase {
