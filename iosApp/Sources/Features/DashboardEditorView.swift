@@ -6,6 +6,7 @@ import SwiftUI
 struct DashboardEditorView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @State private var confirmingCancel = false
 
     var body: some View {
         let widgets = model.widgets(columns: 4)
@@ -32,7 +33,7 @@ struct DashboardEditorView: View {
                 }
 
                 Section("新增小工具") {
-                    ForEach(PocketDashboard.shared.widgetTypes(layout: model.dashboardLayout)) { type in
+                    ForEach(PocketDashboard.shared.widgetTypes(layout: model.dashboardDraft ?? model.dashboardLayout)) { type in
                         Button {
                             model.editDashboard { $0.add(layout: $1, type: type.type, clock: model.clock) }
                         } label: {
@@ -58,10 +59,10 @@ struct DashboardEditorView: View {
                 }
 
                 Section {
-                    Button("還原預設配置", role: .destructive) {
-                        model.dashboardLayout = PocketDashboard.shared.defaultLayout()
-                    }
-                    .accessibilityIdentifier("dashboard-reset")
+                    Button("還原預設配置", role: .destructive) { model.resetDashboard() }
+                        .accessibilityIdentifier("dashboard-reset")
+                } footer: {
+                    Text("按「完成」才會儲存；「取消」可放棄這次的所有變更。")
                 }
             }
             .scrollContentBackground(.hidden)
@@ -69,11 +70,37 @@ struct DashboardEditorView: View {
             .navigationTitle("編輯首頁")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        if model.dashboardHasChanges { confirmingCancel = true } else { close(save: false) }
+                    }
+                    .accessibilityIdentifier("dashboard-cancel")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("復原", systemImage: "arrow.uturn.backward") { model.undoDashboardEdit() }
+                        .disabled(!model.canUndoDashboard)
+                        .accessibilityIdentifier("dashboard-undo")
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }.accessibilityIdentifier("dashboard-done")
+                    Button("完成") { close(save: true) }.accessibilityIdentifier("dashboard-done")
                 }
             }
+            .confirmationDialog("要儲存首頁的變更嗎？", isPresented: $confirmingCancel, titleVisibility: .visible) {
+                Button("儲存") { close(save: true) }
+                Button("捨棄變更", role: .destructive) { close(save: false) }
+                    .accessibilityIdentifier("dashboard-discard")
+                Button("繼續編輯", role: .cancel) {}
+            }
         }
+        .interactiveDismissDisabled(model.dashboardHasChanges)
+        .onAppear { if model.dashboardDraft == nil { model.beginDashboardEdit() } }
+        // A swipe-down can only dismiss an unchanged draft, so nothing is lost here.
+        .onDisappear { model.discardDashboardEdit() }
+    }
+
+    private func close(save: Bool) {
+        if save { model.saveDashboardEdit() } else { model.discardDashboardEdit() }
+        dismiss()
     }
 
     private func row(_ widget: PocketWidget, index: Int, count: Int) -> some View {
@@ -160,6 +187,7 @@ struct WidgetSettingsView: View {
                 }
             }
         }
+        .scrollDismissesKeyboard(.immediately)
         .scrollContentBackground(.hidden)
         .background(PocketColor.background.ignoresSafeArea())
         .navigationTitle(index.map { widgets[$0].title } ?? "小工具")
@@ -186,13 +214,9 @@ struct WidgetSettingsView: View {
     private func settings(_ widget: PocketWidget) -> some View {
         switch widget.settings {
         case .weather:
-            choices("地點", PocketDashboard.shared.weatherLocations(), selected: widget.selectionId) { id in
-                model.editDashboard { $0.setWeatherLocation(layout: $1, id: widgetID, locationId: id) }
-            }
+            WeatherWidgetSettings(widget: widget)
         case .youbike:
-            choices("站點", PocketDashboard.shared.youBikeStations(), selected: widget.selectionId) { id in
-                model.editDashboard { $0.setYouBikeStation(layout: $1, id: widgetID, stationId: id) }
-            }
+            YouBikeWidgetSettings(widget: widget)
         case .countdown:
             Section("倒數目標") {
                 Picker("倒數目標", selection: $isCustom) {
@@ -213,11 +237,13 @@ struct WidgetSettingsView: View {
                     Button("套用") { applyCustom() }
                         .disabled(customTitle.trimmingCharacters(in: .whitespaces).isEmpty)
                         .accessibilityIdentifier("countdown-apply")
+                } footer: {
+                    if !widget.customDate.isEmpty && widget.customDate < Self.today(model.clock) {
+                        Text("已到期，元件仍會保留")
+                    }
                 }
             } else {
-                choices("行程", PocketDashboard.shared.countdownEvents(clock: model.clock), selected: widget.selectionId) { id in
-                    model.editDashboard { $0.setSchoolEvent(layout: $1, id: widgetID, eventId: id, clock: model.clock) }
-                }
+                CountdownEventChoices(widget: widget)
             }
         case .list:
             Section {
@@ -233,33 +259,13 @@ struct WidgetSettingsView: View {
             } footer: {
                 Text("尺寸為「寬」時只顯示 1 則。")
             }
+            if widget.type == "announcements" {
+                AnnouncementPrioritySettings(widget: widget)
+            } else if widget.type == "calendar" {
+                LongEventSettings(widget: widget)
+            }
         default:
             EmptyView()
-        }
-    }
-
-    private func choices(_ title: String, _ items: [PocketChoice], selected: String, pick: @escaping (String) -> Void) -> some View {
-        Section(title) {
-            ForEach(items) { item in
-                Button {
-                    pick(item.id)
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.title).foregroundStyle(PocketColor.onSurface)
-                            if !item.detail.isEmpty {
-                                Text(item.detail).font(.footnote).foregroundStyle(PocketColor.onSurfaceVariant)
-                            }
-                        }
-                        Spacer()
-                        if item.id == selected {
-                            Image(systemName: "checkmark").foregroundStyle(PocketColor.primary).accessibilityHidden(true)
-                        }
-                    }
-                }
-                .accessibilityAddTraits(item.id == selected ? .isSelected : [])
-                .accessibilityIdentifier("choice-\(item.id)")
-            }
         }
     }
 
@@ -269,6 +275,10 @@ struct WidgetSettingsView: View {
         model.editDashboard {
             $0.setCustomCountdown(layout: $1, id: widgetID, title: customTitle, date: date, time: time)
         }
+    }
+
+    private static func today(_ clock: PocketClock) -> String {
+        String(format: "%04d-%02d-%02d", clock.year, clock.month, clock.day)
     }
 
     private static func formatter(_ withTime: Bool) -> DateFormatter {

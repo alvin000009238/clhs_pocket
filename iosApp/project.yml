@@ -12,6 +12,9 @@ targets:
       - path: Sources
       - path: Resources
       - path: Widgets/Shared
+      # Android's offline Taiwan township catalogue, searched by the weather widget settings.
+      - path: ../android/app/src/main/assets/weather_locations.json
+        buildPhase: resources
     dependencies:
       - target: CLHSPocketWidgets
     settings:

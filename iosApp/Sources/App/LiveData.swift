@@ -127,15 +127,46 @@ final class LiveDataController {
             live.putEvents(items: snapshot.feed.events)
         } catch { if isCurrentPublic(epoch) { lastError = error.message } }
         publish()
-        for location in live.weatherLocations {
+        await loadWidgets(force: force, epoch: epoch)
+    }
+
+    /// The home layout on screen; weather and YouBike follow the places its widgets chose.
+    @ObservationIgnored private var widgetLayout = ""
+
+    /// A widget that now asks for a place or source not loaded yet gets it right away.
+    func setWidgetLayout(_ layout: String) {
+        let before = widgetKeys(widgetLayout)
+        let first = widgetLayout.isEmpty
+        widgetLayout = layout
+        guard !first, !widgetKeys(layout).isSubset(of: before) else { return }
+        let epoch = publicEpoch
+        Task {
+            await loadWidgets(force: false, epoch: epoch)
+            publish()
+        }
+    }
+
+    private func widgetKeys(_ layout: String) -> Set<String> {
+        let dashboard = PocketDashboard.shared
+        return Set(dashboard.weatherRequests(layout: layout).map { "w:\($0.location.id)|\($0.source.name)" })
+            .union(dashboard.youBikeStationsIn(layout: layout).map { "y:\($0.id)" })
+    }
+
+    /// Each weather widget's own location and source, and every chosen YouBike station.
+    private func loadWidgets(force: Bool, epoch: Int) async {
+        let live = PocketLive.shared
+        let dashboard = PocketDashboard.shared
+        for request in dashboard.weatherRequests(layout: widgetLayout) {
             guard isCurrentPublic(epoch) else { return }
-            if let load = try? await backend.call({ try await $0.weather(source: weatherSource, location: location, forceRefresh: force, token: $1) }),
+            if let load = try? await backend.call({ try await $0.weather(source: request.source, location: request.location, forceRefresh: force, token: $1) }),
                let snapshot = load.snapshot, isCurrentPublic(epoch) {
-                live.putWeather(locationId: location.id, snapshot: snapshot)
+                live.putWeather(location: request.location, source: request.source, snapshot: snapshot)
             }
         }
         guard isCurrentPublic(epoch) else { return }
-        if let loads = try? await backend.call({ try await $0.youBike(stations: live.youBikeStations, forceRefresh: force, token: $1) }),
+        let stations = dashboard.youBikeStationsIn(layout: widgetLayout)
+        guard !stations.isEmpty else { return }
+        if let loads = try? await backend.call({ try await $0.youBike(stations: stations, forceRefresh: force, token: $1) }),
            isCurrentPublic(epoch) {
             for load in loads { if let snapshot = load.snapshot { live.putYouBike(stationId: load.stationId, snapshot: snapshot) } }
         }

@@ -130,6 +130,7 @@ final class AppModel {
             defaults.set(session.rawValue, forKey: Key.session)
             if oldValue != session { demoScheduleClass = "" }
             syncSource()
+            syncWidgetLayout()
             guard live != nil, oldValue != session else { return }
             // The demo account and real data never share read state.
             syncingUnread = true
@@ -147,7 +148,61 @@ final class AppModel {
 
     /// Home widget layout in the shared `OverviewWidgetInstance` JSON format.
     var dashboardLayout: String {
-        didSet { defaults.set(dashboardLayout, forKey: Key.dashboard) }
+        didSet {
+            defaults.set(dashboardLayout, forKey: Key.dashboard)
+            syncWidgetLayout()
+        }
+    }
+
+    /// The editor's unsaved layout. Home renders it while the editor is open; 完成 saves it.
+    private(set) var dashboardDraft: String? {
+        didSet { syncWidgetLayout() }
+    }
+    @ObservationIgnored private var draftHistory: [String] = []
+    var dashboardHasChanges: Bool { dashboardDraft.map { $0 != dashboardLayout } ?? false }
+    var canUndoDashboard: Bool { dashboardDraft != nil && !draftHistory.isEmpty }
+
+    func beginDashboardEdit() {
+        dashboardDraft = dashboardLayout
+        draftHistory = []
+    }
+
+    func saveDashboardEdit() {
+        if let dashboardDraft, dashboardDraft != dashboardLayout { dashboardLayout = dashboardDraft }
+        dashboardDraft = nil
+        draftHistory = []
+    }
+
+    func discardDashboardEdit() {
+        dashboardDraft = nil
+        draftHistory = []
+    }
+
+    func undoDashboardEdit() {
+        guard dashboardDraft != nil, let previous = draftHistory.popLast() else { return }
+        dashboardDraft = previous
+    }
+
+    /// Weather and YouBike widgets load what the visible layout asks for, including a draft.
+    private func syncWidgetLayout() {
+        guard usesLiveData, let live else { return }
+        live.setWidgetLayout(dashboardDraft ?? dashboardLayout)
+    }
+
+    /// Offline township search; the bundled catalogue is read on first use.
+    func searchWeatherLocations(_ query: String) -> [PocketChoice] {
+        if !PocketWeatherCatalog.shared.isLoaded,
+           let url = Bundle.main.url(forResource: "weather_locations", withExtension: "json"),
+           let json = try? String(contentsOf: url, encoding: .utf8) {
+            _ = PocketWeatherCatalog.shared.load(json: json)
+        }
+        return PocketDashboard.shared.searchWeatherLocations(query: query)
+    }
+
+    /// Public YouBike search in live mode, the demo stations otherwise.
+    func searchYouBikeStations(_ query: String) async throws(PocketError) -> [YouBikeStation] {
+        guard usesLiveData, let live else { return PocketDashboard.shared.searchDemoYouBikeStations(query: query) }
+        return try await live.backend.call { try await $0.searchYouBikeStations(query: query, token: $1) }
     }
 
     /// Personal subject overrides as the shared `ScheduleSubjectOverride` JSON list.
@@ -271,6 +326,7 @@ final class AppModel {
         }
         syncSource()
         if defaults.string(forKey: Key.dashboard) == nil { dashboardLayout = PocketDashboard.shared.defaultLayout() }
+        syncWidgetLayout()
         if usesLiveData { unreadAnnouncementIds = [] }
         if let live {
             PocketPlatformCoordinator.shared.data = LivePlatformData(live: live) { [weak self] in self?.usesLiveData ?? false }
@@ -336,13 +392,25 @@ final class AppModel {
 
     func widgets(columns: Int) -> [PocketWidget] {
         PocketDashboard.shared.widgets(
-            layout: dashboardLayout, columns: Int32(columns), clock: clock, signedIn: isSignedIn,
+            layout: dashboardDraft ?? dashboardLayout, columns: Int32(columns), clock: clock, signedIn: isSignedIn,
             unreadIds: unreadAnnouncementIds, bookmarkedIds: bookmarkedAnnouncementIds
         )
     }
 
     func editDashboard(_ change: (PocketDashboard, String) -> String) {
-        dashboardLayout = change(PocketDashboard.shared, dashboardLayout)
+        if let draft = dashboardDraft {
+            let next = change(PocketDashboard.shared, draft)
+            guard next != draft else { return }
+            draftHistory.append(draft)
+            dashboardDraft = next
+        } else {
+            dashboardLayout = change(PocketDashboard.shared, dashboardLayout)
+        }
+    }
+
+    /// Back to the default arrangement; inside the editor this only changes the draft, so it can be undone.
+    func resetDashboard() {
+        editDashboard { dashboard, _ in dashboard.defaultLayout() }
     }
 
     func path(for tab: PocketTab) -> Binding<[PocketRoute]> {

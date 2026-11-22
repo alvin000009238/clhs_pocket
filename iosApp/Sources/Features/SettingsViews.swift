@@ -214,7 +214,7 @@ struct WeatherSourceView: View {
 
 /// The user's own CWA open-data key. It is checked against the API before it is kept in the Keychain
 /// and is never shown again once saved.
-private struct CwaKeySection: View {
+struct CwaKeySection: View {
     @Environment(AppModel.self) private var model
     @State private var hasKey: Bool?
     @State private var key = ""
