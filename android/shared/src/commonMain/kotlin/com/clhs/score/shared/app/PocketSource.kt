@@ -7,6 +7,7 @@ import com.clhs.score.data.FakeRecordData
 import com.clhs.score.data.FakeScheduleData
 import com.clhs.score.data.GradeReport
 import com.clhs.score.data.MeritRecord
+import com.clhs.score.data.RecordHistoryStatistic
 import com.clhs.score.data.RecordSemester
 import com.clhs.score.data.ScheduleClassOption
 import com.clhs.score.data.ScheduleReport
@@ -76,6 +77,10 @@ internal interface PocketSource {
     val recordSemesters: List<RecordSemester>
     fun attendance(semester: RecordSemester): AttendanceRecord?
     fun merits(semester: RecordSemester): List<MeritRecord>?
+
+    /** Six-semester statistics; null while not loaded. */
+    val attendanceHistory: List<RecordHistoryStatistic>? get() = null
+    val meritHistory: List<RecordHistoryStatistic>? get() = null
 }
 
 internal object DemoSource : PocketSource {
@@ -131,6 +136,8 @@ internal object DemoSource : PocketSource {
     override val recordSemesters get() = FakeRecordData.semesters
     override fun attendance(semester: RecordSemester) = FakeRecordData.attendance(semester)
     override fun merits(semester: RecordSemester) = FakeRecordData.merits(semester)
+    override val attendanceHistory get() = FakeRecordData.attendanceHistory
+    override val meritHistory get() = FakeRecordData.meritHistory
 }
 
 /**
@@ -248,6 +255,8 @@ object PocketLive : PocketSource {
     fun putAttendance(semester: RecordSemester, record: AttendanceRecord) { attendanceBySemester[semesterKey(semester)] = record }
     override fun merits(semester: RecordSemester): List<MeritRecord>? = meritsBySemester[semesterKey(semester)]
     fun putMerits(semester: RecordSemester, records: List<MeritRecord>) { meritsBySemester[semesterKey(semester)] = records }
+    override var attendanceHistory: List<RecordHistoryStatistic>? = null
+    override var meritHistory: List<RecordHistoryStatistic>? = null
 
     /** `[year, term]` of a schedule or grade year option, or null when it is malformed. */
     fun yearTermParts(value: String): List<String>? = parseYearTermOrNull(value)?.let { listOf(it.first, it.second) }
@@ -287,6 +296,8 @@ object PocketLive : PocketSource {
         scheduleYears = emptyList()
         weeksByYear.clear()
         recordSemesters = emptyList()
+        attendanceHistory = null
+        meritHistory = null
         attendanceBySemester.clear()
         meritsBySemester.clear()
     }

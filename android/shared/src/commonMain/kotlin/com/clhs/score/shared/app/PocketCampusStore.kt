@@ -1,5 +1,11 @@
 package com.clhs.score.shared.app
 
+import com.clhs.score.data.RecordHistoryStatistic
+
+import com.clhs.score.data.RecordCategoryCount
+
+import com.clhs.score.data.MeritRecord
+
 import com.clhs.score.data.FakeRecordData
 import com.clhs.score.shared.time.compareTo
 import com.clhs.score.shared.time.datePart
@@ -62,7 +68,17 @@ data class PocketRecordRow(
     val detail: String,
     val note: String,
     val isConcern: Boolean,
+    /** Merit approval details behind 查看核定資訊; empty for attendance. */
+    val group: String = "",
+    val yearTerm: String = "",
+    val checkDate: String = "",
+    val cleanDate: String = "",
 )
+
+/** Android's 查看歷年統計 table: one row per category, one cell per grade and half. */
+data class PocketRecordHistory(val terms: List<String>, val rows: List<PocketRecordHistoryRow>, val note: String)
+
+data class PocketRecordHistoryRow(val category: String, val cells: List<String>, val descriptions: List<String>)
 
 data class PocketRecords(
     val semesters: List<String>,
@@ -72,11 +88,15 @@ data class PocketRecords(
     val emptyText: String,
     /** False while this semester's records have not been loaded. */
     val isLoaded: Boolean = true,
+    /** Up to three attendance categories for the summary, 病假, 事假 and 曠課 first. */
+    val highlights: List<PocketRecordCount> = emptyList(),
 )
 
 /** Public campus content plus the demo attendance and merit records. */
 object PocketCampusStore {
     private const val ALL = "全部"
+    private const val REWARDS = "獎勵"
+    private const val PENALTIES = "懲處"
 
     fun defaultUnreadIds(): Set<String> = DemoCampus.defaultUnreadIds
 
@@ -259,28 +279,79 @@ object PocketCampusStore {
                 PocketRecordRow("a$row", it.date, it.category, "${it.count} 節", it.sections, "", it.category in concerns)
             },
             emptyText = if (record.summary.isEmpty()) "這個學期還沒有出缺勤資料" else "這個學期沒有缺曠紀錄",
+            highlights = attendanceHighlights(record.summary)
+                .map { PocketRecordCount(it.category, it.count, it.category in concerns && it.count > 0) },
         )
     }
 
-    fun merits(semesterIndex: Int): PocketRecords {
+    fun merits(semesterIndex: Int): PocketRecords = merits(semesterIndex, ALL)
+
+    /** Android's merit filters: 全部, 獎勵 and 懲處, by the school's group. */
+    fun meritFilters(): List<String> = listOf(ALL, REWARDS, PENALTIES)
+
+    /** The semester's merits in [filter], newest first; the summary always counts every record. */
+    fun merits(semesterIndex: Int, filter: String): PocketRecords {
         val semesters = PocketData.current.recordSemesters
         if (semesters.isEmpty()) return PocketRecords(emptyList(), 0, emptyList(), emptyList(), "", isLoaded = false)
         val index = semesterIndex.coerceIn(0, semesters.lastIndex)
         val records = PocketData.current.merits(semesters[index])
             ?: return PocketRecords(semesters.map { it.label }, index, emptyList(), emptyList(), "", isLoaded = false)
+        val visible = records.filter { includes(filter, it) }.sortedByDescending { recordDateKey(it.date) }
         return PocketRecords(
             semesters = semesters.map { it.label },
             semesterIndex = index,
             summary = records.groupBy { it.category }
                 .map { (category, items) -> PocketRecordCount(category, items.sumOf { it.count }, category in concerns) },
-            rows = records.mapIndexed { row, it ->
+            rows = visible.mapIndexed { row, it ->
                 PocketRecordRow(
                     id = "m$row", dateText = it.date, category = it.category, countText = "${it.count} 次",
                     detail = it.reason, note = if (it.cleanDate.isNotBlank()) "已於 ${it.cleanDate} 銷過" else "",
                     isConcern = it.category in concerns,
+                    group = it.group.ifBlank { "未分類" }, yearTerm = it.yearTerm, checkDate = it.checkDate, cleanDate = it.cleanDate,
                 )
             },
-            emptyText = "這個學期沒有獎懲紀錄",
+            emptyText = if (records.isNotEmpty()) "這個分類沒有紀錄" else "這個學期沒有獎懲紀錄",
         )
     }
+
+    private fun includes(filter: String, record: MeritRecord): Boolean = when (filter) {
+        REWARDS -> record.group.trim() in listOf("獎", "獎勵")
+        PENALTIES -> record.group.trim() in listOf("懲", "懲處", "罰", "懲罰")
+        else -> true
+    }
+
+    /** School dates are ROC `yyy/MM/dd`; padding keeps them in order as text. */
+    private fun recordDateKey(date: String): String =
+        date.split('/', '-', '.').joinToString("/") { it.trim().padStart(4, '0') }
+
+    private fun attendanceHighlights(summary: List<RecordCategoryCount>): List<RecordCategoryCount> {
+        val categories = summary.filterNot { it.category.trim() in listOf("全部", "合計", "總計", "總數", "總節數", "總節次", "總缺曠", "缺曠總計") }
+        val preferred = listOf("病假", "事假", "曠課")
+        return categories.sortedWith(
+            compareBy<RecordCategoryCount> { preferred.indexOf(it.category.trim()).takeIf { index -> index >= 0 } ?: preferred.size }
+                .thenByDescending { if (it.category.trim() in preferred) 0 else it.count },
+        ).take(3)
+    }
+
+    private val historyTerms get() = listOf("一上", "一下", "二上", "二下", "三上", "三下")
+
+    /** Null while the history has not been loaded. */
+    fun attendanceHistory(): PocketRecordHistory? = PocketData.current.attendanceHistory?.let { history(it, "") }
+
+    fun meritHistory(): PocketRecordHistory? = PocketData.current.meritHistory?.let { history(it, "次") }
+
+    private fun history(statistics: List<RecordHistoryStatistic>, unit: String) = PocketRecordHistory(
+        terms = historyTerms,
+        rows = statistics.map { statistic ->
+            val counts = historyTerms.indices.map { statistic.semesterCounts.getOrNull(it) }
+            PocketRecordHistoryRow(
+                category = statistic.category,
+                cells = counts.map { it?.toString() ?: "—" },
+                descriptions = counts.mapIndexed { index, count ->
+                    "${statistic.category} ${historyTerms[index]} ${count?.let { if (unit.isEmpty()) "$it" else "$it $unit" } ?: "未提供"}"
+                },
+            )
+        },
+        note = "依年級與上下學期顯示，${if (unit.isEmpty()) "校方統計數量" else "單位：$unit"}。— 表示未提供。",
+    )
 }
