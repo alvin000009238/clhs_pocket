@@ -324,6 +324,44 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["credits-done"].tap()
     }
 
+    func testSubjectTrendComparesSubjectsAcrossTerms() {
+        launch(onboarded: true, session: "demo")
+        tab("成績").tap()
+        let entry = app.buttons["grades-subject-trend"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 10))
+        reveal(entry)
+        entry.tap()
+        // Every term is compared at first; a subject has to be chosen, as on Android.
+        XCTAssertTrue(app.staticTexts["選擇要比較的科目"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["trend-years"].label.contains("已全選（共 2 個學期）"), app.buttons["trend-years"].label)
+        capture("50-subject-trend-empty")
+
+        app.buttons["trend-empty-action"].tap()
+        XCTAssertTrue(app.buttons["trend-option-數學"].waitForExistence(timeout: 5))
+        app.buttons["trend-option-數學"].tap()
+        app.buttons["trend-option-國文"].tap()
+        capture("51-subject-trend-subjects")
+        app.buttons["trend-apply"].tap()
+
+        let chart = app.descendants(matching: .any)["subject-trend-chart"].firstMatch
+        XCTAssertTrue(chart.waitForExistence(timeout: 5))
+        XCTAssertTrue((chart.value as? String)?.hasPrefix("6 次考試的成績趨勢。") ?? false, chart.debugDescription)
+        XCTAssertTrue(app.buttons["trend-legend-數學"].exists)
+        capture("52-subject-trend-chart")
+        app.buttons["trend-legend-數學"].tap()
+        XCTAssertTrue(app.buttons["trend-legend-數學"].isSelected)
+        capture("53-subject-trend-highlight")
+
+        // One term: only its three exams.
+        app.buttons["trend-years"].tap()
+        XCTAssertTrue(app.buttons["trend-option-113_2"].waitForExistence(timeout: 5))
+        app.buttons["trend-option-113_2"].tap()
+        app.buttons["trend-apply"].tap()
+        XCTAssertTrue(waitUntil { (chart.value as? String)?.hasPrefix("3 次考試") ?? false }, chart.debugDescription)
+        XCTAssertTrue(app.buttons["trend-years"].label.contains("已選 1 個學期"))
+        captureLandscapeOnPad("54-subject-trend-one-term-landscape")
+    }
+
     func testScheduleOverrideAndWeekSwitching() {
         launch(onboarded: true, session: "demo")
         tab("課表").tap()

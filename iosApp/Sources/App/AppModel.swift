@@ -32,6 +32,7 @@ enum PocketRoute: Hashable {
     case merits
     case subject(exam: String, name: String)
     case simulator(exam: String)
+    case subjectTrend
 }
 
 enum PocketAppearance: String, CaseIterable, Identifiable {

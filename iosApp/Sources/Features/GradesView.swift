@@ -29,6 +29,11 @@ struct GradesView: View {
                         if report.trend.count > 1 {
                             GradeTrendCard(report: report)
                         }
+                        NavigationLink(value: PocketRoute.subjectTrend) {
+                            SubjectTrendEntry()
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("grades-subject-trend")
                         AnalysisCard(analysis: PocketGrades.shared.analysis(examValue: report.examValue, unused: false))
                         if !report.strengths.isEmpty || !report.weaknesses.isEmpty {
                             let layout = typeSize.isAccessibilitySize
@@ -282,6 +287,35 @@ private struct GradeTrendCard: View {
                 .accessibilityLabel("本學期平均走勢：" + report.trend.map { "\($0.examName) \($0.averageText)" }.joined(separator: "，"))
             }
         }
+    }
+}
+
+/// Android's 成績折線圖 entry card.
+private struct SubjectTrendEntry: View {
+    var body: some View {
+        PocketCard {
+            HStack(spacing: 12) {
+                Image(systemName: "chart.xyaxis.line")
+                    .font(.title2)
+                    .foregroundStyle(PocketColor.primary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("成績折線圖")
+                        .font(.headline)
+                        .foregroundStyle(PocketColor.onSurface)
+                    Text("以折線圖查看各科目歷次成績走勢。")
+                        .font(.subheadline)
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                    .accessibilityHidden(true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }
 

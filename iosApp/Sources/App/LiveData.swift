@@ -453,6 +453,14 @@ final class LiveDataController {
         publish()
     }
 
+    /// Every report of `examValues` not loaded yet, for the subject trend; one request at a time.
+    func loadReports(examValues: [String]) async {
+        for exam in examValues {
+            guard !Task.isCancelled else { return }
+            await loadReport(examValue: exam)
+        }
+    }
+
     /// The timetable the student chose, as Android asks for it: a term and a class. Empty values
     /// mean the newest term and the student's own timetable. Set by `AppModel`, which keeps it.
     struct ScheduleChoice: Equatable {

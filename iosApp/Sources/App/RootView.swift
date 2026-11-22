@@ -97,6 +97,7 @@ struct PocketShell: View {
         case .merits: StudentRecordsView(kind: .merits)
         case .subject(let exam, let name): SubjectDetailView(examValue: exam, name: name)
         case .simulator(let exam): GradeSimulatorView(examValue: exam)
+        case .subjectTrend: SubjectTrendView()
         }
     }
 }
