@@ -516,6 +516,10 @@ final class PocketShellUITests: XCTestCase {
         // as a button whose value is "Collapsed". Scrolling back up does not always restore it,
         // so expand it the way a user does: tap the collapsed bar (this keeps the scroll position
         // and does not reselect the tab). Only a real tab-bar button is ever returned.
+        guard app.tabBars.firstMatch.waitForExistence(timeout: 2) else {
+            // On iPad the sidebar-adaptable tabs sit in a top bar or sidebar, not in a tab bar.
+            return app.buttons[title].firstMatch
+        }
         let button = app.tabBars.buttons[title]
         for _ in 0..<4 where !button.waitForExistence(timeout: 2) {
             let collapsed = app.tabBars.buttons.matching(NSPredicate(format: "value == %@", "Collapsed")).firstMatch
