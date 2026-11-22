@@ -7,6 +7,7 @@ struct GradesView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var examValue: String?
     @State private var loadingExam = false
+    @State private var showsExport = false
 
     var body: some View {
         let source = model.dataSource
@@ -85,6 +86,9 @@ struct GradesView: View {
             loadingExam = false
         }
         .navigationTitle(PocketTab.grades.title)
+        .sheet(isPresented: $showsExport) {
+            GradeExportSheet(terms: model.dataSource.gradeTerms(), initial: report.examValue)
+        }
     }
 
     /// The shared refresh only reloads the newest exam, so an older selected exam is fetched again too.
@@ -111,6 +115,10 @@ struct GradesView: View {
                 actionLabel("分享摘要", "square.and.arrow.up")
             }
             .accessibilityIdentifier("grades-share")
+            Button { showsExport = true } label: {
+                actionLabel("匯出成績", "tablecells")
+            }
+            .accessibilityIdentifier("grades-export")
         }
         .buttonStyle(.plain)
     }
@@ -286,6 +294,110 @@ private struct GradeTrendCard: View {
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .accessibilityLabel("本學期平均走勢：" + report.trend.map { "\($0.examName) \($0.averageText)" }.joined(separator: "，"))
             }
+        }
+    }
+}
+
+/// Android's 匯出成績: choose exams, then share them as a CSV file.
+private struct GradeExportSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let terms: [PocketGradeTerm]
+    @State private var selection: Set<String>
+    @State private var file: URL?
+    @State private var working = false
+    @State private var message: String?
+
+    init(terms: [PocketGradeTerm], initial: String) {
+        self.terms = terms
+        _selection = State(initialValue: initial.isEmpty ? [] : [initial])
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(terms, id: \.value) { term in
+                    Section {
+                        ForEach(term.exams, id: \.value) { exam in
+                            let isOn = selection.contains(exam.value)
+                            Button {
+                                if isOn { selection.remove(exam.value) } else { selection.insert(exam.value) }
+                                file = nil
+                            } label: {
+                                HStack {
+                                    Text(exam.text).foregroundStyle(PocketColor.onSurface)
+                                    Spacer()
+                                    Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(isOn ? PocketColor.primary : PocketColor.onSurfaceVariant)
+                                        .accessibilityHidden(true)
+                                }
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(isOn ? .isSelected : [])
+                            .accessibilityIdentifier("export-\(exam.value)")
+                        }
+                    } header: {
+                        HStack {
+                            Text(term.text)
+                            Spacer()
+                            let keys = Set(term.exams.map(\.value))
+                            Button(keys.isSubset(of: selection) ? "取消全選" : "全選") {
+                                if keys.isSubset(of: selection) { selection.subtract(keys) } else { selection.formUnion(keys) }
+                                file = nil
+                            }
+                            .font(.footnote.weight(.semibold))
+                            .textCase(nil)
+                        }
+                    }
+                }
+                Section {
+                    if let file {
+                        ShareLink(item: file) {
+                            Label("分享 CSV 檔", systemImage: "square.and.arrow.up")
+                        }
+                        .accessibilityIdentifier("export-share")
+                    } else {
+                        Button {
+                            Task { await export() }
+                        } label: {
+                            if working { ProgressView() } else { Label("匯出", systemImage: "tablecells") }
+                        }
+                        .disabled(selection.isEmpty || working)
+                        .accessibilityIdentifier("export-confirm")
+                    }
+                } footer: {
+                    Text(message ?? "匯出所選考試的各科分數、班平均、排名與五標，可用試算表開啟。")
+                }
+            }
+            .navigationTitle("選擇要匯出的考試")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func export() async {
+        working = true
+        defer { working = false }
+        let keys = terms.flatMap { $0.exams.map(\.value) }.filter(selection.contains)
+        if let live = model.account { await live.loadReports(examValues: keys) }
+        let missing = PocketGradeExport.shared.missing(examValues: keys)
+        guard missing.count < keys.count else {
+            message = "所選考試的成績尚未載入，請稍後再試。"
+            return
+        }
+        let format = DateFormatter()
+        format.dateFormat = "yyyyMMdd_HHmmss"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("成績_\(format.string(from: .now)).csv")
+        do {
+            try Data(PocketGradeExport.shared.csv(examValues: keys).utf8).write(to: url, options: [.atomic, .completeFileProtection])
+            file = url
+            message = missing.isEmpty ? "已匯出 \(keys.count) 次考試。" : "已匯出 \(keys.count - missing.count) 次考試，\(missing.count) 次尚未載入。"
+        } catch {
+            message = "無法建立匯出檔案，請再試一次。"
         }
     }
 }

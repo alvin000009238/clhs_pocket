@@ -324,6 +324,23 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["credits-done"].tap()
     }
 
+    func testGradesAreExportedAsCSV() {
+        launch(onboarded: true, session: "demo")
+        tab("成績").tap()
+        let export = app.buttons["grades-export"]
+        XCTAssertTrue(export.waitForExistence(timeout: 10))
+        reveal(export)
+        export.tap()
+        XCTAssertTrue(app.navigationBars["選擇要匯出的考試"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["export-114_1|114_1_E4"].isSelected, "the exam on screen is chosen at first")
+        app.buttons["export-114_1|114_1_E1"].tap()
+        capture("36-grades-export")
+        app.buttons["export-confirm"].tap()
+        XCTAssertTrue(app.buttons["export-share"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["已匯出 2 次考試。"].exists)
+        capture("37-grades-exported")
+    }
+
     func testSubjectTrendComparesSubjectsAcrossTerms() {
         launch(onboarded: true, session: "demo")
         tab("成績").tap()
