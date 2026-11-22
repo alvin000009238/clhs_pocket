@@ -647,23 +647,51 @@ final class LiveDataController {
         }
     }
 
-    func loadRecords(semesterIndex: Int) async {
-        guard let session else { return }
+    /// Returns the message to show when either part failed, so the screen can say that the
+    /// records shown are from the last successful update.
+    @discardableResult
+    func loadRecords(semesterIndex: Int) async -> String? {
+        guard let session else { return nil }
         let semesters = PocketLive.shared.recordSemesters
-        guard semesters.indices.contains(semesterIndex) else { return }
+        guard semesters.indices.contains(semesterIndex) else { return nil }
         let semester = semesters[semesterIndex]
+        var failure: String?
         // Attendance and merits are independent: one failing must not discard the other.
         do {
             let attendance = try await backend.call { try await $0.attendance(session: session, semester: semester, token: $1) }
-            guard self.session?.authorizationId == session.authorizationId else { return }
+            guard self.session?.authorizationId == session.authorizationId else { return nil }
             PocketLive.shared.putAttendance(semester: semester, record: attendance)
-        } catch { note(error) }
+        } catch {
+            note(error)
+            if error.kind != .cancelled { failure = error.message }
+        }
         do {
             let merits = try await backend.call { try await $0.merits(session: session, semester: semester, token: $1) }
-            guard self.session?.authorizationId == session.authorizationId else { return }
+            guard self.session?.authorizationId == session.authorizationId else { return nil }
             PocketLive.shared.putMerits(semester: semester, records: merits)
-        } catch { note(error, for: session) }
+        } catch {
+            note(error, for: session)
+            if error.kind != .cancelled { failure = failure ?? error.message }
+        }
         publish()
+        return failure
+    }
+
+    /// The six-semester statistics of attendance or merits. Returns the message to show on failure.
+    func loadRecordHistory(merits: Bool) async -> String? {
+        guard let session else { return nil }
+        do {
+            let history = try await backend.call {
+                merits ? try await $0.meritHistory(session: session, token: $1) : try await $0.attendanceHistory(session: session, token: $1)
+            }
+            guard self.session?.authorizationId == session.authorizationId else { return nil }
+            if merits { PocketLive.shared.meritHistory = history } else { PocketLive.shared.attendanceHistory = history }
+            publish()
+            return nil
+        } catch {
+            note(error, for: session)
+            return error.kind == .cancelled ? nil : error.message
+        }
     }
 
     func loadAnnouncementDetail(id: String, category: String) async {

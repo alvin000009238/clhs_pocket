@@ -495,10 +495,29 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["campus-出缺勤"].tap()
         XCTAssertTrue(app.buttons["records-semester"].waitForExistence(timeout: 5))
         capture("58-attendance")
+        app.buttons["records-categories"].tap()
+        XCTAssertTrue(app.navigationBars["全部分類"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["公假"].exists, "every category the school counts, not only the highlights")
+        capture("58b-attendance-categories")
+        app.buttons["關閉"].tap()
+        let history = app.buttons["records-history"]
+        reveal(history)
+        history.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["records-history-table"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["病假 二上 4"].exists)
+        capture("58c-attendance-history")
         app.navigationBars.buttons.firstMatch.tap()
         app.buttons["campus-獎懲"].tap()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "銷過")).firstMatch.waitForExistence(timeout: 5))
         capture("59-merits")
+        // 懲處 shows only the penalty, whose approval details open on request.
+        app.segmentedControls["records-filter"].buttons["懲處"].tap()
+        XCTAssertTrue(waitUntil { !self.app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "協助校園活動")).firstMatch.exists })
+        let approval = app.buttons["record-approval-m0"]
+        reveal(approval)
+        approval.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "核定日期：115/10/16")).firstMatch.waitForExistence(timeout: 5))
+        capture("59b-merits-penalty-approval")
 
         // Search last: an active search replaces the tab bar on iPad.
         tab("校園").tap()
