@@ -466,7 +466,7 @@ final class LiveDataController {
             publish()
         } catch { note(error, for: session) }
 
-        await loadSchedule(classValue: "")
+        await loadSchedule(classValue: scheduleChoice.classValue, yearValue: scheduleChoice.yearValue)
 
         do {
             let semesters = try await backend.call { try await $0.recordSemesters(session: session, token: $1) }
@@ -518,25 +518,96 @@ final class LiveDataController {
         publish()
     }
 
-    /// `classValue` is empty for the student's own timetable.
-    func loadSchedule(classValue: String) async {
+    /// Every report of `examValues` not loaded yet, for the subject trend; one request at a time.
+    func loadReports(examValues: [String]) async {
+        for exam in examValues {
+            guard !Task.isCancelled else { return }
+            await loadReport(examValue: exam)
+        }
+    }
+
+    /// The timetable the student chose, as Android asks for it: a term and a class. Empty values
+    /// mean the newest term and the student's own timetable. Set by `AppModel`, which keeps it.
+    struct ScheduleChoice: Equatable {
+        var yearValue = ""
+        var classValue = ""
+    }
+
+    @ObservationIgnored var scheduleChoice = ScheduleChoice()
+    /// The term `PocketLive.scheduleClasses` belongs to.
+    @ObservationIgnored private var scheduleClassesYear = ""
+
+    /// The school's terms, then the classes of `yearValue` (or of the newest term when it is empty
+    /// or no longer listed). Returns the term actually used and its `[year, term]` parts.
+    private func scheduleTerm(_ session: AuthenticatedSession, yearValue: String) async throws(PocketError) -> (String, [String])? {
+        let live = PocketLive.shared
+        let years = try await backend.call { try await $0.scheduleYears(session: session, token: $1) }
+        guard self.session?.authorizationId == session.authorizationId else { return nil }
+        live.scheduleYears = years
+        guard let chosen = (years.first { $0.value == yearValue } ?? years.first)?.value,
+              let parts = live.yearTermParts(value: chosen), parts.count == 2 else { return nil }
+        if live.scheduleClasses.isEmpty || scheduleClassesYear != chosen {
+            let classes = try await backend.call { try await $0.scheduleClasses(session: session, year: parts[0], term: parts[1], token: $1) }
+            guard self.session?.authorizationId == session.authorizationId else { return nil }
+            live.scheduleClasses = classes
+            scheduleClassesYear = chosen
+        }
+        publish()
+        return (chosen, parts)
+    }
+
+    /// The terms and the classes of `yearValue` for the timetable choice. Returns the message to
+    /// show when they could not be loaded.
+    func loadScheduleOptions(yearValue: String) async -> String? {
+        guard let session else { return "請先登入校務帳號" }
+        do {
+            guard try await scheduleTerm(session, yearValue: yearValue) != nil else {
+                return self.session?.authorizationId == session.authorizationId ? "學校尚未提供可選學期" : nil
+            }
+            return nil
+        } catch {
+            note(error, for: session)
+            return error.kind == .cancelled ? nil : "無法載入學期與班級，請重試"
+        }
+    }
+
+    /// The school's week list of `yearValue`. Returns the message to show when it failed.
+    func loadScheduleWeeks(yearValue: String) async -> String? {
+        guard let session, let parts = PocketLive.shared.yearTermParts(value: yearValue), parts.count == 2 else {
+            return "無法取得週次，請重試"
+        }
+        do {
+            let weeks = try await backend.call { try await $0.scheduleWeeks(session: session, year: parts[0], term: parts[1], token: $1) }
+            guard self.session?.authorizationId == session.authorizationId else { return nil }
+            PocketLive.shared.putScheduleWeeks(yearValue: yearValue, weeks: weeks)
+            publish()
+            return nil
+        } catch {
+            return error.kind == .cancelled ? nil : "無法取得週次，請重試"
+        }
+    }
+
+    /// Whether `classValue` of `yearValue` is the timetable the student chose. That one is also
+    /// stored as the student's own (empty class), which the home page, the widget, the course
+    /// reminders and the Live Activity read.
+    private func isChosen(classValue: String, yearValue: String) -> Bool {
+        classValue == scheduleChoice.classValue && (scheduleChoice.yearValue.isEmpty || scheduleChoice.yearValue == yearValue)
+    }
+
+    /// This week and the semester timetable of `classValue` (empty: the student's own) in
+    /// `yearValue` (empty: the newest term).
+    func loadSchedule(classValue: String, yearValue: String = "") async {
         guard let session else { return }
         let live = PocketLive.shared
         do {
-            let years = try await backend.call { try await $0.scheduleYears(session: session, token: $1) }
-            guard let yearValue = years.first?.value, let parts = live.yearTermParts(value: yearValue), parts.count == 2 else { return }
-            if live.scheduleClasses.isEmpty {
-                let classes = try await backend.call { try await $0.scheduleClasses(session: session, year: parts[0], term: parts[1], token: $1) }
-                guard self.session?.authorizationId == session.authorizationId else { return }
-                live.scheduleClasses = classes
-            }
+            guard let (chosenYear, parts) = try await scheduleTerm(session, yearValue: yearValue) else { publish(); return }
             // An empty class number asks the school for the signed-in student's own timetable. The
             // class list covers the whole school, so its first entry is somebody else's class.
             let classNo = classValue
             for scope in [ScheduleScope.currentWeek, .semester] {
                 let result = try await backend.call {
                     try await $0.fetchSchedule(
-                        session: session, yearValue: yearValue, year: parts[0], term: parts[1], classNo: classNo, scope: scope, token: $1
+                        session: session, yearValue: chosenYear, year: parts[0], term: parts[1], classNo: classNo, scope: scope, token: $1
                     )
                 }
                 guard self.session?.authorizationId == session.authorizationId else { return }
@@ -549,8 +620,11 @@ final class LiveDataController {
                 if let report {
                     live.putSchedule(classValue: classValue, report: report)
                     // The widget snapshot, course reminders and the Live Activity are planned from
-                    // the student's own timetable, which arrives after sign-in has been announced.
-                    if classValue.isEmpty { scheduleRevision += 1 }
+                    // the student's timetable, which arrives after sign-in has been announced.
+                    if isChosen(classValue: classValue, yearValue: chosenYear) {
+                        if !classValue.isEmpty { live.putSchedule(classValue: "", report: report) }
+                        scheduleRevision += 1
+                    }
                 }
                 publish()
             }
@@ -559,23 +633,15 @@ final class LiveDataController {
     }
 
     /// Another week of the weekly timetable, `weekOffset` weeks from the current one.
-    func loadScheduleWeek(classValue: String, weekOffset: Int) async {
+    func loadScheduleWeek(classValue: String, weekOffset: Int, yearValue: String = "") async {
         guard let session, weekOffset != 0 else { return }
         let live = PocketLive.shared
         do {
-            let years = try await backend.call { try await $0.scheduleYears(session: session, token: $1) }
-            guard let yearValue = years.first?.value, let parts = live.yearTermParts(value: yearValue), parts.count == 2 else { return }
-            if live.scheduleClasses.isEmpty {
-                let classes = try await backend.call { try await $0.scheduleClasses(session: session, year: parts[0], term: parts[1], token: $1) }
-                guard self.session?.authorizationId == session.authorizationId else { return }
-                live.scheduleClasses = classes
-            }
-            // An empty class number asks the school for the signed-in student's own timetable. The
-            // class list covers the whole school, so its first entry is somebody else's class.
+            guard let (chosenYear, parts) = try await scheduleTerm(session, yearValue: yearValue) else { publish(); return }
             let classNo = classValue
             let result = try await backend.call {
                 try await $0.fetchScheduleWeek(
-                    session: session, yearValue: yearValue, year: parts[0], term: parts[1], classNo: classNo,
+                    session: session, yearValue: chosenYear, year: parts[0], term: parts[1], classNo: classNo,
                     weekOffset: Int32(weekOffset), token: $1
                 )
             }
@@ -646,23 +712,51 @@ final class LiveDataController {
         }
     }
 
-    func loadRecords(semesterIndex: Int) async {
-        guard let session else { return }
+    /// Returns the message to show when either part failed, so the screen can say that the
+    /// records shown are from the last successful update.
+    @discardableResult
+    func loadRecords(semesterIndex: Int) async -> String? {
+        guard let session else { return nil }
         let semesters = PocketLive.shared.recordSemesters
-        guard semesters.indices.contains(semesterIndex) else { return }
+        guard semesters.indices.contains(semesterIndex) else { return nil }
         let semester = semesters[semesterIndex]
+        var failure: String?
         // Attendance and merits are independent: one failing must not discard the other.
         do {
             let attendance = try await backend.call { try await $0.attendance(session: session, semester: semester, token: $1) }
-            guard self.session?.authorizationId == session.authorizationId else { return }
+            guard self.session?.authorizationId == session.authorizationId else { return nil }
             PocketLive.shared.putAttendance(semester: semester, record: attendance)
-        } catch { note(error) }
+        } catch {
+            note(error)
+            if error.kind != .cancelled { failure = error.message }
+        }
         do {
             let merits = try await backend.call { try await $0.merits(session: session, semester: semester, token: $1) }
-            guard self.session?.authorizationId == session.authorizationId else { return }
+            guard self.session?.authorizationId == session.authorizationId else { return nil }
             PocketLive.shared.putMerits(semester: semester, records: merits)
-        } catch { note(error, for: session) }
+        } catch {
+            note(error, for: session)
+            if error.kind != .cancelled { failure = failure ?? error.message }
+        }
         publish()
+        return failure
+    }
+
+    /// The six-semester statistics of attendance or merits. Returns the message to show on failure.
+    func loadRecordHistory(merits: Bool) async -> String? {
+        guard let session else { return nil }
+        do {
+            let history = try await backend.call {
+                merits ? try await $0.meritHistory(session: session, token: $1) : try await $0.attendanceHistory(session: session, token: $1)
+            }
+            guard self.session?.authorizationId == session.authorizationId else { return nil }
+            if merits { PocketLive.shared.meritHistory = history } else { PocketLive.shared.attendanceHistory = history }
+            publish()
+            return nil
+        } catch {
+            note(error, for: session)
+            return error.kind == .cancelled ? nil : error.message
+        }
     }
 
     func loadAnnouncementDetail(id: String, category: String) async {

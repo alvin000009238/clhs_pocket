@@ -7,10 +7,13 @@ import com.clhs.score.data.FakeRecordData
 import com.clhs.score.data.FakeScheduleData
 import com.clhs.score.data.GradeReport
 import com.clhs.score.data.MeritRecord
+import com.clhs.score.data.RecordHistoryStatistic
 import com.clhs.score.data.RecordSemester
 import com.clhs.score.data.ScheduleClassOption
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleScope
+import com.clhs.score.data.ScheduleWeekOption
+import com.clhs.score.data.ScheduleYearTermOption
 import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.SchoolAnnouncementDetail
 import com.clhs.score.data.SchoolCalendarEvent
@@ -46,6 +49,16 @@ internal interface PocketSource {
     val scheduleClasses: List<ScheduleClassOption>
     fun schedule(scope: ScheduleScope, today: LocalDate, classValue: String): ScheduleReport?
 
+    /** Terms the timetable can be chosen from, newest first; empty until loaded. */
+    val scheduleYears: List<ScheduleYearTermOption> get() = emptyList()
+
+    /** The timetable of the term [yearValue]; empty means the source's own choice of term. */
+    fun schedule(scope: ScheduleScope, today: LocalDate, classValue: String, yearValue: String): ScheduleReport? =
+        schedule(scope, today, classValue)
+
+    /** The school's week list of [yearValue], or null while it has not been loaded. */
+    fun scheduleWeeks(yearValue: String): List<ScheduleWeekOption>? = null
+
     fun announcements(clock: PocketClock): List<SchoolAnnouncement>
     fun announcementDetail(id: String): SchoolAnnouncementDetail?
 
@@ -67,6 +80,10 @@ internal interface PocketSource {
     val recordSemesters: List<RecordSemester>
     fun attendance(semester: RecordSemester): AttendanceRecord?
     fun merits(semester: RecordSemester): List<MeritRecord>?
+
+    /** Six-semester statistics; null while not loaded. */
+    val attendanceHistory: List<RecordHistoryStatistic>? get() = null
+    val meritHistory: List<RecordHistoryStatistic>? get() = null
 }
 
 internal object DemoSource : PocketSource {
@@ -101,6 +118,14 @@ internal object DemoSource : PocketSource {
         val classNo = scheduleClasses.firstOrNull { it.value == classValue } ?: scheduleClasses.first()
         return FakeScheduleData.report(FakeScheduleData.currentYearValue(today), classNo.value, scope, today)
     }
+    // The demo clock decides the terms, so a fixed demo date always offers the same choice.
+    override val scheduleYears get() = today?.let(FakeScheduleData::years) ?: FakeScheduleData.years
+    override fun schedule(scope: ScheduleScope, today: LocalDate, classValue: String, yearValue: String): ScheduleReport {
+        val classNo = scheduleClasses.firstOrNull { it.value == classValue } ?: scheduleClasses.first()
+        val year = yearValue.takeIf { value -> scheduleYears.any { it.value == value } } ?: scheduleYears.first().value
+        return FakeScheduleData.report(year, classNo.value, scope, today)
+    }
+    override fun scheduleWeeks(yearValue: String): List<ScheduleWeekOption> = FakeScheduleData.weeks(yearValue)
 
     override fun announcements(clock: PocketClock) = DemoCampus.demoAnnouncements(clock)
     override fun announcementDetail(id: String): SchoolAnnouncementDetail? = null
@@ -114,6 +139,8 @@ internal object DemoSource : PocketSource {
     override val recordSemesters get() = FakeRecordData.semesters
     override fun attendance(semester: RecordSemester) = FakeRecordData.attendance(semester)
     override fun merits(semester: RecordSemester) = FakeRecordData.merits(semester)
+    override val attendanceHistory get() = FakeRecordData.attendanceHistory
+    override val meritHistory get() = FakeRecordData.meritHistory
 }
 
 /**
@@ -175,6 +202,14 @@ object PocketLive : PocketSource {
     fun putSchedule(classValue: String, report: ScheduleReport) {
         schedules[scheduleKey(report.scope, classValue) + report.weekStartDate.orEmpty()] = report
     }
+
+    override var scheduleYears: List<ScheduleYearTermOption> = emptyList()
+    private val weeksByYear = mutableMapOf<String, List<ScheduleWeekOption>>()
+    override fun scheduleWeeks(yearValue: String): List<ScheduleWeekOption>? = weeksByYear[yearValue]
+    fun putScheduleWeeks(yearValue: String, weeks: List<ScheduleWeekOption>) { weeksByYear[yearValue] = weeks }
+
+    /** Forgets every loaded timetable, for example when the student chooses another term or class. */
+    fun clearSchedules() { schedules.clear() }
 
     override fun announcements(clock: PocketClock): List<SchoolAnnouncement> = announcementList
     fun putAnnouncements(items: List<SchoolAnnouncement>) { announcementList = items }
@@ -239,6 +274,8 @@ object PocketLive : PocketSource {
     fun putAttendance(semester: RecordSemester, record: AttendanceRecord) { attendanceBySemester[semesterKey(semester)] = record }
     override fun merits(semester: RecordSemester): List<MeritRecord>? = meritsBySemester[semesterKey(semester)]
     fun putMerits(semester: RecordSemester, records: List<MeritRecord>) { meritsBySemester[semesterKey(semester)] = records }
+    override var attendanceHistory: List<RecordHistoryStatistic>? = null
+    override var meritHistory: List<RecordHistoryStatistic>? = null
 
     /** `[year, term]` of a schedule or grade year option, or null when it is malformed. */
     fun yearTermParts(value: String): List<String>? = parseYearTermOrNull(value)?.let { listOf(it.first, it.second) }
@@ -275,7 +312,11 @@ object PocketLive : PocketSource {
         reports.clear()
         scheduleClasses = emptyList()
         schedules.clear()
+        scheduleYears = emptyList()
+        weeksByYear.clear()
         recordSemesters = emptyList()
+        attendanceHistory = null
+        meritHistory = null
         attendanceBySemester.clear()
         meritsBySemester.clear()
     }

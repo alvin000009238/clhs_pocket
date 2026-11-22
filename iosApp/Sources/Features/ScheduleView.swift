@@ -14,17 +14,58 @@ struct ScheduleView: View {
     @State private var selectedCell: PocketScheduleCell?
     @State private var shareImage: Image?
     @State private var overrideError: String?
+    /// The term and class choice is open (重新選擇); a first-time account sees it regardless.
+    @State private var choosing = false
+    @State private var draftYear = ""
+    @State private var draftClass = ""
+    @State private var draftSemester = false
+    @State private var loadingOptions = false
+    @State private var optionsError: String?
+    @State private var showsWeekPicker = false
+    @State private var showsCustomSubjects = false
+    @State private var confirmsRestoreAll = false
+    @State private var editingOverride: PocketSubjectOverride?
+    @State private var loadingWeeks = false
+    @State private var weeksError: String?
+    /// Bumped by 查詢課表 and 重試 so the same choice is fetched again.
+    @State private var reloadToken = 0
 
     /// Empty for the student's own timetable; kept by `AppModel` across launches.
     private var classValue: String { model.scheduleClass }
+    /// Empty for the newest term; kept by `AppModel` across launches.
+    private var yearValue: String { model.scheduleYear }
+    /// The term the screen shows: the chosen one, else the newest the school lists.
+    private var shownYear: String { yearValue.isEmpty ? PocketScheduleStore.shared.years().first?.id ?? "" : yearValue }
 
     var body: some View {
-        let store = PocketScheduleStore.shared
-        let schedule = store.schedule(
-            scope: showsSemester ? .semester : .currentWeek, clock: model.clock,
+        Group {
+            if model.needsScheduleChoice || choosing {
+                choiceView
+            } else {
+                scheduleContent
+            }
+        }
+        .navigationTitle(PocketTab.schedule.title)
+    }
+
+    private var currentSchedule: PocketSchedule {
+        PocketScheduleStore.shared.chosenSchedule(
+            scope: showsSemester ? .semester : .currentWeek, clock: model.clock, yearValue: yearValue,
             classValue: classValue, weekOffset: Int32(weekOffset), overrides: model.scheduleOverrides
         )
-        ScrollView {
+    }
+
+    /// Week offsets the school lists for the shown term; empty while the list is not loaded.
+    private var weekOffsets: [Int] {
+        (PocketScheduleStore.shared.weeks(yearValue: shownYear) ?? []).compactMap {
+            PocketScheduleStore.shared.weekOffset(clock: model.clock, startDate: $0.id).map(\.intValue)
+        }
+    }
+
+    private var scheduleContent: some View {
+        let store = PocketScheduleStore.shared
+        let schedule = currentSchedule
+        return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Picker("課表範圍", selection: $showsSemester) {
                     Text("本週").tag(false)
@@ -46,9 +87,7 @@ struct ScheduleView: View {
                         title: weekOffset == 0 ? "課表尚未載入" : "這一週的課表尚未載入",
                         message: model.live?.lastError,
                         retry: {
-                            Task {
-                                if weekOffset == 0 { await model.refreshLiveData(force: true) } else { await loadWeek() }
-                            }
+                            if weekOffset == 0 { reloadToken += 1 } else { Task { await loadWeek() } }
                         }
                     )
                 }
@@ -61,19 +100,18 @@ struct ScheduleView: View {
             .pocketPage()
         }
         .refreshable {
+            // The shared refresh loads the chosen term and class; other weeks are fetched here.
             await model.refreshLiveData(force: true)
-            // The shared refresh only covers the student's own class and this week.
-            if !classValue.isEmpty, let live = model.live, model.usesLiveData {
-                await live.loadSchedule(classValue: classValue)
-            }
             await loadWeek()
         }
-        .task(id: classValue) {
-            // Each class switch cancels the previous load; only the current one may clear the flag.
+        .task(id: "\(yearValue)|\(classValue)|\(reloadToken)") {
+            // Each switch cancels the previous load; only the current one may clear the flag.
             loadingClass = false
-            guard !classValue.isEmpty, let live = model.live, model.usesLiveData else { return }
+            guard let live = model.account else { return }
+            // Opening the tab again does not refetch a timetable that is already here.
+            if reloadToken == 0, currentSchedule.isAvailable { return }
             loadingClass = true
-            await live.loadSchedule(classValue: classValue)
+            await live.loadSchedule(classValue: classValue, yearValue: yearValue)
             if !Task.isCancelled { loadingClass = false }
         }
         // Rasterising the whole table is expensive, so it happens once per content change, off the
@@ -84,12 +122,22 @@ struct ScheduleView: View {
             guard !Task.isCancelled else { return }
             shareImage = exportImage(schedule)
         }
-        .task(id: "\(classValue)|\(weekOffset)|\(showsSemester)") { await loadWeek() }
-        .navigationTitle(PocketTab.schedule.title)
+        .task(id: "\(yearValue)|\(classValue)|\(weekOffset)|\(showsSemester)") { await loadWeek() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Picker("班級", selection: Binding(get: { model.scheduleClass }, set: { model.scheduleClass = $0 })) {
+                    Button("重新選擇", systemImage: "slider.horizontal.3") { openChoice() }
+                        .accessibilityIdentifier("schedule-rechoose")
+                    if !showsSemester {
+                        Button("選擇週次", systemImage: "calendar") { showsWeekPicker = true }
+                            .accessibilityIdentifier("schedule-pick-week")
+                    }
+                    Button("自訂科目", systemImage: "pencil.and.list.clipboard") { showsCustomSubjects = true }
+                        .accessibilityIdentifier("schedule-custom-subjects")
+                    Picker("班級", selection: Binding(
+                        get: { model.scheduleClass },
+                        set: { model.chooseSchedule(yearValue: model.scheduleYear, classValue: $0) }
+                    )) {
                         // An empty value is the student's own timetable; every school class keeps its own code.
                         Text("我的課表").tag("")
                         ForEach(store.classes()) { item in
@@ -135,6 +183,303 @@ struct ScheduleView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showsWeekPicker) {
+            weekPicker
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showsCustomSubjects) {
+            customSubjects
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    // MARK: Custom subjects
+
+    /// Android's 自訂科目 page: every override in one place, each restorable, or all at once.
+    private var customSubjects: some View {
+        let store = PocketScheduleStore.shared
+        let overrides = store.overrides(overrides: model.scheduleOverrides)
+        return NavigationStack {
+            Group {
+                if overrides.isEmpty {
+                    ContentUnavailableView(
+                        "尚未自訂科目", systemImage: "pencil.and.list.clipboard",
+                        description: Text("點選課表中的課程，即可自訂顯示的科目、教師與教室。")
+                    )
+                } else {
+                    List {
+                        Section {
+                            ForEach(overrides, id: \.original) { item in
+                                HStack(alignment: .center, spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(item.subject.isEmpty ? item.original : "\(item.original) → \(item.subject)")
+                                            .font(.body.weight(.semibold))
+                                            .foregroundStyle(PocketColor.onSurface)
+                                        let extra = [
+                                            item.teacher.isEmpty ? nil : "教師：\(item.teacher)",
+                                            item.classroom.isEmpty ? nil : "教室：\(item.classroom)",
+                                        ].compactMap { $0 }
+                                        if !extra.isEmpty {
+                                            Text(extra.joined(separator: "・"))
+                                                .font(.subheadline)
+                                                .foregroundStyle(PocketColor.onSurfaceVariant)
+                                        }
+                                    }
+                                    .accessibilityElement(children: .combine)
+                                    Spacer(minLength: 8)
+                                    Button("編輯") { editingOverride = item }
+                                        .buttonStyle(.bordered)
+                                        .accessibilityLabel("編輯\(item.original)")
+                                        .accessibilityIdentifier("custom-subject-edit-\(item.original)")
+                                    Button("還原") {
+                                        model.scheduleOverrides = store.clearOverride(overrides: model.scheduleOverrides, original: item.original)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .accessibilityLabel("還原\(item.original)")
+                                    .accessibilityIdentifier("custom-subject-restore-\(item.original)")
+                                }
+                                .frame(minHeight: 44)
+                            }
+                        } footer: {
+                            Text("還原後會恢復顯示校方提供的名稱、教師與教室。")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("自訂科目")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("關閉") { showsCustomSubjects = false }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("全部還原") { confirmsRestoreAll = true }
+                        .disabled(overrides.isEmpty)
+                        .accessibilityIdentifier("custom-subjects-restore-all")
+                }
+            }
+            .sheet(item: Binding(
+                get: { editingOverride.map(EditedOverride.init) },
+                set: { editingOverride = $0?.value }
+            )) { edited in
+                CustomSubjectEditor(item: edited.value) { subject, teacher, classroom in
+                    model.scheduleOverrides = store.setOverride(
+                        overrides: model.scheduleOverrides, original: edited.value.original,
+                        subject: subject, teacher: teacher, classroom: classroom
+                    )
+                }
+            }
+            .confirmationDialog("全部還原？", isPresented: $confirmsRestoreAll, titleVisibility: .visible) {
+                Button("全部還原", role: .destructive) { model.scheduleOverrides = "[]" }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("所有科目將恢復顯示校方提供的名稱、教師與教室。")
+            }
+        }
+    }
+
+    // MARK: Term and class choice
+
+    private func openChoice() {
+        draftYear = shownYear
+        draftClass = classValue
+        draftSemester = showsSemester
+        optionsError = nil
+        choosing = true
+    }
+
+    /// Android's selection card: term, class and timetable type, then 查詢課表.
+    private var choiceView: some View {
+        let store = PocketScheduleStore.shared
+        let years = store.years()
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("選擇課表範圍")
+                        .font(PocketFont.sectionTitle)
+                        .foregroundStyle(PocketColor.onSurface)
+                        .accessibilityAddTraits(.isHeader)
+                    Text("選擇學期、班級與顯示類型以載入排課資料")
+                        .font(.subheadline)
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                }
+                if years.isEmpty {
+                    PocketPendingView(
+                        isLoading: loadingOptions,
+                        title: "無法載入學期與班級",
+                        message: optionsError,
+                        retry: { Task { await loadOptions(yearValue: draftYear) } }
+                    )
+                } else {
+                    choiceField("學期") {
+                        Picker("學期", selection: $draftYear) {
+                            ForEach(years, id: \.id) { Text($0.title).tag($0.id) }
+                        }
+                        .accessibilityIdentifier("schedule-choice-year")
+                    }
+                    choiceField("班級") {
+                        Picker("班級", selection: $draftClass) {
+                            Text("我的課表").tag("")
+                            ForEach(store.classes(), id: \.id) { Text($0.title).tag($0.id) }
+                        }
+                        .disabled(loadingOptions)
+                        .accessibilityIdentifier("schedule-choice-class")
+                    }
+                    choiceField("課表類型") {
+                        Picker("課表類型", selection: $draftSemester) {
+                            Text("學期課表").tag(true)
+                            Text("週課表").tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityIdentifier("schedule-choice-scope")
+                    }
+                    if loadingOptions {
+                        ProgressView("正在載入班級…")
+                            .font(.footnote)
+                    } else if let optionsError {
+                        Label(optionsError, systemImage: "exclamationmark.triangle")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                    Button {
+                        confirmChoice()
+                    } label: {
+                        Text("查詢課表")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 32)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(draftYear.isEmpty || loadingOptions)
+                    .accessibilityIdentifier("schedule-choice-confirm")
+                    if choosing, !model.needsScheduleChoice {
+                        Button("取消") { choosing = false }
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .accessibilityIdentifier("schedule-choice-cancel")
+                    }
+                }
+            }
+            .padding(20)
+            .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
+            .frame(maxWidth: 560)
+            .pocketPage()
+        }
+        .accessibilityIdentifier("schedule-choice")
+        .task {
+            if draftYear.isEmpty { draftYear = shownYear }
+            await loadOptions(yearValue: draftYear)
+            if draftYear.isEmpty { draftYear = PocketScheduleStore.shared.years().first?.id ?? "" }
+        }
+        .onChange(of: draftYear) { old, new in
+            guard !old.isEmpty, old != new else { return }
+            Task { await loadOptions(yearValue: new) }
+        }
+    }
+
+    private func choiceField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(PocketColor.onSurfaceVariant)
+                .accessibilityHidden(true)
+            content()
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Loads the terms and the classes of `yearValue`; the demo has them already.
+    private func loadOptions(yearValue: String) async {
+        guard let live = model.account else { return }
+        loadingOptions = true
+        optionsError = await live.loadScheduleOptions(yearValue: yearValue)
+        loadingOptions = false
+        // A class of the previous term is not offered by this one.
+        let classes = PocketScheduleStore.shared.classes().map(\.id)
+        if !draftClass.isEmpty, !classes.contains(draftClass) { draftClass = "" }
+    }
+
+    private func confirmChoice() {
+        model.chooseSchedule(yearValue: draftYear, classValue: draftClass)
+        showsSemester = draftSemester
+        weekOffset = 0
+        choosing = false
+        reloadToken += 1
+    }
+
+    // MARK: Week picker
+
+    private var weekPicker: some View {
+        let weeks = PocketScheduleStore.shared.weeks(yearValue: shownYear)
+        return NavigationStack {
+            Group {
+                if let weeks, !weeks.isEmpty {
+                    ScrollViewReader { proxy in
+                        List(weeks, id: \.id) { week in
+                            let offset = PocketScheduleStore.shared.weekOffset(clock: model.clock, startDate: week.id)?.intValue
+                            Button {
+                                if let offset { weekOffset = offset }
+                                showsWeekPicker = false
+                            } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(week.title).font(.body.weight(.semibold))
+                                        Text(week.detail).font(.subheadline).monospacedDigit()
+                                            .foregroundStyle(PocketColor.onSurfaceVariant)
+                                    }
+                                    Spacer(minLength: 8)
+                                    if offset == 0 {
+                                        Text("本週").font(.caption.weight(.semibold)).foregroundStyle(PocketColor.primary)
+                                    }
+                                    if offset == weekOffset {
+                                        Image(systemName: "checkmark").foregroundStyle(PocketColor.primary)
+                                            .accessibilityHidden(true)
+                                    }
+                                }
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(offset == nil)
+                            .accessibilityAddTraits(offset == weekOffset ? .isSelected : [])
+                            .accessibilityIdentifier("schedule-week-\(week.id)")
+                            .id(week.id)
+                        }
+                        .onAppear {
+                            let selected = weeks.first {
+                                PocketScheduleStore.shared.weekOffset(clock: model.clock, startDate: $0.id)?.intValue == weekOffset
+                            }
+                            if let selected { proxy.scrollTo(selected.id, anchor: .center) }
+                        }
+                    }
+                } else if weeks != nil {
+                    ContentUnavailableView("學校尚未提供可選週次", systemImage: "calendar")
+                } else {
+                    PocketPendingView(isLoading: loadingWeeks, title: "無法取得週次", message: weeksError) {
+                        Task { await loadWeeks() }
+                    }
+                }
+            }
+            .navigationTitle("選擇週次")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("關閉") { showsWeekPicker = false }
+                }
+            }
+            .task { if weeks == nil { await loadWeeks() } }
+        }
+    }
+
+    private func loadWeeks() async {
+        guard let live = model.account, !shownYear.isEmpty else {
+            weeksError = "無法取得週次，請重試"
+            return
+        }
+        loadingWeeks = true
+        weeksError = await live.loadScheduleWeeks(yearValue: shownYear)
+        loadingWeeks = false
     }
 
     /// Renders the grid off screen so the shared image does not depend on scroll position.
@@ -185,7 +530,7 @@ struct ScheduleView: View {
     private func loadWeek() async {
         guard weekOffset != 0, !showsSemester, let live = model.account else { return }
         loadingClass = true
-        await live.loadScheduleWeek(classValue: classValue, weekOffset: weekOffset)
+        await live.loadScheduleWeek(classValue: classValue, weekOffset: weekOffset, yearValue: yearValue)
         loadingClass = false
     }
 
@@ -234,10 +579,10 @@ struct ScheduleView: View {
                 if !showsSemester {
                     HStack(spacing: 6) {
                         Button("上一週", systemImage: "chevron.left") { weekOffset -= 1 }
-                            .disabled(weekOffset <= Int(PocketScheduleStore.shared.MIN_WEEK_OFFSET))
+                            .disabled(weekOffsets.min().map { weekOffset <= $0 } ?? false)
                             .accessibilityIdentifier("schedule-previous-week")
                         Button("下一週", systemImage: "chevron.right") { weekOffset += 1 }
-                            .disabled(weekOffset >= Int(PocketScheduleStore.shared.MAX_WEEK_OFFSET))
+                            .disabled(weekOffsets.max().map { weekOffset >= $0 } ?? false)
                             .accessibilityIdentifier("schedule-next-week")
                     }
                     .labelStyle(.iconOnly)
@@ -255,7 +600,7 @@ struct ScheduleView: View {
 
     @ViewBuilder
     private func subtitle(_ schedule: PocketSchedule) -> some View {
-                Text(showsSemester ? "\(schedule.className) · 固定課表" : schedule.className)
+                Text(showsSemester ? "\(schedule.className) · 固定課表" : [schedule.className, schedule.termText].filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.subheadline)
                     .foregroundStyle(PocketColor.onSurfaceVariant)
                 if schedule.changeCount > 0 {
@@ -486,6 +831,65 @@ private struct ScheduleCellView: View {
     }
 
     private var isCurrentText: Bool { cell.status == .current }
+}
+
+private struct EditedOverride: Identifiable {
+    let value: PocketSubjectOverride
+    var id: String { value.original }
+}
+
+/// Android's 自訂 dialog in 自訂科目: the school's subject keeps its key; blank fields use the school's value.
+private struct CustomSubjectEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let item: PocketSubjectOverride
+    let save: (String, String, String) -> Void
+    @State private var subject: String
+    @State private var teacher: String
+    @State private var classroom: String
+
+    init(item: PocketSubjectOverride, save: @escaping (String, String, String) -> Void) {
+        self.item = item
+        self.save = save
+        _subject = State(initialValue: item.subject.isEmpty ? item.original : item.subject)
+        _teacher = State(initialValue: item.teacher)
+        _classroom = State(initialValue: item.classroom)
+    }
+
+    private static func clamped(_ text: String) -> String {
+        String(text.prefix(Int(PocketScheduleStore.shared.maxOverrideLength())))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("科目名稱", text: $subject).accessibilityIdentifier("custom-subject-name")
+                    TextField("教師（留空使用原本的）", text: $teacher)
+                    TextField("教室（留空使用原本的）", text: $classroom)
+                } header: {
+                    Text("校方科目：\(item.original)")
+                } footer: {
+                    Text("套用到這個科目的每一堂課。每欄最多 \(PocketScheduleStore.shared.maxOverrideLength()) 個字。")
+                }
+            }
+            .onChange(of: subject) { _, value in subject = Self.clamped(value) }
+            .onChange(of: teacher) { _, value in teacher = Self.clamped(value) }
+            .onChange(of: classroom) { _, value in classroom = Self.clamped(value) }
+            .navigationTitle("自訂")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("儲存") {
+                        save(subject, teacher, classroom)
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("custom-subject-save")
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
 }
 
 private struct ScheduleCellSheet: View {

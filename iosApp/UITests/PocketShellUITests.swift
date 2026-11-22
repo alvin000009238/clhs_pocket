@@ -318,10 +318,13 @@ final class PocketShellUITests: XCTestCase {
         launch(onboarded: true, session: "demo")
         XCTAssertTrue(app.buttons["home-edit"].waitForExistence(timeout: 10))
         var issues: [String] = []
-        for (index, tab) in ["首頁", "課表", "成績", "校園"].enumerated() {
+        // Each root screen is recognised by its own content. The tab's selected trait is not
+        // usable for this: on the iPad Air 11-inch the compact top tab bar never reports any tab as
+        // selected (it does on the 13-inch), so it would not say which screen is being audited.
+        let roots = [("首頁", "home-edit"), ("課表", "schedule-range"), ("成績", "grades-simulator"), ("校園", "campus-公告")]
+        for (index, (tab, marker)) in roots.enumerated() {
             if index > 0 { self.tab(tab).tap() }
-            let selected = self.tab(tab)
-            XCTAssertTrue(waitUntil { selected.isSelected }, "\(tab) tab never became selected")
+            XCTAssertTrue(app.descendants(matching: .any)[marker].firstMatch.waitForExistence(timeout: 10), "the \(tab) screen never appeared")
             try app.performAccessibilityAudit(for: [.sufficientElementDescription, .hitRegion]) { issue in
                 let element = issue.element
                 issues.append("\(tab): \(issue.compactDescription) [\(element?.identifier ?? "") | \(element?.label ?? "") | \(element?.elementType.rawValue ?? 0) | \(element?.frame.debugDescription ?? "")]")
@@ -400,6 +403,70 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["credits-done"].tap()
     }
 
+    func testGradesAreExportedAsCSV() {
+        launch(onboarded: true, session: "demo")
+        tab("成績").tap()
+        let export = app.buttons["grades-export"]
+        XCTAssertTrue(export.waitForExistence(timeout: 10))
+        reveal(export)
+        export.tap()
+        XCTAssertTrue(app.navigationBars["選擇要匯出的考試"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["export-114_1|114_1_E4"].isSelected, "the exam on screen is chosen at first")
+        app.buttons["export-114_1|114_1_E1"].tap()
+        capture("36-grades-export")
+        app.buttons["export-confirm"].tap()
+        XCTAssertTrue(app.buttons["export-share"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["export-message"].label, "已匯出 2 次考試。")
+        capture("37-grades-exported")
+    }
+
+    func testSubjectTrendComparesSubjectsAcrossTerms() {
+        launch(onboarded: true, session: "demo")
+        tab("成績").tap()
+        let entry = app.buttons["grades-subject-trend"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 10))
+        reveal(entry)
+        entry.tap()
+        // Every term is compared at first; a subject has to be chosen, as on Android.
+        XCTAssertTrue(app.staticTexts["選擇要比較的科目"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["trend-years"].label.contains("已全選（共 2 個學期）"), app.buttons["trend-years"].label)
+        capture("50-subject-trend-empty")
+
+        app.buttons["trend-empty-action"].tap()
+        XCTAssertTrue(app.buttons["trend-option-數學"].waitForExistence(timeout: 5))
+        app.buttons["trend-option-數學"].tap()
+        app.buttons["trend-option-國文"].tap()
+        capture("51-subject-trend-subjects")
+        app.buttons["trend-apply"].tap()
+
+        let chart = app.descendants(matching: .any)["subject-trend-chart"].firstMatch
+        XCTAssertTrue(chart.waitForExistence(timeout: 5))
+        XCTAssertTrue((chart.value as? String)?.hasPrefix("6 次考試的成績趨勢。") ?? false, chart.debugDescription)
+        XCTAssertTrue(app.buttons["trend-legend-數學"].exists)
+        capture("52-subject-trend-chart")
+        // All six exams fit without scrolling; a tap keeps the selected exam's values on screen.
+        XCTAssertFalse(app.descendants(matching: .any)["trend-scroll-hint"].exists)
+        chart.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5)).tap()
+        let selection = app.staticTexts["trend-selection"]
+        XCTAssertTrue(selection.waitForExistence(timeout: 5))
+        XCTAssertTrue(selection.label.contains("國文 "), selection.label)
+        capture("52b-subject-trend-selected")
+        chart.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil { !selection.exists })
+        app.buttons["trend-legend-數學"].tap()
+        XCTAssertTrue(app.buttons["trend-legend-數學"].isSelected)
+        capture("53-subject-trend-highlight")
+
+        // One term: only its three exams.
+        app.buttons["trend-years"].tap()
+        XCTAssertTrue(app.buttons["trend-option-113_2"].waitForExistence(timeout: 5))
+        app.buttons["trend-option-113_2"].tap()
+        app.buttons["trend-apply"].tap()
+        XCTAssertTrue(waitUntil { (chart.value as? String)?.hasPrefix("3 次考試") ?? false }, chart.debugDescription)
+        XCTAssertTrue(app.buttons["trend-years"].label.contains("已選 1 個學期"))
+        captureLandscapeOnPad("54-subject-trend-one-term-landscape")
+    }
+
     func testScheduleOverrideAndWeekSwitching() {
         launch(onboarded: true, session: "demo")
         tab("課表").tap()
@@ -420,6 +487,28 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "數學A")).firstMatch.waitForExistence(timeout: 5))
         capture("41-schedule-override")
 
+        // 自訂科目 lists every override and restores the school's name.
+        app.buttons["schedule-menu"].tap()
+        app.buttons["schedule-custom-subjects"].tap()
+        let restore = app.buttons["custom-subject-restore-數學"]
+        XCTAssertTrue(restore.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["數學 → 數學A"].exists)
+        capture("41b-schedule-custom-subjects")
+        // Editing from the list, as Android's 自訂 dialog does.
+        app.buttons["custom-subject-edit-數學"].tap()
+        let name = app.textFields["custom-subject-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        XCTAssertEqual(name.value as? String, "數學A")
+        name.tap()
+        name.typeText("B")
+        capture("41c-schedule-custom-subject-edit")
+        app.buttons["custom-subject-save"].tap()
+        XCTAssertTrue(app.staticTexts["數學 → 數學AB"].waitForExistence(timeout: 5))
+        restore.tap()
+        XCTAssertTrue(app.staticTexts["尚未自訂科目"].waitForExistence(timeout: 5))
+        app.buttons["關閉"].tap()
+        XCTAssertTrue(waitUntil { !self.app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "數學A")).firstMatch.exists })
+
         app.buttons["schedule-next-week"].tap()
         XCTAssertTrue(app.staticTexts["schedule-range"].label.contains("11/23"))
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "上課中")).firstMatch.exists)
@@ -431,13 +520,65 @@ final class PocketShellUITests: XCTestCase {
         capture("43-schedule-menu")
 
         // The demo can show another class and come back to the student's own timetable.
+        // The class title is followed by the term, e.g.「高二 31 班 · 115 學年度 第 1 學期」.
+        func classTitle(_ name: String) -> XCUIElement {
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
+        }
         app.buttons["高二 31 班"].tap()
-        XCTAssertTrue(app.staticTexts["高二 31 班"].waitForExistence(timeout: 5))
+        XCTAssertTrue(classTitle("高二 31 班").waitForExistence(timeout: 5))
         capture("43b-schedule-other-class")
         app.buttons["schedule-menu"].tap()
         app.buttons["我的課表"].tap()
-        XCTAssertTrue(app.staticTexts["高二 30 班"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.staticTexts["高二 31 班"].exists)
+        XCTAssertTrue(classTitle("高二 30 班").waitForExistence(timeout: 5))
+        XCTAssertFalse(classTitle("高二 31 班").exists)
+    }
+
+    func testScheduleTermClassAndWeekCanBeChosen() {
+        launch(onboarded: true, session: "demo")
+        tab("課表").tap()
+        XCTAssertTrue(app.staticTexts["schedule-range"].waitForExistence(timeout: 10))
+
+        // Any week the school lists, not just two weeks around this one.
+        app.buttons["schedule-menu"].tap()
+        app.buttons["schedule-pick-week"].tap()
+        XCTAssertTrue(app.navigationBars["選擇週次"].waitForExistence(timeout: 5))
+        capture("45-schedule-week-picker")
+        let week = app.buttons["schedule-week-2026-12-14"]
+        for _ in 0..<6 where !week.isHittable { app.swipeUp() }
+        week.tap()
+        XCTAssertTrue(app.staticTexts["schedule-range"].label.contains("12/14"), app.staticTexts["schedule-range"].label)
+        // Week 21 is the last one the school lists.
+        XCTAssertFalse(app.buttons["schedule-next-week"].isEnabled)
+        app.buttons["schedule-previous-week"].tap()
+        XCTAssertTrue(app.staticTexts["schedule-range"].label.contains("12/7"))
+        capture("46-schedule-chosen-week")
+        app.buttons["schedule-this-week"].tap()
+
+        // 重新選擇: the previous term, another class and the semester timetable.
+        app.buttons["schedule-menu"].tap()
+        app.buttons["schedule-rechoose"].tap()
+        XCTAssertTrue(app.staticTexts["選擇課表範圍"].waitForExistence(timeout: 5))
+        capture("47-schedule-choice")
+        app.buttons["schedule-choice-year"].tap()
+        let older = app.buttons["114學年度第2學期"]
+        XCTAssertTrue(older.waitForExistence(timeout: 5))
+        older.tap()
+        app.buttons["schedule-choice-class"].tap()
+        app.buttons["高二 31 班"].tap()
+        app.buttons["學期課表"].tap()
+        capture("48-schedule-choice-filled")
+        app.buttons["schedule-choice-confirm"].tap()
+        let range = app.staticTexts["schedule-range"]
+        XCTAssertTrue(waitUntil { range.label == "114 學年度 第 2 學期" }, range.label)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "高二 31 班")).firstMatch.exists)
+        capture("49-schedule-chosen-term")
+
+        // Cancelling a new choice keeps the timetable that was showing.
+        app.buttons["schedule-menu"].tap()
+        app.buttons["schedule-rechoose"].tap()
+        XCTAssertTrue(app.buttons["schedule-choice-cancel"].waitForExistence(timeout: 5))
+        app.buttons["schedule-choice-cancel"].tap()
+        XCTAssertTrue(waitUntil { range.label == "114 學年度 第 2 學期" }, range.label)
     }
 
     func testCampusAnnouncementsCalendarAndRecords() {
@@ -481,10 +622,29 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["campus-出缺勤"].tap()
         XCTAssertTrue(app.buttons["records-semester"].waitForExistence(timeout: 5))
         capture("58-attendance")
+        app.buttons["records-categories"].tap()
+        XCTAssertTrue(app.navigationBars["全部分類"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["公假"].exists, "every category the school counts, not only the highlights")
+        capture("58b-attendance-categories")
+        app.buttons["關閉"].tap()
+        let history = app.buttons["records-history"]
+        reveal(history)
+        history.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["records-history-table"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["病假 二上 4"].exists)
+        capture("58c-attendance-history")
         app.navigationBars.buttons.firstMatch.tap()
         app.buttons["campus-獎懲"].tap()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "銷過")).firstMatch.waitForExistence(timeout: 5))
         capture("59-merits")
+        // 懲處 shows only the penalty, whose approval details open on request.
+        app.segmentedControls["records-filter"].buttons["懲處"].tap()
+        XCTAssertTrue(waitUntil { !self.app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "協助校園活動")).firstMatch.exists })
+        let approval = app.buttons["record-approval-m0"]
+        reveal(approval)
+        approval.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "核定日期：115/10/16")).firstMatch.waitForExistence(timeout: 5))
+        capture("59b-merits-penalty-approval")
 
         // Search last: an active search replaces the tab bar on iPad.
         tab("校園").tap()

@@ -473,6 +473,12 @@ struct StudentRecordsView: View {
     let kind: Kind
     @State private var semester = 0
     @State private var loadingRecords = false
+    @State private var recordsError: String?
+    @State private var filter = "全部"
+    @State private var showsCategories = false
+    @State private var historyExpanded = false
+    @State private var loadingHistory = false
+    @State private var historyError: String?
 
     private var title: String { kind == .attendance ? "出缺勤" : "獎懲紀錄" }
 
@@ -500,7 +506,7 @@ struct StudentRecordsView: View {
     private var content: some View {
         let store = PocketCampusStore.shared
         let records = kind == .attendance
-            ? store.attendance(semesterIndex: Int32(semester)) : store.merits(semesterIndex: Int32(semester))
+            ? store.attendance(semesterIndex: Int32(semester)) : store.merits(semesterIndex: Int32(semester), filter: filter)
         return ScrollView {
             if records.semesters.isEmpty {
                 PocketPendingView(
@@ -509,65 +515,44 @@ struct StudentRecordsView: View {
                 .pocketPage()
             } else {
             VStack(alignment: .leading, spacing: PocketMetrics.sectionSpacing) {
-                Menu {
-                    ForEach(Array(records.semesters.enumerated()), id: \.offset) { index, label in
-                        Button {
-                            semester = index
-                        } label: {
-                            if index == Int(records.semesterIndex) { Label(label, systemImage: "checkmark") } else { Text(label) }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Text(records.semesters[Int(records.semesterIndex)])
-                            .font(PocketFont.cardTitle)
-                            .foregroundStyle(PocketColor.onSurface)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(PocketColor.primary)
-                    }
-                    .padding(.horizontal, 18)
-                    .frame(minHeight: 48)
-                    .pocketGlass(in: .capsule, interactive: true)
-                }
-                .accessibilityLabel("選擇學期，目前為\(records.semesters[Int(records.semesterIndex)])")
-                .accessibilityIdentifier("records-semester")
+                semesterMenu(records)
 
                 if !records.isLoaded {
-                    PocketPendingView(isLoading: loadingRecords, title: "這個學期的紀錄尚未載入", message: model.live?.lastError) {
+                    PocketPendingView(isLoading: loadingRecords, title: "這個學期的紀錄尚未載入", message: recordsError ?? model.live?.lastError) {
                         Task { await loadRecords() }
                     }
                 } else {
-                PocketColumns {
-                    if !records.summary.isEmpty {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: PocketMetrics.cardSpacing)], spacing: PocketMetrics.cardSpacing) {
-                            ForEach(records.summary, id: \.category) { item in
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.category)
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(PocketColor.onSurfaceVariant)
-                                    Text("\(item.count)")
-                                        .font(PocketFont.display(30, relativeTo: .title))
-                                        .monospacedDigit()
-                                        .foregroundStyle(item.isConcern ? PocketColor.negative : PocketColor.onSurface)
-                                }
-                                .padding(16)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.innerRadius, style: .continuous))
-                                .accessibilityElement(children: .combine)
-                            }
+                if let recordsError {
+                    // Android: a failed update is never shown as if the old records were current.
+                    PocketCard {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label("更新未完成，以下顯示上次成功資料", systemImage: "exclamationmark.triangle")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(PocketColor.negative)
+                            Text(recordsError).font(.footnote).foregroundStyle(PocketColor.onSurfaceVariant)
+                            Button("重試") { Task { await loadRecords() } }
+                                .font(.subheadline.weight(.semibold))
+                                .accessibilityIdentifier("records-retry")
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                PocketColumns {
+                    VStack(alignment: .leading, spacing: PocketMetrics.cardSpacing) {
+                        summary(records)
+                        historySection
                     }
                 } trailing: {
-                    if records.rows.isEmpty {
-                        PocketCard {
-                            Label(records.emptyText, systemImage: "checkmark.circle")
-                                .font(.subheadline)
-                                .foregroundStyle(PocketColor.onSurfaceVariant)
-                        }
-                    } else {
-                        VStack(alignment: .leading, spacing: 8) {
-                            PocketSectionHeader(title: "明細") { EmptyView() }
+                    VStack(alignment: .leading, spacing: 8) {
+                        PocketSectionHeader(title: "近期紀錄") { EmptyView() }
+                        if records.rows.isEmpty {
+                            PocketCard {
+                                Label(records.emptyText, systemImage: "checkmark.circle")
+                                    .font(.subheadline)
+                                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        } else {
                             PocketCard(padding: 8) {
                                 VStack(spacing: 0) {
                                     ForEach(Array(records.rows.enumerated()), id: \.element.id) { index, row in
@@ -580,6 +565,9 @@ struct StudentRecordsView: View {
                     }
                 }
                 }
+                Text("校務資料非即時更新，請以學校正式紀錄為準。")
+                    .font(.footnote)
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
             }
             .pocketPage()
             }
@@ -587,55 +575,310 @@ struct StudentRecordsView: View {
         .refreshable {
             await model.refreshLiveData(force: true)
             await loadRecords()
+            if historyExpanded { await loadHistory(force: true) }
         }
         .task(id: "\(semester)-\(records.semesters.count)") { await loadRecords() }
+        .onChange(of: semester) { filter = "全部" }
+        .sheet(isPresented: $showsCategories) {
+            NavigationStack {
+                List {
+                    Section {
+                        ForEach(records.summary, id: \.category) { item in
+                            LabeledContent(item.category) {
+                                Text("\(item.count)").monospacedDigit()
+                            }
+                        }
+                    } footer: {
+                        Text("校方統計數量")
+                    }
+                }
+                .navigationTitle("全部分類")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button("關閉") { showsCategories = false } }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private func semesterMenu(_ records: PocketRecords) -> some View {
+        Menu {
+            ForEach(Array(records.semesters.enumerated()), id: \.offset) { index, label in
+                Button {
+                    semester = index
+                } label: {
+                    if index == Int(records.semesterIndex) { Label(label, systemImage: "checkmark") } else { Text(label) }
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text(records.semesters[Int(records.semesterIndex)])
+                    .font(PocketFont.cardTitle)
+                    .foregroundStyle(PocketColor.onSurface)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(PocketColor.primary)
+            }
+            .padding(.horizontal, 18)
+            .frame(minHeight: 48)
+            .pocketGlass(in: .capsule, interactive: true)
+        }
+        .accessibilityLabel("選擇學期，目前為\(records.semesters[Int(records.semesterIndex)])")
+        .accessibilityIdentifier("records-semester")
+    }
+
+    @ViewBuilder
+    private func summary(_ records: PocketRecords) -> some View {
+        PocketCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("學期摘要")
+                        .font(PocketFont.cardTitle)
+                        .foregroundStyle(PocketColor.onSurface)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer()
+                    if kind == .attendance {
+                        Button {
+                            showsCategories = true
+                        } label: {
+                            Label("全部分類", systemImage: "chevron.right")
+                                .labelStyle(TrailingIconLabelStyle())
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .disabled(records.summary.isEmpty)
+                        .accessibilityIdentifier("records-categories")
+                    }
+                }
+                if kind == .merits {
+                    Text("依校方分類查看獎懲紀錄")
+                        .font(.subheadline)
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                    Picker("分類", selection: $filter) {
+                        ForEach(PocketCampusStore.shared.meritFilters(), id: \.self) { Text($0).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("records-filter")
+                }
+                let counts = kind == .attendance ? records.highlights : records.summary
+                if counts.isEmpty {
+                    Text(kind == .attendance ? "所選學期沒有缺曠統計" : "所選學期沒有獎懲紀錄")
+                        .font(.subheadline)
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: PocketMetrics.cardSpacing)], spacing: PocketMetrics.cardSpacing) {
+                        ForEach(counts, id: \.category) { item in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.category)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                                Text("\(item.count)")
+                                    .font(PocketFont.display(30, relativeTo: .title))
+                                    .monospacedDigit()
+                                    .foregroundStyle(item.isConcern ? PocketColor.negative : PocketColor.onSurface)
+                            }
+                            .padding(16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(PocketColor.background.opacity(0.6), in: .rect(cornerRadius: PocketMetrics.innerRadius, style: .continuous))
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Android's 查看歷年統計: collapsed at first, loaded on first open.
+    private var historySection: some View {
+        let history = kind == .attendance ? PocketCampusStore.shared.attendanceHistory() : PocketCampusStore.shared.meritHistory()
+        return PocketCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Button {
+                    historyExpanded.toggle()
+                    if historyExpanded, history == nil { Task { await loadHistory(force: false) } }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "chart.bar")
+                            .foregroundStyle(PocketColor.primary)
+                            .accessibilityHidden(true)
+                        Text("查看歷年統計")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(PocketColor.onSurface)
+                        Spacer()
+                        if historyError != nil {
+                            Text("待重試").font(.caption.weight(.semibold)).foregroundStyle(PocketColor.negative)
+                        } else if loadingHistory {
+                            ProgressView()
+                        }
+                        Image(systemName: historyExpanded ? "chevron.up" : "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(PocketColor.onSurfaceVariant)
+                            .accessibilityHidden(true)
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(historyExpanded ? "已展開" : "已收合")
+                .accessibilityIdentifier("records-history")
+
+                if historyExpanded {
+                    if let historyError {
+                        if history != nil {
+                            Text("更新未完成，以下顯示上次成功資料").font(.footnote).foregroundStyle(PocketColor.onSurfaceVariant)
+                        }
+                        Text(historyError).font(.footnote).foregroundStyle(PocketColor.negative)
+                        Button("重試") { Task { await loadHistory(force: true) } }.font(.subheadline.weight(.semibold))
+                    }
+                    if let history {
+                        if history.rows.isEmpty {
+                            Text("沒有歷年統計資料").font(.subheadline).foregroundStyle(PocketColor.onSurfaceVariant)
+                        } else {
+                            Text(history.note).font(.footnote).foregroundStyle(PocketColor.onSurfaceVariant)
+                            RecordHistoryTable(history: history)
+                        }
+                    } else if historyError == nil {
+                        ProgressView("正在查詢").font(.footnote)
+                    }
+                }
+            }
+        }
     }
 
     private func loadRecords() async {
         guard model.usesLiveData, let live = model.live else { return }
         loadingRecords = true
-        await live.loadRecords(semesterIndex: semester)
+        recordsError = await live.loadRecords(semesterIndex: semester)
         loadingRecords = false
+    }
+
+    private func loadHistory(force: Bool) async {
+        guard let live = model.account else { return }
+        loadingHistory = true
+        historyError = await live.loadRecordHistory(merits: kind == .merits)
+        loadingHistory = false
+    }
+}
+
+private struct TrailingIconLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.title
+            configuration.icon.imageScale(.small)
+        }
+    }
+}
+
+/// Category column fixed, six halves scrolling sideways, as Android's table.
+private struct RecordHistoryTable: View {
+    let history: PocketRecordHistory
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                cell("類別", header: true).frame(width: 72, alignment: .leading)
+                ForEach(history.rows, id: \.category) { row in
+                    Divider()
+                    cell(row.category, header: false).frame(width: 72, alignment: .leading)
+                }
+            }
+            .accessibilityHidden(true)
+            ScrollView(.horizontal) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 0) {
+                        ForEach(history.terms, id: \.self) { cell($0, header: true).frame(width: 56) }
+                    }
+                    .accessibilityHidden(true)
+                    ForEach(history.rows, id: \.category) { row in
+                        Divider()
+                        HStack(spacing: 0) {
+                            ForEach(Array(row.cells.enumerated()), id: \.offset) { index, value in
+                                cell(value, header: false)
+                                    .frame(width: 56)
+                                    .monospacedDigit()
+                                    .accessibilityLabel(row.descriptions[index])
+                            }
+                        }
+                    }
+                }
+            }
+            .scrollIndicators(.visible)
+        }
+        .accessibilityIdentifier("records-history-table")
+    }
+
+    private func cell(_ text: String, header: Bool) -> some View {
+        Text(text)
+            .font(header ? .caption.weight(.semibold) : .subheadline)
+            .foregroundStyle(header ? PocketColor.onSurfaceVariant : PocketColor.onSurface)
+            .frame(minHeight: header ? 36 : 44)
     }
 }
 
 private struct RecordRow: View {
     let row: PocketRecordRow
+    @State private var expanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                PocketChip(
-                    text: row.category,
-                    foreground: row.isConcern ? PocketColor.negative : PocketColor.onPrimaryContainer,
-                    background: row.isConcern ? PocketColor.negative.opacity(0.12) : PocketColor.primaryContainer
-                )
-                Text(row.countText)
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    PocketChip(
+                        text: row.category,
+                        foreground: row.isConcern ? PocketColor.negative : PocketColor.onPrimaryContainer,
+                        background: row.isConcern ? PocketColor.negative.opacity(0.12) : PocketColor.primaryContainer
+                    )
+                    Text(row.countText)
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(PocketColor.onSurface)
+                    Spacer(minLength: 8)
+                    Text(row.dateText)
+                        .font(.footnote)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .layoutPriority(1)
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                }
+                Text(row.detail)
+                    .font(.body)
                     .foregroundStyle(PocketColor.onSurface)
-                Spacer(minLength: 8)
-                Text(row.dateText)
-                    .font(.footnote)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .layoutPriority(1)
-                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !row.note.isEmpty {
+                    Label(row.note, systemImage: "checkmark.circle.fill")
+                        .font(.footnote)
+                        .monospacedDigit()
+                        .foregroundStyle(PocketColor.positive)
+                }
             }
-            Text(row.detail)
-                .font(.body)
-                .foregroundStyle(PocketColor.onSurface)
-                .fixedSize(horizontal: false, vertical: true)
-            if !row.note.isEmpty {
-                Label(row.note, systemImage: "checkmark.circle.fill")
+            .accessibilityElement(children: .combine)
+            if !row.group.isEmpty {
+                Button {
+                    withAnimation(.snappy) { expanded.toggle() }
+                } label: {
+                    Label(expanded ? "收合核定資訊" : "查看核定資訊", systemImage: expanded ? "chevron.up" : "chevron.down")
+                        .labelStyle(TrailingIconLabelStyle())
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44)
+                }
+                .accessibilityValue(expanded ? "已展開" : "已收合")
+                .accessibilityIdentifier("record-approval-\(row.id)")
+                if expanded {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("校方分類：\(row.group)")
+                        if !row.yearTerm.isEmpty { Text("學期：\(row.yearTerm)") }
+                        if !row.checkDate.isEmpty { Text("核定日期：\(row.checkDate)") }
+                        if !row.cleanDate.isEmpty { Text("銷過日期：\(row.cleanDate)") }
+                    }
                     .font(.footnote)
                     .monospacedDigit()
-                    .foregroundStyle(PocketColor.positive)
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                    .accessibilityElement(children: .combine)
+                }
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .accessibilityElement(children: .combine)
     }
 }

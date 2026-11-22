@@ -647,3 +647,406 @@ private struct CreditSearch: @unchecked Sendable {
 
     func run() -> Result { Result(value: simulator.computeInference()) }
 }
+
+// MARK: Subject trend
+
+/// Android's 成績折線圖: several terms and subjects on one line chart.
+struct SubjectTrendView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Nil until the student narrows it: every term, as Android starts.
+    @State private var yearValues: [String]?
+    @State private var subjectKeys: [String] = []
+    @State private var highlighted: String?
+    @State private var selectedExam: String?
+    @State private var pageHeight: CGFloat = 0
+    @State private var loading = false
+    @State private var showsYears = false
+    @State private var showsSubjects = false
+
+    private var trends: PocketSubjectTrends { PocketSubjectTrends.shared }
+    private var chosenYears: [String] { yearValues ?? trends.terms().map(\.id) }
+
+    var body: some View {
+        let trend = trends.trend(yearValues: chosenYears, subjectKeys: subjectKeys)
+        ScrollView {
+            // One column on every width: the chart gets the whole width, the choices sit below it.
+            VStack(spacing: PocketMetrics.cardSpacing) {
+                chartCard(trend)
+                controls(trend)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, PocketMetrics.screenPadding)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
+        }
+        .background(PocketColor.background)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pageHeight = $0 }
+        .navigationTitle("成績折線圖")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: chosenYears) {
+            guard let live = model.account else { return }
+            loading = true
+            await live.loadReports(examValues: trends.examKeys(yearValues: chosenYears))
+            if !Task.isCancelled { loading = false }
+        }
+        .sheet(isPresented: $showsYears) {
+            TrendChoiceSheet(
+                title: "選擇學期", message: "選擇要納入折線圖比較的學期", confirm: "套用",
+                options: trends.terms().map { ($0.id, $0.title) }, selection: chosenYears, offersAll: true
+            ) { yearValues = $0 }
+        }
+        .sheet(isPresented: $showsSubjects) {
+            TrendChoiceSheet(
+                title: "調整對比科目", message: "選擇要顯示的科目", confirm: "確認",
+                options: trend.availableSubjects.map { ($0, $0) }, selection: subjectKeys, offersAll: false
+            ) { keys in
+                subjectKeys = keys
+                if let highlighted, !trends.trend(yearValues: chosenYears, subjectKeys: keys).legend.contains(where: { $0.baseName == highlighted }) {
+                    self.highlighted = nil
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chartCard(_ trend: PocketSubjectTrend) -> some View {
+        PocketCard {
+            VStack(alignment: .leading, spacing: 14) {
+                if !trend.emptyTitle.isEmpty || trend.exams.isEmpty {
+                    if loading {
+                        ProgressView("正在載入成績…")
+                            .frame(maxWidth: .infinity, minHeight: 160)
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(trend.emptyTitle.isEmpty ? "暫時沒有可繪製的成績資料" : trend.emptyTitle)
+                                .font(PocketFont.sectionTitle)
+                                .foregroundStyle(PocketColor.onSurface)
+                            Text(trend.emptyMessage.isEmpty ? "請調整學期或科目後再試一次。" : trend.emptyMessage)
+                                .font(.subheadline)
+                                .foregroundStyle(PocketColor.onSurfaceVariant)
+                            Button(trend.emptyAction.isEmpty ? "選擇學期" : trend.emptyAction) {
+                                if trend.emptyAction == "選擇科目" { showsSubjects = true } else { showsYears = true }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .padding(.top, 4)
+                            .accessibilityIdentifier("trend-empty-action")
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else {
+                    chart(trend)
+                    legend(trend)
+                }
+            }
+        }
+    }
+
+    private func chart(_ trend: PocketSubjectTrend) -> some View {
+        let labels = trend.exams.map(\.label)
+        // Up to six exams fit an iPhone (twelve an iPad); more scroll sideways, starting at the newest.
+        let visible = sizeClass == .regular ? min(labels.count, 12) : min(labels.count, 6)
+        let scrolls = labels.count > visible
+        return VStack(alignment: .leading, spacing: 8) {
+        if scrolls {
+            Label("左右滑動查看其他 \(labels.count - visible) 次考試", systemImage: "arrow.left.and.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(PocketColor.primary)
+                .accessibilityIdentifier("trend-scroll-hint")
+        }
+        Chart {
+            ForEach(Array(trend.segments.enumerated()), id: \.offset) { index, segment in
+                let tint = TrendPalette.color(Int(segment.colorIndex)).opacity(opacity(segment.baseName))
+                ForEach([(segment.fromIndex, segment.fromScore), (segment.toIndex, segment.toScore)], id: \.0) { point in
+                    LineMark(
+                        x: .value("考試", labels[Int(point.0)]),
+                        y: .value("分數", point.1),
+                        series: .value("線段", "\(index)")
+                    )
+                    .foregroundStyle(segment.isDashed ? tint.opacity(0.6) : tint)
+                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: segment.isDashed ? [6, 5] : []))
+                }
+            }
+            ForEach(trend.series, id: \.key) { line in
+                ForEach(line.values, id: \.examIndex) { value in
+                    PointMark(x: .value("考試", labels[Int(value.examIndex)]), y: .value("分數", value.score))
+                        .foregroundStyle(TrendPalette.color(Int(line.colorIndex)).opacity(opacity(line.baseName)))
+                        .symbolSize(highlighted == line.baseName ? 90 : 50)
+                }
+            }
+            if let selectedExam, let exam = trend.exams.first(where: { $0.label == selectedExam }) {
+                RuleMark(x: .value("考試", selectedExam))
+                    .foregroundStyle(PocketColor.onSurfaceVariant.opacity(0.3))
+                    .annotation(position: .top, spacing: 4, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                        tooltip(trend, exam: exam)
+                    }
+            }
+        }
+        .chartXScale(domain: labels)
+        .chartYScale(domain: trend.minScore...trend.maxScore)
+        // A tap keeps the callout open, as Android's point tooltip; tapping the same exam closes it.
+        .chartGesture { proxy in
+            SpatialTapGesture().onEnded { value in
+                let exam = proxy.value(atX: value.location.x, as: String.self)
+                selectedExam = exam == selectedExam ? nil : exam
+            }
+        }
+        .chartScrollableAxes(scrolls ? .horizontal : [])
+        .chartXVisibleDomain(length: max(visible, 1))
+        .chartScrollPosition(initialX: labels.last ?? "")
+        .chartXAxis {
+            AxisMarks(values: labels) { value in
+                AxisGridLine()
+                AxisValueLabel(centered: true, collisionResolution: .disabled) {
+                    if let label = value.as(String.self), let exam = trend.exams.first(where: { $0.label == label }) {
+                        VStack(spacing: 0) {
+                            Text(exam.termLabel)
+                            Text(sizeClass == .regular ? exam.examName : Self.shortExamName(exam.examName))
+                        }
+                        .lineLimit(1)
+                        .font(.caption2)
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { _ in
+                AxisGridLine()
+                AxisValueLabel().font(.caption2)
+            }
+        }
+        .frame(height: sizeClass == .regular ? max(420, pageHeight * 0.6) : 320)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .accessibilityLabel("成績折線圖")
+        .accessibilityValue(trend.description_)
+        .accessibilityChartDescriptor(SubjectTrendChartDescriptor(trend: trend))
+        .accessibilityIdentifier("subject-trend-chart")
+        if let exam = trend.exams.first(where: { $0.label == selectedExam }) {
+            Text(selectionSummary(trend, exam: exam))
+                .font(.footnote.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(PocketColor.onSurface)
+                .accessibilityIdentifier("trend-selection")
+        }
+        }
+    }
+
+    /// 第一次段考 → 一段, 期末考 → 期末, so six exams fit side by side on an iPhone.
+    private static func shortExamName(_ name: String) -> String {
+        let ordinals = ["第一次": "一", "第二次": "二", "第三次": "三"]
+        for (long, short) in ordinals where name.hasPrefix(long) {
+            return short + (name.contains("段考") ? "段" : String(name.dropFirst(long.count).prefix(1)))
+        }
+        if name.hasSuffix("考"), name.count == 3 { return String(name.prefix(2)) }
+        return String(name.prefix(3))
+    }
+
+    private func selectionSummary(_ trend: PocketSubjectTrend, exam: PocketTrendExam) -> String {
+        let values = trend.series.compactMap { line in
+            line.values.first { $0.examIndex == exam.index }.map { "\(line.label) \($0.scoreText)" }
+        }
+        return "\(exam.label)：\(values.isEmpty ? "沒有成績" : values.joined(separator: "、"))"
+    }
+
+    private func tooltip(_ trend: PocketSubjectTrend, exam: PocketTrendExam) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(exam.label).font(.caption.weight(.semibold))
+            ForEach(trend.series, id: \.key) { line in
+                if let value = line.values.first(where: { $0.examIndex == exam.index }) {
+                    HStack(spacing: 4) {
+                        Circle().fill(TrendPalette.color(Int(line.colorIndex))).frame(width: 7, height: 7)
+                        Text("\(line.label) \(value.scoreText)").monospacedDigit()
+                    }
+                    .font(.caption)
+                }
+            }
+        }
+        .padding(8)
+        .background(PocketColor.surfaceLow, in: .rect(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(PocketColor.outline.opacity(0.3)))
+    }
+
+    private func opacity(_ baseName: String) -> Double {
+        highlighted == nil || highlighted == baseName ? 1 : 0.2
+    }
+
+    private func legend(_ trend: PocketSubjectTrend) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), alignment: .leading)], alignment: .leading, spacing: 8) {
+            ForEach(trend.legend, id: \.baseName) { item in
+                let isSelected = highlighted == item.baseName
+                Button {
+                    highlighted = isSelected ? nil : item.baseName
+                } label: {
+                    HStack(spacing: 6) {
+                        Circle().fill(TrendPalette.color(Int(item.colorIndex))).frame(width: 10, height: 10)
+                        Text(item.label)
+                            .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                            .foregroundStyle(PocketColor.onSurface)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 36)
+                    .background(isSelected ? PocketColor.primary.opacity(0.14) : .clear, in: .capsule)
+                    .contentShape(.capsule)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("突顯\(item.label)")
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+                .accessibilityIdentifier("trend-legend-\(item.baseName)")
+            }
+        }
+    }
+
+    private func controls(_ trend: PocketSubjectTrend) -> some View {
+        let layout = sizeClass == .regular ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+        return PocketCard(padding: 8) {
+            VStack(spacing: 0) {
+                layout {
+                    controlRow("比較學期", detail: trend.yearsText, symbol: "calendar") { showsYears = true }
+                        .accessibilityIdentifier("trend-years")
+                    if sizeClass == .regular { Divider().frame(height: 40) } else { PocketRowDivider().padding(.leading, 12) }
+                    controlRow("調整對比科目", detail: trend.subjectsText, symbol: "books.vertical") { showsSubjects = true }
+                        .accessibilityIdentifier("trend-subjects")
+                        .disabled(trend.availableSubjects.isEmpty)
+                }
+                if !loading, !trend.loadMessage.isEmpty {
+                    PocketRowDivider().padding(.leading, 12)
+                    Label(trend.loadMessage, systemImage: "exclamationmark.triangle")
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                }
+            }
+        }
+    }
+
+    private func controlRow(_ title: String, detail: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: symbol)
+                    .foregroundStyle(PocketColor.primary)
+                    .frame(width: 28)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.body.weight(.semibold)).foregroundStyle(PocketColor.onSurface)
+                    Text(detail).font(.subheadline).foregroundStyle(PocketColor.onSurfaceVariant)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                    .accessibilityHidden(true)
+            }
+            .padding(12)
+            .frame(minHeight: 56)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Android's subject colours, in the same order.
+private enum TrendPalette {
+    private static let hex: [UInt32] = [
+        0xE91E63, 0x9C27B0, 0x3F51B5, 0x00BCD4, 0x4CAF50, 0xFF9800, 0x795548, 0x607D8B, 0xF44336,
+        0x009688, 0xCDDC39, 0xFFC107, 0xFF5722, 0x8BC34A, 0x673AB7, 0x03A9F4, 0xE040FB, 0x00E5FF,
+    ]
+
+    static func color(_ index: Int) -> Color {
+        let value = hex[((index % hex.count) + hex.count) % hex.count]
+        return Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+    }
+}
+
+/// Audio Graph: every subject as a data series over the exams.
+private struct SubjectTrendChartDescriptor: AXChartDescriptorRepresentable {
+    let trend: PocketSubjectTrend
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let labels = trend.exams.map(\.label)
+        let xAxis = AXCategoricalDataAxisDescriptor(title: "考試", categoryOrder: labels)
+        let yAxis = AXNumericDataAxisDescriptor(title: "分數", range: trend.minScore...trend.maxScore, gridlinePositions: []) {
+            "\(Int($0.rounded())) 分"
+        }
+        let series = trend.series.map { line in
+            AXDataSeriesDescriptor(name: line.label, isContinuous: true, dataPoints: line.values.map {
+                AXDataPoint(x: labels[Int($0.examIndex)], y: $0.score)
+            })
+        }
+        return AXChartDescriptor(title: "成績折線圖", summary: trend.description_, xAxis: xAxis, yAxis: yAxis, additionalAxes: [], series: series)
+    }
+}
+
+/// Multiple choice with 全選 / 清除, applied only by the confirm button, as Android's sheets.
+private struct TrendChoiceSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let message: String
+    let confirm: String
+    let options: [(id: String, title: String)]
+    @State var selection: [String]
+    let offersAll: Bool
+    let apply: ([String]) -> Void
+
+    init(title: String, message: String, confirm: String, options: [(String, String)], selection: [String], offersAll: Bool, apply: @escaping ([String]) -> Void) {
+        self.title = title
+        self.message = message
+        self.confirm = confirm
+        self.options = options.map { (id: $0.0, title: $0.1) }
+        _selection = State(initialValue: selection)
+        self.offersAll = offersAll
+        self.apply = apply
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(options, id: \.id) { option in
+                        let isOn = selection.contains(option.id)
+                        Button {
+                            if isOn { selection.removeAll { $0 == option.id } } else { selection.append(option.id) }
+                        } label: {
+                            HStack {
+                                Text(option.title).foregroundStyle(PocketColor.onSurface)
+                                Spacer()
+                                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(isOn ? PocketColor.primary : PocketColor.onSurfaceVariant)
+                                    .accessibilityHidden(true)
+                            }
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(isOn ? .isSelected : [])
+                        .accessibilityIdentifier("trend-option-\(option.id)")
+                    }
+                } footer: {
+                    Text(message)
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(confirm) {
+                        // Keep the order the options are listed in, so colours follow the list.
+                        apply(options.map(\.id).filter(selection.contains))
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("trend-apply")
+                }
+                ToolbarItemGroup(placement: .bottomBar) {
+                    if offersAll {
+                        Button("全選") { selection = options.map(\.id) }
+                    }
+                    Spacer()
+                    Button("清除") { selection = [] }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
