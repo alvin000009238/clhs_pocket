@@ -353,6 +353,15 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["schedule-menu"].tap()
         XCTAssertTrue(app.buttons["分享課表圖片"].waitForExistence(timeout: 5))
         capture("43-schedule-menu")
+
+        // The demo can show another class and come back to the student's own timetable.
+        app.buttons["高二 31 班"].tap()
+        XCTAssertTrue(app.staticTexts["高二 31 班"].waitForExistence(timeout: 5))
+        capture("43b-schedule-other-class")
+        app.buttons["schedule-menu"].tap()
+        app.buttons["我的課表"].tap()
+        XCTAssertTrue(app.staticTexts["高二 30 班"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["高二 31 班"].exists)
     }
 
     func testCampusAnnouncementsCalendarAndRecords() {
