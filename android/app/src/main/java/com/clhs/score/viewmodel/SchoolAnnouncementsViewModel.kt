@@ -17,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -42,11 +43,14 @@ data class SchoolAnnouncementsUiState(
     val hasFilters: Boolean get() = unitId != ALL_UNITS_ID || categoryId != ALL_UNITS_ID
 }
 
+private const val ANNOUNCEMENT_UNREAD_LOOKUP_MAX_PAGES = 20
+
 class SchoolAnnouncementsViewModel(
     private val loadCached: suspend () -> SchoolAnnouncementPage?,
     private val loadPage: suspend (Int, String, String, String) -> SchoolAnnouncementPage,
     private val loadCachedFilters: suspend () -> AnnouncementFilterOptions = { AnnouncementFilterOptions() },
     private val loadFilters: suspend () -> AnnouncementFilterOptions = { AnnouncementFilterOptions() },
+    private val loadUnreadIds: suspend () -> Set<String> = { emptySet() },
 ) : ViewModel() {
     private var loadJob: Job? = null
     private var loadMoreJob: Job? = null
@@ -199,6 +203,7 @@ class SchoolAnnouncementsViewModel(
             }
             try {
                 showFirstPage(loadPage(0, keyword, filters.unitId, filters.categoryId))
+                if (keyword.isEmpty() && !filters.hasFilters) revealUnreadAnnouncements()
             } catch (error: Exception) {
                 error.throwIfAnnouncementCancellation()
                 _uiState.update { state ->
@@ -217,6 +222,34 @@ class SchoolAnnouncementsViewModel(
                     }
                 }
             }
+        }
+    }
+
+    private suspend fun revealUnreadAnnouncements() {
+        _uiState.update { it.copy(isLoadingMore = true) }
+        try {
+            val unreadSnapshot = loadUnreadIds()
+            // Discovery on later pages must not extend this lookup into a crawl of the archive.
+            repeat(ANNOUNCEMENT_UNREAD_LOOKUP_MAX_PAGES - 1) {
+                val state = _uiState.value
+                val loadedIds = state.announcements.mapTo(HashSet(), SchoolAnnouncement::id)
+                if (!state.hasMore || loadedIds.containsAll(unreadSnapshot)) return
+                val page = loadPage(state.pageIndex + 1, "", ALL_UNITS_ID, ALL_UNITS_ID)
+                _uiState.update {
+                    it.copy(
+                        announcements = (it.announcements + page.announcements).distinctBy(SchoolAnnouncement::id),
+                        pageIndex = page.pageIndex,
+                        hasMore = page.pageIndex + 1 < page.totalPages,
+                        lastUpdatedAt = page.fetchedAt,
+                    )
+                }
+                if (page.announcements.isEmpty()) return
+            }
+        } catch (error: Exception) {
+            error.throwIfAnnouncementCancellation()
+            _uiState.update { it.copy(loadMoreError = "無法載入更多消息，請稍後再試。") }
+        } finally {
+            _uiState.update { it.copy(isLoadingMore = false) }
         }
     }
 
@@ -240,15 +273,17 @@ class SchoolAnnouncementsViewModel(
         fun factory(context: Context): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                val reading = com.clhs.score.data.AnnouncementReadRepository.get(context)
                 val repository = NetworkSchoolAnnouncementsRepository(
                     context.applicationContext.cacheDir,
-                    readRepository = com.clhs.score.data.AnnouncementReadRepository.get(context),
+                    readRepository = reading,
                 )
                 return SchoolAnnouncementsViewModel(
                     loadCached = repository::loadCached,
                     loadPage = repository::loadPage,
                     loadCachedFilters = repository::loadCachedFilterOptions,
                     loadFilters = repository::loadFilterOptions,
+                    loadUnreadIds = { reading.unreadIds.first() },
                 ) as T
             }
         }

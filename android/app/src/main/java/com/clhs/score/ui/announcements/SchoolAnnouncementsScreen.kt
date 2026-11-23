@@ -77,6 +77,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -431,6 +432,21 @@ private fun AnnouncementList(
     val announcements = remember(uiState.announcements, unreadIds) {
         orderAnnouncements(uiState.announcements, unreadIds)
     }
+    val topAnchor = remember { AnnouncementTopAnchor() }
+    val loadedIds = remember(uiState.announcements) {
+        uiState.announcements.mapTo(HashSet(), SchoolAnnouncement::id)
+    }
+    val firstUnreadId = announcements.firstOrNull()?.id?.takeIf { it in unreadIds }
+    SideEffect {
+        if (topAnchor.shouldKeepAtTop(
+                loadedIds, firstUnreadId,
+                isAtTop = !listState.canScrollBackward,
+                isScrollInProgress = listState.isScrollInProgress,
+            )
+        ) {
+            listState.requestScrollToItem(0)
+        }
+    }
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(markedReadSnapshot, unreadIds) {
@@ -602,6 +618,22 @@ internal fun orderAnnouncements(
 
 private const val ANNOUNCEMENT_ITEM_PREFIX = "school-announcement:"
 internal fun announcementItemKey(id: String): String = ANNOUNCEMENT_ITEM_PREFIX + id
+
+internal class AnnouncementTopAnchor {
+    private var previousIds = emptySet<String>()
+
+    fun shouldKeepAtTop(
+        loadedIds: Set<String>,
+        firstUnreadId: String?,
+        isAtTop: Boolean,
+        isScrollInProgress: Boolean,
+    ): Boolean {
+        val newUnreadAtTop = firstUnreadId != null && firstUnreadId !in previousIds &&
+            previousIds.isNotEmpty() && loadedIds.containsAll(previousIds)
+        previousIds = loadedIds
+        return newUnreadAtTop && isAtTop && !isScrollInProgress
+    }
+}
 
 internal class AnnouncementPrefetchViewport {
     private var requestedKeys = emptySet<String>()

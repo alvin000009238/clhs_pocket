@@ -6,6 +6,7 @@ import com.clhs.score.reminders.announcementNotificationAction
 import com.clhs.score.ui.announcements.orderAnnouncements
 import com.clhs.score.ui.announcements.shouldPrefetchAnnouncements
 import com.clhs.score.ui.announcements.AnnouncementPrefetchViewport
+import com.clhs.score.ui.announcements.AnnouncementTopAnchor
 import com.clhs.score.viewmodel.SchoolAnnouncementsUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -16,6 +17,32 @@ class AnnouncementPresentationTest {
     private val ordinary = SchoolAnnouncement("1", "一般", "2026/09/09", "公告", "", "", false, "")
     private val pinned = ordinary.copy(id = "2", isPinned = true)
     private val unread = ordinary.copy(id = "3")
+
+    @Test
+    fun delayedUnreadInsertionKeepsIdleTopViewportAtTopOnce() {
+        val anchor = AnnouncementTopAnchor()
+        assertFalse(anchor.shouldKeepAtTop(setOf("pin"), null, isAtTop = true, isScrollInProgress = false))
+        assertTrue(anchor.shouldKeepAtTop(setOf("pin", "unread"), "unread", isAtTop = true, isScrollInProgress = false))
+        assertFalse(anchor.shouldKeepAtTop(setOf("pin", "unread"), "unread", isAtTop = true, isScrollInProgress = false))
+    }
+
+    @Test
+    fun delayedUnreadInsertionPreservesScrolledOrMovingViewport() {
+        for ((isAtTop, isScrolling) in listOf(false to false, true to true)) {
+            val anchor = AnnouncementTopAnchor()
+            anchor.shouldKeepAtTop(setOf("pin"), null, isAtTop = true, isScrollInProgress = false)
+            assertFalse(anchor.shouldKeepAtTop(setOf("pin", "unread"), "unread", isAtTop, isScrolling))
+            assertFalse(anchor.shouldKeepAtTop(setOf("pin", "unread"), "unread", isAtTop = true, isScrollInProgress = false))
+        }
+    }
+
+    @Test
+    fun readStateChangesAndReplacementResultsDoNotRequestTopAnchor() {
+        val anchor = AnnouncementTopAnchor()
+        assertFalse(anchor.shouldKeepAtTop(setOf("pin", "unread"), "unread", isAtTop = true, isScrollInProgress = false))
+        assertFalse(anchor.shouldKeepAtTop(setOf("pin", "unread"), "pin", isAtTop = true, isScrollInProgress = false))
+        assertFalse(anchor.shouldKeepAtTop(setOf("replacement"), "replacement", isAtTop = true, isScrollInProgress = false))
+    }
 
     @Test
     fun reorderingPagesAboveTheSameViewportDoesNotRequestAnotherPage() {
