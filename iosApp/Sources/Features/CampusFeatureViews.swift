@@ -73,7 +73,10 @@ struct AnnouncementListView: View {
     private static let topId = "announcements-top"
 
     var body: some View {
-        let feed = feed ?? AnnouncementFeed(loader: model.makeAnnouncementLoader(), unreadIds: { [model] in model.unreadAnnouncementIds })
+        let feed = feed ?? AnnouncementFeed(loader: model.makeAnnouncementLoader(), unreadIds: { [model] in
+            await model.syncUnread()
+            return model.unreadAnnouncementIds
+        })
         let unread = Int(PocketCampusStore.shared.unreadCount(clock: model.clock, unreadIds: model.unreadAnnouncementIds))
         let rows = rows(feed)
         ScrollView {

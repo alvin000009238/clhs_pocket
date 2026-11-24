@@ -88,13 +88,14 @@ final class AnnouncementFeed {
     var hasFilters: Bool { unitId != PocketAnnouncementFeed.shared.ALL_ID || categoryId != PocketAnnouncementFeed.shared.ALL_ID }
 
     @ObservationIgnored private let loader: AnnouncementPageLoading
-    @ObservationIgnored private let unreadIds: () -> Set<String>
+    /// Current unread set; live mode first syncs it from the repository that registered the loaded pages.
+    @ObservationIgnored private let unreadIds: () async -> Set<String>
     /// Bumped by every new query, so a page that answers an older one is dropped.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var started = false
     @ObservationIgnored private var searchTask: Task<Void, Never>?
 
-    init(loader: AnnouncementPageLoading, unreadIds: @escaping () -> Set<String> = { [] }) {
+    init(loader: AnnouncementPageLoading, unreadIds: @escaping () async -> Set<String> = { [] }) {
         self.loader = loader
         self.unreadIds = unreadIds
     }
@@ -232,8 +233,8 @@ final class AnnouncementFeed {
     /// announcements found on the way do not extend the lookup; a failure keeps the list and offers the
     /// footer retry, and loading further pages by scrolling still works afterwards.
     private func revealUnread(generation current: Int) async {
-        let snapshot = unreadIds()
-        guard !snapshot.isEmpty else { return }
+        let snapshot = await unreadIds()
+        guard current == generation, !snapshot.isEmpty else { return }
         isLoadingMore = true
         defer { if current == generation { isLoadingMore = false } }
         for _ in 1..<Self.unreadLookupMaxPages {

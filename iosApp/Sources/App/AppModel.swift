@@ -382,8 +382,9 @@ final class AppModel {
         await syncUnread()
     }
 
-    /// In live mode the read state lives in the shared announcement repository.
-    private func syncUnread() async {
+    /// In live mode the read state lives in the shared announcement repository, which also registers
+    /// every announcement page as it is loaded; demo mode keeps its local set.
+    func syncUnread() async {
         guard usesLiveData, let live else { return }
         if let ids = try? await live.backend.call({ try await $0.unreadAnnouncementIds(token: $1) }) {
             syncingUnread = true

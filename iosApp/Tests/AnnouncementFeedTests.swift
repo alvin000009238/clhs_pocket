@@ -74,6 +74,23 @@ final class AnnouncementFeedTests: XCTestCase {
         XCTAssertTrue(feed.canLoadMore, "scrolling still loads the pages after the lookup")
     }
 
+    func testUnreadRegisteredAfterStartIsRevealedWhenTheUnfilteredListReturns() async {
+        let loader = EndlessLoader()
+        var registered: Set<String> = []
+        var reads = 0
+        let feed = AnnouncementFeed(loader: loader, unreadIds: {
+            reads += 1
+            return registered
+        })
+        await feed.start()
+        await feed.setFilters(unitId: "101", categoryId: PocketAnnouncementFeed.shared.ALL_ID)
+        // Browsing the unit registered an unread announcement that the unfiltered list has on page 4.
+        registered = ["p4-2"]
+        await feed.clearFilters()
+        XCTAssertEqual(reads, 2, "the unread set is read again for each unfiltered first page")
+        XCTAssertTrue(feed.items.contains { $0.id == "p4-2" })
+    }
+
     func testUnreadLookupReadsAtMostTwentyPagesThenScrollingContinues() async {
         let loader = EndlessLoader()
         let feed = AnnouncementFeed(loader: loader, unreadIds: { ["not-on-any-page"] })
