@@ -1,5 +1,8 @@
 package com.clhs.score.shared.app
 
+import com.clhs.score.shared.time.at
+import com.clhs.score.shared.time.localTimeOf
+import com.clhs.score.shared.time.shiftDays
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -55,6 +58,22 @@ class PocketCampusStoreTest {
             val detail = PocketCampusStore.announcementDetail(clock, "old-1")
             assertEquals(listOf("內文"), detail?.paragraphs)
             assertFalse(detail!!.isPinned)
+        } finally {
+            PocketLive.clearAll()
+            PocketData.useDemo()
+        }
+    }
+
+    @Test
+    fun homeEventsOnlyCoverTheNextFourteenDays() {
+        val today = clock.date()
+        fun event(id: String, days: Long) = com.clhs.score.data.SchoolCalendarEvent(
+            id, id, today.shiftDays(days).at(localTimeOf(0, 0)), today.shiftDays(days + 1).at(localTimeOf(0, 0)), isAllDay = true,
+        )
+        PocketData.useLive()
+        try {
+            PocketLive.putEvents(listOf(event("day14", 14), event("day15", 15), event("far", 40)))
+            assertEquals(listOf("day14"), DemoCampus.events(clock).map { it.id })
         } finally {
             PocketLive.clearAll()
             PocketData.useDemo()

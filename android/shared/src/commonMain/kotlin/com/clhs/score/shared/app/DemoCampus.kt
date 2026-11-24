@@ -111,7 +111,8 @@ internal object DemoCampus {
             announcements = sharedAnnouncements(clock),
             now = now,
             isInitialLoading = false,
-            items = events.filter { it.endExclusive > now }.map {
+            // Like Android's overview, only events starting within the next 14 days are candidates.
+            items = events.filter { it.endExclusive > now && it.start < now.datePart().shiftDays(14).at(now.timePart()) }.map {
                 OverviewItem(
                     id = "event-${it.id}", priority = OverviewPriority.P2, kind = OverviewItemKind.CalendarEvent,
                     title = it.title, supportingText = "", label = "行事曆", icon = "event",
