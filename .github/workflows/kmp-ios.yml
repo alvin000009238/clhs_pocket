@@ -1,0 +1,111 @@
+name: KMP iOS Foundation
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'android/shared/**'
+      - 'android/settings.gradle.kts'
+      - 'android/build.gradle.kts'
+      - 'android/gradle.properties'
+      - 'android/gradle/libs.versions.toml'
+      - 'android/gradle/wrapper/**'
+      - 'android/gradlew'
+      - 'iosApp/**'
+      - '.github/workflows/kmp-ios.yml'
+      - '.github/scripts/ios_release_launch_check.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kmp-ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-build:
+    name: Kotlin iOS framework, app, widget extension, unit and UI tests
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install Android SDK packages and XcodeGen
+        run: |
+          # macos-26 already includes modern Android command-line tools.
+          # setup-android@v3 attempts to install the removed legacy 'tools' package.
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"
+          brew install xcodegen
+      - name: Select the newest installed Xcode 26
+        run: |
+          # Runner images rotate Xcode point releases; never pin one that may be removed.
+          XCODE="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -n 1)"
+          sudo xcode-select --switch "${XCODE:-/Applications/Xcode.app}/Contents/Developer"
+          xcodebuild -version
+      - name: Kotlin/Native common tests and framework compilation
+        working-directory: android
+        run: |
+          ./gradlew :shared:iosSimulatorArm64Test :shared:linkDebugFrameworkIosSimulatorArm64 --no-configuration-cache --warning-mode all
+      - name: Generate native Xcode project
+        working-directory: iosApp
+        run: xcodegen generate
+      - name: Build the app and widget extension, run the unit tests and the UI flows on a simulator
+        run: |
+          UDID="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          runtimes = json.load(sys.stdin)["devices"]
+          ios = sorted((k for k in runtimes if "SimRuntime.iOS-" in k),
+                       key=lambda k: [int(p) for p in k.rsplit("iOS-", 1)[1].split("-")])
+          for runtime in reversed(ios):
+              phones = [d for d in runtimes[runtime] if d["name"].startswith("iPhone")]
+              if phones:
+                  print(phones[0]["udid"])
+                  break
+          ')"
+          test -n "$UDID"
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          # Ad hoc signing keeps the Keychain and App Group entitlements the unit tests and widget need.
+          # Unit tests first, in their own run: when the unit-test host starts in the same run as
+          # the UI flows it sometimes hangs before connecting to the test runner.
+          xcodebuild -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket \
+            -destination "id=$UDID" CODE_SIGN_IDENTITY=- -only-testing:CLHSPocketTests test
+          TEST_RUNNER_SHOT_DIR="$RUNNER_TEMP/pocket-shots" xcodebuild \
+            -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket \
+            -destination "id=$UDID" CODE_SIGN_IDENTITY=- -only-testing:CLHSPocketUITests \
+            -resultBundlePath "$RUNNER_TEMP/ui.xcresult" test
+      - name: Release build survives a fresh launch with no arguments
+        run: |
+          # Release links the optimised Kotlin framework, like the archive that ships to devices.
+          DERIVED="$RUNNER_TEMP/release-sim"
+          xcodebuild -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket -configuration Release \
+            -destination "id=$SIM_UDID" -derivedDataPath "$DERIVED" CODE_SIGN_IDENTITY=- build \
+            | tee "$RUNNER_TEMP/release-sim.log"
+          grep -q "linkReleaseFrameworkIosSimulatorArm64" "$RUNNER_TEMP/release-sim.log"
+          python3 .github/scripts/ios_release_launch_check.py --udid "$SIM_UDID" \
+            --app "$DERIVED/Build/Products/Release-iphonesimulator/CLHSPocket.app"
+      - name: Upload UI test screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ios-ui-screenshots
+          path: ${{ runner.temp }}/pocket-shots
+          if-no-files-found: ignore
+      - name: Collect crash and hang reports
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/diagnostic-reports"
+          find "$HOME/Library/Logs/DiagnosticReports" -type f -mtime -1 \
+            -exec cp {} "$RUNNER_TEMP/diagnostic-reports/" \; 2>/dev/null || true
+      - name: Upload UI test results and crash reports
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ios-ui-test-results
+          path: |
+            ${{ runner.temp }}/ui.xcresult
+            ${{ runner.temp }}/diagnostic-reports
+          if-no-files-found: ignore
