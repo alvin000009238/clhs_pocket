@@ -993,16 +993,17 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertEqual(avatar.label, "設定大頭貼")
         avatar.tap()
         let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
-        XCTAssertTrue(photo.waitForExistence(timeout: 15), "the photo picker opens")
+        // On a fresh simulator the picker first indexes the photo library, which can take over 15 s on CI.
+        XCTAssertTrue(photo.waitForExistence(timeout: 40), "the photo picker opens")
         capture("70a-personal-photo-picker")
         // The picker runs out of process, so its cells report as not hittable; tap where the cell is.
         photo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(app.buttons["更換大頭貼"].firstMatch.waitForExistence(timeout: 15), "the picked photo is shown")
-        // The new photo can show while the picker is still closing; a long press during that
-        // transition opens no context menu, so wait until the picker is gone.
+        // The new photo can show while the picker is still closing, so wait until the picker is gone.
         XCTAssertTrue(waitUntil(timeout: 15) { !photo.exists && avatar.isHittable }, "the photo picker closes")
         capture("70b-personal-photo")
-        avatar.press(forDuration: 1.2)
+        // With a photo set, tapping the avatar offers to change or remove it.
+        avatar.tap()
         let remove = app.buttons["profile-photo-remove"].firstMatch
         XCTAssertTrue(remove.waitForExistence(timeout: 5))
         remove.tap()
