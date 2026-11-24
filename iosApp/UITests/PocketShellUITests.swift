@@ -977,8 +977,11 @@ final class PocketShellUITests: XCTestCase {
         // The picker runs out of process, so its cells report as not hittable; tap where the cell is.
         photo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(app.buttons["更換大頭貼"].firstMatch.waitForExistence(timeout: 15), "the picked photo is shown")
+        // The new photo can show while the picker is still closing; a long press during that
+        // transition opens no context menu, so wait until the picker is gone.
+        XCTAssertTrue(waitUntil(timeout: 15) { !photo.exists && avatar.isHittable }, "the photo picker closes")
         capture("70b-personal-photo")
-        app.buttons["profile-photo"].firstMatch.press(forDuration: 1.2)
+        avatar.press(forDuration: 1.2)
         let remove = app.buttons["profile-photo-remove"].firstMatch
         XCTAssertTrue(remove.waitForExistence(timeout: 5))
         remove.tap()
