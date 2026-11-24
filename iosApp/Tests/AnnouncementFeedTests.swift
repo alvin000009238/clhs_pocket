@@ -27,8 +27,108 @@ private final class FlakyLoader: AnnouncementPageLoading {
     func remember(_ items: [SchoolAnnouncement]) { remembered = items }
 }
 
+/// A long archive of generated pages, with an optional failing page.
+@MainActor
+private final class EndlessLoader: AnnouncementPageLoading {
+    var failAt: Int?
+    let totalPages: Int
+    private(set) var requests: [Int] = []
+    private let fetchedAt = PocketAnnouncementFeed.shared.demoPage(
+        clock: PocketClock(year: 2026, month: 11, day: 18, dayOfWeek: 3, minuteOfDay: 600), pageIndex: 0, keyword: "", unitId: "-1", categoryId: "-1"
+    ).fetchedAt
+
+    init(totalPages: Int = 100) { self.totalPages = totalPages }
+
+    func cachedFirstPage() async -> SchoolAnnouncementPage? { nil }
+
+    func page(_ index: Int, keyword: String, unitId: String, categoryId: String) async throws -> SchoolAnnouncementPage? {
+        requests.append(index)
+        if index == failAt {
+            failAt = nil
+            throw URLError(.notConnectedToInternet)
+        }
+        let items = (0..<10).map { row in
+            SchoolAnnouncement(
+                id: "p\(index)-\(row)", title: "公告 \(index)-\(row)", date: "2026/11/18", category: "公告",
+                unit: "教務處", issuer: "", isPinned: false, contentType: "", externalUrl: nil
+            )
+        }
+        return SchoolAnnouncementPage(announcements: items, pageIndex: Int32(index), totalPages: Int32(totalPages), fetchedAt: fetchedAt)
+    }
+
+    func cachedFilters() async -> AnnouncementFilterOptions? { nil }
+    func filters() async throws -> AnnouncementFilterOptions { PocketAnnouncementFeed.shared.demoFilterOptions() }
+    func remember(_ items: [SchoolAnnouncement]) {}
+}
+
 @MainActor
 final class AnnouncementFeedTests: XCTestCase {
+    func testUnfilteredStartLoadsPagesUntilKnownUnreadAnnouncementsAreListed() async {
+        let loader = EndlessLoader()
+        let feed = AnnouncementFeed(loader: loader, unreadIds: { ["p0-1", "p3-4"] })
+        await feed.start()
+        XCTAssertTrue(feed.items.contains { $0.id == "p3-4" }, "an unread announcement on a later page is listed")
+        XCTAssertEqual(loader.requests, [0, 1, 2, 3], "the lookup stops once every unread announcement is listed")
+        XCTAssertFalse(feed.isLoadingMore)
+        XCTAssertNil(feed.loadMoreError)
+        XCTAssertTrue(feed.canLoadMore, "scrolling still loads the pages after the lookup")
+    }
+
+    func testUnreadLookupReadsAtMostTwentyPagesThenScrollingContinues() async {
+        let loader = EndlessLoader()
+        let feed = AnnouncementFeed(loader: loader, unreadIds: { ["not-on-any-page"] })
+        await feed.start()
+        XCTAssertEqual(loader.requests, Array(0..<AnnouncementFeed.unreadLookupMaxPages), "no unbounded archive crawl")
+        XCTAssertTrue(feed.canLoadMore)
+        await feed.loadMore()
+        XCTAssertEqual(loader.requests.last, AnnouncementFeed.unreadLookupMaxPages, "later pages still load by scrolling")
+    }
+
+    func testUnreadLookupStopsAtTheEndOfTheArchive() async {
+        let loader = EndlessLoader(totalPages: 3)
+        let feed = AnnouncementFeed(loader: loader, unreadIds: { ["not-on-any-page"] })
+        await feed.start()
+        XCTAssertEqual(loader.requests, [0, 1, 2])
+        XCTAssertFalse(feed.hasMore)
+    }
+
+    func testUnreadLookupFailureKeepsTheListAndOffersTheRetry() async {
+        let loader = EndlessLoader()
+        loader.failAt = 2
+        let feed = AnnouncementFeed(loader: loader, unreadIds: { ["p5-0"] })
+        await feed.start()
+        XCTAssertEqual(feed.items.count, 20, "the pages read before the failure stay listed")
+        XCTAssertEqual(feed.loadMoreError, AnnouncementFeed.loadMoreFailure)
+        XCTAssertFalse(feed.isLoadingMore)
+        XCTAssertNil(feed.errorMessage)
+        await feed.loadMore(retrying: true)
+        XCTAssertEqual(loader.requests.last, 2, "the footer retry asks for the failed page again")
+        XCTAssertEqual(feed.items.count, 30)
+    }
+
+    func testFilteredAndSearchedListsSkipTheUnreadLookup() async {
+        let loader = EndlessLoader()
+        let feed = AnnouncementFeed(loader: loader, unreadIds: { ["p0-0"] })
+        await feed.start()
+        let before = loader.requests.count
+        await feed.setFilters(unitId: "101", categoryId: PocketAnnouncementFeed.shared.ALL_ID)
+        XCTAssertEqual(Array(loader.requests.dropFirst(before)), [0], "a filtered list reads only its first page")
+        let unreadLater = AnnouncementFeed(loader: EndlessLoader(), unreadIds: { ["p4-0"] })
+        await unreadLater.setFilters(unitId: "101", categoryId: PocketAnnouncementFeed.shared.ALL_ID)
+        XCTAssertFalse(unreadLater.items.contains { $0.id == "p4-0" })
+    }
+
+    func testListShowsUnreadThenPinnedThenTheSchoolOrder() {
+        func row(_ id: String, pinned: Bool = false, unread: Bool = false) -> PocketAnnouncement {
+            PocketAnnouncement(id: id, title: id, dateText: "", shortDateText: "", unit: "", category: "",
+                               isPinned: pinned, isUnread: unread, isBookmarked: false)
+        }
+        let rows = [row("a"), row("b", pinned: true), row("c", unread: true), row("d"), row("e", pinned: true, unread: true)]
+        XCTAssertEqual(AnnouncementFeed.ordered(rows, unreadIds: ["c", "e"]).map(\.id), ["e", "c", "b", "a", "d"])
+        XCTAssertEqual(AnnouncementFeed.ordered(rows, unreadIds: ["e"]).map(\.id), ["e", "b", "a", "c", "d"],
+                       "the order follows the unread set it is given, not the rows' live read state")
+    }
+
     func testScrollingLoadsEveryPageOnceAndStopsAtTheEnd() async {
         let loader = FlakyLoader()
         let feed = AnnouncementFeed(loader: loader)

@@ -14,17 +14,25 @@ protocol AnnouncementPageLoading {
     func remember(_ items: [SchoolAnnouncement])
 }
 
-/// The demo archive, with an optional one-time failure of the second page so the retry footer can be
-/// exercised (`-demoAnnouncementLoadMoreFailure YES`).
+/// The demo archive. Debug launch arguments exercise the other states: a one-time failure of the second
+/// page (`-demoAnnouncementLoadMoreFailure YES`), a failing first page (`-demoAnnouncementFailure YES`)
+/// and a slow network (`-demoAnnouncementDelayMs 4000`).
 @MainActor
 final class DemoAnnouncementLoader: AnnouncementPageLoading {
     private let clock: () -> PocketClock
     private var failNextLoadMore: Bool
+    private let failsFirstPage: Bool
     private let delay: Duration
 
-    init(clock: @escaping () -> PocketClock, failNextLoadMore: Bool = false, delay: Duration = .milliseconds(250)) {
+    init(
+        clock: @escaping () -> PocketClock,
+        failNextLoadMore: Bool = false,
+        failsFirstPage: Bool = false,
+        delay: Duration = .milliseconds(250)
+    ) {
         self.clock = clock
         self.failNextLoadMore = failNextLoadMore
+        self.failsFirstPage = failsFirstPage
         self.delay = delay
     }
 
@@ -32,6 +40,7 @@ final class DemoAnnouncementLoader: AnnouncementPageLoading {
 
     func page(_ index: Int, keyword: String, unitId: String, categoryId: String) async throws -> SchoolAnnouncementPage? {
         try await Task.sleep(for: delay)
+        if index == 0, failsFirstPage { throw URLError(.notConnectedToInternet) }
         if index > 0, failNextLoadMore {
             failNextLoadMore = false
             throw URLError(.notConnectedToInternet)
@@ -56,6 +65,8 @@ final class AnnouncementFeed {
     static let refreshFailure = "無法更新，暫時顯示已儲存的學校消息"
     static let loadMoreFailure = "無法載入更多消息，請稍後再試。"
     static let searchFailure = "暫時無法搜尋公告，請稍後再試一次。"
+    /// Pages the unfiltered list may read, counting the first, to show announcements already known unread.
+    static let unreadLookupMaxPages = 20
 
     private(set) var items: [SchoolAnnouncement] = []
     private(set) var pageIndex = 0
@@ -77,13 +88,26 @@ final class AnnouncementFeed {
     var hasFilters: Bool { unitId != PocketAnnouncementFeed.shared.ALL_ID || categoryId != PocketAnnouncementFeed.shared.ALL_ID }
 
     @ObservationIgnored private let loader: AnnouncementPageLoading
+    @ObservationIgnored private let unreadIds: () -> Set<String>
     /// Bumped by every new query, so a page that answers an older one is dropped.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var started = false
     @ObservationIgnored private var searchTask: Task<Void, Never>?
 
-    init(loader: AnnouncementPageLoading) {
+    init(loader: AnnouncementPageLoading, unreadIds: @escaping () -> Set<String> = { [] }) {
         self.loader = loader
+        self.unreadIds = unreadIds
+    }
+
+    /// Android's list order: unread first, then pinned, otherwise the school's order. `unreadIds` is the
+    /// unread set when the list last changed, so reading an announcement does not move rows under the reader.
+    static func ordered(_ rows: [PocketAnnouncement], unreadIds: Set<String>) -> [PocketAnnouncement] {
+        rows.enumerated().sorted { a, b in
+            let aUnread = unreadIds.contains(a.element.id), bUnread = unreadIds.contains(b.element.id)
+            if aUnread != bUnread { return aUnread }
+            if a.element.isPinned != b.element.isPinned { return a.element.isPinned }
+            return a.offset < b.offset
+        }.map(\.element)
     }
 
     /// Cached content first, then the latest page and the filter options.
@@ -184,6 +208,11 @@ final class AnnouncementFeed {
             let page = try await loader.page(0, keyword: searchQuery, unitId: unitId, categoryId: categoryId)
             guard current == generation else { return }
             if let page { apply(page, appending: false) }
+            if searchQuery.isEmpty, !hasFilters {
+                isRefreshing = false
+                isInitialLoading = false
+                await revealUnread(generation: current)
+            }
         } catch {
             guard current == generation, !(error is CancellationError) else { return }
             if keepsItems {
@@ -195,6 +224,30 @@ final class AnnouncementFeed {
         if current == generation {
             isRefreshing = false
             isInitialLoading = false
+        }
+    }
+
+    /// Reads later pages of the unfiltered list until every announcement that was unread when the first
+    /// page arrived is listed, the archive ends, or `unreadLookupMaxPages` pages are loaded. Unread
+    /// announcements found on the way do not extend the lookup; a failure keeps the list and offers the
+    /// footer retry, and loading further pages by scrolling still works afterwards.
+    private func revealUnread(generation current: Int) async {
+        let snapshot = unreadIds()
+        guard !snapshot.isEmpty else { return }
+        isLoadingMore = true
+        defer { if current == generation { isLoadingMore = false } }
+        for _ in 1..<Self.unreadLookupMaxPages {
+            guard current == generation, hasMore, !snapshot.isSubset(of: Set(items.map(\.id))) else { return }
+            let all = PocketAnnouncementFeed.shared.ALL_ID
+            do {
+                guard let page = try await loader.page(pageIndex + 1, keyword: "", unitId: all, categoryId: all),
+                      current == generation else { return }
+                apply(page, appending: true)
+                if page.announcements.isEmpty { return }
+            } catch {
+                if current == generation, !(error is CancellationError) { loadMoreError = Self.loadMoreFailure }
+                return
+            }
         }
     }
 
