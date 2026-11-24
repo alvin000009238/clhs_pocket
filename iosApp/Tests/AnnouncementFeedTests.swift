@@ -138,11 +138,24 @@ final class AnnouncementFeedTests: XCTestCase {
     func testRefreshReportsANewLoadEvenWhenTheListIsUnchanged() async {
         let feed = AnnouncementFeed(loader: EndlessLoader())
         await feed.start()
-        let loads = feed.loadedPages
+        let loads = feed.listRevision
         let count = feed.items.count
         await feed.refresh()
         XCTAssertEqual(feed.items.count, count)
-        XCTAssertGreaterThan(feed.loadedPages, loads, "the list re-sorts after a refresh with the same items")
+        XCTAssertGreaterThan(feed.listRevision, loads, "the list re-sorts after a refresh with the same items")
+    }
+
+    func testListReSortsAfterTheUnreadSyncThatFollowsTheFirstPage() async throws {
+        final class Box { var feed: AnnouncementFeed?; var revisionAtSync: Int? }
+        let box = Box()
+        let feed = AnnouncementFeed(loader: EndlessLoader(), unreadIds: { @MainActor in
+            box.revisionAtSync = box.feed?.listRevision
+            return ["p0-0"]
+        })
+        box.feed = feed
+        await feed.start()
+        let atSync = try XCTUnwrap(box.revisionAtSync)
+        XCTAssertGreaterThan(feed.listRevision, atSync, "the first page is re-sorted once the unread set is synced")
     }
 
     func testUnreadCountIncludesLaterPagesOnce() async {

@@ -74,8 +74,9 @@ final class AnnouncementFeed {
     private(set) var isInitialLoading = true
     private(set) var isRefreshing = false
     private(set) var isLoadingMore = false
-    /// Bumped for every page applied, including a refresh that returns the same announcements.
-    private(set) var loadedPages = 0
+    /// Bumped for every page applied, including a refresh that returns the same announcements, and when
+    /// the unread set has been synced for the loaded list; the list re-sorts on each bump.
+    private(set) var listRevision = 0
     private(set) var lastUpdatedAt: Date?
     private(set) var errorMessage: String?
     var noticeMessage: String?
@@ -241,7 +242,10 @@ final class AnnouncementFeed {
     /// footer retry, and loading further pages by scrolling still works afterwards.
     private func revealUnread(generation current: Int) async {
         let snapshot = await unreadIds()
-        guard current == generation, !snapshot.isEmpty else { return }
+        guard current == generation else { return }
+        // The first page was ordered before the sync; re-sort with announcements it newly marked unread.
+        listRevision += 1
+        guard !snapshot.isEmpty else { return }
         isLoadingMore = true
         defer { if current == generation { isLoadingMore = false } }
         for _ in 1..<Self.unreadLookupMaxPages {
@@ -262,7 +266,7 @@ final class AnnouncementFeed {
     private func apply(_ page: SchoolAnnouncementPage, appending: Bool) {
         let feed = PocketAnnouncementFeed.shared
         items = appending ? feed.append(existing: items, incoming: page.announcements) : page.announcements
-        loadedPages += 1
+        listRevision += 1
         pageIndex = Int(page.pageIndex)
         hasMore = feed.hasMore(page: page)
         lastUpdatedAt = Date(timeIntervalSince1970: TimeInterval(feed.fetchedAtMillis(page: page)) / 1000)
