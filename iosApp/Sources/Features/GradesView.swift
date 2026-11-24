@@ -26,26 +26,14 @@ struct GradesView: View {
                 PocketColumns {
                     VStack(spacing: PocketMetrics.cardSpacing) {
                         GradeSummaryCard(report: report)
-                        actions(report: report)
+                        if !report.strengths.isEmpty || !report.weaknesses.isEmpty {
+                            InsightCard(strengths: report.strengths, weaknesses: report.weaknesses)
+                        }
                         if report.trend.count > 1 {
                             GradeTrendCard(report: report)
                         }
-                        NavigationLink(value: PocketRoute.subjectTrend) {
-                            SubjectTrendEntry()
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("grades-subject-trend")
                         AnalysisCard(analysis: PocketGrades.shared.analysis(examValue: report.examValue, unused: false))
-                        if !report.strengths.isEmpty || !report.weaknesses.isEmpty {
-                            let layout = typeSize.isAccessibilitySize
-                                ? AnyLayout(VStackLayout(spacing: PocketMetrics.cardSpacing))
-                                : AnyLayout(HStackLayout(alignment: .top, spacing: PocketMetrics.cardSpacing))
-                            layout {
-                                InsightCard(title: "表現亮眼", systemImage: "arrow.up.right", tone: PocketColor.positive, items: report.strengths)
-                                InsightCard(title: "可以加強", systemImage: "arrow.down.right", tone: PocketColor.negative, items: report.weaknesses)
-                            }
-                            .fixedSize(horizontal: false, vertical: true)
-                        }
+                        tools(report: report)
                     }
                 } trailing: {
                     VStack(alignment: .leading, spacing: 8) {
@@ -79,6 +67,7 @@ struct GradesView: View {
             .pocketPage()
         }
         .refreshable { await reload(report) }
+        .sensoryFeedback(.selection, trigger: examValue)
         .task(id: report.examValue + (report.isLoaded ? "" : "?")) {
             guard !report.isLoaded, !report.examValue.isEmpty, let live = model.account else { return }
             loadingExam = true
@@ -102,25 +91,37 @@ struct GradesView: View {
         loadingExam = false
     }
 
-    private func actions(report: PocketGradeReport) -> some View {
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(spacing: PocketMetrics.cardSpacing))
-            : AnyLayout(HStackLayout(spacing: PocketMetrics.cardSpacing))
-        return layout {
+    /// Android groups the simulator and the line chart under 工具 below the analysis; the
+    /// simulator gets the larger tinted card because it is the tool students open most.
+    private func tools(report: PocketGradeReport) -> some View {
+        VStack(alignment: .leading, spacing: PocketMetrics.cardSpacing) {
+            PocketSectionHeader(title: "工具")
+                .padding(.top, 8)
             NavigationLink(value: PocketRoute.simulator(exam: report.examValue)) {
-                actionLabel("成績模擬器", "slider.horizontal.3")
+                SimulatorEntry(report: report)
             }
+            .buttonStyle(.plain)
             .accessibilityIdentifier("grades-simulator")
-            ShareLink(item: PocketGrades.shared.shareText(examValue: report.examValue)) {
-                actionLabel("分享摘要", "square.and.arrow.up")
+            NavigationLink(value: PocketRoute.subjectTrend) {
+                SubjectTrendEntry()
             }
-            .accessibilityIdentifier("grades-share")
-            Button { showsExport = true } label: {
-                actionLabel("匯出成績", "tablecells")
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("grades-subject-trend")
+            let layout = typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: PocketMetrics.cardSpacing))
+                : AnyLayout(HStackLayout(spacing: PocketMetrics.cardSpacing))
+            layout {
+                ShareLink(item: PocketGrades.shared.shareText(examValue: report.examValue)) {
+                    actionLabel("分享摘要", "square.and.arrow.up")
+                }
+                .accessibilityIdentifier("grades-share")
+                Button { showsExport = true } label: {
+                    actionLabel("匯出成績", "tablecells")
+                }
+                .accessibilityIdentifier("grades-export")
             }
-            .accessibilityIdentifier("grades-export")
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
     private func actionLabel(_ title: String, _ symbol: String) -> some View {
@@ -177,8 +178,7 @@ private struct GradeSummaryCard: View {
     let report: PocketGradeReport
 
     var body: some View {
-        PocketCard(fill: PocketColor.primaryContainer, padding: 24) {
-            VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
                 Text("加權平均")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
@@ -216,8 +216,10 @@ private struct GradeSummaryCard: View {
                     rank("類組排名", report.categoryRankText, report.categoryTopText)
                 }
                 .padding(.top, 20)
-            }
         }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background { GradeHeroBackground() }
     }
 
     private func rank(_ title: String, _ value: String, _ detail: String) -> some View {
@@ -238,6 +240,24 @@ private struct GradeSummaryCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(PocketColor.background.opacity(0.55), in: .rect(cornerRadius: PocketMetrics.innerRadius, style: .continuous))
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Android's hero cards fade a soft accent across the tonal container; shared by the grade
+/// summary and the simulator result. Local until the shared theme gains a hero surface.
+struct GradeHeroBackground: View {
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: PocketMetrics.cardRadius, style: .continuous)
+        shape
+            .fill(PocketColor.primaryContainer)
+            .overlay {
+                shape.fill(.linearGradient(
+                    colors: [PocketColor.tertiaryContainer.opacity(0.75), .clear],
+                    startPoint: .topTrailing,
+                    endPoint: .center
+                ))
+            }
+            .accessibilityHidden(true)
     }
 }
 
@@ -435,40 +455,114 @@ private struct SubjectTrendEntry: View {
     }
 }
 
+/// One card with 表現亮點 and 值得留意 groups, each row led by a colour rule bar (Android's
+/// insight cards); a single full-width card reads better on iPhone than two cramped halves.
 private struct InsightCard: View {
-    let title: String
-    let systemImage: String
-    let tone: Color
-    let items: [PocketSubjectInsight]
+    let strengths: [PocketSubjectInsight]
+    let weaknesses: [PocketSubjectInsight]
 
     var body: some View {
-        PocketCard(padding: 16) {
-            VStack(alignment: .leading, spacing: 10) {
-                Label(title, systemImage: systemImage)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(tone)
-                if items.isEmpty {
-                    Text("目前沒有明顯落差")
-                        .font(.subheadline)
-                        .foregroundStyle(PocketColor.onSurfaceVariant)
+        PocketCard(padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                if !strengths.isEmpty {
+                    group("表現亮點", "sparkles", PocketColor.positive, strengths, verb: "高於")
                 }
-                ForEach(items, id: \.name) { item in
-                    HStack(alignment: .firstTextBaseline) {
+                if !strengths.isEmpty, !weaknesses.isEmpty { PocketRowDivider() }
+                if !weaknesses.isEmpty {
+                    group("值得留意", "exclamationmark.triangle", PocketColor.warning, weaknesses, verb: "低於")
+                }
+            }
+        }
+        .accessibilityIdentifier("grade-insights")
+    }
+
+    private func group(_ title: String, _ symbol: String, _ tone: Color, _ items: [PocketSubjectInsight], verb: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: symbol)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(tone)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(items, id: \.name) { item in
+                HStack(alignment: .center, spacing: 12) {
+                    Capsule()
+                        .fill(tone)
+                        .frame(width: 4)
+                        .frame(minHeight: 32)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(item.name)
                             .font(PocketFont.cardTitle)
                             .foregroundStyle(PocketColor.onSurface)
-                        Spacer(minLength: 4)
-                        Text(item.percentText)
-                            .font(.subheadline.weight(.semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(tone)
+                        if !item.detail.isEmpty {
+                            Text(item.detail)
+                                .font(.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(PocketColor.onSurfaceVariant)
+                        }
                     }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(item.name)，與班平均相差 \(item.percentText) 分")
+                    Spacer(minLength: 4)
+                    Text(item.percentText)
+                        .font(.headline)
+                        .monospacedDigit()
+                        .foregroundStyle(tone)
                 }
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(item.name)\(item.detail.isEmpty ? "" : "，\(item.detail)")，\(verb)班平均 \(item.percentText.trimmingCharacters(in: CharacterSet(charactersIn: "+-"))) 分")
             }
-            .frame(maxHeight: .infinity, alignment: .top)
         }
+    }
+}
+
+private struct SimulatorEntry: View {
+    let report: PocketGradeReport
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(PocketColor.onSecondaryContainer)
+                    .frame(width: 44, height: 44)
+                    .background(PocketColor.background.opacity(0.6), in: .circle)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("成績模擬器")
+                        .font(.headline)
+                    Text("調整分數，預估加權平均與總分")
+                        .font(.subheadline)
+                        .opacity(0.8)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .opacity(0.7)
+                    .accessibilityHidden(true)
+            }
+            HStack(spacing: 10) {
+                tile("目前平均", report.averageText)
+                tile("科目", "\(report.subjects.count) 科")
+            }
+        }
+        .foregroundStyle(PocketColor.onSecondaryContainer)
+        .padding(PocketMetrics.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(PocketColor.secondaryContainer, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
+        .contentShape(.rect(cornerRadius: PocketMetrics.cardRadius))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("成績模擬器，目前平均 \(report.averageText)，\(report.subjects.count) 科")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private func tile(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.caption).opacity(0.8)
+            Text(value).font(.title3.weight(.semibold)).monospacedDigit()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(PocketColor.background.opacity(0.55), in: .rect(cornerRadius: PocketMetrics.innerRadius, style: .continuous))
     }
 }
 
