@@ -75,7 +75,8 @@ jobs:
             -destination "id=$UDID" CODE_SIGN_IDENTITY=- -only-testing:CLHSPocketTests test
           TEST_RUNNER_SHOT_DIR="$RUNNER_TEMP/pocket-shots" xcodebuild \
             -project iosApp/CLHSPocket.xcodeproj -scheme CLHSPocket \
-            -destination "id=$UDID" CODE_SIGN_IDENTITY=- -only-testing:CLHSPocketUITests test
+            -destination "id=$UDID" CODE_SIGN_IDENTITY=- -only-testing:CLHSPocketUITests \
+            -resultBundlePath "$RUNNER_TEMP/ui.xcresult" test
       - name: Release build survives a fresh launch with no arguments
         run: |
           # Release links the optimised Kotlin framework, like the archive that ships to devices.
@@ -92,4 +93,19 @@ jobs:
         with:
           name: ios-ui-screenshots
           path: ${{ runner.temp }}/pocket-shots
+          if-no-files-found: ignore
+      - name: Collect crash and hang reports
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/diagnostic-reports"
+          find "$HOME/Library/Logs/DiagnosticReports" -type f -mtime -1 \
+            -exec cp {} "$RUNNER_TEMP/diagnostic-reports/" \; 2>/dev/null || true
+      - name: Upload UI test results and crash reports
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ios-ui-test-results
+          path: |
+            ${{ runner.temp }}/ui.xcresult
+            ${{ runner.temp }}/diagnostic-reports
           if-no-files-found: ignore
