@@ -584,7 +584,11 @@ struct ScheduleView: View {
                     .accessibilityIdentifier("schedule-range")
                     // Tapping the week returns to the current one, as Android's date range does.
                     .onTapGesture { if !showsSemester, weekOffset != 0 { weekOffset = 0 } }
-                    .accessibilityAction(named: "回到本週") { weekOffset = 0 }
+                    .accessibilityActions {
+                        if !showsSemester {
+                            Button("回到本週") { weekOffset = 0 }
+                        }
+                    }
                 Spacer(minLength: 8)
                 if !showsSemester {
                     HStack(spacing: 6) {
