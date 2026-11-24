@@ -9,6 +9,7 @@ struct PersonalView: View {
     @State private var showingLogin = false
     @State private var confirmingSignOut = false
     @State private var photoItem: PhotosPickerItem?
+    @State private var choosingPhoto = false
     @State private var photoError: String?
 
     var body: some View {
@@ -168,45 +169,33 @@ struct PersonalView: View {
         .accessibilityIdentifier("settings-\(title)")
     }
 
-    /// Tapping the avatar picks a photo; it is stored for this account only.
+    /// Tapping the avatar picks a photo, stored for this account only. Once a photo is set the tap
+    /// opens a menu instead, so removing it does not depend on discovering a long press.
     private func avatarPicker(_ profile: PocketProfile) -> some View {
-        PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
-            Group {
-                if let data = model.profilePhoto, let image = UIImage(data: data) {
-                    Image(uiImage: image).resizable().scaledToFill()
-                } else if let initial = profile.studentName.first {
-                    Text(String(initial)).font(PocketFont.display(28, relativeTo: .title))
-                } else {
-                    Image(systemName: "person.fill").font(.title)
+        Group {
+            if model.profilePhoto != nil {
+                Menu {
+                    Button("更換大頭貼", systemImage: "photo.on.rectangle") { choosingPhoto = true }
+                    removePhotoButton
+                } label: {
+                    avatar(profile)
                 }
-            }
-            .foregroundStyle(PocketColor.onPrimary)
-            .frame(width: 72, height: 72)
-            .background(PocketColor.primary)
-            .clipShape(.circle)
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: "camera.fill")
-                    .font(.caption2)
-                    .foregroundStyle(PocketColor.onSurface)
-                    .padding(5)
-                    .background(PocketColor.surface, in: .circle)
-                    .offset(x: 4, y: 4)
+            } else {
+                Button { choosingPhoto = true } label: { avatar(profile) }
             }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(model.profilePhoto == nil ? "設定大頭貼" : "更換大頭貼")
         .accessibilityIdentifier("profile-photo")
         .contextMenu {
-            if model.profilePhoto != nil {
-                Button("移除大頭貼", systemImage: "trash", role: .destructive) { savePhoto(nil) }
-                    .accessibilityIdentifier("profile-photo-remove")
-            }
+            if model.profilePhoto != nil { removePhotoButton }
         }
         .accessibilityActions {
             if model.profilePhoto != nil {
                 Button("移除大頭貼") { savePhoto(nil) }
             }
         }
+        .photosPicker(isPresented: $choosingPhoto, selection: $photoItem, matching: .images, photoLibrary: .shared())
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
             photoItem = nil
@@ -223,6 +212,36 @@ struct PersonalView: View {
         } message: {
             Text(photoError ?? "")
         }
+    }
+
+    private var removePhotoButton: some View {
+        Button("移除大頭貼", systemImage: "trash", role: .destructive) { savePhoto(nil) }
+            .accessibilityIdentifier("profile-photo-remove")
+    }
+
+    private func avatar(_ profile: PocketProfile) -> some View {
+        Group {
+            if let data = model.profilePhoto, let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else if let initial = profile.studentName.first {
+                Text(String(initial)).font(PocketFont.display(28, relativeTo: .title))
+            } else {
+                Image(systemName: "person.fill").font(.title)
+            }
+        }
+        .foregroundStyle(PocketColor.onPrimary)
+        .frame(width: 72, height: 72)
+        .background(PocketColor.primary)
+        .clipShape(.circle)
+        .overlay(alignment: .bottomTrailing) {
+            Image(systemName: "camera.fill")
+                .font(.caption2)
+                .foregroundStyle(PocketColor.onSurface)
+                .padding(5)
+                .background(PocketColor.surface, in: .circle)
+                .offset(x: 4, y: 4)
+        }
+        .contentShape(.circle)
     }
 
     private func savePhoto(_ photo: Data?) {
