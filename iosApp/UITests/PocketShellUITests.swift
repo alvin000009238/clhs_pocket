@@ -286,12 +286,33 @@ final class PocketShellUITests: XCTestCase {
         let widgets = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "widget-"))
         // A freshly booted simulator can take well over ten seconds to bring the app up.
         XCTAssertTrue(widgets.firstMatch.waitForExistence(timeout: 40))
-        func order() -> [String] {
-            widgets.allElementsBoundByIndex
-                .sorted { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
-                .map(\.identifier)
+        // Widget identifiers in reading order, from one snapshot of the hierarchy. Resolving every match
+        // by index re-queries the app once per element, which on a slow simulator overlaps the drop
+        // animation and fails when the matches change between reads.
+        func snapshotOrder() -> [String]? {
+            guard let root = try? app.snapshot() else { return nil }
+            var found: [(frame: CGRect, id: String)] = []
+            var pending = [root]
+            while let node = pending.popLast() {
+                if node.identifier.hasPrefix("widget-") { found.append((node.frame, node.identifier)) }
+                pending.append(contentsOf: node.children)
+            }
+            return found
+                .sorted { ($0.frame.minY, $0.frame.minX, $0.id) < ($1.frame.minY, $1.frame.minX, $1.id) }
+                .map(\.id)
         }
-        let before = order()
+        func order() -> [String] {
+            var result: [String]?
+            XCTAssertTrue(waitUntil(timeout: 20) { result = snapshotOrder(); return result != nil }, "the home screen can be read")
+            return result ?? []
+        }
+        // Wait for the home screen to settle, so a widget that finishes loading is not taken for a move.
+        var before = order()
+        for _ in 0..<5 {
+            let again = order()
+            if again == before { break }
+            before = again
+        }
         XCTAssertGreaterThanOrEqual(before.count, 3)
         // Drag between two different widgets whose centres are clear of the top bar and the floating
         // tab bar on any phone size: a widget peeking out behind the tab bar counts as hittable, but a
@@ -314,7 +335,7 @@ final class PocketShellUITests: XCTestCase {
             _ = app.wait(for: .runningForeground, timeout: 5)
             moved.press(forDuration: 1.5, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 1.0)
             // The drop animates; on a slow machine the new layout can take a few seconds to settle.
-            _ = waitUntil(timeout: 10) { order() != before }
+            _ = waitUntil(timeout: 10) { snapshotOrder().map { $0 != before } ?? false }
         }
         let after = order()
         XCTAssertEqual(Set(after), Set(before))
