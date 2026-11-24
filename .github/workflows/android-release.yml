@@ -91,7 +91,7 @@ jobs:
       - name: Test, lint, and assemble Debug APK before signing
         working-directory: android
         run: |
-          ./gradlew --no-daemon :app:testDemoDebugUnitTest :app:testProductionDebugUnitTest --tests 'com.clhs.score.FlavorConfigurationTest' :app:lintDemoDebug :app:assembleDemoDebug :app:assembleProductionDebug --warning-mode all
+          ./gradlew --no-daemon :shared:testAndroidHostTest :app:testDemoDebugUnitTest :app:testProductionDebugUnitTest --tests 'com.clhs.score.FlavorConfigurationTest' :app:lintDemoDebug :app:assembleDemoDebug :app:assembleProductionDebug --warning-mode all
 
       - name: Validate committed Baseline and Startup Profiles
         run: python3 .github/scripts/baseline_profiles.py android/app/src/productionRelease/generated/baselineProfiles
