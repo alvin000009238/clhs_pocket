@@ -46,6 +46,8 @@ struct ScheduleView: View {
             }
         }
         .navigationTitle(PocketTab.schedule.title)
+        // The timetable is the page: an inline title leaves room for all eight periods.
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private var currentSchedule: PocketSchedule {
@@ -78,9 +80,12 @@ struct ScheduleView: View {
                 header(schedule)
 
                 if schedule.isAvailable {
+                    // One continuous panel, as Android: lessons share the panel colour and hairlines
+                    // separate days and periods, so the subject accent and changes stand out.
                     grid(schedule)
-                        .padding(sizeClass == .regular ? 16 : 8)
-                        .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, sizeClass == .regular ? 8 : 4)
+                        .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.innerRadius + 4, style: .continuous))
                 } else {
                     PocketPendingView(
                         isLoading: model.live?.isLoadingPrivate ?? false || loadingClass,
@@ -123,6 +128,8 @@ struct ScheduleView: View {
             shareImage = exportImage(schedule)
         }
         .task(id: "\(yearValue)|\(classValue)|\(weekOffset)|\(showsSemester)") { await loadWeek() }
+        .sensoryFeedback(.selection, trigger: weekOffset)
+        .sensoryFeedback(.selection, trigger: showsSemester)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -575,6 +582,9 @@ struct ScheduleView: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
                     .accessibilityIdentifier("schedule-range")
+                    // Tapping the week returns to the current one, as Android's date range does.
+                    .onTapGesture { if !showsSemester, weekOffset != 0 { weekOffset = 0 } }
+                    .accessibilityAction(named: "回到本週") { weekOffset = 0 }
                 Spacer(minLength: 8)
                 if !showsSemester {
                     HStack(spacing: 6) {
@@ -622,15 +632,16 @@ struct ScheduleView: View {
 
 private struct ScheduleGrid: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.displayScale) private var displayScale
     @ScaledMetric(relativeTo: .caption) private var compactRowHeight: CGFloat = 58
     let schedule: PocketSchedule
     let onSelect: (PocketScheduleCell) -> Void
 
-    private let gap: CGFloat = 4
+    private let gap: CGFloat = 0
     private let lunchGap: CGFloat = 18
     private let lastMorningPeriod = 4
 
-    private var rowHeight: CGFloat { sizeClass == .regular ? compactRowHeight + 14 : compactRowHeight }
+    private var rowHeight: CGFloat { sizeClass == .regular ? compactRowHeight + 30 : compactRowHeight }
     private var timeColumnWidth: CGFloat { sizeClass == .regular ? 56 : 30 }
 
     var body: some View {
@@ -667,11 +678,14 @@ private struct ScheduleGrid: View {
                                 .font(.footnote.weight(.semibold))
                                 .foregroundStyle(PocketColor.onSurface)
                             if !period.start.isEmpty {
-                                Text(period.start)
-                                    .font(.system(size: 9))
-                                    .monospacedDigit()
-                                    .foregroundStyle(PocketColor.onSurfaceVariant)
-                                    .fixedSize()
+                                VStack(spacing: 0) {
+                                    Text(period.start)
+                                    if !period.end.isEmpty { Text(period.end) }
+                                }
+                                .font(.system(size: 9))
+                                .monospacedDigit()
+                                .foregroundStyle(PocketColor.onSurfaceVariant)
+                                .fixedSize()
                             }
                         }
                         .frame(width: timeColumnWidth, height: rowHeight)
@@ -696,10 +710,16 @@ private struct ScheduleGrid: View {
                                 }
                             }
                             .frame(height: height(rows: slot.rows))
+                            .overlay(alignment: .bottom) {
+                                if slot.rows.upperBound < schedule.periods.count, slot.rows.upperBound - 1 != lunchRow {
+                                    hairline.frame(height: 1 / displayScale)
+                                }
+                            }
                             .padding(.bottom, bottomGap(afterRow: slot.rows.upperBound - 1))
                         }
                     }
                     .frame(maxWidth: .infinity)
+                    .overlay(alignment: .leading) { hairline.frame(width: 1 / displayScale) }
                 }
             }
             .overlay(alignment: .top) {
@@ -765,7 +785,11 @@ private struct ScheduleGrid: View {
     }
 
     private var line: some View {
-        Rectangle().fill(PocketColor.outline.opacity(0.5)).frame(height: 1)
+        Rectangle().fill(PocketColor.outline.opacity(0.8)).frame(height: 1)
+    }
+
+    private var hairline: some View {
+        Rectangle().fill(PocketColor.outline.opacity(0.45)).accessibilityHidden(true)
     }
 
     private func bottomGap(afterRow row: Int) -> CGFloat {
@@ -775,7 +799,6 @@ private struct ScheduleGrid: View {
 }
 
 private struct ScheduleCellView: View {
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var sizeClass
     let cell: PocketScheduleCell
 
@@ -783,14 +806,22 @@ private struct ScheduleCellView: View {
         let color = PocketColor.subject(light: cell.colorLight, dark: cell.colorDark)
         let isCurrent = cell.status == .current
         let isCancelled = cell.change == .cancelled
-        let foreground: Color = isCurrent ? (colorScheme == .dark ? Color.black.opacity(0.85) : .white) : color
-        VStack(spacing: 2) {
+        let isChanged = cell.change != .none
+        let dimmed = cell.status == .ended || isCancelled
+        // Android's week grid: lessons share the panel, a short subject-colour mark sits above the
+        // name, changes use the tertiary container and the current lesson gets an outline.
+        VStack(spacing: 4) {
+            Capsule()
+                .fill(color)
+                .frame(width: 18, height: 3)
+                .opacity(dimmed ? 0.45 : 1)
             Text(cell.subject)
                 .font(sizeClass == .regular ? .callout.weight(.semibold) : .footnote.weight(.semibold))
                 .strikethrough(isCancelled)
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
                 .multilineTextAlignment(.center)
+                .foregroundStyle(isChanged ? PocketColor.onTertiaryContainer : PocketColor.onSurface)
                 // The grid scrolls sideways at accessibility sizes; past this the row height cannot keep up.
                 .dynamicTypeSize(...DynamicTypeSize.accessibility2)
             if sizeClass == .regular || cell.span > 1 {
@@ -798,25 +829,30 @@ private struct ScheduleCellView: View {
                     .font(.caption2)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                    .opacity(0.8)
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
             }
         }
-        .foregroundStyle(foreground)
+        .opacity(dimmed ? 0.55 : 1)
         .padding(.horizontal, 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            isCurrent ? color : color.opacity(colorScheme == .dark ? 0.2 : 0.14),
-            in: .rect(cornerRadius: 12, style: .continuous)
-        )
-        .overlay(alignment: .topTrailing) {
-            if cell.change != .none {
-                Circle()
-                    .fill(isCancelled ? PocketColor.negative : PocketColor.warning)
-                    .frame(width: 7, height: 7)
-                    .padding(5)
+        .background {
+            if isChanged {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(PocketColor.tertiaryContainer)
+                    .padding(2)
+            } else if isCurrent {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(PocketColor.primaryContainer.opacity(0.6))
+                    .padding(2)
             }
         }
-        .opacity(cell.status == .ended || isCancelled ? 0.5 : 1)
+        .overlay {
+            if isCurrent {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(PocketColor.primary, lineWidth: 2)
+                    .padding(2)
+            }
+        }
         .contentShape(.rect)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
