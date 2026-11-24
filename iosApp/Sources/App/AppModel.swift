@@ -382,10 +382,12 @@ final class AppModel {
         await syncUnread()
     }
 
-    /// Retry for public widgets (weather, YouBike) only; the school session is left untouched.
+    /// Retry for public widgets (weather, YouBike); the school session is left untouched.
     func refreshPublicData() async {
         guard usesLiveData, let live else { return }
         await live.refreshPublic(weatherSource: sharedWeatherSource, force: true)
+        // The public refresh also reloads announcements, so their unread state follows.
+        await syncUnread()
     }
 
     /// In live mode the read state lives in the shared announcement repository.
