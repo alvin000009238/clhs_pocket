@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh-Hant</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>zh-Hant</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.clhs.pocket.ios.refresh</string>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.clhs.pocket.ios</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>clhspocket</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>把課表圖片儲存到你的照片。壢中 Pocket 不會讀取你的照片。</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>使用 Face ID 解鎖壢中 Pocket，保護你的成績、課表與出缺勤紀錄。</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Huninn-Regular.ttf</string>
+		<string>Outfit-Bold-Subset.ttf</string>
+	</array>
+</dict>
+</plist>
