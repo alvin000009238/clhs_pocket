@@ -344,44 +344,44 @@ private struct GradeSimulatorContent: View {
     }
 
     private func result(_ state: PocketSimulation) -> some View {
-        PocketCard(fill: PocketColor.primaryContainer, padding: 24) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("模擬加權平均")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(state.averageText)
-                        .font(PocketFont.display(56, relativeTo: .largeTitle))
-                        .monospacedDigit()
-                        .foregroundStyle(PocketColor.onPrimaryContainer)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                        .contentTransition(.numericText())
-                        .accessibilityIdentifier("simulator-average")
-                    if state.deltaSign != 0, state.averageText != "--" {
-                        Text(state.deltaText)
-                            .font(.subheadline.weight(.bold))
-                            .monospacedDigit()
-                            .foregroundStyle(state.deltaSign > 0 ? PocketColor.positive : PocketColor.negative)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(PocketColor.background.opacity(0.7), in: .capsule)
-                            .accessibilityLabel("與原始成績相差 \(state.deltaText)")
-                    }
-                }
-                .padding(.top, 2)
-                Text("加權總分 \(state.totalText) · 成績單平均 \(state.officialAverageText)")
-                    .font(.subheadline)
+        VStack(alignment: .leading, spacing: 0) {
+            Text("模擬加權平均")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(state.averageText)
+                    .font(PocketFont.display(56, relativeTo: .largeTitle))
                     .monospacedDigit()
-                    .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
-                Text("* 非官方試算，結果不會改變成績單")
-                    .font(.caption)
-                    .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.75))
-                    .padding(.top, 4)
-                    .accessibilityIdentifier("simulator-unofficial")
+                    .foregroundStyle(PocketColor.onPrimaryContainer)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .contentTransition(.numericText())
+                    .accessibilityIdentifier("simulator-average")
+                if state.deltaSign != 0, state.averageText != "--" {
+                    Text(state.deltaText)
+                        .font(.subheadline.weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(state.deltaSign > 0 ? PocketColor.positive : PocketColor.negative)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(PocketColor.background.opacity(0.7), in: .capsule)
+                        .accessibilityLabel("與原始成績相差 \(state.deltaText)")
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 2)
+            Text("加權總分 \(state.totalText) · 成績單平均 \(state.officialAverageText)")
+                .font(.subheadline)
+                .monospacedDigit()
+                .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
+            Text("* 非官方試算，結果不會改變成績單")
+                .font(.caption)
+                .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.75))
+                .padding(.top, 4)
+                .accessibilityIdentifier("simulator-unofficial")
         }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background { GradeHeroBackground() }
     }
 
     private func creditCheck(_ state: PocketSimulation) -> some View {
@@ -481,6 +481,7 @@ private struct SimulatorRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .opacity(row.isIncluded || !row.canSimulate ? 1 : 0.55)
+        .sensoryFeedback(.selection, trigger: row.isIncluded)
     }
 }
 
