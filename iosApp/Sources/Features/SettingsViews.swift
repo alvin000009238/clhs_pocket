@@ -19,8 +19,10 @@ struct SettingsForm<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        Form { content }
+        // Tonal groups on the page background, like the cards on 首頁 and 個人.
+        Form { content.listRowBackground(PocketColor.surfaceLow) }
             .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 52)
             .pocketScrollEdge()
             .background(PocketColor.background.ignoresSafeArea())
             .navigationTitle(title)

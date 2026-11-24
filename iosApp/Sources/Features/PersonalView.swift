@@ -20,25 +20,26 @@ struct PersonalView: View {
 
                     section("外觀") {
                         VStack(alignment: .leading, spacing: 12) {
-                            Label("主題", systemImage: "circle.lefthalf.filled")
-                                .font(.body.weight(.medium))
-                                .foregroundStyle(PocketColor.onSurface)
+                            HStack(spacing: 14) {
+                                PocketIconTile(systemImage: "circle.lefthalf.filled", size: 40)
+                                Text("主題")
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(PocketColor.onSurface)
+                            }
                             Picker("主題", selection: $model.appearance) {
                                 ForEach(PocketAppearance.allCases) { Text($0.title).tag($0) }
                             }
                             .pickerStyle(.segmented)
                             .accessibilityIdentifier("appearance-picker")
+                            .sensoryFeedback(.selection, trigger: model.appearance)
                         }
                         .padding(12)
                     }
 
                     section("啟動") {
                         Toggle(isOn: $model.startOnSchedule) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "calendar.day.timeline.left")
-                                    .foregroundStyle(PocketColor.primary)
-                                    .frame(width: 28)
-                                    .accessibilityHidden(true)
+                            HStack(spacing: 14) {
+                                PocketIconTile(systemImage: "calendar.day.timeline.left", size: 40)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("啟動時開啟課表").foregroundStyle(PocketColor.onSurface)
                                     Text("從主畫面開啟時直接顯示課表")
@@ -50,27 +51,27 @@ struct PersonalView: View {
                         .tint(PocketColor.primary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .frame(minHeight: 48)
+                        .frame(minHeight: 60)
                         .accessibilityIdentifier("start-on-schedule")
                     }
 
                     section("設定") {
                         VStack(spacing: 0) {
                             navRow("bell.badge", "通知", model.notificationsEnabled ? "已開啟" : "已關閉") { NotificationSettingsView() }
-                            PocketRowDivider().padding(.leading, 52)
+                            PocketRowDivider().padding(.leading, 66)
                             navRow("moon.zzz", "安靜時段", model.pauseEnabled ? "\(SettingsFormat.time(model.pauseStart)) – \(SettingsFormat.time(model.pauseEnd))" : "未啟用") { BackgroundPauseView() }
-                            PocketRowDivider().padding(.leading, 52)
+                            PocketRowDivider().padding(.leading, 66)
                             navRow("cloud.sun", "天氣來源", SettingsFormat.weatherSources.first { $0.id == model.weatherSource }?.title ?? "") { WeatherSourceView() }
-                            PocketRowDivider().padding(.leading, 52)
+                            PocketRowDivider().padding(.leading, 66)
                             navRow("lock", "App 鎖定", model.appLockEnabled ? "已開啟" : "已關閉") { AppLockSettingsView() }
-                            PocketRowDivider().padding(.leading, 52)
+                            PocketRowDivider().padding(.leading, 66)
                             navRow("externaldrive", "資料管理", "匯入、匯出與刪除") { DataSettingsView() }
-                            PocketRowDivider().padding(.leading, 52)
+                            PocketRowDivider().padding(.leading, 66)
                             navRow("chart.bar", "使用統計", "各功能使用次數") { UsageStatisticsView() }
-                            PocketRowDivider().padding(.leading, 52)
+                            PocketRowDivider().padding(.leading, 66)
                             navRow("info.circle", "關於", "") { AboutView() }
                             if model.developerEnabled {
-                                PocketRowDivider().padding(.leading, 52)
+                                PocketRowDivider().padding(.leading, 66)
                                 navRow("hammer", "開發者選項", "更多進階設定") { DeveloperSettingsView() }
                             }
                         }
@@ -78,38 +79,25 @@ struct PersonalView: View {
 
                     section("帳號") {
                         VStack(spacing: 0) {
-                            if model.isSignedIn {
-                                Button {
-                                    confirmingSignOut = true
-                                } label: {
-                                    actionRow("rectangle.portrait.and.arrow.right", model.session == .demo ? "登出示範帳號" : "登出", tint: PocketColor.negative)
-                                }
-                                .accessibilityIdentifier("sign-out")
-                                .confirmationDialog(
-                                    model.session == .demo ? "登出示範帳號？" : "登出校務帳號？",
-                                    isPresented: $confirmingSignOut, titleVisibility: .visible
-                                ) {
-                                    Button("登出", role: .destructive) { model.signOut() }
-                                        .accessibilityIdentifier("sign-out-confirm")
-                                    Button("取消", role: .cancel) {}
-                                } message: {
-                                    Text(model.session == .demo ? "示範資料會清除，可以隨時再進入示範。" : "這台裝置上的成績、課表與快取會一併清除。")
-                                }
-                            } else {
+                            if !model.isSignedIn {
                                 Button {
                                     showingLogin = true
                                 } label: {
                                     actionRow("person.crop.circle.badge.plus", "登入校務帳號", tint: PocketColor.primary)
                                 }
                                 .accessibilityIdentifier("personal-login")
+                                PocketRowDivider().padding(.leading, 66)
                             }
-                            PocketRowDivider().padding(.leading, 52)
                             Button {
                                 model.replayOnboarding()
                             } label: {
                                 actionRow("sparkles", "重新觀看歡迎畫面", tint: PocketColor.primary)
                             }
                         }
+                    }
+
+                    if model.isSignedIn {
+                        signOutButton
                     }
 
                     Text(model.live != nil ? "非學校官方 App。登入資訊只保存在這台裝置的鑰匙圈，登出後會一併清除。" : "示範模式僅提供虛構資料，不會連線到校務系統，也不會儲存任何帳號資訊。")
@@ -147,10 +135,8 @@ struct PersonalView: View {
         NavigationLink {
             destination()
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .foregroundStyle(PocketColor.primary)
-                    .frame(width: 28)
+            HStack(spacing: 14) {
+                PocketIconTile(systemImage: icon, size: 40)
                 if typeSize.isAccessibilitySize {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title).foregroundStyle(PocketColor.onSurface)
@@ -173,8 +159,8 @@ struct PersonalView: View {
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .frame(minHeight: 48)
+            .padding(.vertical, 8)
+            .frame(minHeight: 60)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -195,7 +181,7 @@ struct PersonalView: View {
                 }
             }
             .foregroundStyle(PocketColor.onPrimary)
-            .frame(width: 64, height: 64)
+            .frame(width: 72, height: 72)
             .background(PocketColor.primary)
             .clipShape(.circle)
             .overlay(alignment: .bottomTrailing) {
@@ -249,24 +235,49 @@ struct PersonalView: View {
         }
     }
 
+    private var signOutButton: some View {
+        Button {
+            confirmingSignOut = true
+        } label: {
+            Label(model.session == .demo ? "登出示範帳號" : "登出", systemImage: "rectangle.portrait.and.arrow.right")
+                .font(.headline)
+                .foregroundStyle(PocketColor.negative)
+                .frame(maxWidth: .infinity, minHeight: 56)
+                .background(PocketColor.negative.opacity(0.12), in: .capsule)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("sign-out")
+        .confirmationDialog(
+            model.session == .demo ? "登出示範帳號？" : "登出校務帳號？",
+            isPresented: $confirmingSignOut, titleVisibility: .visible
+        ) {
+            Button("登出", role: .destructive) { model.signOut() }
+                .accessibilityIdentifier("sign-out-confirm")
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text(model.session == .demo ? "示範資料會清除，可以隨時再進入示範。" : "這台裝置上的成績、課表與快取會一併清除。")
+        }
+    }
+
     @ViewBuilder
     private var profileCard: some View {
         if model.isSignedIn {
             let profile = model.profile
-            PocketCard(fill: PocketColor.primaryContainer, padding: 24) {
-                HStack(spacing: 16) {
+            PersonalHero {
+                HStack(spacing: 18) {
                     avatarPicker(profile)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(profile.studentName.isEmpty ? "已登入" : profile.studentName)
                             .font(PocketFont.display(26, relativeTo: .title))
-                            .foregroundStyle(PocketColor.onPrimaryContainer)
+                            .foregroundStyle(PocketColor.onSecondaryContainer)
                         Text(Self.classLine(profile))
                             .font(.subheadline)
-                            .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
+                            .foregroundStyle(PocketColor.onSecondaryContainer.opacity(0.85))
                         if profile.isDemo || !profile.studentNo.isEmpty {
                             PocketChip(
                                 text: profile.isDemo ? "示範帳號 \(profile.studentNo)" : "學號 \(profile.studentNo)",
-                                foreground: PocketColor.onPrimaryContainer,
+                                foreground: PocketColor.onSecondaryContainer,
                                 background: PocketColor.background.opacity(0.6)
                             )
                             .padding(.top, 4)
@@ -276,14 +287,14 @@ struct PersonalView: View {
                 }
             }
         } else {
-            PocketCard(fill: PocketColor.primaryContainer, padding: 24) {
+            PersonalHero {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("訪客模式")
                         .font(PocketFont.display(26, relativeTo: .title))
-                        .foregroundStyle(PocketColor.onPrimaryContainer)
+                        .foregroundStyle(PocketColor.onSecondaryContainer)
                     Text("登入後可查看課表與成績。")
                         .font(.subheadline)
-                        .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
+                        .foregroundStyle(PocketColor.onSecondaryContainer.opacity(0.85))
                     Button {
                         if model.live != nil { showingLogin = true } else { model.enterDemo() }
                     } label: {
@@ -328,14 +339,15 @@ struct PersonalView: View {
     }
 
     private func actionRow(_ icon: String, _ title: String, tint: Color) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon).frame(width: 28)
+        HStack(spacing: 14) {
+            PocketIconTile(systemImage: icon, foreground: tint, background: tint.opacity(0.14), size: 40)
             Text(title).multilineTextAlignment(.leading)
             Spacer()
         }
         .foregroundStyle(tint)
         .padding(.horizontal, 12)
-        .frame(minHeight: 48)
+        .padding(.vertical, 8)
+        .frame(minHeight: 60)
         .contentShape(.rect)
     }
 }
@@ -351,5 +363,18 @@ enum ProfilePhoto {
         return UIGraphicsImageRenderer(size: size, format: format).jpegData(withCompressionQuality: 0.8) { _ in
             image.draw(in: CGRect(origin: .zero, size: size))
         }
+    }
+}
+
+/// The account card at the top of 個人, in the same shape as the 首頁 schedule hero.
+private struct PersonalHero<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .padding(.horizontal, 24)
+            .padding(.vertical, 26)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(PocketColor.secondaryContainer, in: HomeShape.hero)
     }
 }

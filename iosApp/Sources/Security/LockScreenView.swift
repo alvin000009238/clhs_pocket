@@ -64,5 +64,6 @@ struct LockScreenView: View {
             .padding(.vertical, 32)
         }
         .accessibilityAddTraits(.isModal)
+        .sensoryFeedback(.error, trigger: lock.message) { _, message in message != nil }
     }
 }
