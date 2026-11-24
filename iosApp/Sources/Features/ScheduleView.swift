@@ -694,7 +694,8 @@ private struct ScheduleGrid: View {
                         }
                         .frame(width: timeColumnWidth, height: rowHeight)
                         .padding(.bottom, bottomGap(afterRow: index))
-                        .accessibilityHidden(true)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(periodAccessibilityText(period))
                     }
                 }
                 ForEach(schedule.days, id: \.dayOfWeek) { day in
@@ -799,6 +800,12 @@ private struct ScheduleGrid: View {
     private func bottomGap(afterRow row: Int) -> CGFloat {
         if row >= schedule.periods.count - 1 { return 0 }
         return row == lunchRow ? lunchGap : gap
+    }
+
+    private func periodAccessibilityText(_ period: PocketPeriod) -> String {
+        if period.start.isEmpty { return "第 \(period.number) 節" }
+        if period.end.isEmpty { return "第 \(period.number) 節，\(period.start) 開始" }
+        return "第 \(period.number) 節，\(period.start) 至 \(period.end)"
     }
 }
 
