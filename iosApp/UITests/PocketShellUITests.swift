@@ -615,7 +615,10 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["announcement-bookmark"].tap()
         capture("52-announcement-detail")
         app.navigationBars.buttons.firstMatch.tap()
-        XCTAssertNotEqual(app.segmentedControls["announcement-filter"].buttons.element(boundBy: 1).label, unreadBefore)
+        // At accessibility text sizes the taller cards leave the list scrolled past the filter on return.
+        let filter = app.segmentedControls["announcement-filter"]
+        for _ in 0..<6 where !filter.waitForExistence(timeout: 1) { app.swipeDown() }
+        XCTAssertNotEqual(filter.buttons.element(boundBy: 1).label, unreadBefore)
         app.segmentedControls["announcement-filter"].buttons["收藏"].tap()
         XCTAssertTrue(app.buttons["announcement-45055"].waitForExistence(timeout: 5))
         capture("53-announcements-bookmarked")
