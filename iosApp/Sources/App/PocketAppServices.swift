@@ -56,15 +56,24 @@ final class ScriptedAuthenticator: DeviceAuthenticating, @unchecked Sendable {
 
     private let script: Script
     /// The app asks by itself each time the scene becomes active, which can happen more than
-    /// once during launch, so the scripts switch on time rather than on a prompt count.
-    private let launchEnds = Date().addingTimeInterval(6)
+    /// once during launch, so the scripts switch on time rather than on a prompt count. The window
+    /// opens at the first prompt, not at process start: a slow launch on CI can otherwise ask
+    /// only after the window has already closed.
+    private let launchWindow: TimeInterval = 6
+    private var launchEnds: Date?
+    private let lock = NSLock()
 
     init(_ script: Script) { self.script = script }
 
     func method() -> AppLockMethod { .faceID }
 
     func authenticate(reason: String) async -> AppLockOutcome {
-        let launching = Date() < launchEnds
+        let launching = lock.withLock {
+            let now = Date()
+            let ends = launchEnds ?? now.addingTimeInterval(launchWindow)
+            launchEnds = ends
+            return now < ends
+        }
         switch script {
         case .succeed: return .success
         case .manual: return launching ? .cancelled : .success

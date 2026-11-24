@@ -39,6 +39,8 @@ struct HomeView: View {
                             // offers the same reordering with buttons for VoiceOver and Switch Control.
                             .draggable(widget.id)
                             .dropDestination(for: String.self) { ids, _ in
+                                // The drop ends the drag even if no exit callback follows it.
+                                dropTarget = nil
                                 guard let id = ids.first, id != widget.id,
                                       widgets.contains(where: { $0.id == id }),
                                       let target = widgets.firstIndex(where: { $0.id == widget.id }) else { return false }

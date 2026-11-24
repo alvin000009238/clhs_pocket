@@ -286,12 +286,33 @@ final class PocketShellUITests: XCTestCase {
         let widgets = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "widget-"))
         // A freshly booted simulator can take well over ten seconds to bring the app up.
         XCTAssertTrue(widgets.firstMatch.waitForExistence(timeout: 40))
-        func order() -> [String] {
-            widgets.allElementsBoundByIndex
-                .sorted { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
-                .map(\.identifier)
+        // Widget identifiers in reading order, from one snapshot of the hierarchy. Resolving every match
+        // by index re-queries the app once per element, which on a slow simulator overlaps the drop
+        // animation and fails when the matches change between reads.
+        func snapshotOrder() -> [String]? {
+            guard let root = try? app.snapshot() else { return nil }
+            var found: [(frame: CGRect, id: String)] = []
+            var pending = [root]
+            while let node = pending.popLast() {
+                if node.identifier.hasPrefix("widget-") { found.append((node.frame, node.identifier)) }
+                pending.append(contentsOf: node.children)
+            }
+            return found
+                .sorted { ($0.frame.minY, $0.frame.minX, $0.id) < ($1.frame.minY, $1.frame.minX, $1.id) }
+                .map(\.id)
         }
-        let before = order()
+        func order() -> [String] {
+            var result: [String]?
+            XCTAssertTrue(waitUntil(timeout: 20) { result = snapshotOrder(); return result != nil }, "the home screen can be read")
+            return result ?? []
+        }
+        // Wait for the home screen to settle, so a widget that finishes loading is not taken for a move.
+        var before = order()
+        for _ in 0..<5 {
+            let again = order()
+            if again == before { break }
+            before = again
+        }
         XCTAssertGreaterThanOrEqual(before.count, 3)
         // Drag between two different widgets whose centres are clear of the top bar and the floating
         // tab bar on any phone size: a widget peeking out behind the tab bar counts as hittable, but a
@@ -306,16 +327,33 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(reachable.count, 2)
         let moved = reachable[reachable.count - 2].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let target = reachable[reachable.count - 1].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        // On a freshly booted simulator the first drag has been seen to change nothing. A person
-        // would simply drag again; the flow does the same, keeps a screenshot of the failed attempt,
-        // and still requires that a drag ends up changing the order.
-        for attempt in 1...3 where order() == before {
-            if attempt > 1 { capture("26-drag-attempt-\(attempt - 1)-unchanged") }
+        // On a freshly booted simulator the first drag has been seen to change nothing, and on a slow
+        // runner the long press has opened the widget's context menu instead of lifting it, which
+        // also keeps the app from being read. A person would close the menu and drag again; the flow
+        // does the same with a shorter press each time, keeps a screenshot of every attempt, and still
+        // requires that a drag ends up changing the order.
+        let menu = app.buttons["小工具設定"]
+        var attempts = 0
+        var menuOnly = 0
+        for press in [1.5, 1.0, 0.7] {
+            if let now = snapshotOrder(), now != before { break }
+            attempts += 1
             _ = app.wait(for: .runningForeground, timeout: 5)
-            moved.press(forDuration: 1.5, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 1.0)
+            moved.press(forDuration: press, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 1.0)
+            capture("26-drag-attempt-\(attempts)-dropped")
+            if menu.waitForExistence(timeout: 2) || snapshotOrder() == nil {
+                menuOnly += 1
+                // Tapping the dimmed area away from the menu closes it. The status bar does not: it
+                // belongs to the system, not the menu.
+                let away = menu.exists && menu.frame.midY < screen.midY ? 0.8 : 0.2
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: away)).tap()
+                _ = waitUntil(timeout: 15) { !menu.exists && snapshotOrder() != nil }
+                continue
+            }
             // The drop animates; on a slow machine the new layout can take a few seconds to settle.
-            _ = waitUntil(timeout: 10) { order() != before }
+            _ = waitUntil(timeout: 10) { snapshotOrder().map { $0 != before } ?? false }
         }
+        XCTAssertLessThan(menuOnly, attempts, "every drag attempt opened the widget's context menu instead of moving the widget")
         let after = order()
         XCTAssertEqual(Set(after), Set(before))
         XCTAssertNotEqual(after, before, "dragging a widget onto another must change the order")
@@ -972,13 +1010,17 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertEqual(avatar.label, "設定大頭貼")
         avatar.tap()
         let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
-        XCTAssertTrue(photo.waitForExistence(timeout: 15), "the photo picker opens")
+        // On a fresh simulator the picker first indexes the photo library, which can take over 15 s on CI.
+        XCTAssertTrue(photo.waitForExistence(timeout: 40), "the photo picker opens")
         capture("70a-personal-photo-picker")
         // The picker runs out of process, so its cells report as not hittable; tap where the cell is.
         photo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(app.buttons["更換大頭貼"].firstMatch.waitForExistence(timeout: 15), "the picked photo is shown")
+        // The new photo can show while the picker is still closing, so wait until the picker is gone.
+        XCTAssertTrue(waitUntil(timeout: 15) { !photo.exists && avatar.isHittable }, "the photo picker closes")
         capture("70b-personal-photo")
-        app.buttons["profile-photo"].firstMatch.press(forDuration: 1.2)
+        // With a photo set, tapping the avatar offers to change or remove it.
+        avatar.tap()
         let remove = app.buttons["profile-photo-remove"].firstMatch
         XCTAssertTrue(remove.waitForExistence(timeout: 5))
         remove.tap()
