@@ -135,6 +135,16 @@ final class AnnouncementFeedTests: XCTestCase {
         XCTAssertFalse(unreadLater.items.contains { $0.id == "p4-0" })
     }
 
+    func testRefreshReportsANewLoadEvenWhenTheListIsUnchanged() async {
+        let feed = AnnouncementFeed(loader: EndlessLoader())
+        await feed.start()
+        let loads = feed.loadedPages
+        let count = feed.items.count
+        await feed.refresh()
+        XCTAssertEqual(feed.items.count, count)
+        XCTAssertGreaterThan(feed.loadedPages, loads, "the list re-sorts after a refresh with the same items")
+    }
+
     func testUnreadCountIncludesLaterPagesOnce() async {
         let loader = EndlessLoader()
         let feed = AnnouncementFeed(loader: loader, unreadIds: { ["p2-0"] })

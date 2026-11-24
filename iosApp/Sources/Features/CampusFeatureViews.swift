@@ -118,7 +118,8 @@ struct AnnouncementListView: View {
         .onScrollPhaseChange { _, phase in isScrolling = phase.isScrolling }
         // An unread announcement found on a later page moves to the top. Keep it in view only when the
         // reader is resting at the top; otherwise the scroll position keeps the row they were reading.
-        .onChange(of: feed.items.count, initial: true) {
+        // Every load or refresh re-sorts with the current unread set; reading a row alone does not.
+        .onChange(of: feed.loadedPages, initial: true) {
             let unread = model.unreadAnnouncementIds
             orderingUnread = unread
             let ids = Set(feed.items.map(\.id))
