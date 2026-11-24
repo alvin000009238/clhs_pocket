@@ -508,7 +508,7 @@ private struct InsightCard: View {
                 }
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(item.name)，\(verb)班平均 \(item.percentText.trimmingCharacters(in: CharacterSet(charactersIn: "+-"))) 分")
+                .accessibilityLabel("\(item.name)\(item.detail.isEmpty ? "" : "，\(item.detail)")，\(verb)班平均 \(item.percentText.trimmingCharacters(in: CharacterSet(charactersIn: "+-"))) 分")
             }
         }
     }
