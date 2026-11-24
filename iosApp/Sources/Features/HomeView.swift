@@ -838,7 +838,7 @@ private struct MetricPlaceholder: View {
                     .accessibilityElement(children: .combine)
                     Spacer(minLength: 0)
                     Button {
-                        Task { await model.refreshLiveData(force: true) }
+                        Task { await model.refreshPublicData() }
                     } label: {
                         Label("重試", systemImage: "arrow.clockwise")
                             .font(.subheadline.weight(.semibold))
