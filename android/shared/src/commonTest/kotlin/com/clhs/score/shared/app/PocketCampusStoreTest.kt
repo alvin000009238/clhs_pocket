@@ -65,6 +65,28 @@ class PocketCampusStoreTest {
     }
 
     @Test
+    fun homeAnnouncementsIncludeABookmarkThatLeftTheLoadedPage() {
+        val old = com.clhs.score.data.SchoolAnnouncement("old-1", "舊公告", "2026-09-01", "一般", "教務處", "", false, "")
+        PocketData.useLive()
+        try {
+            PocketLive.putAnnouncements(DemoCampus.demoAnnouncements(clock))
+            PocketLive.savedAnnouncements = listOf(old)
+            val rows = DemoCampus.importantAnnouncements(
+                clock,
+                com.clhs.score.domain.overview.OverviewWidgetConfig.ListItems(
+                    3, listOf(com.clhs.score.domain.overview.AnnouncementPriority.Bookmarked),
+                ),
+                unreadIds = emptySet(), bookmarkedIds = setOf("old-1"),
+            )
+            assertEquals(listOf("old-1"), rows.map { it.id })
+            assertTrue(rows.single().isBookmarked)
+        } finally {
+            PocketLive.clearAll()
+            PocketData.useDemo()
+        }
+    }
+
+    @Test
     fun homeEventsOnlyCoverTheNextFourteenDays() {
         val today = clock.date()
         fun event(id: String, days: Long) = com.clhs.score.data.SchoolCalendarEvent(
