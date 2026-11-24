@@ -163,7 +163,13 @@ object PublicAnnouncementParser {
         val item = parseArray(source, "Invalid announcement detail").firstOrNull() as? JsonObject
             ?: throw PublicDataException("Invalid announcement detail")
         if (item.int("rcode")?.let { it != 200 } == true) throw PublicDataException("Announcement detail is unavailable")
-        val id = item.text("newsId")?.takeIf(String::isNotBlank) ?: requestedId
+        val responseId = item.text("newsId")?.takeIf(String::isNotBlank)
+        val title = item.text("title")?.takeIf(String::isNotBlank)
+        // A detail must describe the requested announcement; another ID or an empty record is not a detail.
+        if ((responseId != null && responseId != requestedId) || (responseId == null && title == null)) {
+            throw PublicDataException("Invalid announcement detail")
+        }
+        val id = requestedId
         val decodedHtml = try {
             PortableUrl.percentDecode(item.text("content").orEmpty())
         } catch (error: Exception) {
@@ -172,7 +178,7 @@ object PublicAnnouncementParser {
         val article = sanitizeArticle(decodedHtml)
         return SchoolAnnouncementDetail(
             id = id,
-            title = item.text("title").orEmpty().ifBlank { "未命名消息" },
+            title = title ?: "未命名消息",
             date = item.text("time").orEmpty(),
             category = categoryHint,
             unit = item.text("unit").orEmpty(),

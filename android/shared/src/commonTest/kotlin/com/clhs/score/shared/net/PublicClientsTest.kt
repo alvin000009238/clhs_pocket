@@ -166,12 +166,22 @@ class PublicClientsTest {
         assertNull(PublicAnnouncementParser.safeWebUrl("https://user@example.org/"))
         assertEquals("https://www.clhs.tyc.edu.tw/a/b", PublicAnnouncementParser.safeWebUrl("/a/b"))
         assertFailsWith<PublicDataException> { PublicAnnouncementParser.parseDetail("""[{"rcode":404}]""", "1") }
-        assertFailsWith<PublicDataException> { PublicAnnouncementParser.parseDetail("""[{"rcode":200,"content":"%E5%"}]""", "1") }
+        assertFailsWith<PublicDataException> { PublicAnnouncementParser.parseDetail("""[{"rcode":200,"newsId":"1","content":"%E5%"}]""", "1") }
         val duplicate = PublicAnnouncementParser.parseDetail(
             """[{"rcode":200,"newsId":"45072","content":"","attachedfile":"[[\"o\",123,\"same.pdf\"],[\"o\",123,\"same.pdf\"]]"}]""",
             "45072",
         )
         assertEquals("same.pdf", duplicate.attachments.single().name)
+    }
+
+    @Test
+    fun detailOfAnotherOrNoAnnouncementIsRejected() {
+        assertFailsWith<PublicDataException> {
+            PublicAnnouncementParser.parseDetail("""[{"rcode":200,"newsId":"2","title":"別則","content":""}]""", "1")
+        }
+        assertFailsWith<PublicDataException> { PublicAnnouncementParser.parseDetail("""[{"rcode":200,"content":""}]""", "1") }
+        val untitledWithoutId = PublicAnnouncementParser.parseDetail("""[{"rcode":200,"title":"標題","content":""}]""", "1")
+        assertEquals("1", untitledWithoutId.id)
     }
 
     @Test
