@@ -187,12 +187,19 @@ class PublicClientsTest {
     @Test
     fun externalDetailCarriesItsLinkInsteadOfABody() {
         val detail = PublicAnnouncementParser.parseDetail(
-            """[{"rcode":200,"newsId":"7","title":"外連","content_type":"url","content":"https://example.org/a.pdf"}]""",
+            """[{"rcode":200,"newsId":"7","title":"外連","content_type":"url","content":"https://example.org/a.pdf#page=3"}]""",
             "7",
         )
         assertTrue(detail.isExternal)
-        assertEquals("https://example.org/a.pdf", detail.externalUrl)
+        assertEquals("https://example.org/a.pdf#page=3", detail.externalUrl)
         assertEquals("", detail.htmlContent)
+    }
+
+    @Test
+    fun safeWebUrlKeepsTheFragment() {
+        assertEquals("https://example.org/doc.pdf#page=3", PublicAnnouncementParser.safeWebUrl("https://example.org/doc.pdf#page=3"))
+        assertEquals("https://www.clhs.tyc.edu.tw/a/b?x=1#%E7%AB%A0", PublicAnnouncementParser.safeWebUrl("/a/b?x=1#章"))
+        assertEquals("https://example.org/doc", PublicAnnouncementParser.safeWebUrl("https://example.org/doc"))
     }
 
     @Test

@@ -211,7 +211,9 @@ object PublicAnnouncementParser {
         if (explicitScheme != null && explicitScheme != "http" && explicitScheme != "https") return null
         val url = (if (explicitScheme != null) PortableUrl.parse(raw) else siteBase.resolve(raw)) ?: return null
         if (url.hasUserInfo) return null
-        return url.toString()
+        // The fragment never reaches the server but locates the section or page inside the opened document.
+        val fragment = if ('#' in raw) "#" + PortableUrl.encodeUnsafe(raw.substringAfter('#')) else ""
+        return url.toString() + fragment
     }
 
     private const val MAX_NESTING = 32
