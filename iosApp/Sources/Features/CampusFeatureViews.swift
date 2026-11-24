@@ -27,8 +27,14 @@ struct LiveAnnouncementLoader: AnnouncementPageLoading {
 extension AppModel {
     func makeAnnouncementLoader() -> AnnouncementPageLoading {
         if usesLiveData, let live { return LiveAnnouncementLoader(live: live) }
-        let failOnce = UserDefaults.standard.bool(forKey: "demoAnnouncementLoadMoreFailure")
-        return DemoAnnouncementLoader(clock: { [weak self] in self?.clock ?? PocketClock(year: 2026, month: 1, day: 1, dayOfWeek: 1, minuteOfDay: 0) }, failNextLoadMore: failOnce)
+        let defaults = UserDefaults.standard
+        let delay = defaults.integer(forKey: "demoAnnouncementDelayMs")
+        return DemoAnnouncementLoader(
+            clock: { [weak self] in self?.clock ?? PocketClock(year: 2026, month: 1, day: 1, dayOfWeek: 1, minuteOfDay: 0) },
+            failNextLoadMore: defaults.bool(forKey: "demoAnnouncementLoadMoreFailure"),
+            failsFirstPage: defaults.bool(forKey: "demoAnnouncementFailure"),
+            delay: .milliseconds(delay > 0 ? delay : 250)
+        )
     }
 
     /// Opens [route] on top of the tab that is showing.
@@ -49,55 +55,112 @@ private let fetchedTimeFormat: DateFormatter = {
 struct AnnouncementListView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var feed: AnnouncementFeed?
     @State private var query = ""
     @State private var filter: PocketAnnouncementFilter = .all
     @State private var showingFilters = false
+    @State private var scrolledId: String?
+    @State private var isAtTop = true
+    @State private var isScrolling = false
+    @State private var showsBackToTop = false
+    @State private var listedIds: Set<String> = []
+    /// Unread set the order was taken from; refreshed when the list changes, not when a row is read.
+    @State private var orderingUnread: Set<String>?
+    @State private var bookmarkTick = 0
+    @State private var readAllTick = 0
+
+    private static let topId = "announcements-top"
 
     var body: some View {
-        let feed = feed ?? AnnouncementFeed(loader: model.makeAnnouncementLoader())
-        let unread = Int(PocketCampusStore.shared.unreadCount(clock: model.clock, unreadIds: model.unreadAnnouncementIds))
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    Picker("顯示", selection: $filter) {
-                        Text("全部").tag(PocketAnnouncementFilter.all)
-                        Text(unread > 0 ? "未讀 \(unread)" : "未讀").tag(PocketAnnouncementFilter.unread)
-                        Text("收藏").tag(PocketAnnouncementFilter.bookmarked)
-                    }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("announcement-filter")
-                    .id("announcements-top")
+        let feed = feed ?? AnnouncementFeed(loader: model.makeAnnouncementLoader(), unreadIds: { [model] in
+            await model.syncUnread()
+            return model.unreadAnnouncementIds
+        })
+        let firstPage = PocketCampusStore.shared.announcements(
+            clock: model.clock, category: "全部", query: "", filter: .all,
+            unreadIds: model.unreadAnnouncementIds, bookmarkedIds: model.bookmarkedAnnouncementIds
+        )
+        let unread = AnnouncementFeed.unreadCount(
+            firstPage.map(\.id) + feed.items.map(\.id), unreadIds: model.unreadAnnouncementIds
+        )
+        let rows = rows(feed)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                Picker("顯示", selection: $filter) {
+                    Text("全部").tag(PocketAnnouncementFilter.all)
+                    Text(unread > 0 ? "未讀 \(unread)" : "未讀").tag(PocketAnnouncementFilter.unread)
+                    Text("收藏").tag(PocketAnnouncementFilter.bookmarked)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("announcement-filter")
+                .padding(.bottom, 2)
+                .id(Self.topId)
 
-                    statusChips(feed)
-                    if let notice = feed.noticeMessage {
-                        noticeBanner(notice, feed: feed)
-                    }
-                    content(feed)
+                statusChips(feed)
+                if let notice = feed.noticeMessage {
+                    noticeBanner(notice, feed: feed)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .pocketPage()
+                content(feed, rows: rows)
             }
-            .overlay(alignment: .bottomTrailing) {
-                if filter == .all, feed.pageIndex > 0 {
-                    Button {
-                        withAnimation { proxy.scrollTo("announcements-top", anchor: .top) }
-                    } label: {
-                        Label("回到頂端", systemImage: "arrow.up")
-                            .labelStyle(.iconOnly)
-                            .font(.headline)
-                            .frame(width: 48, height: 48)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.circle)
-                    .padding(20)
-                    .accessibilityIdentifier("announcements-top")
+            .scrollTargetLayout()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .pocketPage()
+        }
+        .scrollPosition(id: $scrolledId, anchor: .top)
+        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, offset in
+            isAtTop = offset < 8
+            let shows = offset > 600
+            if shows != showsBackToTop {
+                withAnimation(reduceMotion ? nil : .snappy) { showsBackToTop = shows }
+            }
+        }
+        .onScrollPhaseChange { _, phase in isScrolling = phase.isScrolling }
+        // An unread announcement found on a later page moves to the top. Keep it in view only when the
+        // reader is resting at the top; otherwise the scroll position keeps the row they were reading.
+        // Every load or refresh re-sorts with the current unread set; reading a row alone does not.
+        .onChange(of: feed.listRevision, initial: true) {
+            let unread = model.unreadAnnouncementIds
+            orderingUnread = unread
+            let ids = Set(feed.items.map(\.id))
+            defer { listedIds = ids }
+            let listed = PocketAnnouncementFeed.shared.rows(items: feed.items, unreadIds: unread, bookmarkedIds: [])
+            let first = AnnouncementFeed.ordered(listed, unreadIds: unread).first?.id
+            guard filter == .all, let first, unread.contains(first),
+                  !listedIds.isEmpty, !listedIds.contains(first), listedIds.isSubset(of: ids),
+                  isAtTop, !isScrolling else { return }
+            scrolledId = Self.topId
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if filter == .all, showsBackToTop {
+                Button {
+                    withAnimation(reduceMotion ? nil : .smooth) { scrolledId = Self.topId }
+                } label: {
+                    Label("回到頂端", systemImage: "chevron.up")
+                        .labelStyle(.iconOnly)
+                        .font(.title3.weight(.semibold))
+                        .frame(width: 52, height: 52)
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(PocketColor.onSecondaryContainer)
+                .background(PocketColor.secondaryContainer, in: .circle)
+                .pocketGlass(in: Circle(), interactive: true)
+                .shadow(color: .black.opacity(0.16), radius: 8, y: 2)
+                .padding(20)
+                .transition(.scale(scale: 0.6).combined(with: .opacity))
+                .accessibilityIdentifier("announcements-top")
             }
         }
         .refreshable { await feed.refresh() }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜尋公告")
         .onChange(of: query) { _, text in feed.search(text) }
+        .onChange(of: feed.searchQuery) { scrollToTop() }
+        .onChange(of: feed.unitId) { scrollToTop() }
+        .onChange(of: feed.categoryId) { scrollToTop() }
+        .onChange(of: filter) { scrollToTop() }
+        .sensoryFeedback(.selection, trigger: filter)
+        .sensoryFeedback(.impact(weight: .light), trigger: bookmarkTick)
+        .sensoryFeedback(.success, trigger: readAllTick)
         .navigationTitle("公告")
         .navigationBarTitleDisplayMode(.large)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { menu(feed, unread: unread) } }
@@ -110,12 +173,26 @@ struct AnnouncementListView: View {
         }
     }
 
+    private func scrollToTop() {
+        scrolledId = Self.topId
+    }
+
+    private func toggleBookmark(_ item: PocketAnnouncement) {
+        if item.isBookmarked { model.bookmarkedAnnouncementIds.remove(item.id) } else { model.bookmarkedAnnouncementIds.insert(item.id) }
+        bookmarkTick += 1
+    }
+
     private func menu(_ feed: AnnouncementFeed, unread: Int) -> some View {
         let bookmarks = model.bookmarkedAnnouncementIds.count
         return Menu {
-            Button("全部已讀", systemImage: "envelope.open") { model.unreadAnnouncementIds = [] }
-                .disabled(unread == 0)
-                .accessibilityIdentifier("announcements-read-all")
+            Button("全部已讀", systemImage: "checkmark.circle") {
+                model.unreadAnnouncementIds = []
+                orderingUnread = []
+                readAllTick += 1
+                scrollToTop()
+            }
+            .disabled(unread == 0)
+            .accessibilityIdentifier("announcements-read-all")
             Button(bookmarks > 0 ? "已收藏公告（\(bookmarks)）" : "已收藏公告", systemImage: "bookmark") { filter = .bookmarked }
                 .accessibilityIdentifier("announcements-bookmarks")
             Button(feed.hasFilters ? "篩選公告（已套用）" : "篩選公告", systemImage: "line.3.horizontal.decrease.circle") {
@@ -126,31 +203,55 @@ struct AnnouncementListView: View {
                 .accessibilityIdentifier("announcements-reminders")
             Button("重新整理", systemImage: "arrow.clockwise") { Task { await feed.refresh() } }
             Divider()
-            Button("學校網站", systemImage: "safari") {
-                if let url = URL(string: PocketAnnouncementFeed.shared.SCHOOL_ANNOUNCEMENTS_URL) { openURL(url) }
-            }
+            Button("學校網站", systemImage: "safari") { openSchoolWebsite() }
         } label: {
             Label("更多選項", systemImage: "ellipsis.circle")
         }
         .accessibilityIdentifier("announcements-menu")
     }
 
+    private func openSchoolWebsite() {
+        if let url = URL(string: PocketAnnouncementFeed.shared.SCHOOL_ANNOUNCEMENTS_URL) { openURL(url) }
+    }
+
+    /// Search and filters stay visible and clearable while the toolbar search field is collapsed.
     @ViewBuilder
     private func statusChips(_ feed: AnnouncementFeed) -> some View {
-        if filter == .all, feed.hasFilters {
-            Button {
-                Task { await feed.clearFilters() }
-            } label: {
-                Label("已套用公告篩選 · 清除", systemImage: "xmark.circle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(PocketColor.onPrimaryContainer)
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 40)
-                    .background(PocketColor.primaryContainer, in: .capsule)
+        let searching = filter == .all && !feed.searchQuery.isEmpty
+        let filtered = filter == .all && feed.hasFilters
+        if searching || filtered {
+            BadgeFlowLayout(spacing: 8) {
+                if searching {
+                    clearChip("搜尋：\(feed.searchQuery)", systemImage: "magnifyingglass") { query = "" }
+                        .accessibilityLabel("清除搜尋：\(feed.searchQuery)")
+                        .accessibilityIdentifier("announcements-clear-search")
+                }
+                if filtered {
+                    clearChip("已套用公告篩選 · 清除", systemImage: "line.3.horizontal.decrease") {
+                        Task { await feed.clearFilters() }
+                    }
+                    .accessibilityIdentifier("announcements-clear-filters")
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("announcements-clear-filters")
         }
+    }
+
+    private func clearChip(_ text: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage).accessibilityHidden(true)
+                Text(text).lineLimit(2)
+                Image(systemName: "xmark.circle.fill").accessibilityHidden(true)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(PocketColor.onPrimaryContainer)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .frame(minHeight: 40)
+            .background(PocketColor.primaryContainer, in: .capsule)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
     }
 
     private func noticeBanner(_ notice: String, feed: AnnouncementFeed) -> some View {
@@ -164,63 +265,82 @@ struct AnnouncementListView: View {
         .font(.footnote)
         .foregroundStyle(PocketColor.onSurface)
         .padding(12)
-        .background(PocketColor.surfaceLow, in: .rect(cornerRadius: 16, style: .continuous))
+        .background(PocketColor.surfaceHigh, in: .rect(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
-    private func content(_ feed: AnnouncementFeed) -> some View {
-        let rows = rows(feed)
+    private func content(_ feed: AnnouncementFeed, rows: [PocketAnnouncement]) -> some View {
         if filter == .all, feed.isInitialLoading, feed.items.isEmpty {
-            HStack(spacing: 12) {
-                ProgressView()
-                Text("正在載入學校消息").foregroundStyle(PocketColor.onSurfaceVariant)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 40)
-            .accessibilityElement(children: .combine)
+            AnnouncementSkeleton()
         } else if filter == .all, let error = feed.errorMessage {
             ContentUnavailableView {
-                Label("暫時無法取得學校消息", systemImage: "wifi.exclamationmark")
+                Label(feed.searchQuery.isEmpty ? "暫時無法取得學校消息" : "暫時無法搜尋公告", systemImage: "wifi.exclamationmark")
             } description: {
-                Text("\(error)\n可以稍後重新整理，或前往學校網站查看。")
+                Text(error == AnnouncementFeed.initialFailure ? "請檢查網路連線後重新整理，或前往學校網站查看。" : error)
             } actions: {
-                Button("再試一次") { Task { await feed.refresh() } }
+                Button("重新整理", systemImage: "arrow.clockwise") { Task { await feed.refresh() } }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("announcements-retry")
+                Button("前往學校網站", systemImage: "safari") { openSchoolWebsite() }
+                    .buttonStyle(.bordered)
             }
-            .padding(.top, 24)
+            .padding(.vertical, 24)
+            .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
+            .padding(.top, 8)
         } else if rows.isEmpty {
-            ContentUnavailableView {
-                Label(emptyTitle(feed), systemImage: filter == .bookmarked ? "bookmark" : "tray")
-            } description: {
-                Text(emptyDetail(feed))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 32)
+            emptyState(feed)
         } else {
-            if filter == .all, !feed.searchQuery.isEmpty {
-                Text("搜尋：\(feed.searchQuery)")
-                    .font(.subheadline)
-                    .foregroundStyle(PocketColor.onSurfaceVariant)
-                    .padding(.horizontal, 4)
-            }
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, item in
-                AnnouncementRows(announcements: [item])
-                    .padding(.horizontal, 8)
-                    .background(PocketColor.surfaceLow, in: .rect(cornerRadius: 16, style: .continuous))
-                    .contextMenu {
-                        if item.isBookmarked {
-                            Button("取消收藏", systemImage: "bookmark.slash") { model.bookmarkedAnnouncementIds.remove(item.id) }
-                        } else {
-                            Button("收藏公告", systemImage: "bookmark") { model.bookmarkedAnnouncementIds.insert(item.id) }
-                        }
+                AnnouncementCardRow(item: item, showsCategory: filter != .all || feed.searchQuery.isEmpty) {
+                    toggleBookmark(item)
+                }
+                .contextMenu {
+                    Button(item.isBookmarked ? "取消收藏" : "收藏公告", systemImage: item.isBookmarked ? "bookmark.slash" : "bookmark") {
+                        toggleBookmark(item)
                     }
-                    .onAppear {
-                        if filter == .all, index >= rows.count - 3 { Task { await feed.loadMore() } }
+                    if item.isUnread {
+                        Button("標為已讀", systemImage: "checkmark.circle") { model.unreadAnnouncementIds.remove(item.id) }
                     }
+                }
+                .onAppear {
+                    if filter == .all, index >= rows.count - 3 { Task { await feed.loadMore() } }
+                }
             }
             if filter == .all { footer(feed) }
+        }
+    }
+
+    private func emptyState(_ feed: AnnouncementFeed) -> some View {
+        ContentUnavailableView {
+            Label(emptyTitle(feed), systemImage: emptySymbol(feed))
+        } description: {
+            Text(emptyDetail(feed))
+        } actions: {
+            switch filter {
+            case .unread, .bookmarked:
+                if query.isEmpty {
+                    Button("查看全部公告") { filter = .all }.buttonStyle(.bordered)
+                }
+            default:
+                if feed.hasFilters {
+                    Button("清除篩選") { Task { await feed.clearFilters() } }.buttonStyle(.borderedProminent)
+                } else if !feed.searchQuery.isEmpty {
+                    Button("清除搜尋") { query = "" }.buttonStyle(.borderedProminent)
+                } else {
+                    Button("重新整理", systemImage: "arrow.clockwise") { Task { await feed.refresh() } }.buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 32)
+    }
+
+    private func emptySymbol(_ feed: AnnouncementFeed) -> String {
+        switch filter {
+        case .bookmarked: return query.isEmpty ? "bookmark" : "magnifyingglass"
+        case .unread: return query.isEmpty ? "checkmark.circle" : "magnifyingglass"
+        default: return feed.searchQuery.isEmpty && !feed.hasFilters ? "tray" : "magnifyingglass"
         }
     }
 
@@ -234,14 +354,16 @@ struct AnnouncementListView: View {
                 }
                 .accessibilityElement(children: .combine)
             } else if let error = feed.loadMoreError {
-                VStack(spacing: 8) {
-                    Text(error).foregroundStyle(PocketColor.negative)
-                    Button("重試") { Task { await feed.loadMore(retrying: true) } }
+                VStack(spacing: 10) {
+                    Text(error)
+                    Button("再試一次", systemImage: "arrow.clockwise") { Task { await feed.loadMore(retrying: true) } }
                         .buttonStyle(.bordered)
+                        .tint(PocketColor.primary)
                         .accessibilityIdentifier("announcements-load-more-retry")
                 }
             } else if !feed.hasMore {
-                Text("已載入全部消息")
+                Text("\(Image(systemName: "checkmark")) 已載入全部消息")
+                    .accessibilityLabel("已載入全部消息")
                     .accessibilityIdentifier("announcements-end")
             } else {
                 Color.clear.frame(height: 1)
@@ -249,7 +371,7 @@ struct AnnouncementListView: View {
         }
         .font(.footnote)
         .foregroundStyle(PocketColor.onSurfaceVariant)
-        .frame(maxWidth: .infinity, minHeight: 44)
+        .frame(maxWidth: .infinity, minHeight: 56)
         // A short first page never scrolls, so the footer itself asks for the next one.
         .task(id: feed.items.count) { await feed.loadMore() }
     }
@@ -264,9 +386,11 @@ struct AnnouncementListView: View {
                 .filter { matches($0) }
         case .unread:
             let known = PocketDataSourceItems.known(feed.items, clock: model.clock)
-            return store.rows(items: known, unreadIds: unread, bookmarkedIds: bookmarks).filter { $0.isUnread && matches($0) }
+            return AnnouncementFeed.ordered(store.rows(items: known, unreadIds: unread, bookmarkedIds: bookmarks), unreadIds: unread)
+                .filter { $0.isUnread && matches($0) }
         default:
-            return store.rows(items: feed.items, unreadIds: unread, bookmarkedIds: bookmarks)
+            let rows = store.rows(items: feed.items, unreadIds: unread, bookmarkedIds: bookmarks)
+            return AnnouncementFeed.ordered(rows, unreadIds: orderingUnread ?? unread)
         }
     }
 
@@ -294,6 +418,183 @@ struct AnnouncementListView: View {
         case .unread: return query.isEmpty ? "" : "試試其他關鍵字。"
         default: return feed.searchQuery.isEmpty && !feed.hasFilters ? "可以稍後重新整理，或前往學校網站查看。" : "請嘗試其他關鍵字或篩選條件。"
         }
+    }
+}
+
+/// One announcement in the list: status badges and the date above an emphasised title, with an inline
+/// bookmark button, the iOS counterpart of Android's `AnnouncementCard`.
+struct AnnouncementCardRow: View {
+    let item: PocketAnnouncement
+    var showsCategory = true
+    let onToggleBookmark: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 4) {
+            NavigationLink(value: PocketRoute.announcement(item.id)) {
+                VStack(alignment: .leading, spacing: 6) {
+                    BadgeFlowLayout(spacing: 6) {
+                        if item.isUnread { AnnouncementBadge(text: "未讀", style: .unread) }
+                        if item.isPinned { AnnouncementBadge(text: "置頂", systemImage: "pin.fill", style: .emphasized) }
+                        if showsCategory, !item.category.isEmpty { AnnouncementBadge(text: item.category) }
+                        Text(item.dateText)
+                            .font(.footnote)
+                            .monospacedDigit()
+                            .foregroundStyle(PocketColor.onSurfaceVariant)
+                            .padding(.vertical, 3)
+                    }
+                    Text(item.title)
+                        .font(.headline.weight(item.isUnread ? .semibold : .medium))
+                        .foregroundStyle(PocketColor.onSurface)
+                        .lineLimit(3)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if !item.unit.isEmpty {
+                        Text(item.unit)
+                            .font(.subheadline)
+                            .foregroundStyle(PocketColor.onSurfaceVariant)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.leading, 16)
+                .padding(.vertical, 14)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(item.isUnread ? "未讀" : "")
+            .accessibilityIdentifier("announcement-\(item.id)")
+
+            Button(action: onToggleBookmark) {
+                Image(systemName: item.isBookmarked ? "bookmark.fill" : "bookmark")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(item.isBookmarked ? PocketColor.primary : PocketColor.onSurfaceVariant)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 6)
+            .padding(.trailing, 4)
+            .accessibilityLabel(item.isBookmarked ? "取消收藏" : "收藏公告")
+            .accessibilityIdentifier("announcement-bookmark-\(item.id)")
+        }
+        .background(PocketColor.surfaceLow, in: .rect(cornerRadius: 20, style: .continuous))
+        .contentShape(.contextMenuPreview, .rect(cornerRadius: 20, style: .continuous))
+    }
+}
+
+struct AnnouncementBadge: View {
+    enum Style { case plain, emphasized, unread }
+    let text: String
+    var systemImage: String?
+    var style: Style = .plain
+
+    var body: some View {
+        HStack(spacing: 3) {
+            if let systemImage { Image(systemName: systemImage).imageScale(.small).accessibilityHidden(true) }
+            Text(text)
+        }
+        .font(.caption.weight(.semibold))
+        .lineLimit(1)
+        .foregroundStyle(foreground)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(background, in: .rect(cornerRadius: 8, style: .continuous))
+    }
+
+    private var foreground: Color {
+        switch style {
+        case .unread: PocketColor.negative
+        case .emphasized: PocketColor.onSecondaryContainer
+        case .plain: PocketColor.onSurfaceVariant
+        }
+    }
+
+    private var background: Color {
+        switch style {
+        case .unread: PocketColor.negative.opacity(0.14)
+        case .emphasized: PocketColor.secondaryContainer
+        case .plain: PocketColor.surfaceHigh
+        }
+    }
+}
+
+/// Lays badges out in rows, wrapping when the width (or a large text size) runs out.
+struct BadgeFlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
+        let width = rows.map { $0.width }.max() ?? 0
+        let height = rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: proposal.width.map { min($0, width) } ?? width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(width: bounds.width, subviews: subviews) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row { var indices: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
+
+    private func arrange(width: CGFloat, subviews: Subviews) -> [Row] {
+        var rows: [Row] = []
+        var row = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(ProposedViewSize(width: width, height: nil))
+            let needed = row.indices.isEmpty ? size.width : row.width + spacing + size.width
+            if !row.indices.isEmpty, needed > width {
+                rows.append(row)
+                row = Row()
+            }
+            row.width = row.indices.isEmpty ? size.width : row.width + spacing + size.width
+            row.height = max(row.height, size.height)
+            row.indices.append(index)
+        }
+        if !row.indices.isEmpty { rows.append(row) }
+        return rows
+    }
+}
+
+/// Placeholder cards shaped like announcement rows while the first page loads.
+private struct AnnouncementSkeleton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dimmed = false
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ForEach(0..<6, id: \.self) { index in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        RoundedRectangle(cornerRadius: 6).frame(width: 36, height: 18)
+                        RoundedRectangle(cornerRadius: 6).frame(width: 72, height: 18)
+                    }
+                    RoundedRectangle(cornerRadius: 6).frame(height: 18)
+                    RoundedRectangle(cornerRadius: 6).frame(width: index.isMultiple(of: 2) ? 180 : 240, height: 18)
+                    RoundedRectangle(cornerRadius: 6).frame(width: 64, height: 14)
+                }
+                .foregroundStyle(PocketColor.surfaceHigh)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(PocketColor.surfaceLow, in: .rect(cornerRadius: 20, style: .continuous))
+            }
+        }
+        .opacity(dimmed ? 0.55 : 1)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { dimmed = true }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("正在載入學校消息")
+        .accessibilityIdentifier("announcements-loading")
     }
 }
 
