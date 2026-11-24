@@ -340,6 +340,13 @@ final class PocketShellUITests: XCTestCase {
                 issues.append("\(tab): \(issue.compactDescription) [\(element?.identifier ?? "") | \(element?.label ?? "") | \(element?.elementType.rawValue ?? 0) | \(element?.frame.debugDescription ?? "")]")
                 return true
             }
+            capture("R\(index)-root")
+            if tab == "成績" {
+                for page in 2...3 {
+                    app.swipeUp()
+                    capture("R\(index)-root-\(page)")
+                }
+            }
         }
         if let directory = ProcessInfo.processInfo.environment["SHOT_DIR"] {
             try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
