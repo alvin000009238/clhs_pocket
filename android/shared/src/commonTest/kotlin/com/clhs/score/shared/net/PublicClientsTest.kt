@@ -185,6 +185,17 @@ class PublicClientsTest {
     }
 
     @Test
+    fun externalDetailCarriesItsLinkInsteadOfABody() {
+        val detail = PublicAnnouncementParser.parseDetail(
+            """[{"rcode":200,"newsId":"7","title":"外連","content_type":"url","content":"https://example.org/a.pdf"}]""",
+            "7",
+        )
+        assertTrue(detail.isExternal)
+        assertEquals("https://example.org/a.pdf", detail.externalUrl)
+        assertEquals("", detail.htmlContent)
+    }
+
+    @Test
     fun announcementRequestsUseOfficialFormAndNeverCarryCookies() = runTest {
         val transport = FakeHttpTransport { request ->
             when {

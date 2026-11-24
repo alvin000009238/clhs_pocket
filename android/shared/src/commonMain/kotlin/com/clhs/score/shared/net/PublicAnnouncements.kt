@@ -170,8 +170,10 @@ object PublicAnnouncementParser {
             throw PublicDataException("Invalid announcement detail")
         }
         val id = requestedId
-        val decodedHtml = try {
-            PortableUrl.percentDecode(item.text("content").orEmpty())
+        val isExternal = item.text("content_type").equals("url", ignoreCase = true)
+        val content = item.text("content").orEmpty()
+        val decodedHtml = if (isExternal) "" else try {
+            PortableUrl.percentDecode(content)
         } catch (error: Exception) {
             throw PublicDataException("Invalid announcement content", cause = error)
         }
@@ -187,6 +189,8 @@ object PublicAnnouncementParser {
             images = article.second,
             attachments = parseAttachments(item.text("attachedfile"), id),
             officialUrl = officialUrl(id),
+            isExternal = isExternal,
+            externalUrl = if (isExternal) safeWebUrl(content) else null,
         )
     }
 
