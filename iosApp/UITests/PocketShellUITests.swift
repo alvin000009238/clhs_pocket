@@ -334,6 +334,7 @@ final class PocketShellUITests: XCTestCase {
             if attempt > 1 { capture("26-drag-attempt-\(attempt - 1)-unchanged") }
             _ = app.wait(for: .runningForeground, timeout: 5)
             moved.press(forDuration: 1.5, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 1.0)
+            capture("26-drag-attempt-\(attempt)-dropped")
             // The drop animates; on a slow machine the new layout can take a few seconds to settle.
             _ = waitUntil(timeout: 10) { snapshotOrder().map { $0 != before } ?? false }
         }
