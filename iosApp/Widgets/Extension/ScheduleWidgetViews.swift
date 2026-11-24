@@ -224,7 +224,16 @@ private struct AgendaRow: View {
 
 private extension View {
     func pocketWidgetBackground(_ color: Color) -> some View {
-        containerBackground(for: .widget) { color }
+        containerBackground(for: .widget) {
+            // The same soft corner tint as the 首頁 cards; the system drops it in tinted and clear modes.
+            ZStack {
+                color
+                LinearGradient(
+                    colors: [PocketColor.primary.opacity(0.14), PocketColor.primary.opacity(0)],
+                    startPoint: .topLeading, endPoint: .center
+                )
+            }
+        }
     }
 }
 
