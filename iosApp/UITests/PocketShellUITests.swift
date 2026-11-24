@@ -327,17 +327,33 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(reachable.count, 2)
         let moved = reachable[reachable.count - 2].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let target = reachable[reachable.count - 1].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        // On a freshly booted simulator the first drag has been seen to change nothing. A person
-        // would simply drag again; the flow does the same, keeps a screenshot of the failed attempt,
-        // and still requires that a drag ends up changing the order.
-        for attempt in 1...3 where order() == before {
-            if attempt > 1 { capture("26-drag-attempt-\(attempt - 1)-unchanged") }
+        // On a freshly booted simulator the first drag has been seen to change nothing, and on a slow
+        // runner the long press has opened the widget's context menu instead of lifting it, which
+        // also keeps the app from being read. A person would close the menu and drag again; the flow
+        // does the same with a shorter press each time, keeps a screenshot of every attempt, and still
+        // requires that a drag ends up changing the order.
+        let menu = app.buttons["小工具設定"]
+        var attempts = 0
+        var menuOnly = 0
+        for press in [1.5, 1.0, 0.7] {
+            if let now = snapshotOrder(), now != before { break }
+            attempts += 1
             _ = app.wait(for: .runningForeground, timeout: 5)
-            moved.press(forDuration: 1.5, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 1.0)
-            capture("26-drag-attempt-\(attempt)-dropped")
+            moved.press(forDuration: press, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 1.0)
+            capture("26-drag-attempt-\(attempts)-dropped")
+            if menu.waitForExistence(timeout: 2) || snapshotOrder() == nil {
+                menuOnly += 1
+                // Tapping the dimmed area away from the menu closes it. The status bar does not: it
+                // belongs to the system, not the menu.
+                let away = menu.exists && menu.frame.midY < screen.midY ? 0.8 : 0.2
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: away)).tap()
+                _ = waitUntil(timeout: 15) { !menu.exists && snapshotOrder() != nil }
+                continue
+            }
             // The drop animates; on a slow machine the new layout can take a few seconds to settle.
             _ = waitUntil(timeout: 10) { snapshotOrder().map { $0 != before } ?? false }
         }
+        XCTAssertLessThan(menuOnly, attempts, "every drag attempt opened the widget's context menu instead of moving the widget")
         let after = order()
         XCTAssertEqual(Set(after), Set(before))
         XCTAssertNotEqual(after, before, "dragging a widget onto another must change the order")
