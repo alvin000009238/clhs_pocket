@@ -684,33 +684,45 @@ private struct DateBadge: View {
 }
 
 private struct EventTile: View {
+    @Environment(AppModel.self) private var model
+    @State private var selectedEvent: PocketEventDetail?
     let event: PocketEventRow
 
     var body: some View {
-        NavigationLink(value: PocketRoute.calendar) {
-            HStack(spacing: 14) {
-                DateBadge(top: event.monthText, bottom: event.dayText, highlighted: event.isOngoing)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(event.title)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(PocketColor.onSurface)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    Text(event.subtitle)
-                        .font(.footnote)
-                        .monospacedDigit()
-                        .foregroundStyle(event.isOngoing ? PocketColor.primary : PocketColor.onSurfaceVariant)
-                }
-                Spacer(minLength: 8)
-                RowChevron()
+        Group {
+            // Open the tapped event itself; fall back to the calendar when its detail is unavailable.
+            if let detail = PocketAnnouncementFeed.shared.eventDetail(clock: model.clock, id: event.id) {
+                Button { selectedEvent = detail } label: { row }
+            } else {
+                NavigationLink(value: PocketRoute.calendar) { row }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(minHeight: 72)
-            .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
+        .sheet(item: $selectedEvent) { CalendarEventSheet(detail: $0) }
+    }
+
+    private var row: some View {
+        HStack(spacing: 14) {
+            DateBadge(top: event.monthText, bottom: event.dayText, highlighted: event.isOngoing)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(event.title)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(PocketColor.onSurface)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Text(event.subtitle)
+                    .font(.footnote)
+                    .monospacedDigit()
+                    .foregroundStyle(event.isOngoing ? PocketColor.primary : PocketColor.onSurfaceVariant)
+            }
+            Spacer(minLength: 8)
+            RowChevron()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(minHeight: 72)
+        .contentShape(.rect)
     }
 }
 
