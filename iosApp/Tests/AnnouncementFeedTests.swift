@@ -135,6 +135,15 @@ final class AnnouncementFeedTests: XCTestCase {
         XCTAssertFalse(unreadLater.items.contains { $0.id == "p4-0" })
     }
 
+    func testUnreadCountIncludesLaterPagesOnce() async {
+        let loader = EndlessLoader()
+        let feed = AnnouncementFeed(loader: loader, unreadIds: { ["p2-0"] })
+        await feed.start()
+        let listed = ["first-page"] + feed.items.map(\.id) + feed.items.prefix(3).map(\.id)
+        XCTAssertEqual(AnnouncementFeed.unreadCount(listed, unreadIds: ["first-page", "p2-0", "elsewhere"]), 2,
+                       "a revealed later-page item counts, duplicates and unlisted ids do not")
+    }
+
     func testListShowsUnreadThenPinnedThenTheSchoolOrder() {
         func row(_ id: String, pinned: Bool = false, unread: Bool = false) -> PocketAnnouncement {
             PocketAnnouncement(id: id, title: id, dateText: "", shortDateText: "", unit: "", category: "",

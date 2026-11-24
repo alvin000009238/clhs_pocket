@@ -100,6 +100,11 @@ final class AnnouncementFeed {
         self.unreadIds = unreadIds
     }
 
+    /// Unread announcements among `listedIds`, each counted once, so items revealed from later pages count.
+    static func unreadCount(_ listedIds: [String], unreadIds: Set<String>) -> Int {
+        unreadIds.intersection(listedIds).count
+    }
+
     /// Android's list order: unread first, then pinned, otherwise the school's order. `unreadIds` is the
     /// unread set when the list last changed, so reading an announcement does not move rows under the reader.
     static func ordered(_ rows: [PocketAnnouncement], unreadIds: Set<String>) -> [PocketAnnouncement] {

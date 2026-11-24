@@ -77,7 +77,13 @@ struct AnnouncementListView: View {
             await model.syncUnread()
             return model.unreadAnnouncementIds
         })
-        let unread = Int(PocketCampusStore.shared.unreadCount(clock: model.clock, unreadIds: model.unreadAnnouncementIds))
+        let firstPage = PocketCampusStore.shared.announcements(
+            clock: model.clock, category: "全部", query: "", filter: .all,
+            unreadIds: model.unreadAnnouncementIds, bookmarkedIds: model.bookmarkedAnnouncementIds
+        )
+        let unread = AnnouncementFeed.unreadCount(
+            firstPage.map(\.id) + feed.items.map(\.id), unreadIds: model.unreadAnnouncementIds
+        )
         let rows = rows(feed)
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
