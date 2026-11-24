@@ -83,24 +83,28 @@ struct AnnouncementDetailView: View {
     private func content(_ detail: PocketAnnouncementDetail?) -> some View {
         ScrollView {
             if let detail {
-                VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 6) {
                             if detail.isPinned {
-                                PocketChip(text: "置頂", systemImage: "pin.fill", foreground: PocketColor.onTertiaryContainer, background: PocketColor.tertiaryContainer)
+                                AnnouncementBadge(text: "置頂", systemImage: "pin.fill", style: .emphasized)
                             }
-                            PocketChip(text: detail.category)
+                            if !detail.category.isEmpty { AnnouncementBadge(text: detail.category) }
                         }
                         Text(detail.title)
                             .font(PocketFont.display(26, relativeTo: .title))
-                            .foregroundStyle(PocketColor.onSurface)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityAddTraits(.isHeader)
-                        Text("\(detail.unit) · \(detail.dateText)")
+                        Text([detail.dateText, detail.unit].filter { !$0.isEmpty }.joined(separator: " · "))
                             .font(.subheadline)
                             .monospacedDigit()
-                            .foregroundStyle(PocketColor.onSurfaceVariant)
+                            .opacity(0.8)
                     }
+                    .foregroundStyle(PocketColor.onPrimaryContainer)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+                    .background(PocketColor.primaryContainer, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
+                    VStack(alignment: .leading, spacing: 0) {
                     if let rich = richBody {
                         Text(rich)
                             .lineSpacing(5)
@@ -119,6 +123,10 @@ struct AnnouncementDetailView: View {
                             }
                         }
                     }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+                    .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
                     ForEach(Array(detail.images.enumerated()), id: \.offset) { _, image in
                         AnnouncementImageView(image: image)
                     }
@@ -171,7 +179,7 @@ struct AnnouncementDetailView: View {
                         }
                     }
                 }
-                .frame(maxWidth: 720, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .pocketPage()
             } else if model.usesLiveData {
                 PocketPendingView(isLoading: loadingDetail, title: "無法載入公告內容", message: model.live?.lastError) {
@@ -198,6 +206,8 @@ struct AnnouncementDetailView: View {
                     Button(saved ? "取消收藏" : "收藏", systemImage: saved ? "bookmark.fill" : "bookmark") {
                         if saved { model.bookmarkedAnnouncementIds.remove(id) } else { model.bookmarkedAnnouncementIds.insert(id) }
                     }
+                    .contentTransition(.symbolEffect(.replace))
+                    .sensoryFeedback(.impact(weight: .light), trigger: saved)
                     .accessibilityIdentifier("announcement-bookmark")
                     if let url = URL(string: detail.officialUrl) {
                         ShareLink(item: url, subject: Text(detail.title)) {
@@ -280,7 +290,7 @@ struct CalendarListView: View {
                     .foregroundStyle(PocketColor.onSurfaceVariant)
                     .padding(.horizontal, 4)
             }
-            .frame(maxWidth: mode == 0 && sizeClass == .regular ? PocketMetrics.regularContentWidth : 720)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .pocketPage()
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜尋行事曆")
@@ -295,6 +305,9 @@ struct CalendarListView: View {
             }
         }
         .sheet(item: $selectedEvent) { CalendarEventSheet(detail: $0) }
+        .sensoryFeedback(.selection, trigger: selectedDay)
+        .sensoryFeedback(.selection, trigger: mode)
+        .sensoryFeedback(.selection, trigger: month)
     }
 
     private func step(_ delta: Int, from data: PocketCalendarMonth) {
@@ -317,6 +330,8 @@ struct CalendarListView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                         .foregroundStyle(PocketColor.onSurface)
+                        .contentTransition(.numericText())
+                        .animation(.snappy, value: data.title)
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("calendar-title")
                     Spacer()
@@ -576,7 +591,7 @@ struct StudentRecordsView: View {
 
     @ViewBuilder
     private func summary(_ records: PocketRecords) -> some View {
-        PocketCard {
+        PocketCard(fill: PocketColor.primaryContainer) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("學期摘要")

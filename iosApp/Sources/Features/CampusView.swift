@@ -23,7 +23,8 @@ struct CampusView: View {
                             title: "公告",
                             detail: unread > 0 ? "\(unread) 則未讀" : "已全部讀完",
                             systemImage: "megaphone.fill",
-                            route: .announcements
+                            route: .announcements,
+                            badge: unread
                         )
                         CampusShortcut(
                             title: "行事曆",
@@ -158,12 +159,31 @@ private struct CampusShortcut: View {
     let detail: String
     let systemImage: String
     let route: PocketRoute
+    var badge = 0
 
     var body: some View {
         NavigationLink(value: route) {
             PocketCard(padding: 16) {
                 VStack(alignment: .leading, spacing: 0) {
-                    PocketIconTile(systemImage: systemImage)
+                    HStack(alignment: .top) {
+                        PocketIconTile(systemImage: systemImage)
+                        Spacer(minLength: 8)
+                        if badge > 0 {
+                            Text(badge, format: .number)
+                                .font(.caption.weight(.bold))
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 7)
+                                .frame(minWidth: 24, minHeight: 24)
+                                .background(PocketColor.negative, in: .capsule)
+                                .accessibilityHidden(true)
+                        } else {
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(PocketColor.onSurfaceVariant)
+                                .accessibilityHidden(true)
+                        }
+                    }
                     Text(title)
                         .lineLimit(1)
                         .font(PocketFont.cardTitle)
