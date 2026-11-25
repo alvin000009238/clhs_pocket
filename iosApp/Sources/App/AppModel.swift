@@ -251,6 +251,17 @@ final class AppModel {
     }
     @ObservationIgnored private var syncingUnread = false
 
+    /// Marks an opened announcement read, also one not in the unread set yet (found by search before
+    /// the set was synced), so the next sync does not list it as unread again.
+    func markAnnouncementRead(_ id: String) {
+        if unreadAnnouncementIds.contains(id) {
+            unreadAnnouncementIds.remove(id)
+            return
+        }
+        guard usesLiveData, let live else { return }
+        Task { try? await live.backend.call { try await $0.markAnnouncementsRead(ids: [id], token: $1) } }
+    }
+
     var bookmarkedAnnouncementIds: Set<String> {
         didSet {
             defaults.set(Array(bookmarkedAnnouncementIds), forKey: Key.bookmarks)
