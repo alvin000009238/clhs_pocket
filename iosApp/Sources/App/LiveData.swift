@@ -493,7 +493,10 @@ final class LiveDataController {
         func current() -> Bool { self.session?.authorizationId == session.authorizationId && self.session?.studentNo == session.studentNo }
 
         do {
-            if let cached = try await backend.call({ try await $0.latestSchedule(session: session, token: $1) }), current() {
+            // The cache holds the student's own week only; another chosen class or term waits for its own load.
+            if let cached = try await backend.call({ try await $0.latestSchedule(session: session, token: $1) }), current(),
+               scheduleChoice.classValue.isEmpty,
+               scheduleChoice.yearValue.isEmpty || scheduleChoice.yearValue == cached.report.yearTermValue {
                 live.putSchedule(classValue: "", report: cached.report)
                 scheduleRevision += 1
                 publish()
