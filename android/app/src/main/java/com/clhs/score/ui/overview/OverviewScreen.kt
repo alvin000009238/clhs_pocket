@@ -558,19 +558,21 @@ internal fun OverviewItemKind.isOverviewAlert(): Boolean =
 internal fun OverviewAlertCard(
     item: OverviewItem,
     expandStack: Boolean = false,
-    bottomClearance: Dp = 0.dp,
+    enabled: Boolean = true,
+    containerAlpha: Float = 0.9f,
     onClick: () -> Unit,
 ) {
     Surface(
         onClick = hapticClick(onClick),
+        enabled = enabled,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.90f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = containerAlpha),
         contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
     ) {
         Row(
-            Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp + bottomClearance),
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -622,7 +624,7 @@ private fun ItemText(
 }
 
 @Composable
-private fun ListDivider(start: androidx.compose.ui.unit.Dp = 44.dp) {
+private fun ListDivider(start: Dp = 44.dp) {
     HorizontalDivider(
         modifier = Modifier.padding(start = start, end = 8.dp),
         color = MaterialTheme.colorScheme.outlineVariant,

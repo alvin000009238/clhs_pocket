@@ -23,6 +23,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.clhs.score.data.AuthenticatedSession
 import com.clhs.score.data.CwaApiKeyStore
+import com.clhs.score.data.FakeData
 import com.clhs.score.data.FakeScheduleRepository
 import com.clhs.score.data.GradeCacheStore
 import com.clhs.score.data.GradeReminderRepository
@@ -50,6 +51,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
@@ -327,7 +329,8 @@ class OverviewViewModel(
                             appContext.cacheDir,
                             readRepository = com.clhs.score.data.AnnouncementReadRepository.get(appContext),
                         ),
-                        reminderState = GradeReminderRepository(appContext).state,
+                        reminderState = if (useFakeData) flowOf(FakeData.overviewGradeReminder)
+                            else GradeReminderRepository(appContext).state,
                         weatherRepository = WeatherRepository(
                             cacheDirectory = appContext.cacheDir,
                             keyStore = CwaApiKeyStore(appContext),

@@ -10,7 +10,12 @@ import com.clhs.score.ui.navigation.PocketScaffold as Scaffold
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.slideInVertically
@@ -22,10 +27,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.ScrollableState
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -41,15 +46,28 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.HorizontalAlignmentLine
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.offset
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import com.clhs.score.data.WeatherLocation
 import com.clhs.score.data.YouBikeStation
 import com.clhs.score.domain.overview.*
@@ -64,6 +82,8 @@ import com.clhs.score.viewmodel.OverviewEditorState
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @androidx.compose.ui.tooling.preview.Preview(name = "首頁浮動工具", widthDp = 390, heightDp = 844)
 @androidx.compose.ui.tooling.preview.Preview(name = "首頁深色", widthDp = 390, heightDp = 844, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
@@ -183,6 +203,14 @@ internal fun OverviewDashboard(
     var hiddenAlertIds by rememberSaveable(authState) { mutableStateOf(if (initialAlertsHidden) ArrayList(alerts.map { it.id }) else arrayListOf()) }
     var alertsStacked by rememberSaveable(authState) { mutableStateOf(initialAlertsStacked) }
     val visibleAlerts = alerts.filterNot { it.id in hiddenAlertIds }
+    var restoringAlertIds by remember(authState) { mutableStateOf(emptySet<String>()) }
+    val restoration = remember(authState) { Animatable(1f) }
+    LaunchedEffect(restoringAlertIds) {
+        if (restoringAlertIds.isNotEmpty()) {
+            restoration.animateTo(1f, tween(280, easing = FastOutSlowInEasing))
+            restoringAlertIds = emptySet()
+        }
+    }
     val canShowAlerts = authState is AuthState.Authenticated
     val showAlertPanel = canShowAlerts && !editor.editing && visibleAlerts.isNotEmpty()
     val inspectionMode = LocalInspectionMode.current
@@ -345,12 +373,19 @@ internal fun OverviewDashboard(
                     if (visibleAlerts.isNotEmpty() || lastVisibleAlerts.isNotEmpty()) {
                         OverviewAlertPanel(
                             alerts = visibleAlerts.ifEmpty { lastVisibleAlerts },
+                            restoringIds = restoringAlertIds,
+                            restoration = restoration.asState(),
                             stacked = alertsStacked,
                             maxListHeight = alertListHeight,
                             cardGutter = alertGutter,
                             panelVisible = showAlertPanel,
                             onStackedChange = { alertsStacked = it },
-                            onHide = { id -> if (id !in hiddenAlertIds) hiddenAlertIds = ArrayList(hiddenAlertIds + id) },
+                            onHide = { id ->
+                                if (id !in hiddenAlertIds) hiddenAlertIds = ArrayList(hiddenAlertIds + id)
+                            },
+                            onHideAll = {
+                                hiddenAlertIds = ArrayList((hiddenAlertIds + visibleAlerts.map { it.id }).distinct())
+                            },
                             onOpen = { item -> if (showAlertPanel) leave { onOpenDestination(item.destination) } },
                         )
                     }
@@ -369,15 +404,21 @@ internal fun OverviewDashboard(
                 Box {
                     FilledTonalIconButton(
                         onClick = hapticClick {
-                            hiddenAlertIds = arrayListOf()
-                            alertsStacked = false
+                            scope.launch {
+                                if (visibleAlerts.isNotEmpty()) {
+                                    restoration.snapTo(0f)
+                                    restoringAlertIds = alerts.filter { it.id in hiddenAlertIds }.map { it.id }.toSet()
+                                }
+                                hiddenAlertIds = arrayListOf()
+                                alertsStacked = false
+                            }
                         },
                         shape = CircleShape,
                         modifier = Modifier.pocketFloatingShadow(CircleShape).semantics {
-                            stateDescription = "有 $hiddenCount 則通知已收合"
+                            stateDescription = "有 $hiddenCount 則通知已隱藏"
                         },
                     ) {
-                        OutlinedRoundedSymbol("notifications", contentDescription = "恢復已收合的通知")
+                        OverviewAlertBell(hiddenCount, alertsStacked)
                     }
                     Badge(
                         Modifier.align(Alignment.TopEnd).offset(x = 2.dp, y = (-2).dp)
@@ -456,85 +497,360 @@ internal fun OverviewDashboard(
 }
 
 
+private val OverviewAlertContentBottom = HorizontalAlignmentLine(::maxOf)
+
 @Composable
 private fun OverviewAlertPanel(
     alerts: List<OverviewItem>,
+    restoringIds: Set<String>,
+    restoration: State<Float>,
     stacked: Boolean,
     maxListHeight: Dp,
     cardGutter: Dp,
     panelVisible: Boolean,
     onStackedChange: (Boolean) -> Unit,
     onHide: (String) -> Unit,
+    onHideAll: () -> Unit,
     onOpen: (OverviewItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hasStackControl = alerts.size > 1
-    val showStack = stacked && hasStackControl
-    val largeText = LocalDensity.current.fontScale >= 1.5f
-    val controlInset = if (largeText) 32.dp else 24.dp
-    val cardClearance = if (largeText) 12.dp else 8.dp
+    val restoringControl = hasStackControl && restoringIds.isNotEmpty() &&
+        alerts.count { it.id !in restoringIds } == 1
+    val collapsed = stacked && hasStackControl
+    val swipeStates = alerts.map { item -> key(item.id) { rememberSwipeToDismissBoxState() } }
+    val frontSwipe = swipeStates.first()
+    var dragDismissal by remember { mutableStateOf<Float?>(null) }
+    var dismissCommitted by remember { mutableStateOf(false) }
+    LaunchedEffect(panelVisible) {
+        if (panelVisible) dismissCommitted = false
+    }
+    val minimization = animateFloatAsState(
+        targetValue = dragDismissal ?: if (dismissCommitted) 1f else 0f,
+        animationSpec = if (dragDismissal != null) snap() else tween(300, easing = FastOutSlowInEasing),
+        finishedListener = { if (it == 1f && dismissCommitted && panelVisible) onHideAll() },
+        label = "overview-alert-minimization",
+    )
+    val stackDepth = 8.dp
+    val controlInset = if (LocalDensity.current.fontScale >= 1.5f) 30.dp else 18.dp
+    val scrollState = rememberScrollState()
+    var dragExpansion by remember { mutableStateOf<Float?>(null) }
+    val expansion = animateFloatAsState(
+        targetValue = dragExpansion ?: if (collapsed) 0f else 1f,
+        animationSpec = if (dragExpansion != null) snap() else tween(280, easing = FastOutSlowInEasing),
+        label = "overview-alert-expansion",
+    )
+    val dragModifier = Modifier.overviewAlertDrag(
+        collapsed = collapsed,
+        canMinimize = collapsed || !hasStackControl,
+        expansion = expansion,
+        onProgress = { dragExpansion = it },
+        onStackedChange = onStackedChange,
+        onDismissProgress = { dragDismissal = it },
+        onDismiss = { dismissCommitted = true },
+    )
+    val interactive = panelVisible && !dismissCommitted
+    var panelWidth by remember { mutableIntStateOf(0) }
     Box(
-        modifier.animateContentSize(PocketMotion.contentReflow())
-            .padding(bottom = OverviewSpacing.headerGap),
+        modifier.layout { measurable, constraints ->
+            val panel = measurable.measure(constraints)
+            val progress = minimization.value
+            val height = (panel.height * (1f - progress)).roundToInt()
+            val lift = 24.dp.toPx()
+            layout(panel.width, height) {
+                panel.placeRelativeWithLayer(0, 0) {
+                    alpha = 1f - progress
+                    scaleX = 1f - 0.16f * progress
+                    scaleY = scaleX
+                    translationY = -lift * progress
+                    transformOrigin = TransformOrigin(0.85f, 0f)
+                }
+            }
+        }.padding(bottom = OverviewSpacing.headerGap).onSizeChanged { panelWidth = it.width }.semantics {
+            if (interactive) {
+                customActions = listOf(CustomAccessibilityAction("收起所有通知") {
+                    dismissCommitted = true
+                    true
+                })
+            }
+        },
     ) {
-        Column(Modifier.padding(bottom = if (hasStackControl) controlInset else 0.dp)) {
-            if (showStack) {
-                Box(Modifier.fillMaxWidth().padding(horizontal = cardGutter)) {
-                    Box(
-                        Modifier.matchParentSize().padding(top = 8.dp, start = 8.dp, end = 8.dp)
-                            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.88f), MaterialTheme.shapes.large)
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), MaterialTheme.shapes.large),
-                    )
-                    Box(Modifier.padding(bottom = 8.dp)) {
-                        OverviewAlertCard(
-                            alerts.first(), expandStack = true, bottomClearance = cardClearance,
-                            onClick = { onStackedChange(false) },
-                        )
+        Layout(
+            modifier = Modifier.fillMaxWidth().layout { measurable, constraints ->
+                val promotion = if (alerts.size == 2) {
+                    swipeStates.maxOf { it.dismissFraction(constraints.maxWidth) }
+                } else 0f
+                val controlProgress = if (restoringControl) restoration.value else 1f
+                val inset = if (hasStackControl) {
+                    (controlInset.toPx() * (1f - promotion) * controlProgress).roundToInt()
+                } else 0
+                val list = measurable.measure(constraints.offset(vertical = -inset))
+                val contentBottom = list[OverviewAlertContentBottom]
+                val occupiedHeight = if (contentBottom == AlignmentLine.Unspecified) list.height
+                    else contentBottom.coerceIn(0, list.height)
+                layout(list.width, occupiedHeight + inset) { list.placeRelative(0, 0) }
+            }.heightIn(max = maxListHeight).verticalScroll(scrollState),
+            content = {
+                alerts.forEachIndexed { index, item ->
+                    key(item.id) {
+                        val isTop = index == 0
+                        val enabled = interactive && (isTop || (!collapsed && dragExpansion == null))
+                        val canDragVertically = interactive &&
+                            if (isTop) collapsed || scrollState.value == 0
+                            else !collapsed && scrollState.maxValue == 0
+                        val gesture = if (canDragVertically) dragModifier else Modifier
+                        SwipeableOverviewAlert(
+                            panelVisible = enabled,
+                            onHide = { onHide(item.id) },
+                            swipe = swipeStates[index],
+                            modifier = if (isTop || !collapsed) gesture else gesture.clearAndSetSemantics {
+                                hideFromAccessibility()
+                            },
+                        ) {
+                            Box(Modifier.fillMaxWidth().padding(horizontal = cardGutter)) {
+                                OverviewAlertCard(
+                                    item = item,
+                                    expandStack = isTop && collapsed,
+                                    enabled = enabled,
+                                    containerAlpha = if (hasStackControl) 1f - 0.1f * expansion.value else 0.9f,
+                                ) {
+                                    if (isTop && collapsed) onStackedChange(false) else onOpen(item)
+                                }
+                            }
+                        }
                     }
                 }
-            } else {
-                Column(Modifier.fillMaxWidth().heightIn(max = maxListHeight).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(OverviewSpacing.cardGap)) {
-                    alerts.forEachIndexed { index, item ->
-                        key(item.id) {
-                            SwipeableOverviewAlert(
-                                item, panelVisible, cardGutter,
-                                bottomClearance = if (hasStackControl && index == alerts.lastIndex) cardClearance else 0.dp,
-                                onHide = { onHide(item.id) }, onClick = { onOpen(item) },
-                            )
+            },
+        ) { measurables, constraints ->
+            val fraction = expansion.value
+            val depth = stackDepth.roundToPx()
+            val cardConstraints = constraints.copy(minHeight = 0)
+            val cards = measurables.map { it.measure(cardConstraints) }
+            val stackScale = 1f - (2 * depth / constraints.maxWidth.coerceAtLeast(1).toFloat())
+                .coerceAtMost(1f) * (1f - fraction)
+            val promotion = if (collapsed) frontSwipe.dismissFraction(constraints.maxWidth) else 0f
+            val topHeight = cards.first().height
+            val nextTopHeight = cards.getOrNull(1)?.height ?: topHeight
+            val gap = OverviewSpacing.cardGap.roundToPx()
+            val presence = alerts.map { if (it.id in restoringIds) restoration.value else 1f }
+            val swipeFractions = swipeStates.map { it.dismissFraction(constraints.maxWidth) }
+            val occupiedSpans = cards.mapIndexed { index, card ->
+                val swipe = if (collapsed) 0f else swipeFractions[index]
+                (card.height + gap) * presence[index] * (1f - swipe)
+            }
+            var nextExpandedY = 0
+            val offsets = cards.mapIndexed { index, card ->
+                val stackedY = if (index == 0) 0 else (topHeight + depth - card.height).coerceAtLeast(0)
+                val promotedY = if (index <= 1) 0 else (nextTopHeight + depth - card.height).coerceAtLeast(0)
+                val foldedY = stackedY + (promotedY - stackedY) * promotion
+                val y = (foldedY + (nextExpandedY - foldedY) * fraction).roundToInt()
+                nextExpandedY += occupiedSpans[index].roundToInt()
+                y
+            }
+            val remainingHeight = cards.indices.drop(1).maxOfOrNull { index ->
+                offsets[index] + ((cards[index].height + gap) * presence[index]).roundToInt() - gap
+            } ?: topHeight
+            val visibleFrontHeight = topHeight * presence.first()
+            val frontHeight = (visibleFrontHeight + (remainingHeight - visibleFrontHeight) * promotion).roundToInt()
+            val height = if (!collapsed && fraction == 1f) {
+                (nextExpandedY - gap).coerceAtLeast(0)
+            } else maxOf(remainingHeight, frontHeight)
+            // Keep the scroll viewport tall enough to draw the departing card below the occupied space.
+            val drawingHeight = cards.indices.fold(height) { bottom, index ->
+                val swipe = swipeFractions[index]
+                if (swipe > 0f && swipe < 1f) {
+                    maxOf(bottom, offsets[index] + cards[index].height)
+                } else bottom
+            }
+            layout(constraints.maxWidth, drawingHeight, mapOf(OverviewAlertContentBottom to height)) {
+                cards.forEachIndexed { index, card ->
+                    card.placeRelativeWithLayer(
+                        x = 0,
+                        y = offsets[index],
+                        zIndex = (cards.size - index).toFloat(),
+                    ) {
+                        alpha = presence[index]
+                        scaleX = when (index) {
+                            0 -> 1f
+                            1 -> if (collapsed) stackScale + (1f - stackScale) * promotion else stackScale
+                            else -> stackScale
                         }
                     }
                 }
             }
         }
         if (hasStackControl) {
-            FilledTonalButton(
-                onClick = hapticClick { onStackedChange(!showStack) },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = cardGutter).heightIn(min = 48.dp),
-            ) {
-                OutlinedRoundedSymbol(if (showStack) "keyboard_arrow_down" else "keyboard_arrow_up",
-                    contentDescription = null, size = 18.dp)
-                if (showStack) {
-                    Text("+${alerts.size - 1}", Modifier.semantics {
-                        contentDescription = "展開另外 ${alerts.size - 1} 則通知"
-                    })
-                } else Text("顯示較少")
+            OverviewAlertStackControl(
+                additionalCount = alerts.size - 1,
+                collapsed = collapsed,
+                expansion = expansion,
+                onClick = { if (panelVisible && !dismissCommitted) onStackedChange(!collapsed) },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = cardGutter).graphicsLayer {
+                    val restoreAlpha = if (restoringControl) restoration.value else 1f
+                    if (alerts.size == 2) {
+                        val remaining = 1f - swipeStates.maxOf { it.dismissFraction(panelWidth) }
+                        alpha = remaining * restoreAlpha
+                        scaleX = 0.85f + 0.15f * remaining
+                        scaleY = scaleX
+                        transformOrigin = TransformOrigin(1f, 1f)
+                    } else {
+                        alpha = restoreAlpha
+                        scaleX = 1f
+                        scaleY = 1f
+                    }
+                },
+            )
+        }
+    }
+}
+
+private fun SwipeToDismissBoxState.dismissFraction(width: Int): Float =
+    if (width <= 0 || dismissDirection == SwipeToDismissBoxValue.Settled) 0f
+    else (abs(requireOffset()) / width).coerceIn(0f, 1f)
+
+@Composable
+private fun Modifier.overviewAlertDrag(
+    collapsed: Boolean,
+    canMinimize: Boolean,
+    expansion: State<Float>,
+    onProgress: (Float?) -> Unit,
+    onStackedChange: (Boolean) -> Unit,
+    onDismissProgress: (Float?) -> Unit,
+    onDismiss: () -> Unit,
+): Modifier {
+    val updateProgress by rememberUpdatedState(onProgress)
+    val toggle by rememberUpdatedState(onStackedChange)
+    val updateDismissProgress by rememberUpdatedState(onDismissProgress)
+    val dismiss by rememberUpdatedState(onDismiss)
+    return pointerInput(collapsed, canMinimize) {
+        val distanceThreshold = 28.dp.toPx()
+        val travelRange = 120.dp.toPx()
+        var origin = 0f
+        var distance = 0f
+        detectVerticalDragGestures(
+            onDragStart = {
+                origin = expansion.value
+                distance = 0f
+            },
+            onVerticalDrag = { _, delta ->
+                distance += delta
+                if (collapsed || !canMinimize) {
+                    val expansionDistance = if (collapsed) distance.coerceAtLeast(0f) else distance
+                    updateProgress((origin + expansionDistance / travelRange).coerceIn(0f, 1f))
+                }
+                if (canMinimize) updateDismissProgress((-distance / travelRange).coerceIn(0f, 0.98f))
+            },
+            onDragCancel = {
+                updateProgress(null)
+                updateDismissProgress(null)
+            },
+            onDragEnd = {
+                if (collapsed && distance >= distanceThreshold) toggle(false)
+                updateProgress(null)
+                updateDismissProgress(null)
+                if (distance <= -distanceThreshold) {
+                    if (canMinimize) dismiss() else toggle(true)
+                }
+            },
+        )
+    }
+}
+@Composable
+private fun OverviewAlertBell(hiddenCount: Int, stacked: Boolean) {
+    val angle = remember { Animatable(0f) }
+    LaunchedEffect(hiddenCount, stacked) {
+        angle.snapTo(0f)
+        angle.animateTo(0f, animationSpec = keyframes {
+            durationMillis = 440
+            -14f at 80
+            12f at 160
+            -8f at 240
+            4f at 320
+        })
+    }
+    OutlinedRoundedSymbol(
+        "notifications",
+        contentDescription = "恢復已隱藏的通知",
+        modifier = Modifier.graphicsLayer {
+            transformOrigin = TransformOrigin(0.5f, 0.25f)
+            rotationZ = angle.value
+        },
+    )
+}
+
+@Composable
+private fun OverviewAlertStackControl(
+    additionalCount: Int,
+    collapsed: Boolean,
+    expansion: State<Float>,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            .semantics {
+                contentDescription = if (collapsed) "展開另外 $additionalCount 則通知" else "顯示較少"
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = hapticClick { onClick() },
+            )
+            .padding(bottom = 3.dp),
+        contentAlignment = Alignment.BottomEnd,
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Layout(
+                modifier = Modifier.clip(CircleShape).indication(interactionSource, ripple(bounded = false))
+                    .padding(horizontal = 8.dp, vertical = 3.dp).clearAndSetSemantics {},
+                content = {
+                    OverviewAlertControlLabel("keyboard_arrow_down", "+$additionalCount")
+                    OverviewAlertControlLabel("keyboard_arrow_up", "顯示較少")
+                },
+            ) { measurables, constraints ->
+                val fraction = expansion.value
+                val (shortLabel, longLabel) = measurables.map { it.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
+                val width = (shortLabel.width + (longLabel.width - shortLabel.width) * fraction).roundToInt()
+                val height = maxOf(shortLabel.height, longLabel.height)
+                layout(width, height) {
+                    shortLabel.placeRelativeWithLayer(width - shortLabel.width, (height - shortLabel.height) / 2) {
+                        alpha = 1f - fraction
+                        translationY = -4.dp.toPx() * fraction
+                    }
+                    longLabel.placeRelativeWithLayer(width - longLabel.width, (height - longLabel.height) / 2) {
+                        alpha = fraction
+                        translationY = 4.dp.toPx() * (1f - fraction)
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
+private fun OverviewAlertControlLabel(icon: String, label: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedRoundedSymbol(icon, contentDescription = null, size = 14.dp)
+        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+    }
+}
+
+@Composable
 private fun SwipeableOverviewAlert(
-    item: OverviewItem,
     panelVisible: Boolean,
-    cardGutter: Dp,
-    bottomClearance: Dp,
     onHide: () -> Unit,
-    onClick: () -> Unit,
+    swipe: SwipeToDismissBoxState,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
 ) {
     val hide by rememberUpdatedState(onHide)
-    val swipe = rememberSwipeToDismissBoxState()
     LaunchedEffect(swipe, panelVisible) {
         if (!panelVisible) return@LaunchedEffect
         swipe.reset()
@@ -543,14 +859,14 @@ private fun SwipeableOverviewAlert(
     }
     SwipeToDismissBox(
         state = swipe,
+        gesturesEnabled = panelVisible,
         backgroundContent = {},
-        modifier = Modifier.fillMaxWidth().semantics {
-            customActions = listOf(CustomAccessibilityAction("收合此通知") { hide(); true })
+        modifier = modifier.fillMaxWidth().semantics {
+            if (panelVisible) {
+                customActions = listOf(CustomAccessibilityAction("隱藏此通知") { hide(); true })
+            }
         },
     ) {
-        // Keep the inset inside the moving content so the swipe travels to the viewport edge.
-        Box(Modifier.fillMaxWidth().padding(horizontal = cardGutter)) {
-            OverviewAlertCard(item, bottomClearance = bottomClearance, onClick = onClick)
-        }
+        content()
     }
 }
