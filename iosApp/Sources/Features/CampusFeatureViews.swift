@@ -777,8 +777,11 @@ struct CampusSearchView: View {
         failed = false
         defer { searching = false }
         do {
-            let page = try await model.makeAnnouncementLoader().page(0, keyword: text, unitId: "-1", categoryId: "-1")
+            let loader = model.makeAnnouncementLoader()
+            let page = try await loader.page(0, keyword: text, unitId: "-1", categoryId: "-1")
             guard !Task.isCancelled, let page else { return }
+            // Known announcements are what a bookmark can be saved from.
+            loader.remember(page.announcements)
             announcements = PocketAnnouncementFeed.shared.rows(
                 items: page.announcements, unreadIds: model.unreadAnnouncementIds, bookmarkedIds: model.bookmarkedAnnouncementIds
             )
