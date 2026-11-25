@@ -63,7 +63,8 @@ object PocketScheduleStore {
     fun weekOffset(clock: PocketClock, startDate: String): Int? {
         val start = parseLocalDateOrNull(startDate) ?: return null
         val monday = clock.date().shiftDays(-(clock.dayOfWeek - 1).toLong())
-        val days = monday.daysUntil(start)
+        // A school week listed from its Sunday holds the lessons of the following Monday.
+        val days = monday.daysUntil(start) + 1
         return (if (days >= 0) days / 7 else (days - 6) / 7).toInt()
     }
 
