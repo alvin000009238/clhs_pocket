@@ -399,6 +399,65 @@ final class PlatformTests: XCTestCase {
         if wasSignedIn { await coordinator.sessionChanged(signedIn: true) }
     }
 
+    /// As on Android, a guest gets the public announcement reminder, and nothing else: no session
+    /// restore, widget snapshot or grade check, and no repeated sign-out cleanup.
+    func testGuestRefreshChecksOnlyThePublicAnnouncements() async throws {
+        let coordinator = PocketPlatformCoordinator.shared
+        let settings = coordinator.settings
+        let savedStore = coordinator.store, savedData = coordinator.data, savedLocked = coordinator.isLocked
+        let wasSignedIn = coordinator.isSignedIn
+        let savedSettings = (settings.notificationsEnabled, settings.announcements, settings.announcementUnitIds, settings.announcementLastCheck)
+        let seenKey = PocketNotificationCenter.seenAnnouncementsKey
+        let savedSeen = UserDefaults.standard.stringArray(forKey: seenKey)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        coordinator.store = ScheduleSnapshotStore(directory: directory)
+        coordinator.isLocked = { false }
+        coordinator.data = UnavailablePlatformData()
+        await coordinator.sessionChanged(signedIn: false)
+        let data = RecordingPlatformData()
+        data.snapshot = .available(try demoJSON(at: lessonTime))
+        data.headlines = [AnnouncementHeadline(id: "1", title: "公告")]
+        coordinator.data = data
+        settings.notificationsEnabled = true
+        settings.announcements = true
+        settings.announcementUnitIds = [PocketAnnouncementFeed.shared.ALL_ID]
+        settings.announcementLastCheck = nil
+        UserDefaults.standard.removeObject(forKey: seenKey)
+        addTeardownBlock { @MainActor in
+            coordinator.isLocked = savedLocked
+            coordinator.data = savedData
+            (settings.notificationsEnabled, settings.announcements, settings.announcementUnitIds, settings.announcementLastCheck) = savedSettings
+            UserDefaults.standard.set(savedSeen, forKey: seenKey)
+            coordinator.notifications.coursePausedUntilMillis = 0
+            await coordinator.sessionChanged(signedIn: wasSignedIn)
+            coordinator.store = savedStore
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        await coordinator.refresh(deviceNow: lessonTime)
+        XCTAssertEqual(data.calls, ["loadAnnouncements", "headlines"], "a guest's refresh reads only the public list")
+        XCTAssertNil(coordinator.store.loadData(), "no widget snapshot for a guest")
+        XCTAssertEqual(settings.announcementLastCheck, lessonTime, "the announcement check ran")
+        XCTAssertEqual(UserDefaults.standard.stringArray(forKey: seenKey), ["1"], "the guest's baseline is recorded")
+
+        // Later guest passes check again without repeating the sign-out cleanup, which would also
+        // drop the announcement baseline.
+        coordinator.notifications.coursePausedUntilMillis = 42
+        let later = lessonTime.addingTimeInterval(2 * 3600)
+        await coordinator.refresh(deviceNow: later)
+        XCTAssertEqual(settings.announcementLastCheck, later)
+        XCTAssertEqual(coordinator.notifications.coursePausedUntilMillis, 42, "nothing was cleared again")
+        XCTAssertFalse(data.calls.contains("prepare") || data.calls.contains("snapshot") || data.calls.contains("grades"))
+
+        // With reminders off, a guest is not checked at all.
+        settings.announcements = false
+        settings.announcementLastCheck = nil
+        let calls = data.calls.count
+        await coordinator.refresh(deviceNow: later)
+        XCTAssertEqual(data.calls.count, calls)
+    }
+
     // MARK: Notifications
 
     private func center(_ scheduler: FakeScheduler) -> PocketNotificationCenter {
