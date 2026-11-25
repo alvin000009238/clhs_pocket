@@ -35,6 +35,8 @@ data class PocketAnnouncementDetail(
     /** The body as formatting-only HTML (no scripts, styles, images or embeds); empty when there is none. */
     val html: String = "",
     val images: List<PocketAnnouncementImage> = emptyList(),
+    /** The page a link announcement points to; null for an ordinary one. */
+    val externalUrl: String? = null,
 )
 
 /** [canPreview] is false for images outside the school site, which are opened on request only, as on Android. */
@@ -157,6 +159,7 @@ object PocketCampusStore {
                 officialUrl = live.officialUrl,
                 html = formattingHtml(live.htmlContent),
                 images = live.images.map { PocketAnnouncementImage(it.url, it.description, it.canPreview) },
+                externalUrl = live.externalUrl,
             )
         }
         item ?: return null
