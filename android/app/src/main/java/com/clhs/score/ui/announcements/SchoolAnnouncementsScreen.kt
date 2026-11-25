@@ -99,6 +99,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onVisibilityChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.Role
@@ -128,6 +129,7 @@ import com.clhs.score.data.SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH
 import com.clhs.score.data.safeAnnouncementWebUrl
 import com.clhs.score.ui.hapticClick
 import com.clhs.score.ui.OutlinedRoundedSymbol
+import com.clhs.score.ui.PocketOptionIcon
 import com.clhs.score.ui.LocalReadingGutter
 import com.clhs.score.ui.readingContentPadding
 import com.clhs.score.ui.FloatingSubpageLayout
@@ -141,6 +143,8 @@ import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import org.jsoup.Jsoup
+import org.jsoup.nodes.TextNode
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -929,10 +933,10 @@ fun SchoolAnnouncementDetailScreen(
                     }
                 },
             ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_share_announcement),
+                OutlinedRoundedSymbol(
+                    icon = "share",
                     contentDescription = "分享公告連結",
-                    modifier = Modifier.size(22.dp),
+                    size = 22.dp,
                 )
             }
             IconButton(onClick = { onOpenUrl(announcementUrl) }) {
@@ -1026,7 +1030,7 @@ private fun AnnouncementDetailHeader(detail: SchoolAnnouncementDetail) {
                 }
             }
             val date = detail.date.replace(announcementDateTimePattern, "$1/$2/$3 $4")
-            val metadata = listOf(detail.issuer.ifBlank { detail.unit }, date)
+            val metadata = (listOf(detail.issuer, detail.unit).distinct() + date)
                 .filter(String::isNotBlank)
                 .joinToString(" · ")
             if (metadata.isNotBlank()) {
@@ -1047,7 +1051,7 @@ private fun AnnouncementHtml(html: String, onOpenUrl: (String) -> Unit) {
     val openUrl by rememberUpdatedState(onOpenUrl)
     val article = remember(html, linkColor) {
         val formatted = AnnotatedString.fromHtml(
-            htmlString = html,
+            htmlString = announcementHtmlWithListBreaks(html),
             linkStyles = TextLinkStyles(
                 style = SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline),
             ),
@@ -1068,9 +1072,31 @@ private fun AnnouncementHtml(html: String, onOpenUrl: (String) -> Unit) {
     )
 }
 
+private fun announcementHtmlWithListBreaks(html: String): String {
+    val document = Jsoup.parseBodyFragment(html)
+    document.outputSettings().prettyPrint(false)
+    // Compose renders bullets with paragraph annotations. The clipboard needs real newlines.
+    document.select("li + li").forEach { item ->
+        val previousItem = item.previousElementSibling() ?: return@forEach
+        val lastChild = previousItem.childNodes().lastOrNull { it !is TextNode || !it.isBlank }
+        if (lastChild?.nodeName() != "br") {
+            previousItem.appendElement("br")
+        }
+    }
+    document.select("li > ul, li > ol").forEach { list ->
+        val previous = generateSequence(list.previousSibling()) { it.previousSibling() }
+            .firstOrNull { it !is TextNode || !it.isBlank }
+        if (previous != null && previous.nodeName() != "br") {
+            list.before("<br>")
+        }
+    }
+    return document.body().html()
+}
+
 @Composable
 private fun AnnouncementImage(image: SchoolAnnouncementImage, onOpenUrl: (String) -> Unit) {
     var failed by remember(image.url) { mutableStateOf(false) }
+    var hasEnteredViewport by remember(image.url) { mutableStateOf(false) }
     if (!image.canPreview) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -1080,6 +1106,15 @@ private fun AnnouncementImage(image: SchoolAnnouncementImage, onOpenUrl: (String
             )
             TextButton(onClick = { onOpenUrl(image.url) }) { Text("開啟圖片") }
         }
+    } else if (!hasEnteredViewport) {
+        Spacer(
+            Modifier
+                .fillMaxWidth()
+                .height(120.dp)
+                .onVisibilityChanged(minFractionVisible = 0f) { visible ->
+                    if (visible) hasEnteredViewport = true
+                },
+        )
     } else if (failed) {
         Text(
             text = "圖片暫時無法載入",
@@ -1146,16 +1181,7 @@ private fun AnnouncementAttachmentRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_announcement_attachment),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier
-                .size(40.dp)
-                .clip(MaterialTheme.shapes.medium)
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .padding(9.dp),
-        )
+        PocketOptionIcon("description", modifier = Modifier.size(40.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = attachment.name,

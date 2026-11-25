@@ -168,8 +168,12 @@ private fun SchoolAnnouncementDetailPreview() {
         unit = "實驗研究組官網",
         htmlContent = """
             <p><strong>考試範圍更新</strong></p>
-            <ul><li>高三選修化學的修正範圍為選修化學四第一章。</li>
-            <li>高二選修化學的修正範圍請見附件。</li></ul>
+            <ul>
+                <li>高三選修化學的修正範圍為選修化學四第一章。
+                    <ul><li>請以最新版本的考試範圍為準。</li></ul>
+                </li>
+                <li>高二選修化學的修正範圍請見附件。</li>
+            </ul>
             <p>1. 完整考試範圍請見<a href="${sample.officialUrl}">學校網站</a>。</p>
             <p>2. 考試期間，如需請假，請依學校公告程序辦理。</p>
             <p>3. 請確認各節考試的起訖時間，並依時程進入指定教室。</p>
