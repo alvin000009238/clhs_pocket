@@ -534,7 +534,9 @@ final class AppModel {
     /// Signs out like 登出 and waits for the account cleanup, so a failure reaches the caller too.
     func clearSession() async throws(PocketError) {
         let wasDemo = session == .demo
-        forgetScheduleChoice()
+        // Leaving the demo keeps the school account's timetable choice; the demo's own choice
+        // goes with the session change.
+        if !wasDemo { forgetScheduleChoice() }
         demoProfilePhoto = nil
         session = .guest
         paths = [:]
