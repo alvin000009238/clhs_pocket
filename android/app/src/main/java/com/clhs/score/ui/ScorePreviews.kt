@@ -201,6 +201,22 @@ private fun SchoolAnnouncementDetailPreview() {
     }
 }
 
+@Preview(name = "Announcement with Table", widthDp = 390, heightDp = 844)
+@Preview(name = "Announcement with Table · Dark", widthDp = 390, heightDp = 844, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun SchoolAnnouncementTablePreview() {
+    val detail = FakeData.announcementDetail.copy(containsTables = true)
+    ScoreTheme {
+        com.clhs.score.ui.announcements.SchoolAnnouncementDetailScreen(
+            uiState = SchoolAnnouncementDetailUiState(isLoading = false, detail = detail),
+            onBack = {},
+            onRetry = {},
+            onOpenUrl = {},
+            officialUrl = detail.officialUrl,
+        )
+    }
+}
+
 @Preview(name = "School Announcement External Link", showBackground = true, widthDp = 390, heightDp = 844)
 @Composable
 private fun SchoolAnnouncementExternalLinkPreview() {

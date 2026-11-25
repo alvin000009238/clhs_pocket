@@ -997,8 +997,15 @@ private fun AnnouncementDetailContent(
                     }
                 }
             }
-            if (detail.htmlContent.isNotBlank()) {
+            if (detail.containsTables || detail.htmlContent.isNotBlank()) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
+            if (detail.containsTables) {
+                DisableSelection {
+                    AnnouncementTableNotice(onOpenOriginal = { onOpenUrl(detail.officialUrl) })
+                }
+            }
+            if (detail.htmlContent.isNotBlank()) {
                 AnnouncementHtml(detail.htmlContent, onOpenUrl)
             }
             detail.images.forEach { image ->
@@ -1046,12 +1053,36 @@ private fun AnnouncementDetailHeader(detail: SchoolAnnouncementDetail) {
 }
 
 @Composable
+private fun AnnouncementTableNotice(onOpenOriginal: () -> Unit) {
+    Surface(
+        onClick = onOpenOriginal,
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedRoundedSymbol("info")
+            Column(modifier = Modifier.weight(1f)) {
+                Text("查看完整表格", style = MaterialTheme.typography.titleSmall)
+                Text("在學校網站開啟公告原文", style = MaterialTheme.typography.bodySmall)
+            }
+            OutlinedRoundedSymbol("arrow_outward", size = 20.dp)
+        }
+    }
+}
+
+@Composable
 private fun AnnouncementHtml(html: String, onOpenUrl: (String) -> Unit) {
     val linkColor = MaterialTheme.colorScheme.primary
     val openUrl by rememberUpdatedState(onOpenUrl)
     val article = remember(html, linkColor) {
         val formatted = AnnotatedString.fromHtml(
-            htmlString = announcementHtmlWithListBreaks(html),
+            htmlString = announcementHtmlWithReadableSpacing(html),
             linkStyles = TextLinkStyles(
                 style = SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline),
             ),
@@ -1072,9 +1103,16 @@ private fun AnnouncementHtml(html: String, onOpenUrl: (String) -> Unit) {
     )
 }
 
-private fun announcementHtmlWithListBreaks(html: String): String {
+private fun announcementHtmlWithReadableSpacing(html: String): String {
     val document = Jsoup.parseBodyFragment(html)
     document.outputSettings().prettyPrint(false)
+    document.select("p + p, p + div, div + p, div + div").forEach { paragraph ->
+        val previous = generateSequence(paragraph.previousSibling()) { it.previousSibling() }
+            .firstOrNull { it !is TextNode || !it.isBlank }
+        if (previous == paragraph.previousElementSibling()) {
+            paragraph.before("<br>")
+        }
+    }
     // Compose renders bullets with paragraph annotations. The clipboard needs real newlines.
     document.select("li + li").forEach { item ->
         val previousItem = item.previousElementSibling() ?: return@forEach

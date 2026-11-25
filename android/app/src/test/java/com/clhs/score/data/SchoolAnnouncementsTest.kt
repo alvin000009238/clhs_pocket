@@ -250,8 +250,9 @@ class SchoolAnnouncementsTest {
         assertTrue(detail.htmlContent.contains("https://www.clhs.tyc.edu.tw/notice"))
         assertFalse(detail.htmlContent.contains("script", ignoreCase = true))
         assertFalse(detail.htmlContent.contains("javascript:", ignoreCase = true))
-        assertTrue(detail.htmlContent.contains("⚠️ 此內容包含表格"))
-        assertEquals(1, detail.htmlContent.windowed("⚠️ 此內容包含表格".length).count { it == "⚠️ 此內容包含表格" })
+        assertTrue(detail.containsTables)
+        assertFalse(detail.htmlContent.contains("<table"))
+        assertFalse(detail.htmlContent.contains("請點擊下方"))
         assertEquals(2, detail.images.size)
         assertEquals(1, detail.images.count { it.canPreview })
         assertTrue(detail.images.first { it.canPreview }.url.startsWith("https://www.clhs.tyc.edu.tw/"))
@@ -303,6 +304,7 @@ class SchoolAnnouncementsTest {
     fun oversizedSchoolHeadingsBecomeBoldBodyParagraphs() {
         val detail = SchoolAnnouncementParser.parseDetail(HEADING_DETAIL_JSON, "45049", "公告")
 
+        assertFalse(detail.containsTables)
         assertFalse(detail.htmlContent.contains("<h1", ignoreCase = true))
         assertTrue(detail.htmlContent.contains("<p><strong>1.學生名單請參閱附加檔案</strong></p>"))
     }

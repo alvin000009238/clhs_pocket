@@ -85,6 +85,7 @@ data class SchoolAnnouncementDetail(
     val officialUrl: String,
     val isExternal: Boolean = false,
     val externalUrl: String? = null,
+    val containsTables: Boolean = false,
 )
 
 class NetworkSchoolAnnouncementsRepository(
@@ -371,6 +372,7 @@ internal object SchoolAnnouncementParser {
             officialUrl = announcementUrl(id),
             isExternal = isExternal,
             externalUrl = if (isExternal) safeAnnouncementWebUrl(content) else null,
+            containsTables = article.containsTables,
         )
     }
 
@@ -402,12 +404,9 @@ internal object SchoolAnnouncementParser {
                 canPreview = isOfficialPreviewImage(url),
             )
         }.distinctBy(SchoolAnnouncementImage::url)
-        document.select("table").let { tables ->
-            tables.firstOrNull()?.before(
-                "<p><strong>⚠️ 此內容包含表格</strong></p><p>請點擊下方「<strong>查看原文</strong>」來查看完整表格內容。</p>",
-            )
-            tables.remove()
-        }
+        val tables = document.select("table")
+        val containsTables = tables.isNotEmpty()
+        tables.remove()
         document.select("img").remove()
         val outputSettings = Document.OutputSettings().prettyPrint(false)
         val html = Jsoup.clean(
@@ -416,7 +415,7 @@ internal object SchoolAnnouncementParser {
             articleSafelist,
             outputSettings,
         ).trim()
-        return ParsedArticle(html, images)
+        return ParsedArticle(html, images, containsTables)
     }
 
     private fun parseAttachments(source: String?, newsId: String): List<SchoolAnnouncementAttachment> {
@@ -446,6 +445,7 @@ internal object SchoolAnnouncementParser {
     private data class ParsedArticle(
         val html: String,
         val images: List<SchoolAnnouncementImage>,
+        val containsTables: Boolean,
     )
 
     private val LEGACY_UNICODE_REGEX = Regex("%u([0-9a-fA-F]{4})")
