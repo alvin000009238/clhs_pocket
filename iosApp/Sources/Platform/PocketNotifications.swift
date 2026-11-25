@@ -294,10 +294,11 @@ final class PocketNotificationCenter {
     }
 
     /// Sign-out and account changes: nothing scheduled or delivered may outlive the session.
+    /// The announcement baseline is public, not account data, and stays, as on Android: the
+    /// next (guest) check still reports what was published in between.
     func removeEverything() async {
         await scheduler.removeAll()
         capabilities.revokeAll()
-        defaults.removeObject(forKey: Self.seenAnnouncementsKey)
         defaults.removeObject(forKey: Self.coursePausedUntilKey)
     }
 }
