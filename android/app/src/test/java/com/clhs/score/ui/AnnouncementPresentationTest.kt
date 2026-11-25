@@ -1,10 +1,13 @@
 package com.clhs.score.ui
 
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.buildAnnotatedString
 import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.notifications.NotificationAction
 import com.clhs.score.reminders.announcementNotificationAction
 import com.clhs.score.ui.announcements.orderAnnouncements
 import com.clhs.score.ui.announcements.shouldPrefetchAnnouncements
+import com.clhs.score.ui.announcements.withAnnouncementLinks
 import com.clhs.score.ui.announcements.AnnouncementPrefetchViewport
 import com.clhs.score.ui.announcements.AnnouncementTopAnchor
 import com.clhs.score.viewmodel.SchoolAnnouncementsUiState
@@ -17,6 +20,23 @@ class AnnouncementPresentationTest {
     private val ordinary = SchoolAnnouncement("1", "一般", "2026/09/09", "公告", "", "", false, "")
     private val pinned = ordinary.copy(id = "2", isPinned = true)
     private val unread = ordinary.copy(id = "3")
+
+    @Test
+    fun inlineArticleLinkOpensValidatedUrlAndDropsUnsafeLinks() {
+        val article = buildAnnotatedString {
+            append("公告連結 外部指令")
+            addLink(LinkAnnotation.Url(" /notice "), 0, 4)
+            addLink(LinkAnnotation.Url("javascript:alert(1)"), 5, length)
+        }
+        val opened = mutableListOf<String>()
+        val rendered = article.withAnnouncementLinks { opened.add(it) }
+        val range = rendered.getLinkAnnotations(0, rendered.length).single()
+        val link = range.item as LinkAnnotation.Url
+
+        assertEquals("公告連結", rendered.text.substring(range.start, range.end))
+        checkNotNull(link.linkInteractionListener).onClick(link)
+        assertEquals(listOf("https://www.clhs.tyc.edu.tw/notice"), opened)
+    }
 
     @Test
     fun delayedUnreadInsertionKeepsIdleTopViewportAtTopOnce() {
