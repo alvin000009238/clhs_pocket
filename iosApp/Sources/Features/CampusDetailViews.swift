@@ -75,7 +75,7 @@ struct AnnouncementDetailView: View {
             }
             // Only a body the user can actually read counts as read; a failed live load keeps it unread.
             .onChange(of: detail != nil, initial: true) { _, loaded in
-                if loaded { model.unreadAnnouncementIds.remove(id) }
+                if loaded { model.markAnnouncementRead(id) }
             }
     }
 
