@@ -199,11 +199,14 @@ struct PersonalView: View {
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
             photoItem = nil
+            let owner = photoOwner
             Task {
                 guard let data = try? await item.loadTransferable(type: Data.self), let photo = ProfilePhoto.prepared(data) else {
                     photoError = "無法讀取這張照片。"
                     return
                 }
+                // Another account signed in while the photo loaded; it was not chosen for that one.
+                guard photoOwner == owner else { return }
                 savePhoto(photo)
             }
         }
@@ -243,6 +246,9 @@ struct PersonalView: View {
         }
         .contentShape(.circle)
     }
+
+    /// The demo or the signed-in account a picked photo is for.
+    private var photoOwner: String? { model.session == .demo ? "demo" : model.live?.session?.authorizationId }
 
     private func savePhoto(_ photo: Data?) {
         Task {
