@@ -81,8 +81,9 @@ struct AnnouncementListView: View {
             clock: model.clock, category: "全部", query: "", filter: .all,
             unreadIds: model.unreadAnnouncementIds, bookmarkedIds: model.bookmarkedAnnouncementIds
         )
+        // With a unit or category filter the unread list holds only the filtered results; so does the count.
         let unread = AnnouncementFeed.unreadCount(
-            firstPage.map(\.id) + feed.items.map(\.id), unreadIds: model.unreadAnnouncementIds
+            (feed.hasFilters ? [] : firstPage.map(\.id)) + feed.items.map(\.id), unreadIds: model.unreadAnnouncementIds
         )
         let rows = rows(feed)
         ScrollView {
