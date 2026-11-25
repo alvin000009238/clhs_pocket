@@ -1,5 +1,7 @@
 package com.clhs.score.ui
 
+import com.clhs.score.data.AnnouncementBookmark
+import com.clhs.score.viewmodel.AnnouncementBookmarksUiState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -144,6 +146,9 @@ private fun SchoolAnnouncementsPreview(
         com.clhs.score.ui.announcements.SchoolAnnouncementsScreen(
             uiState = state,
             unreadIds = state.announcements.take(1).map { it.id }.toSet(),
+            bookmarksUiState = AnnouncementBookmarksUiState(
+                bookmarks = state.announcements.drop(1).take(1).map(AnnouncementBookmark::from),
+            ),
             onBack = {},
             onRefresh = {},
             onLoadMore = {},

@@ -172,17 +172,30 @@ fun AppShell(
     val navigator = remember(navigationState) { AppNavigator(navigationState) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
-    fun openAnnouncement(id: String, category: String, externalUrl: String?, isExternal: Boolean) {
-        if (isExternal) {
-            if (externalUrl != null) {
-                if (context.openAnnouncementUrl(externalUrl)) {
-                    announcementReminderViewModel.markRead(id)
-                }
-            } else android.widget.Toast.makeText(
+    fun openExternalAnnouncement(id: String, url: String?): Boolean {
+        if (url == null) {
+            android.widget.Toast.makeText(
                 context,
                 "這則消息的連結無法開啟",
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
+            return false
+        }
+        if (!context.openAnnouncementUrl(url)) return false
+        announcementReminderViewModel.markRead(id)
+        return true
+    }
+
+    fun openAnnouncementInBrowser(announcement: com.clhs.score.data.SchoolAnnouncement): Boolean =
+        if (announcement.contentType.equals("url", ignoreCase = true) && announcement.externalUrl != null) {
+            openExternalAnnouncement(announcement.id, announcement.externalUrl)
+        } else {
+            context.openAnnouncementUrl(schoolAnnouncementOfficialUrl(announcement.id))
+        }
+
+    fun openAnnouncement(id: String, category: String, externalUrl: String?, isExternal: Boolean) {
+        if (isExternal) {
+            openExternalAnnouncement(id, externalUrl)
         } else {
             navigator.navigate(SchoolAnnouncementDetailRoute(id, category))
         }
@@ -747,6 +760,7 @@ fun AppShell(
                         onRetryCalendar = calendarViewModel::refresh,
                         onLoadMore = announcementsViewModel::loadMore,
                         onOpenAnnouncement = ::openAnnouncement,
+                        onOpenAnnouncementInBrowser = ::openAnnouncementInBrowser,
                         onOpenCalendarEvent = { navigator.navigate(SchoolCalendarRoute(it.id)) },
                     )
                 }
@@ -829,6 +843,7 @@ fun AppShell(
                         onSetFilters = viewModel::setFilters,
                         onRefreshFilters = viewModel::refreshFilters,
                         onOpenAnnouncement = ::openAnnouncement,
+                        onOpenAnnouncementInBrowser = ::openAnnouncementInBrowser,
                         onOpenOfficialWebsite = {
                             context.openAnnouncementUrl(SCHOOL_ANNOUNCEMENTS_WEB_URL)
                         },
