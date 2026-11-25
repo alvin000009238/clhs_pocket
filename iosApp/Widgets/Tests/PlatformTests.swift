@@ -441,8 +441,7 @@ final class PlatformTests: XCTestCase {
         XCTAssertEqual(settings.announcementLastCheck, lessonTime, "the announcement check ran")
         XCTAssertEqual(UserDefaults.standard.stringArray(forKey: seenKey), ["1"], "the guest's baseline is recorded")
 
-        // Later guest passes check again without repeating the sign-out cleanup, which would also
-        // drop the announcement baseline.
+        // Later guest passes check again without repeating the sign-out cleanup.
         coordinator.notifications.coursePausedUntilMillis = 42
         let later = lessonTime.addingTimeInterval(2 * 3600)
         await coordinator.refresh(deviceNow: later)
@@ -824,7 +823,18 @@ final class PlatformTests: XCTestCase {
         let removedAll = await scheduler.removedAll
         XCTAssertTrue(removedAll)
         XCTAssertNil(center.capabilities.consume(token), "a notification from the old session must not navigate")
-        XCTAssertNil(defaults.stringArray(forKey: "platform.seenAnnouncementIds"))
+        XCTAssertEqual(center.coursePausedUntilMillis, 0)
+
+        // The public announcement baseline is not account data: what is published after the
+        // sign-out is still reported by the next check, instead of only becoming a new baseline.
+        XCTAssertEqual(defaults.stringArray(forKey: PocketNotificationCenter.seenAnnouncementsKey), ["a"])
+        await center.checkAnnouncements(
+            [AnnouncementHeadline(id: "b", title: "新公告"), AnnouncementHeadline(id: "a", title: "公告")],
+            now: lessonTime.addingTimeInterval(3600), settings: settings()
+        )
+        let announced = await scheduler.pending
+        XCTAssertEqual(announced.count, 1, "the announcement published after the sign-out is reported")
+        XCTAssertEqual(Set(defaults.stringArray(forKey: PocketNotificationCenter.seenAnnouncementsKey) ?? []), ["a", "b"])
     }
 
     func testSettingsPersistAndFollowTheDeviceOffset() {
