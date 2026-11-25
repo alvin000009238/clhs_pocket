@@ -77,6 +77,17 @@ class AnnouncementPresentationTest {
     }
 
     @Test
+    fun bookmarkedReadAnnouncementPrecedesUnreadAndPinnedAnnouncements() {
+        val announcements = listOf(pinned, unread, ordinary)
+        val unreadIds = setOf(unread.id)
+        assertEquals(
+            listOf(ordinary, unread, pinned),
+            orderAnnouncements(announcements, unreadIds, bookmarkedIds = setOf(ordinary.id)),
+        )
+        assertEquals(listOf(unread, pinned, ordinary), orderAnnouncements(announcements, unreadIds))
+    }
+
+    @Test
     fun singleDistinctNotificationOpensDetailAndMultipleOpenList() {
         val detail = NotificationAction.OpenAnnouncement(ordinary.id, ordinary.category)
         assertEquals(detail, announcementNotificationAction(listOf(ordinary)))
