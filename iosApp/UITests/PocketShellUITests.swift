@@ -970,10 +970,25 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.buttons["settings-使用統計"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["settings-開發者選項"].exists)
 
-        // The preference is read at launch: the app now opens on 課表.
+        // The preference is read at launch: the app now opens on 課表. The screen's own content
+        // proves it. The iPad Air 11-inch compact top tab bar marks no tab button as selected at all
+        // (the app is on 課表 and other controls report their selected state), so where tabs report
+        // a selection it must be 課表 alone, and on the iPhone tab bar it must be reported.
         launch(onboarded: true, session: "demo", extra: ["-startOnSchedule", "YES"])
         XCTAssertTrue(tab("課表").waitForExistence(timeout: 10))
-        XCTAssertTrue(waitUntil { self.tab("課表").isSelected })
+        XCTAssertTrue(app.navigationBars["課表"].waitForExistence(timeout: 10), "the app did not open on 課表")
+        XCTAssertTrue(app.staticTexts["schedule-range"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["home-edit"].exists, "首頁 is not showing")
+        let selectedTabs = {
+            self.app.buttons
+                .matching(NSPredicate(format: "isSelected == true AND label IN %@", ["首頁", "課表", "成績", "校園"]))
+                .allElementsBoundByIndex.map(\.label)
+        }
+        if app.tabBars.firstMatch.exists {
+            XCTAssertTrue(waitUntil { selectedTabs() == ["課表"] })
+        } else {
+            XCTAssertTrue(selectedTabs().allSatisfy { $0 == "課表" }, "another tab is marked selected")
+        }
     }
 
     private func search(_ identifier: String, _ text: String) {
