@@ -1082,7 +1082,7 @@ fun AppShell(
     }
 }
 
-private fun android.content.Context.openAnnouncementUrl(value: String): Boolean {
+internal fun android.content.Context.openAnnouncementUrl(value: String): Boolean {
     val url = safeAnnouncementWebUrl(value)
     if (url == null) {
         android.widget.Toast.makeText(this, "這個連結無法開啟", android.widget.Toast.LENGTH_SHORT).show()
