@@ -20,7 +20,18 @@ struct ScheduleWidgetView: View {
         // Accessibility sizes would clip a fixed-size widget; the layouts scale below that.
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(glance.summary)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    /// The summary, plus the lessons the medium and large layouts list after it.
+    private var accessibilityText: String {
+        let listed: [ScheduleSnapshot.Lesson] = switch family {
+        case .systemMedium: Array(glance.following.prefix(3))
+        case .systemLarge: Array(glance.agenda.prefix(8))
+        default: []
+        }
+        return ([glance.summary] + listed.map { "第 \($0.period) 節 \($0.subject) \($0.startText)" })
+            .joined(separator: "，")
     }
 }
 
