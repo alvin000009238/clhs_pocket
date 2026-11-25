@@ -719,6 +719,9 @@ final class AppModel {
                 try await live.deleteAllData()
             } else if let backend = transferBackend {
                 try await backend.deleteAllData()
+            } else {
+                // No storage could be opened, so nothing stored was removed.
+                throw PocketError(kind: .storage, message: "無法存取設定儲存空間")
             }
         } catch {
             accountError = Self.cleanupMessage(PocketError(error))
