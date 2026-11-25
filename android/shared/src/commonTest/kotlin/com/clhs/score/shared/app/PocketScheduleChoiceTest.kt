@@ -48,6 +48,14 @@ class PocketScheduleChoiceTest {
         assertEquals(1, store.weekOffset(clock, "2026-11-22"))
         assertEquals(0, store.weekOffset(clock, "2026-11-15"))
         assertEquals(1, store.weekOffset(clock, "2026-11-23"))
+        // On that Sunday its own school week is the one requested today, not next week.
+        val sunday = PocketClock(2026, 11, 22, 7, 10 * 60)
+        assertEquals(0, store.weekOffset(sunday, "2026-11-22"))
+        assertEquals(-1, store.weekOffset(sunday, "2026-11-15"))
+        assertEquals(1, store.weekOffset(sunday, "2026-11-29"))
+        // A school week listed from Monday 11/23 has not started on Sunday 11/22.
+        assertEquals(0, store.weekOffset(sunday, "2026-11-16"))
+        assertEquals(1, store.weekOffset(sunday, "2026-11-23"))
 
         val later = store.chosenSchedule(PocketScheduleScope.CURRENT_WEEK, clock, "115_1", "230", 4, "[]")
         assertEquals("12/14 – 12/18", later.rangeText)
