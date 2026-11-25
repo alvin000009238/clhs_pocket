@@ -406,6 +406,13 @@ private struct GradeExportSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        // The CSV holds grades; it only lives while it can be shared.
+        .onDisappear { removeFile() }
+    }
+
+    private func removeFile() {
+        if let file { try? FileManager.default.removeItem(at: file) }
+        file = nil
     }
 
     private func export() async {
@@ -420,6 +427,7 @@ private struct GradeExportSheet: View {
         }
         let format = DateFormatter()
         format.dateFormat = "yyyyMMdd_HHmmss"
+        removeFile()
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("成績_\(format.string(from: .now)).csv")
         do {
             try Data(PocketGradeExport.shared.csv(examValues: keys).utf8).write(to: url, options: [.atomic, .completeFileProtection])
