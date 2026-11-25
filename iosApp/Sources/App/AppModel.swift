@@ -677,7 +677,7 @@ final class AppModel {
             backgroundPauseEnabled: pauseEnabled, backgroundPauseStartMinute: Int32(pauseStart),
             backgroundPauseEndMinute: Int32(pauseEnd), overview: PocketDashboard.shared.instances(layout: dashboardLayout),
             overviewLegacyOrder: false, announcementReminderEnabled: notifyAnnouncements,
-            announcementIntervalMinutes: stored.announcementIntervalMinutes, announcementUnitIds: stored.announcementUnitIds,
+            announcementIntervalMinutes: Int32(platform.announcementIntervalMinutes), announcementUnitIds: Set(platform.announcementUnitIds),
             remindBeforeClass: notifyLessons
         )
         try await backend.call { try await $0.saveSettings(settings: next, token: $1) }
