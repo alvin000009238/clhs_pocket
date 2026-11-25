@@ -209,6 +209,11 @@ struct AnnouncementDetailView: View {
                     .contentTransition(.symbolEffect(.replace))
                     .sensoryFeedback(.impact(weight: .light), trigger: saved)
                     .accessibilityIdentifier("announcement-bookmark")
+                    // Tables and other content the app cannot show are read on the school's page.
+                    if let original = URL(string: detail.officialUrl) {
+                        Link(destination: original) { Label("查看原文", systemImage: "safari") }
+                            .accessibilityIdentifier("announcement-original")
+                    }
                     if let url = URL(string: detail.officialUrl) {
                         ShareLink(item: url, subject: Text(detail.title)) {
                             Label("分享", systemImage: "square.and.arrow.up")
