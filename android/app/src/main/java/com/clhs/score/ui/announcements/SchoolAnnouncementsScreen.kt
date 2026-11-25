@@ -9,8 +9,10 @@ import com.clhs.score.ui.navigation.navigationContentPadding
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
@@ -21,16 +23,19 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
-import com.clhs.score.ui.openAnnouncementUrl
-import com.clhs.score.data.schoolAnnouncementOfficialUrl
 import android.text.Html
 import android.text.Spannable
 import android.text.SpannableString
@@ -167,6 +172,7 @@ fun SchoolAnnouncementsScreen(
     onSearch: (String) -> Unit,
     onClearSearch: () -> Unit,
     onOpenAnnouncement: (SchoolAnnouncement) -> Unit,
+    onOpenAnnouncementInBrowser: (SchoolAnnouncement) -> Boolean = { false },
     onOpenOfficialWebsite: () -> Unit,
     onOpenAnnouncementReminder: () -> Unit,
     onNoticeShown: () -> Unit,
@@ -284,6 +290,7 @@ fun SchoolAnnouncementsScreen(
                     showBookmarks = false
                     onOpenAnnouncement(announcement)
                 },
+                onOpenAnnouncementInBrowser = onOpenAnnouncementInBrowser,
                 onToggleBookmark = onToggleBookmark,
                 onRetry = onRetryBookmarks,
             )
@@ -379,6 +386,10 @@ fun SchoolAnnouncementsScreen(
                         clearFocusAndHideKeyboard()
                         onOpenAnnouncement(announcement)
                     },
+                    onOpenAnnouncementInBrowser = { announcement ->
+                        clearFocusAndHideKeyboard()
+                        onOpenAnnouncementInBrowser(announcement)
+                    },
                     onToggleBookmark = onToggleBookmark,
                     onOpenOfficialWebsite = {
                         clearFocusAndHideKeyboard()
@@ -449,6 +460,7 @@ private fun AnnouncementList(
     onClearFilters: () -> Unit,
     onLoadMore: () -> Unit,
     onOpenAnnouncement: (SchoolAnnouncement) -> Unit,
+    onOpenAnnouncementInBrowser: (SchoolAnnouncement) -> Boolean,
     onToggleBookmark: (SchoolAnnouncement) -> Unit,
     onOpenOfficialWebsite: () -> Unit,
 ) {
@@ -590,6 +602,7 @@ private fun AnnouncementList(
                             isUnread = announcement.id in unreadIds,
                             isBookmarked = announcement.id in bookmarkedIds,
                             onClick = { onOpenAnnouncement(announcement) },
+                            onOpenInBrowser = { onOpenAnnouncementInBrowser(announcement) },
                             onBookmarkClick = { onToggleBookmark(announcement) },
                         )
                     }
@@ -743,59 +756,50 @@ internal fun AnnouncementCard(
     isBookmarked: Boolean,
     onClick: () -> Unit,
     onBookmarkClick: (() -> Unit)?,
+    onOpenInBrowser: () -> Boolean,
     modifier: Modifier = Modifier,
     index: Int = 0,
     count: Int = 1,
     searchQuery: String = "",
 ) {
-    val context = LocalContext.current
     val browserLabel = "在瀏覽器開啟"
     val bookmarkLabel = if (isBookmarked) "取消收藏" else "收藏公告"
-    val openInBrowser = {
-        context.openAnnouncementUrl(
-            announcement.externalUrl ?: schoolAnnouncementOfficialUrl(announcement.id),
-        )
-    }
+    var showKeyboardActions by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     val currentBookmarkAction by rememberUpdatedState(onBookmarkClick)
-    val currentBrowserAction by rememberUpdatedState(openInBrowser)
+    val currentBrowserAction by rememberUpdatedState(onOpenInBrowser)
     val canBookmark = onBookmarkClick != null
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
     var isSwipeArmed by remember { mutableStateOf(false) }
     val shapeProgress by animateFloatAsState(
         targetValue = if (isSwipeArmed) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.55f, stiffness = 500f),
+        animationSpec = PocketMotion.selection(),
         label = "announcement swipe shape",
     )
     val offset by animateFloatAsState(
         targetValue = dragOffset,
-        animationSpec = if (isDragging) snap() else spring(dampingRatio = 0.8f, stiffness = 550f),
+        animationSpec = if (isDragging) snap() else PocketMotion.selection(),
         label = "announcement swipe",
     )
 
     Box(
         modifier = modifier.fillMaxWidth().clipToBounds()
             .pointerInput(canBookmark, haptics) {
-                fun resetDrag() {
-                    isDragging = false
-                    isSwipeArmed = false
-                    dragOffset = 0f
-                }
-                detectHorizontalDragGestures(
-                    onDragStart = { isDragging = true },
-                    onDragCancel = ::resetDrag,
-                    onDragEnd = {
-                        val releasedOffset = dragOffset
-                        val shouldRun = isSwipeArmed
-                        resetDrag()
-                        if (shouldRun) {
-                            if (releasedOffset > 0) currentBrowserAction()
-                            else currentBookmarkAction?.invoke()
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var initialDelta = 0f
+                    var rejected = false
+                    val start = awaitHorizontalTouchSlopOrCancellation(down.id) { change, overSlop ->
+                        rejected = rejected || (!canBookmark && overSlop < 0f)
+                        if (!rejected) {
+                            initialDelta = overSlop
+                            change.consume()
                         }
-                    },
-                    onHorizontalDrag = { _, delta ->
-                        val width = size.width.toFloat()
+                    } ?: return@awaitEachGesture
+
+                    val width = size.width.toFloat()
+                    fun updateDrag(delta: Float) {
                         dragOffset = (dragOffset + delta)
                             .coerceIn(if (canBookmark) -width else 0f, width)
                         val armed = abs(dragOffset) >= width * 0.38f
@@ -803,8 +807,24 @@ internal fun AnnouncementCard(
                             isSwipeArmed = armed
                             haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
                         }
-                    },
-                )
+                    }
+
+                    isDragging = true
+                    updateDrag(initialDelta)
+                    val released = horizontalDrag(start.id) { change ->
+                        updateDrag(change.position.x - change.previousPosition.x)
+                        change.consume()
+                    }
+                    val releasedOffset = dragOffset
+                    val shouldRun = released && isSwipeArmed
+                    isDragging = false
+                    isSwipeArmed = false
+                    dragOffset = 0f
+                    if (shouldRun) {
+                        if (releasedOffset > 0) currentBrowserAction()
+                        else currentBookmarkAction?.invoke()
+                    }
+                }
             },
     ) {
         if (abs(offset) >= 1f) {
@@ -845,14 +865,21 @@ internal fun AnnouncementCard(
         }
         SegmentedListItem(
             onClick = hapticClick(onClick),
-            modifier = Modifier.fillMaxWidth().absoluteOffset { IntOffset(offset.roundToInt(), 0) }.semantics {
-                customActions = buildList {
-                    add(CustomAccessibilityAction(browserLabel, openInBrowser))
-                    onBookmarkClick?.let { toggle ->
-                        add(CustomAccessibilityAction(bookmarkLabel) { toggle(); true })
-                    }
+            modifier = Modifier.fillMaxWidth()
+                .absoluteOffset { IntOffset(offset.roundToInt(), 0) }
+                .onKeyEvent { event ->
+                    val opensMenu = event.key == Key.Menu || (event.key == Key.F10 && event.isShiftPressed)
+                    if (opensMenu && event.type == KeyEventType.KeyUp) showKeyboardActions = true
+                    opensMenu
                 }
-            },
+                .semantics {
+                    customActions = buildList {
+                        add(CustomAccessibilityAction(browserLabel, onOpenInBrowser))
+                        onBookmarkClick?.let { toggle ->
+                            add(CustomAccessibilityAction(bookmarkLabel) { toggle(); true })
+                        }
+                    }
+                },
             shapes = ListItemDefaults.segmentedShapes(index, count),
             colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
             overlineContent = {
@@ -886,6 +913,18 @@ internal fun AnnouncementCard(
                 style = if (searchQuery.isEmpty()) MaterialTheme.typography.titleMediumEmphasized else MaterialTheme.typography.titleMedium,
                 maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
+        DropdownMenu(expanded = showKeyboardActions, onDismissRequest = { showKeyboardActions = false }) {
+            onBookmarkClick?.let { toggle ->
+                DropdownMenuItem(text = { Text(bookmarkLabel) }, onClick = {
+                    showKeyboardActions = false
+                    toggle()
+                })
+            }
+            DropdownMenuItem(text = { Text(browserLabel) }, onClick = {
+                showKeyboardActions = false
+                onOpenInBrowser()
+            })
+        }
     }
 }
 
@@ -894,6 +933,7 @@ private fun AnnouncementBookmarksSheet(
     uiState: AnnouncementBookmarksUiState,
     unreadIds: Set<String>,
     onOpenAnnouncement: (SchoolAnnouncement) -> Unit,
+    onOpenAnnouncementInBrowser: (SchoolAnnouncement) -> Boolean,
     onToggleBookmark: (SchoolAnnouncement) -> Unit,
     onRetry: () -> Unit,
 ) {
@@ -940,6 +980,7 @@ private fun AnnouncementBookmarksSheet(
                         isUnread = announcement.id in unreadIds,
                         isBookmarked = true,
                         onClick = { onOpenAnnouncement(announcement) },
+                        onOpenInBrowser = { onOpenAnnouncementInBrowser(announcement) },
                         onBookmarkClick = { onToggleBookmark(announcement) },
                     )
                 }
