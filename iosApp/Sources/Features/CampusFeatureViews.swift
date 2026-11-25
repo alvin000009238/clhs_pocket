@@ -192,7 +192,7 @@ struct AnnouncementListView: View {
                 readAllTick += 1
                 scrollToTop()
             }
-            .disabled(unread == 0)
+            .disabled(model.unreadAnnouncementIds.isEmpty)
             .accessibilityIdentifier("announcements-read-all")
             Button(bookmarks > 0 ? "已收藏公告（\(bookmarks)）" : "已收藏公告", systemImage: "bookmark") { filter = .bookmarked }
                 .accessibilityIdentifier("announcements-bookmarks")
