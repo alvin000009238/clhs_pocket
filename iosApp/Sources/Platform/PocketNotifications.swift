@@ -301,4 +301,9 @@ final class PocketNotificationCenter {
         capabilities.revokeAll()
         defaults.removeObject(forKey: Self.coursePausedUntilKey)
     }
+
+    /// Delete-all: unlike a sign-out, no announcement baseline may remain either.
+    func forgetAnnouncementBaseline() {
+        defaults.removeObject(forKey: Self.seenAnnouncementsKey)
+    }
 }

@@ -264,7 +264,10 @@ final class PocketPlatformCoordinator: NSObject {
         if isSignedIn { sessionGeneration += 1 }
         isSignedIn = false
         let result: Result<Void, Error> = await serialized {
-            do { return .success(try await self.clearSessionData()) } catch { return .failure(error) }
+            let cleared: Result<Void, Error>
+            do { cleared = .success(try await self.clearSessionData()) } catch { cleared = .failure(error) }
+            self.notifications.forgetAnnouncementBaseline()
+            return cleared
         }
         try result.get()
     }
