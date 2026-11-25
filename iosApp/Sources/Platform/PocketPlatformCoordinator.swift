@@ -36,10 +36,16 @@ final class PocketPlatformCoordinator: NSObject {
     /// default can be shadowed by a launch argument.
     private(set) var isSignedIn: Bool {
         get { defaults.bool(forKey: Self.signedInKey) }
-        set { defaults.set(newValue, forKey: Self.signedInKey) }
+        set {
+            defaults.set(newValue, forKey: Self.signedInKey)
+            if newValue { defaults.removeObject(forKey: Self.guestClearedKey) }
+        }
     }
 
     private static let signedInKey = "platform.sessionActive"
+    /// Set once a guest's device has been cleared of the last session's data, so later guest
+    /// refreshes keep the announcement baseline and delivered alerts.
+    private static let guestClearedKey = "platform.guestCleared"
 
     /// Bumped on every sign-in or sign-out so an in-flight refresh can tell it is stale.
     private var sessionGeneration = 0
@@ -81,9 +87,10 @@ final class PocketPlatformCoordinator: NSObject {
 
     /// Asks iOS for another refresh. The system decides if and when it runs.
     func scheduleBackgroundRefresh() {
-        // Every background job (reminders, widget, grade and announcement checks) belongs to a
-        // signed-in student; a guest would only be woken to do nothing.
-        guard isSignedIn else {
+        // Reminders, the widget and the grade check belong to a signed-in student. A guest is only
+        // woken for the public announcement reminder, as on Android.
+        let shared = settings.shared(at: .now)
+        guard isSignedIn || (shared.notificationsEnabled && shared.announcements) else {
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: PocketPlatformID.refreshTask)
             return
         }
@@ -115,11 +122,23 @@ final class PocketPlatformCoordinator: NSObject {
     }
 
     private func performRefresh(deviceNow: Date) async {
+        let generation = sessionGeneration
         guard isSignedIn else {
-            try? await clearSessionData()
+            // Nothing of the last session may stay. After that, a guest still gets the public
+            // announcement reminder, as on Android: no session and no school data are involved.
+            if !defaults.bool(forKey: Self.guestClearedKey) {
+                guard (try? await clearSessionData()) != nil else { return }
+                defaults.set(true, forKey: Self.guestClearedKey)
+            }
+            let isGuest: @MainActor () -> Bool = { [unowned self] in generation == sessionGeneration && !isSignedIn }
+            guard isGuest() else { return }
+            let shared = settings.shared(at: deviceNow)
+            guard shared.notificationsEnabled, shared.announcements else { return }
+            let paused = PocketPlatform.shared.isBackgroundPaused(nowMillis: deviceNow.epochMillis, settings: shared)
+            await checkAnnouncements(deviceNow: deviceNow, settings: shared, paused: paused, isCurrent: isGuest)
+            if isGuest() { scheduleBackgroundRefresh() }
             return
         }
-        let generation = sessionGeneration
         let isCurrent: @MainActor () -> Bool = { [unowned self] in generation == sessionGeneration && isSignedIn }
         let shared = settings.shared(at: deviceNow)
         // As on Android, the quiet window only stops background grade and
@@ -131,21 +150,8 @@ final class PocketPlatformCoordinator: NSObject {
         if !lockIsClosed {
             await refreshPersonal(deviceNow: deviceNow, settings: shared, paused: paused, isCurrent: isCurrent)
         }
-        // School announcements are public and need no account, so this check also runs behind the
-        // lock. It fetches the list itself: a background launch has none in memory.
-        if !paused, isCurrent(), !Task.isCancelled, settings.announcementCheckDue(at: deviceNow) {
-            await data.loadAnnouncements()
-            let scheduleNow = PlatformClock.scheduleNow(deviceNow: deviceNow)
-            let units = settings.announcementUnitIds.filter { $0 != PocketAnnouncementFeed.shared.ALL_ID }
-            var headlines = data.announcementHeadlines(at: scheduleNow)
-            if !units.isEmpty, isCurrent(), !Task.isCancelled {
-                headlines = await data.announcementHeadlines(unitIds: units, at: scheduleNow)
-            }
-            if isCurrent(), !Task.isCancelled, let headlines {
-                await notifications.checkAnnouncements(headlines, now: deviceNow, settings: shared)
-                settings.announcementLastCheck = deviceNow
-            }
-        }
+        // School announcements are public and need no account, so this check also runs behind the lock.
+        await checkAnnouncements(deviceNow: deviceNow, settings: shared, paused: paused, isCurrent: isCurrent)
         // A sign-out during the awaits above already ran its own cleanup; run it
         // again so nothing this pass scheduled or published survives.
         guard isCurrent() else {
@@ -153,6 +159,24 @@ final class PocketPlatformCoordinator: NSObject {
             return
         }
         scheduleBackgroundRefresh()
+    }
+
+    /// The public announcement check. It fetches the list itself: a background launch has none in memory.
+    private func checkAnnouncements(
+        deviceNow: Date, settings shared: PlatformNotificationSettings, paused: Bool, isCurrent: @MainActor () -> Bool
+    ) async {
+        guard !paused, isCurrent(), !Task.isCancelled, settings.announcementCheckDue(at: deviceNow) else { return }
+        await data.loadAnnouncements()
+        let scheduleNow = PlatformClock.scheduleNow(deviceNow: deviceNow)
+        let units = settings.announcementUnitIds.filter { $0 != PocketAnnouncementFeed.shared.ALL_ID }
+        var headlines = data.announcementHeadlines(at: scheduleNow)
+        if !units.isEmpty, isCurrent(), !Task.isCancelled {
+            headlines = await data.announcementHeadlines(unitIds: units, at: scheduleNow)
+        }
+        if isCurrent(), !Task.isCancelled, let headlines {
+            await notifications.checkAnnouncements(headlines, now: deviceNow, settings: shared)
+            settings.announcementLastCheck = deviceNow
+        }
     }
 
     /// The part of a refresh that touches the student's own data: session restore, the widget
