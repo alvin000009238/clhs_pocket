@@ -134,7 +134,3 @@ class AnnouncementReadRepository internal constructor(
 
 internal fun announcementStartsUnread(date: String, cutoff: LocalDate): Boolean =
     parseAnnouncementDate(date)?.isBefore(cutoff) != true
-
-internal fun parseAnnouncementDate(date: String): LocalDate? = runCatching {
-    LocalDate.parse(date.trim().substringBefore(' ').substringBefore('T').replace('/', '-'))
-}.getOrNull()

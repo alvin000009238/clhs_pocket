@@ -137,7 +137,8 @@ internal class CourseNotificationCoordinator(
                 } else resolveCourses(report, clock, pref.remindBeforeClass)
                 render(result, pref.generation)
                 if (!result.valid) return CourseNotificationRefreshOutcome.TERMINAL
-                if (result.nextBoundary == null || result.nextBoundary > clock.instant()) {
+                val nextBoundary = result.nextBoundary
+                if (nextBoundary == null || nextBoundary > clock.instant()) {
                     return CourseNotificationRefreshOutcome.SUCCESS
                 }
             }

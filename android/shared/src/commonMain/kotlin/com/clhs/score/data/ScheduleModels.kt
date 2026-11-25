@@ -1,0 +1,470 @@
+package com.clhs.score.data
+
+import com.clhs.score.shared.time.LOCAL_DATE_TIME_MIN
+import com.clhs.score.shared.time.LocalDate
+import com.clhs.score.shared.time.LocalDateTime
+import com.clhs.score.shared.time.at
+import com.clhs.score.shared.time.compareTo
+import com.clhs.score.shared.time.datePart
+import com.clhs.score.shared.time.dayOfWeekOf
+import com.clhs.score.shared.time.epochDay
+import com.clhs.score.shared.time.localTimeOf
+import com.clhs.score.shared.time.nextOrSame
+import com.clhs.score.shared.time.parseLocalDate
+import com.clhs.score.shared.time.parseLocalTime
+import com.clhs.score.shared.time.shiftDays
+import kotlin.jvm.JvmName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+
+@Serializable
+data class PeriodTime(val start: String, val end: String) {
+    val singleLine: String get() = "$start-$end"
+    val multiLine: String get() = "$start\n$end"
+}
+
+val PERIOD_TIMES get() = listOf(
+    PeriodTime("08:10", "09:00"),
+    PeriodTime("09:10", "10:00"),
+    PeriodTime("10:10", "11:00"),
+    PeriodTime("11:10", "12:00"),
+    PeriodTime("13:00", "13:50"),
+    PeriodTime("14:00", "14:50"),
+    PeriodTime("15:05", "15:55"),
+    PeriodTime("16:05", "16:55"),
+)
+
+@Serializable
+data class ScheduleYearTermOption(
+    val text: String,
+    val value: String,
+)
+
+@Serializable
+data class ScheduleClassOption(
+    val text: String,
+    val value: String,
+)
+
+@Serializable
+enum class ScheduleScope {
+    SEMESTER,
+    CURRENT_WEEK,
+}
+
+data class ScheduleWeekOption(
+    val text: String,
+    val value: String,
+    val startDate: String,
+    val endDate: String,
+)
+
+@Serializable
+data class ScheduleItem(
+    val dayOfWeek: Int, // 1 for Monday, 7 for Sunday
+    val period: Int,    // 1 to 9 (or more)
+    val subjectName: String,
+    val teacherName: String = "",
+    val classroom: String = "",
+)
+
+fun List<ScheduleItem>.applySubjectOverrides(
+    overrides: List<ScheduleSubjectOverride>,
+): List<ScheduleItem> {
+    if (overrides.isEmpty()) return this
+    val overridesBySubject = overrides.associateBy(ScheduleSubjectOverride::originalSubjectName)
+    return map { item ->
+        val override = overridesBySubject[item.subjectName] ?: return@map item
+        item.copy(
+            subjectName = override.customSubjectName ?: item.subjectName,
+            teacherName = override.customTeacherName ?: item.teacherName,
+            classroom = override.customClassroom ?: item.classroom,
+        )
+    }
+}
+
+@Serializable
+enum class ScheduleChangeType {
+    ADDED,
+    REMOVED,
+    MODIFIED,
+}
+
+@Serializable
+data class ScheduleChange(
+    val type: ScheduleChangeType,
+    val dayOfWeek: Int,
+    val period: Int,
+    val semesterItem: ScheduleItem? = null,
+    val weekItem: ScheduleItem? = null,
+)
+
+@Serializable
+data class ScheduleReport(
+    val yearTermValue: String,
+    val classNo: String,
+    val scope: ScheduleScope,
+    val weekNo: String? = null,
+    val weekStartDate: String? = null,
+    val weekEndDate: String? = null,
+    val items: List<ScheduleItem>,
+    val changes: List<ScheduleChange>? = null,
+    val subjectOverrides: List<ScheduleSubjectOverride> = emptyList(),
+) {
+    fun isValidOn(date: LocalDate): Boolean {
+        if (scope == ScheduleScope.SEMESTER) return true
+        val start = weekStartDate?.let { value -> runCatching { parseLocalDate(value) }.getOrNull() } ?: return false
+        val end = weekEndDate?.let { value -> runCatching { parseLocalDate(value) }.getOrNull() } ?: return false
+        return date >= start && date <= end
+    }
+}
+
+enum class ScheduleAvailability { AVAILABLE, EMPTY, UNPUBLISHED, FAILED }
+
+class ScheduleFetchException(val result: ScheduleFetchResult) : SchoolException(
+    when (result) {
+        is ScheduleFetchResult.Unpublished -> "學校尚未提供這一週的課表"
+        is ScheduleFetchResult.Failed -> "無法更新週課表，請稍後重試"
+        else -> "無法取得課表"
+    }, (result as? ScheduleFetchResult.Failed)?.error,
+) {
+    val fallback: ScheduleReport? get() = when (val value = result) {
+        is ScheduleFetchResult.Unpublished -> value.semesterFallback
+        is ScheduleFetchResult.Failed -> value.semesterFallback
+        else -> null
+    }
+}
+
+sealed interface ScheduleFetchResult {
+    data class Available(
+        val report: ScheduleReport,
+        val semesterBaseline: ScheduleReport? = null,
+    ) : ScheduleFetchResult
+
+    data class Empty(
+        val report: ScheduleReport,
+        val semesterBaseline: ScheduleReport? = null,
+    ) : ScheduleFetchResult
+
+    data class Unpublished(
+        val requestedDate: LocalDate,
+        val semesterFallback: ScheduleReport? = null,
+    ) : ScheduleFetchResult
+
+    data class Failed(
+        val error: Exception,
+        val semesterFallback: ScheduleReport? = null,
+    ) : ScheduleFetchResult
+}
+
+fun ScheduleReport.displayItems(): List<ScheduleItem> =
+    items.applySubjectOverrides(subjectOverrides)
+
+@JvmName("applySubjectOverridesToChanges")
+fun List<ScheduleChange>.applySubjectOverrides(
+    overrides: List<ScheduleSubjectOverride>,
+): List<ScheduleChange> {
+    if (overrides.isEmpty()) return this
+    return map { change ->
+        change.copy(
+            semesterItem = change.semesterItem
+                ?.let(::listOf)
+                ?.applySubjectOverrides(overrides)
+                ?.single(),
+            weekItem = change.weekItem
+                ?.let(::listOf)
+                ?.applySubjectOverrides(overrides)
+                ?.single(),
+        )
+    }
+}
+
+fun ScheduleReport.displayChanges(): List<ScheduleChange> =
+    changes.orEmpty().applySubjectOverrides(subjectOverrides)
+
+fun ScheduleReport.refreshAt(): LocalDateTime? {
+    if (scope != ScheduleScope.CURRENT_WEEK) return null
+    val startDate = weekStartDate
+        ?.let { value -> runCatching { parseLocalDate(value) }.getOrNull() }
+        ?: return LOCAL_DATE_TIME_MIN
+    val datedItems = items.map { item ->
+        val dayOfWeek = runCatching { dayOfWeekOf(item.dayOfWeek) }.getOrNull()
+            ?: return LOCAL_DATE_TIME_MIN
+        startDate.nextOrSame(dayOfWeek) to item
+    }
+    val lastClassDate = datedItems.maxByOrNull { it.first.epochDay() }?.first
+        ?: return startDate.shiftDays(7).at(localTimeOf(0, 0))
+    val endTimes = datedItems.filter { it.first == lastClassDate }.map { (_, item) ->
+        PERIOD_TIMES.getOrNull(item.period - 1)
+            ?.end
+            ?.let { value -> runCatching { parseLocalTime(value) }.getOrNull() }
+    }
+    val refreshTime = if (endTimes.any { it == null }) {
+        parseLocalTime(PERIOD_TIMES.last().end)
+    } else {
+        endTimes.filterNotNull().maxOrNull() ?: return LOCAL_DATE_TIME_MIN
+    }
+    return lastClassDate.at(refreshTime)
+}
+
+fun ScheduleReport.shouldRefreshAt(now: LocalDateTime): Boolean =
+    refreshAt()?.let { refreshAt -> now >= refreshAt } ?: false
+
+fun ScheduleReport.refreshTargetDateAt(now: LocalDateTime): LocalDate {
+    val today = now.datePart()
+    val nextWeekStart = weekStartDate
+        ?.let { value -> runCatching { parseLocalDate(value) }.getOrNull() }
+        ?.shiftDays(7)
+        ?: return today
+    return if (shouldRefreshAt(now) && today < nextWeekStart) nextWeekStart else today
+}
+
+fun compareScheduleItems(
+    semesterItems: List<ScheduleItem>,
+    weekItems: List<ScheduleItem>,
+): List<ScheduleChange> {
+    val semesterBySlot = semesterItems.associateBy { it.dayOfWeek to it.period }
+    val weekBySlot = weekItems.associateBy { it.dayOfWeek to it.period }
+
+    return (semesterBySlot.keys + weekBySlot.keys)
+        .sortedWith(compareBy<Pair<Int, Int>> { it.first }.thenBy { it.second })
+        .mapNotNull { (dayOfWeek, period) ->
+            val semesterItem = semesterBySlot[dayOfWeek to period]
+            val weekItem = weekBySlot[dayOfWeek to period]
+            if (semesterItem == weekItem) return@mapNotNull null
+
+            ScheduleChange(
+                type = when {
+                    semesterItem == null -> ScheduleChangeType.ADDED
+                    weekItem == null -> ScheduleChangeType.REMOVED
+                    else -> ScheduleChangeType.MODIFIED
+                },
+                dayOfWeek = dayOfWeek,
+                period = period,
+                semesterItem = semesterItem,
+                weekItem = weekItem,
+            )
+        }
+}
+
+fun parseScheduleWeekOptionsOrNull(json: String): List<ScheduleWeekOption>? {
+    val root = runCatching { SchoolJson.parseToJsonElement(json) }.getOrNull()
+    val options = when (root) {
+        is JsonArray -> root
+        is JsonObject -> {
+            val containers = listOf("Data", "data", "Result", "result", "items")
+                .mapNotNull { root[it] }
+            containers.singleOrNull() as? JsonArray
+        }
+        else -> null
+    } ?: return null
+
+    val weeks = options.map { element ->
+        val option = element as? JsonObject ?: return null
+        val item = option["Item"] as? JsonObject ?: return null
+        val values = listOfNotNull(option.stringField("Value", "value"), item.stringField("WeekNo"))
+            .map { it.toIntOrNull()?.takeIf { value -> value > 0 } ?: return null }
+            .distinct()
+        val weekNo = values.singleOrNull()?.toString() ?: return null
+        val startDate = item.dateField("StartDateDisplay", "StartDate") ?: return null
+        val endDate = item.dateField("EndDateDisplay", "EndDate") ?: return null
+        val start = runCatching { parseLocalDate(startDate) }.getOrNull() ?: return null
+        val end = runCatching { parseLocalDate(endDate) }.getOrNull() ?: return null
+        if (end < start) return null
+
+        ScheduleWeekOption(
+            text = option.stringField("DisplayText", "Text", "text") ?: "第 $weekNo 週",
+            value = weekNo,
+            startDate = startDate,
+            endDate = endDate,
+        )
+    }
+    if (weeks.distinctBy { it.value }.size != weeks.size) return null
+    val orderedWeeks = weeks.sortedBy { it.startDate }
+    if (orderedWeeks.zipWithNext().any { (previous, next) -> previous.endDate >= next.startDate }) return null
+    return weeks
+}
+
+fun selectScheduleWeek(
+    options: List<ScheduleWeekOption>,
+    targetDate: LocalDate,
+): ScheduleWeekOption? =
+    options
+        .filter { option ->
+            val start = runCatching { parseLocalDate(option.startDate) }.getOrNull()
+            val end = runCatching { parseLocalDate(option.endDate) }.getOrNull()
+            start != null && end != null && targetDate >= start && targetDate <= end
+        }
+        .distinctBy { it.value }
+        .singleOrNull()
+
+fun parseScheduleItems(timetableJson: String): List<ScheduleItem> {
+    val root = runCatching { SchoolJson.parseToJsonElement(timetableJson) }.getOrNull() ?: return emptyList()
+    return parseScheduleItems(root)
+}
+
+fun parseScheduleItemsOrNull(timetableJson: String): List<ScheduleItem>? {
+    val root = runCatching { SchoolJson.parseToJsonElement(timetableJson) }.getOrNull() ?: return null
+    val items = parseScheduleItems(root)
+    return items.takeIf { it.isNotEmpty() || root.isRecognizedEmptySchedule() }
+}
+
+private fun JsonElement.isRecognizedEmptySchedule(): Boolean = when (this) {
+    is JsonArray -> all { it.isRecognizedEmptySchedule() }
+    is JsonObject -> {
+        val subject = listOf("SubjectName", "subjectName", "CourseName", "SubjectDisplay")
+            .firstNotNullOfOrNull { (this[it] as? JsonPrimitive)?.contentOrNull }
+        val day = intField("WeekDay", "weekDay", "DayOfWeek")
+        val period = intField("SectionSeq", "sectionSeq", "Section", "Period")
+        if (subject != null && subject.isBlank() && day != null && day in 1..7 && period != null && period > 0) {
+            true
+        } else {
+            // Only documented option envelopes and the existing timetable fixture containers
+            // can establish an empty result. Unrelated arrays and unknown objects cannot.
+            isNotEmpty() && all { (name, value) ->
+                name in EMPTY_SCHEDULE_CONTAINERS && value.isRecognizedEmptySchedule()
+            }
+        }
+    }
+    else -> false
+}
+
+private val EMPTY_SCHEDULE_CONTAINERS get() = setOf("Data", "data", "Result", "result", "items", "payload", "weeks")
+
+private fun parseScheduleItems(root: JsonElement): List<ScheduleItem> {
+    val items = mutableListOf<ScheduleItem>()
+
+    fun extractClasses(element: JsonElement) {
+        when (element) {
+            is JsonObject -> {
+                val subjectName = element.stringField(
+                    "SubjectName",
+                    "subjectName",
+                    "CourseName",
+                    "SubjectDisplay",
+                )
+                val dayOfWeek = element.intField("WeekDay", "weekDay", "DayOfWeek")
+                val period = element.intField("SectionSeq", "sectionSeq", "Section", "Period")
+
+                if (!subjectName.isNullOrBlank() && dayOfWeek != null && dayOfWeek in 1..7 && period != null && period > 0) {
+                    items.add(
+                        ScheduleItem(
+                            dayOfWeek = dayOfWeek,
+                            period = period,
+                            subjectName = subjectName,
+                            teacherName = element.stringField("TeacherNameDisplay", "TeacherName", "FirstTeacherName").orEmpty(),
+                            classroom = element.stringField("ClassroomName", "ClassroomDisplay", "Classroom").orEmpty(),
+                        ),
+                    )
+                }
+
+                element.values.forEach { extractClasses(it) }
+            }
+            is JsonArray -> element.forEach { extractClasses(it) }
+            else -> Unit
+        }
+    }
+
+    extractClasses(root)
+    return items.distinctBy { it.dayOfWeek to it.period }
+}
+
+private fun JsonObject.stringField(vararg names: String): String? =
+    names.firstNotNullOfOrNull { name ->
+        (this[name] as? JsonPrimitive)
+            ?.contentOrNull
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && it != "null" }
+    }
+
+private fun JsonObject.intField(vararg names: String): Int? =
+    names.firstNotNullOfOrNull { name ->
+        (this[name] as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
+    }
+
+private fun JsonObject.dateField(vararg names: String): String? =
+    stringField(*names)?.take(10)
+
+val predefinedColors get() = listOf(
+    0xFF984357,
+    0xFF699C5E,
+    0xFF5D70C3,
+    0xFF984A26,
+    0xFF31A18A,
+    0xFF8D60B2,
+    0xFF805C0E,
+    0xFF209DB1,
+    0xFFAB558A,
+    0xFF616A0D,
+    0xFF5591C9,
+    0xFFB75357,
+    0xFF217541,
+    0xFF8483CA,
+    0xFFB06018,
+    0xFF0B726C,
+    0xFFA877B4,
+    0xFF8F7412,
+    0xFF016E8B,
+    0xFFBE708E,
+    0xFF618524,
+    0xFF3A62A4,
+    0xFFC37363,
+    0xFF128C64,
+    0xFF6A539D,
+    0xFFB67F40,
+    0xFF08888E,
+    0xFF884880,
+    0xFF978F3C,
+    0xFF1481B3,
+)
+
+val darkPredefinedColors get() = listOf(
+    0xFFDD8898,
+    0xFFAADA9F,
+    0xFFA3B7FE,
+    0xFFDC8F6D,
+    0xFF83DFC8,
+    0xFFCFA6F4,
+    0xFFC79D53,
+    0xFF7BDBEF,
+    0xFFEF9CCD,
+    0xFFA1AD5D,
+    0xFF9BCDFE,
+    0xFFFA9597,
+    0xFF72BD8D,
+    0xFFC3C2FF,
+    0xFFF3A16A,
+    0xFF62C1BA,
+    0xFFE6B7F0,
+    0xFFD2B854,
+    0xFF56BED9,
+    0xFFF5AECA,
+    0xFFA9CD6B,
+    0xFF83A8E8,
+    0xFFF5AE9F,
+    0xFF65CBA5,
+    0xFFA998DF,
+    0xFFF0B979,
+    0xFF58CDD1,
+    0xFFCB8CC2,
+    0xFFD6CE80,
+    0xFF65C1EA,
+)
+
+fun getSubjectColors(
+    subjectNames: Iterable<String>,
+    isDarkTheme: Boolean = false,
+): Map<String, Long> {
+    val palette = if (isDarkTheme) darkPredefinedColors else predefinedColors
+    return subjectNames
+        .distinct()
+        .sorted()
+        .mapIndexed { index, subjectName ->
+            subjectName to palette[index % palette.size]
+        }
+        .toMap()
+}
