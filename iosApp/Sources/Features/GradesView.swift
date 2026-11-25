@@ -73,6 +73,11 @@ struct GradesView: View {
             loadingExam = true
             await live.loadReport(examValue: report.examValue)
             loadingExam = false
+            // Refreshes load only the newest term; an older exam needs its term's other exams for the
+            // comparison and the trend.
+            if let term = model.dataSource.gradeTerms().first(where: { $0.exams.contains { $0.value == report.examValue } }) {
+                await live.loadReports(examValues: term.exams.map(\.value))
+            }
         }
         .navigationTitle(PocketTab.grades.title)
         .sheet(isPresented: $showsExport) {
