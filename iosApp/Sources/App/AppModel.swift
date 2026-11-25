@@ -286,13 +286,26 @@ final class AppModel {
             // Nothing is fetched while the demo shows or while delete-all resets the preferences.
             guard oldValue != weatherSource, !resettingPreferences else { return }
             // The home weather widgets follow the chosen source; CWA falls back where it has no forecast.
-            let dashboard = PocketDashboard.shared
-            dashboardLayout = dashboard.instances(layout: dashboardLayout).reduce(dashboardLayout) { layout, widget in
-                guard let weather = widget.config() as? OverviewWidgetConfigWeather else { return layout }
-                return dashboard.setWeather(layout: layout, id: widget.id, locationId: weather.location.id, source: sharedWeatherSource.name)
+            // As on Android, they only move to CWA once a key is stored, so they keep showing a forecast.
+            if weatherSource == "cwa" {
+                let layout = dashboardLayout
+                Task {
+                    guard await hasCwaKey(), weatherSource == "cwa", dashboardLayout == layout else { return }
+                    applyWeatherSourceToWidgets()
+                }
+            } else {
+                applyWeatherSourceToWidgets()
             }
             guard usesLiveData, let live else { return }
             Task { await live.refreshPublic(weatherSource: sharedWeatherSource, force: true) }
+        }
+    }
+
+    private func applyWeatherSourceToWidgets() {
+        let dashboard = PocketDashboard.shared
+        dashboardLayout = dashboard.instances(layout: dashboardLayout).reduce(dashboardLayout) { layout, widget in
+            guard let weather = widget.config() as? OverviewWidgetConfigWeather else { return layout }
+            return dashboard.setWeather(layout: layout, id: widget.id, locationId: weather.location.id, source: sharedWeatherSource.name)
         }
     }
 
@@ -651,6 +664,7 @@ final class AppModel {
     func saveCwaKey(_ key: String) async throws(PocketError) -> CwaKeyValidation {
         guard let backend = transferBackend else { throw PocketError(kind: .storage, message: "無法存取設定儲存空間") }
         let result = try await backend.call { try await $0.saveCwaKey(rawKey: key, token: $1) }
+        if result == .valid, weatherSource == "cwa" { applyWeatherSourceToWidgets() }
         if result == .valid, let live { await live.refreshPublic(weatherSource: sharedWeatherSource, force: true) }
         return result
     }
