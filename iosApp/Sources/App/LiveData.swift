@@ -744,7 +744,9 @@ final class LiveDataController {
             // the last completed check has nothing to compare with, even when that check found no
             // exams at all; the very first check after sign-in only records what exists.
             let isNewExam = live.isNewExam(baseline: baseline, key: key)
-            let before: GradeReport? = isNewExam ? nil : try await backend.call {
+            // As Android's enable step, the first check only records the current report as the baseline.
+            let isFirstCheck = baseline == nil
+            let before: GradeReport? = isNewExam || isFirstCheck ? nil : try await backend.call {
                 try await $0.fetchGrades(session: session, yearValue: year, examValue: code, forceRefresh: false, token: $1)
             }
             let after = try await backend.call {
@@ -754,6 +756,7 @@ final class LiveDataController {
             live.putReport(yearValue: year, examValue: code, report: after)
             completed()
             publish()
+            if isFirstCheck { return nil }
             return PocketPlatform.shared.gradeChangeNotification(
                 before: before, after: after, studentNo: session.studentNo, yearValue: year, examValue: code,
                 examName: after.examSummary?.examName ?? "", nowMillis: date.epochMillis, settings: settings
