@@ -273,7 +273,14 @@ final class AppModel {
         didSet {
             defaults.set(weatherSource, forKey: Key.weatherSource)
             // Nothing is fetched while the demo shows or while delete-all resets the preferences.
-            guard oldValue != weatherSource, !resettingPreferences, usesLiveData, let live else { return }
+            guard oldValue != weatherSource, !resettingPreferences else { return }
+            // The home weather widgets follow the chosen source; CWA falls back where it has no forecast.
+            let dashboard = PocketDashboard.shared
+            dashboardLayout = dashboard.instances(layout: dashboardLayout).reduce(dashboardLayout) { layout, widget in
+                guard let weather = widget.config() as? OverviewWidgetConfigWeather else { return layout }
+                return dashboard.setWeather(layout: layout, id: widget.id, locationId: weather.location.id, source: sharedWeatherSource.name)
+            }
+            guard usesLiveData, let live else { return }
             Task { await live.refreshPublic(weatherSource: sharedWeatherSource, force: true) }
         }
     }
@@ -695,8 +702,9 @@ final class AppModel {
         case .dark: .dark
         default: .system
         }
-        dashboardLayout = PocketDashboard.shared.layout(instances: restored.overview)
+        // The source first: choosing it rewrites the current widgets, the backup's layout then replaces them.
         weatherSource = restored.weatherSource == .cwa ? "cwa" : "open-meteo"
+        dashboardLayout = PocketDashboard.shared.layout(instances: restored.overview)
         pauseStart = Int(restored.backgroundPauseStartMinute)
         pauseEnd = Int(restored.backgroundPauseEndMinute)
         pauseEnabled = restored.backgroundPauseEnabled
