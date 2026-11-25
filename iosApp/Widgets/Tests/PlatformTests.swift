@@ -153,12 +153,58 @@ final class PlatformTests: XCTestCase {
         let store = ScheduleSnapshotStore(directory: directory)
 
         XCTAssertNil(store.load())
-        try store.save(json: demoJSON(at: lessonTime))
+        try store.save(json: demoJSON(at: lessonTime), account: "a", generation: 1)
         XCTAssertNotNil(store.load())
+        XCTAssertNotNil(store.loadAuthorized())
         try store.clear()
         XCTAssertNil(store.loadData())
+        XCTAssertNil(store.loadAuthority(), "the authority goes with the snapshot")
         XCTAssertNoThrow(try store.clear())
-        XCTAssertThrowsError(try ScheduleSnapshotStore(directory: nil).save(json: "{}"))
+        XCTAssertThrowsError(try ScheduleSnapshotStore(directory: nil).save(json: "{}", account: "a", generation: 1))
+    }
+
+    /// The widget shows lessons only while the app's authority vouches for the very snapshot on disk.
+    func testWidgetShowsNoLessonsWhenTheAuthorityIsMissingRevokedOrForAnotherSnapshot() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = ScheduleSnapshotStore(directory: directory)
+        let json = try demoJSON(at: lessonTime)
+        let snapshotURL = directory.appendingPathComponent(PocketPlatformID.snapshotFile)
+
+        // Missing: a snapshot with no authority beside it.
+        try Data(json.utf8).write(to: snapshotURL)
+        XCTAssertNotNil(store.load())
+        XCTAssertNil(store.loadAuthorized(), "a snapshot without authority is not shown")
+        XCTAssertEqual(store.authorizedGlance(at: lessonTime).state, .empty)
+
+        try store.save(json: json, account: "a", generation: 1)
+        XCTAssertEqual(store.authorizedGlance(at: lessonTime).state, .inClass)
+
+        // Mismatch: another session's snapshot replaced the one the authority was written for.
+        let other = try demoJSON(at: lessonTime.addingTimeInterval(7 * 24 * 3600))
+        XCTAssertNotEqual(other, json)
+        try Data(other.utf8).write(to: snapshotURL)
+        XCTAssertNil(store.loadAuthorized(), "the authority belongs to a different snapshot")
+        XCTAssertEqual(store.authorizedGlance(at: lessonTime).state, .empty)
+
+        // An authority naming no sign-in vouches for nothing either.
+        let anonymous = ScheduleSnapshotAuthority(account: "", generation: 1, snapshotDigest: ScheduleSnapshotAuthority.digest(Data(other.utf8)))
+        try JSONEncoder().encode(anonymous).write(to: directory.appendingPathComponent(PocketPlatformID.snapshotAuthorityFile))
+        XCTAssertNil(store.loadAuthorized())
+
+        // Revoked: sign-out marks it before deleting, even where the files cannot be removed.
+        try store.save(json: json, account: "a", generation: 1)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        try store.revoke()
+        XCTAssertThrowsError(try store.clear())
+        XCTAssertNotNil(store.loadData())
+        XCTAssertEqual(store.loadAuthority()?.revoked, true)
+        XCTAssertNil(store.loadAuthorized(), "a revoked authority is not shown")
+        XCTAssertEqual(store.authorizedGlance(at: lessonTime).state, .empty)
     }
 
     func testPinnedDemoClockKeepsFlowingAfterTheFirstLaunch() {
@@ -334,7 +380,7 @@ final class PlatformTests: XCTestCase {
             coordinator.store = savedStore
         }
         coordinator.store = ScheduleSnapshotStore(directory: directory)
-        try coordinator.store.save(json: demoJSON(at: lessonTime))
+        try coordinator.store.save(json: demoJSON(at: lessonTime), account: "a", generation: 1)
         await coordinator.sessionChanged(signedIn: true)
 
         // A read-only directory stands for a snapshot file the system refuses to remove.
@@ -345,6 +391,7 @@ final class PlatformTests: XCTestCase {
         } catch {}
         XCTAssertFalse(coordinator.isSignedIn, "the session ends even when the cleanup is incomplete")
         XCTAssertNotNil(coordinator.store.loadData())
+        XCTAssertNil(coordinator.store.loadAuthorized(), "the widget stops showing it: revoked before deletion")
 
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         try await coordinator.endSessionAndClear()
