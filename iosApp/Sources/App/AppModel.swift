@@ -713,6 +713,8 @@ final class AppModel {
         startOnSchedule = restored.startOnSchedule
         developerEnabled = restored.developerEnabled
         notifyAnnouncements = restored.announcementReminderEnabled
+        platform.announcementUnitIds = restored.announcementUnitIds.sorted()
+        platform.announcementIntervalMinutes = Int(restored.announcementIntervalMinutes)
         notifyLessons = restored.remindBeforeClass
         if !restored.notificationsEnabled { notificationsEnabled = false }
         platformSettingsChanged()
