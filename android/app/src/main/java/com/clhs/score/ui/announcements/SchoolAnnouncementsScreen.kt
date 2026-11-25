@@ -9,6 +9,7 @@ import com.clhs.score.ui.navigation.navigationContentPadding
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
@@ -772,14 +773,15 @@ internal fun AnnouncementCard(
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
     var isSwipeArmed by remember { mutableStateOf(false) }
+    // The shared spatial spring overshoots too far for a swipe that returns to the same row.
     val shapeProgress by animateFloatAsState(
         targetValue = if (isSwipeArmed) 1f else 0f,
-        animationSpec = PocketMotion.selection(),
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 500f),
         label = "announcement swipe shape",
     )
     val offset by animateFloatAsState(
         targetValue = dragOffset,
-        animationSpec = if (isDragging) snap() else PocketMotion.selection(),
+        animationSpec = if (isDragging) snap() else spring(dampingRatio = 0.8f, stiffness = 550f),
         label = "announcement swipe",
     )
 

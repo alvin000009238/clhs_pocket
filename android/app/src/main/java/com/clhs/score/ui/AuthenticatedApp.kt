@@ -187,7 +187,7 @@ fun AppShell(
     }
 
     fun openAnnouncementInBrowser(announcement: com.clhs.score.data.SchoolAnnouncement): Boolean =
-        if (announcement.contentType.equals("url", ignoreCase = true)) {
+        if (announcement.contentType.equals("url", ignoreCase = true) && announcement.externalUrl != null) {
             openExternalAnnouncement(announcement.id, announcement.externalUrl)
         } else {
             context.openAnnouncementUrl(schoolAnnouncementOfficialUrl(announcement.id))
