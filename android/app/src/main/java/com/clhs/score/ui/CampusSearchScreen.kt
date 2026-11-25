@@ -103,6 +103,7 @@ fun CampusSearchScreen(
     onRetryCalendar: () -> Unit,
     onLoadMore: () -> Unit,
     onOpenAnnouncement: (SchoolAnnouncement) -> Unit,
+    onOpenAnnouncementInBrowser: (SchoolAnnouncement) -> Boolean = { false },
     onOpenCalendarEvent: (SchoolCalendarEvent) -> Unit,
 ) {
     val searchField = rememberTextFieldState(initialText = announcements.searchQuery)
@@ -271,6 +272,10 @@ fun CampusSearchScreen(
                                     isUnread = announcement.id in unreadIds,
                                     isBookmarked = false,
                                     onClick = { keyboard?.hide(); onOpenAnnouncement(announcement) },
+                                    onOpenInBrowser = {
+                                        keyboard?.hide()
+                                        onOpenAnnouncementInBrowser(announcement)
+                                    },
                                     onBookmarkClick = null,
                                     searchQuery = query,
                                     modifier = Modifier.animateItem(fadeInSpec = effectsMotion,
