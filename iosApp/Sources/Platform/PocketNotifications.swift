@@ -166,7 +166,7 @@ final class NotificationCapabilityStore {
 /// Turns shared plans into scheduled notifications.
 @MainActor
 final class PocketNotificationCenter {
-    private static let seenAnnouncementsKey = "platform.seenAnnouncementIds"
+    static let seenAnnouncementsKey = "platform.seenAnnouncementIds"
 
     let scheduler: NotificationScheduling
     let capabilities: NotificationCapabilityStore
