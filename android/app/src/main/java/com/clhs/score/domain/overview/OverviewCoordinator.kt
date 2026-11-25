@@ -13,7 +13,6 @@ import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleRepository
 import com.clhs.score.data.ScheduleScope
-import com.clhs.score.data.displayChanges
 import com.clhs.score.data.displayItems
 import com.clhs.score.data.SchoolAnnouncementPage
 import com.clhs.score.data.SchoolAnnouncement
@@ -467,7 +466,7 @@ internal fun scheduleOverviewItems(report: ScheduleReport, now: LocalDateTime): 
     val result = mutableListOf<OverviewItem>()
 
     val displayDate = scheduleOverviewHero(report, now)?.date?.toLocalDate()
-    report.displayChanges()
+    report.changes.orEmpty()
         .sortedBy(ScheduleChange::period)
         .mapNotNull { change ->
             val removedToday = change.type == ScheduleChangeType.REMOVED && report.isValidOn(today) &&
@@ -475,7 +474,7 @@ internal fun scheduleOverviewItems(report: ScheduleReport, now: LocalDateTime): 
                 change.semesterItem?.occurrenceOn(today)?.end?.isAfter(now.atZone(SCHOOL_ZONE).toInstant()) == true
             val date = if (removedToday) today else displayDate
             date?.takeIf { report.isValidOn(it) && change.dayOfWeek == it.dayOfWeek.value }
-                ?.let { change.toOverviewItem(it, today) }
+                ?.let { change.toOverviewItem(report, it, today) }
         }
         .forEach { result += it }
 
@@ -584,10 +583,10 @@ private fun ScheduleItem.toOverviewCourse(date: LocalDate): OverviewCourse {
 }
 
 private fun ScheduleReport.overviewChangesOn(date: LocalDate, today: LocalDate): List<OverviewItem> =
-    if (!isValidOn(date)) emptyList() else displayChanges()
+    if (!isValidOn(date)) emptyList() else changes.orEmpty()
         .filter { it.dayOfWeek == date.dayOfWeek.value }
         .sortedBy(ScheduleChange::period)
-        .map { it.toOverviewItem(date, today) }
+        .map { it.toOverviewItem(this, date, today) }
 
 private fun nextSchoolDayLabel(today: LocalDate, date: LocalDate): String =
     when (val days = ChronoUnit.DAYS.between(today, date)) {
@@ -822,14 +821,16 @@ private fun ScheduleItem.toCourseOverviewItem(
     )
 }
 
-private fun ScheduleChange.toOverviewItem(date: LocalDate, today: LocalDate): OverviewItem {
+private fun ScheduleChange.toOverviewItem(report: ScheduleReport, date: LocalDate, today: LocalDate): OverviewItem {
     val effective = if (type == ScheduleChangeType.REMOVED) semesterItem else weekItem ?: semesterItem
+    fun displayName(subject: String): String =
+        report.subjectOverrides.firstOrNull { it.originalSubjectName == subject }?.customSubjectName ?: subject
     val action = when (type) {
         ScheduleChangeType.ADDED -> "新增課程"
         ScheduleChangeType.MODIFIED -> "調課"
         ScheduleChangeType.REMOVED -> "停課"
     }
-    val details = modifiedDetails() ?: effective?.subjectName.orEmpty()
+    val details = modifiedDetails(::displayName) ?: effective?.subjectName?.let(::displayName).orEmpty()
     val dayLabel = when (date) {
         today -> "今日"
         today.plusDays(1) -> "明日"
@@ -837,7 +838,7 @@ private fun ScheduleChange.toOverviewItem(date: LocalDate, today: LocalDate): Ov
     }
     val periodLabel = "一二三四五六七八九".getOrNull(period - 1)?.toString() ?: period.toString()
     return OverviewItem(
-        id = "schedule-change-$date-$dayOfWeek-$period-$type",
+        id = "schedule-change-$date-$period-$type-${officialChangeFingerprint(report)}",
         courseChange = OverviewCourseChange(OverviewCourseKey(date, period), type),
         priority = OverviewPriority.P0,
         kind = OverviewItemKind.ScheduleChange,
@@ -850,14 +851,30 @@ private fun ScheduleChange.toOverviewItem(date: LocalDate, today: LocalDate): Ov
     )
 }
 
-private fun ScheduleChange.modifiedDetails(): String? {
+private fun ScheduleChange.officialChangeFingerprint(report: ScheduleReport): String {
+    val fields = listOf(report.yearTermValue, report.classNo) + listOf(semesterItem, weekItem).flatMap { item ->
+        listOf(item?.subjectName, item?.teacherName, item?.classroom)
+    }
+    val encoded = fields.joinToString(separator = "") { field ->
+        if (field == null) "-1:" else "${field.length}:$field"
+    }
+    return java.security.MessageDigest.getInstance("SHA-256").digest(encoded.encodeToByteArray()).toHexString()
+}
+
+private fun ScheduleChange.modifiedDetails(displayName: (String) -> String): String? {
     if (type != ScheduleChangeType.MODIFIED) return null
     val before = semesterItem ?: return null
     val after = weekItem ?: return null
     fun changed(label: String, old: String, new: String): String? =
         if (old == new) null else "$label${old.ifBlank { "未提供" }} → ${new.ifBlank { "未提供" }}"
+    val subject = if (before.subjectName == after.subjectName) {
+        displayName(after.subjectName).takeIf(String::isNotBlank)
+    } else {
+        changed("", displayName(before.subjectName), displayName(after.subjectName))
+            ?: changed("", before.subjectName, after.subjectName)
+    }
     return listOfNotNull(
-        changed("", before.subjectName, after.subjectName) ?: after.subjectName.takeIf(String::isNotBlank),
+        subject,
         changed("教師 ", before.teacherName, after.teacherName),
         changed("教室 ", before.classroom, after.classroom),
     ).joinToString(" · ").takeIf(String::isNotBlank)

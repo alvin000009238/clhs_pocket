@@ -68,6 +68,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import com.clhs.score.data.FakeData
 import com.clhs.score.data.WeatherLocation
 import com.clhs.score.data.YouBikeStation
 import com.clhs.score.domain.overview.*
@@ -89,6 +90,7 @@ import kotlin.math.roundToInt
 @androidx.compose.ui.tooling.preview.Preview(name = "首頁深色", widthDp = 390, heightDp = 844, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
 @androidx.compose.ui.tooling.preview.Preview(name = "首頁橫向", widthDp = 650, heightDp = 340)
 @androidx.compose.ui.tooling.preview.Preview(name = "首頁大字", widthDp = 320, heightDp = 1000, fontScale = 2f)
+@androidx.compose.ui.tooling.preview.Preview(name = "首頁短視窗大字", widthDp = 390, heightDp = 260, fontScale = 2f)
 @Composable
 private fun DashboardFloatingToolsPreview(
     @androidx.compose.ui.tooling.preview.PreviewParameter(DashboardEditingPreviewProvider::class) mode: String,
@@ -99,10 +101,8 @@ private fun DashboardFloatingToolsPreview(
     val widgets = defaultOverviewWidgets() + OverviewWidgetInstance.create("countdown",
         OverviewWidgetConfig.CustomCountdown("期末考", "2026-12-30"))
     val state = OverviewState(now = now, isInitialLoading = false, hasSchedule = true,
-        hero = scheduleOverviewHero(report, now), items = scheduleOverviewItems(report, now) +
-            OverviewItem("preview-grade-update", OverviewPriority.P1, OverviewItemKind.GradeUpdate,
-                "第一次段考有 1 項更新", "查看成績與排名", "成績更新", "notifications",
-                OverviewDestination.GradeExam("115_1", "1")))
+        hero = scheduleOverviewHero(report, now),
+        items = scheduleOverviewItems(report, now) + gradeOverviewItems(FakeData.overviewGradeReminder))
     com.clhs.score.ui.theme.ScoreTheme {
         OverviewDashboard(
             state = state,
@@ -534,6 +534,9 @@ private fun OverviewAlertPanel(
     val stackDepth = 8.dp
     val controlInset = if (LocalDensity.current.fontScale >= 1.5f) 30.dp else 18.dp
     val scrollState = rememberScrollState()
+    LaunchedEffect(collapsed) {
+        if (collapsed) scrollState.scrollTo(0)
+    }
     var dragExpansion by remember { mutableStateOf<Float?>(null) }
     val expansion = animateFloatAsState(
         targetValue = dragExpansion ?: if (collapsed) 0f else 1f,
@@ -596,8 +599,7 @@ private fun OverviewAlertPanel(
                         val isTop = index == 0
                         val enabled = interactive && (isTop || (!collapsed && dragExpansion == null))
                         val canDragVertically = interactive &&
-                            if (isTop) collapsed || scrollState.value == 0
-                            else !collapsed && scrollState.maxValue == 0
+                            if (collapsed) isTop else !hasStackControl || scrollState.maxValue == 0
                         val gesture = if (canDragVertically) dragModifier else Modifier
                         SwipeableOverviewAlert(
                             panelVisible = enabled,

@@ -113,38 +113,3 @@ private fun cardPreviewState(): OverviewState {
         weatherLocations = mapOf(OverviewWidgetConfig.Weather().resourceKey() to weather),
         youBikeStations = mapOf(YouBikeStation.SCHOOL.id to YouBikeState(fakeYouBikeSnapshot(instant))))
 }
-
-@Preview(name = "異動顯示分工", widthDp = 390, heightDp = 1100)
-@Preview(name = "異動顯示分工深色", widthDp = 390, heightDp = 1100, uiMode = Configuration.UI_MODE_NIGHT_YES)
-@Composable
-private fun OverviewChangeOwnershipPreview(
-    @androidx.compose.ui.tooling.preview.PreviewParameter(ChangeOwnershipPreviewProvider::class) separateAlerts: Boolean,
-) {
-    val now = LocalDateTime.of(2026, 11, 11, 14, 51)
-    val report = FakeScheduleData.report("115_1", "230", scope = com.clhs.score.data.ScheduleScope.CURRENT_WEEK, today = now.toLocalDate())
-    val widgets = listOf(OverviewWidgetInstance.create("schedule")) +
-        if (separateAlerts) listOf(OverviewWidgetInstance.create("alerts")) else emptyList()
-    val state = cardPreviewState().copy(now = now, widgets = widgets,
-        hero = scheduleOverviewHero(report, now),
-        items = com.clhs.score.domain.overview.scheduleOverviewItems(report, now) +
-            com.clhs.score.domain.overview.OverviewItem("preview-grade", com.clhs.score.domain.overview.OverviewPriority.P1,
-                com.clhs.score.domain.overview.OverviewItemKind.GradeUpdate, "第一次段考成績更新", "有新的成績可查看", "成績更新", "notifications",
-                com.clhs.score.domain.overview.OverviewDestination.GradeExam("115_1", "1")))
-    ScoreTheme {
-        Surface {
-            Column(Modifier.verticalScroll(rememberScrollState()).padding(OverviewSpacing.page),
-                verticalArrangement = Arrangement.spacedBy(OverviewSpacing.cardGap)) {
-                PreviewWidget("schedule", OverviewWidgetConfig.None, OverviewWidgetSize(4, 1), state)
-                PreviewWidget("weather", OverviewWidgetConfig.Weather(), OverviewWidgetSize(4, 1), state,
-                    Modifier.fillMaxWidth().height(160.dp))
-                if (separateAlerts) state.items.filter { it.kind.isOverviewAlert() }.forEach { item ->
-                    OverviewAlertCard(item) {}
-                }
-            }
-        }
-    }
-}
-
-class ChangeOwnershipPreviewProvider : androidx.compose.ui.tooling.preview.PreviewParameterProvider<Boolean> {
-    override val values = sequenceOf(false, true)
-}
