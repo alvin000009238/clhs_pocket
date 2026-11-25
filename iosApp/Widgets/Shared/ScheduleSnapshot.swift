@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Identifiers shared by the app and its WidgetKit extension.
@@ -25,6 +26,7 @@ enum PocketPlatformID {
     }()
     static let scheduleWidgetKind = "PocketScheduleWidget"
     static let snapshotFile = "schedule-snapshot.json"
+    static let snapshotAuthorityFile = "schedule-snapshot-authority.json"
     static let refreshTask = "com.clhs.pocket.ios.refresh"
     static let scheduleLink = URL(string: "clhspocket://schedule")!
 }
@@ -179,6 +181,20 @@ extension ScheduleSnapshot {
 
 /// The dedicated App Group file. It is the only data shared with the
 /// extension; credentials, cookies and grades never leave the app sandbox.
+/// Who may show the snapshot beside it. The app writes it with every snapshot and marks it revoked
+/// at sign-out or account change before deleting anything. `account` names one sign-in on this
+/// device, never the student; the digest ties the authority to exactly one snapshot file.
+struct ScheduleSnapshotAuthority: Codable, Equatable, Sendable {
+    var account: String
+    var generation: Int
+    var revoked = false
+    var snapshotDigest: String
+
+    static func digest(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
 struct ScheduleSnapshotStore: Sendable {
     let directory: URL?
 
@@ -187,6 +203,9 @@ struct ScheduleSnapshotStore: Sendable {
     )
 
     private var fileURL: URL? { directory?.appendingPathComponent(PocketPlatformID.snapshotFile) }
+    private var authorityURL: URL? { directory?.appendingPathComponent(PocketPlatformID.snapshotAuthorityFile) }
+    // Readable by the widget while locked, but only after the first unlock.
+    private static let protection: Data.WritingOptions = [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
 
     func loadData() -> Data? {
         fileURL.flatMap { try? Data(contentsOf: $0) }
@@ -196,16 +215,44 @@ struct ScheduleSnapshotStore: Sendable {
         loadData().flatMap(ScheduleSnapshot.decode)
     }
 
-    func save(json: String) throws {
-        guard let fileURL else { throw CocoaError(.fileNoSuchFile) }
-        // Readable by the widget while locked, but only after the first unlock.
-        try Data(json.utf8).write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    func loadAuthority() -> ScheduleSnapshotAuthority? {
+        authorityURL.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode(ScheduleSnapshotAuthority.self, from: $0) }
+    }
+
+    /// What the widget may show: the snapshot only while a current authority vouches for this very file.
+    func loadAuthorized() -> ScheduleSnapshot? {
+        guard let data = loadData(), let authority = loadAuthority(), !authority.revoked, !authority.account.isEmpty,
+              authority.snapshotDigest == ScheduleSnapshotAuthority.digest(data) else { return nil }
+        return ScheduleSnapshot.decode(data)
+    }
+
+    /// The widget's glance: the signed-out empty state unless the snapshot is authorized.
+    func authorizedGlance(at date: Date) -> ScheduleGlance {
+        loadAuthorized()?.glance(at: date) ?? ScheduleGlance(state: .empty, date: date)
+    }
+
+    func save(json: String, account: String, generation: Int) throws {
+        guard let fileURL, let authorityURL else { throw CocoaError(.fileNoSuchFile) }
+        let data = Data(json.utf8)
+        // The previous authority does not vouch for the new file, so a failure in between shows nothing.
+        try data.write(to: fileURL, options: Self.protection)
+        let authority = ScheduleSnapshotAuthority(account: account, generation: generation, snapshotDigest: ScheduleSnapshotAuthority.digest(data))
+        try JSONEncoder().encode(authority).write(to: authorityURL, options: Self.protection)
+    }
+
+    /// Marks the authority revoked by rewriting the file in place, which also works where the
+    /// snapshot itself cannot be removed.
+    func revoke() throws {
+        guard let authorityURL, var authority = loadAuthority(), !authority.revoked else { return }
+        authority.revoked = true
+        try JSONEncoder().encode(authority).write(to: authorityURL)
     }
 
     /// Throws when the file exists but cannot be removed, so privacy cleanup
     /// is never reported as successful by mistake.
     func clear() throws {
-        guard let fileURL, FileManager.default.fileExists(atPath: fileURL.path) else { return }
-        try FileManager.default.removeItem(at: fileURL)
+        for url in [fileURL, authorityURL].compactMap({ $0 }) where FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
     }
 }

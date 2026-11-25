@@ -45,24 +45,26 @@ struct ScheduleEntry: TimelineEntry {
     let glance: ScheduleGlance
 }
 
-/// Reads the App Group snapshot and nothing else: no network, Keychain or
-/// shared defaults. Entries fall on the boundaries the shared resolver chose.
+/// Reads the App Group snapshot and its authority metadata and nothing else: no network, Keychain
+/// or shared defaults. Without a current authority it shows the signed-out empty state.
+/// Entries fall on the boundaries the shared resolver chose.
 struct ScheduleTimelineProvider: TimelineProvider {
     var store = ScheduleSnapshotStore.shared
 
     func placeholder(in context: Context) -> ScheduleEntry {
-        ScheduleEntry(date: .now, glance: ScheduleSnapshot.sample().glance(at: .now))
+        ScheduleEntry(date: .now, glance: store.authorizedGlance(at: .now))
     }
 
     func getSnapshot(in context: Context, completion: @escaping (ScheduleEntry) -> Void) {
         let now = Date()
-        let snapshot = context.isPreview ? ScheduleSnapshot.sample(now: now) : store.load()
-        completion(ScheduleEntry(date: now, glance: snapshot?.glance(at: now) ?? ScheduleGlance(state: .empty, date: now)))
+        // The gallery preview shows made-up lessons, never the student's.
+        let glance = context.isPreview ? ScheduleSnapshot.sample(now: now).glance(at: now) : store.authorizedGlance(at: now)
+        completion(ScheduleEntry(date: now, glance: glance))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<ScheduleEntry>) -> Void) {
         let now = Date()
-        guard let snapshot = store.load() else {
+        guard let snapshot = store.loadAuthorized() else {
             // The app reloads timelines whenever it publishes or clears the snapshot.
             completion(Timeline(entries: [ScheduleEntry(date: now, glance: ScheduleGlance(state: .empty, date: now))], policy: .never))
             return
