@@ -380,6 +380,22 @@ final class PlatformTests: XCTestCase {
             coordinator.store = savedStore
         }
         coordinator.store = ScheduleSnapshotStore(directory: directory)
+        let settings = coordinator.settings
+        let savedNotifications = settings.notificationsEnabled
+        let seenKey = PocketNotificationCenter.seenAnnouncementsKey
+        let savedSeen = UserDefaults.standard.stringArray(forKey: seenKey)
+        defer {
+            settings.notificationsEnabled = savedNotifications
+            UserDefaults.standard.set(savedSeen, forKey: seenKey)
+        }
+        settings.notificationsEnabled = false
+        UserDefaults.standard.set(["a"], forKey: seenKey)
+
+        // A sign-out keeps the public announcement baseline; delete-all, below, does not.
+        await coordinator.sessionChanged(signedIn: true)
+        await coordinator.sessionChanged(signedIn: false)
+        XCTAssertEqual(UserDefaults.standard.stringArray(forKey: seenKey), ["a"], "sign-out keeps the public baseline")
+
         try coordinator.store.save(json: demoJSON(at: lessonTime), account: "a", generation: 1)
         await coordinator.sessionChanged(signedIn: true)
 
@@ -392,6 +408,7 @@ final class PlatformTests: XCTestCase {
         XCTAssertFalse(coordinator.isSignedIn, "the session ends even when the cleanup is incomplete")
         XCTAssertNotNil(coordinator.store.loadData())
         XCTAssertNil(coordinator.store.loadAuthorized(), "the widget stops showing it: revoked before deletion")
+        XCTAssertNil(UserDefaults.standard.stringArray(forKey: seenKey), "delete-all leaves no announcement baseline")
 
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         try await coordinator.endSessionAndClear()
