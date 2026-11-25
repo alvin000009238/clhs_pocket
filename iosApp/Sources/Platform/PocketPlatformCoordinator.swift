@@ -37,6 +37,11 @@ final class PocketPlatformCoordinator: NSObject {
     private(set) var isSignedIn: Bool {
         get { defaults.bool(forKey: Self.signedInKey) }
         set {
+            // Each sign-in is a new widget authority: what an earlier session wrote is not vouched for.
+            if newValue, !defaults.bool(forKey: Self.signedInKey) {
+                defaults.set(UUID().uuidString, forKey: Self.snapshotAccountKey)
+                defaults.set(defaults.integer(forKey: Self.snapshotGenerationKey) + 1, forKey: Self.snapshotGenerationKey)
+            }
             defaults.set(newValue, forKey: Self.signedInKey)
             if newValue { defaults.removeObject(forKey: Self.guestClearedKey) }
         }
@@ -46,6 +51,21 @@ final class PocketPlatformCoordinator: NSObject {
     /// Set once a guest's device has been cleared of the last session's data, so later guest
     /// refreshes keep the announcement baseline and delivered alerts.
     private static let guestClearedKey = "platform.guestCleared"
+    private static let snapshotAccountKey = "platform.snapshotAccount"
+    private static let snapshotGenerationKey = "platform.snapshotGeneration"
+
+    /// Names the current sign-in in the widget's authority metadata; a random value, never the student.
+    private var snapshotAccount: String {
+        if let account = defaults.string(forKey: Self.snapshotAccountKey) { return account }
+        let account = UUID().uuidString
+        defaults.set(account, forKey: Self.snapshotAccountKey)
+        return account
+    }
+
+    private func publish(_ json: String) {
+        try? store.save(json: json, account: snapshotAccount, generation: defaults.integer(forKey: Self.snapshotGenerationKey))
+        WidgetCenter.shared.reloadAllTimelines()
+    }
 
     /// Bumped on every sign-in or sign-out so an in-flight refresh can tell it is stale.
     private var sessionGeneration = 0
@@ -191,13 +211,14 @@ final class PocketPlatformCoordinator: NSObject {
         let (change, json) = snapshot.resolved(stored: store.loadData(), now: deviceNow)
         switch change {
         case let .save(json):
-            try? store.save(json: json)
-            WidgetCenter.shared.reloadAllTimelines()
+            publish(json)
         case .clear:
             try? store.clear()
             WidgetCenter.shared.reloadAllTimelines()
         case .keep:
-            break
+            // The student's own unchanged timetable without current authority (written by an
+            // older version, or revoked mid-write) is vouched for again.
+            if case .available = snapshot, let json, store.loadAuthorized() == nil { publish(json) }
         }
         // With the timetable unknown and nothing valid stored, the reminders already scheduled stay.
         let plansFromSnapshot = snapshot != .unknown || json != nil
@@ -226,6 +247,8 @@ final class PocketPlatformCoordinator: NSObject {
     /// Everything else is still removed when the snapshot cannot be deleted, and that failure is
     /// thrown: privacy cleanup is never reported as done when the widget file is still there.
     func clearSessionData() async throws {
+        // Revoked first: the widget stops showing the lessons even if the file cannot be deleted.
+        try? store.revoke()
         let snapshot = Result { try store.clear() }
         WidgetCenter.shared.reloadAllTimelines()
         await notifications.removeEverything()
