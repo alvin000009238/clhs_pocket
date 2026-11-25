@@ -7,14 +7,9 @@ import com.clhs.score.ui.PocketOverflowMenuItem
 
 import com.clhs.score.ui.navigation.navigationContentPadding
 
-import android.text.Html
-import android.text.Spannable
-import android.text.SpannableString
-import android.text.method.LinkMovementMethod
-import android.text.style.ClickableSpan
-import android.text.style.URLSpan
-import android.view.View
-import android.widget.TextView
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -37,11 +32,13 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -60,6 +57,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -80,6 +78,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -95,11 +94,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
@@ -107,8 +109,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.fromHtml
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.clhs.score.R
 import com.clhs.score.data.ALL_UNITS_ID
 import com.clhs.score.data.AnnouncementBookmark
 import com.clhs.score.data.SchoolAnnouncement
@@ -896,6 +905,9 @@ fun SchoolAnnouncementDetailScreen(
     isBookmarked: Boolean = false,
     onToggleBookmark: () -> Unit = {},
 ) {
+    val context = LocalContext.current
+    val announcementUrl = uiState.detail?.officialUrl ?: officialUrl
+    val shareUrl = safeAnnouncementWebUrl(announcementUrl)
     FloatingSubpageLayout(
         onBack = onBack,
         actions = {
@@ -903,19 +915,52 @@ fun SchoolAnnouncementDetailScreen(
                 OutlinedRoundedSymbol(if (isBookmarked) "bookmark_added" else "bookmark_add",
                     contentDescription = if (isBookmarked) "取消收藏公告" else "收藏公告")
             }
-            IconButton(onClick = { onOpenUrl(uiState.detail?.officialUrl ?: officialUrl) }) {
-                Icon(androidx.compose.ui.res.painterResource(com.clhs.score.R.drawable.ic_open_original),
-                    contentDescription = "查看原文")
+            IconButton(
+                enabled = shareUrl != null,
+                onClick = {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, shareUrl)
+                    }
+                    try {
+                        context.startActivity(Intent.createChooser(send, null))
+                    } catch (_: ActivityNotFoundException) {
+                        Toast.makeText(context, "暫時無法分享公告", Toast.LENGTH_SHORT).show()
+                    }
+                },
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_share_announcement),
+                    contentDescription = "分享公告連結",
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            IconButton(onClick = { onOpenUrl(announcementUrl) }) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_open_original),
+                    contentDescription = "查看原文",
+                    modifier = Modifier.size(22.dp),
+                )
             }
         },
     ) { pagePadding ->
+        val contentPadding = readingContentPadding(
+            navigationContentPadding(
+                PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = pagePadding.calculateTopPadding() + 8.dp,
+                    bottom = 16.dp,
+                ),
+            ),
+        )
         when {
-            uiState.isLoading -> Box(Modifier.padding(top = pagePadding.calculateTopPadding())) { AnnouncementDetailLoading() }
-            uiState.detail != null -> AnnouncementDetailContent(uiState.detail, onOpenUrl, onOpenExternal, pagePadding)
+            uiState.isLoading -> AnnouncementDetailLoading(contentPadding)
+            uiState.detail != null -> AnnouncementDetailContent(uiState.detail, onOpenUrl, onOpenExternal, contentPadding)
             else -> AnnouncementMessageState(
                 message = uiState.errorMessage ?: "請稍後再試一次。",
                 onAction = onRetry,
-                onOpenOfficialWebsite = { onOpenUrl(officialUrl) },
+                onOpenOfficialWebsite = { onOpenUrl(announcementUrl) },
             )
         }
     }
@@ -926,73 +971,70 @@ private fun AnnouncementDetailContent(
     detail: SchoolAnnouncementDetail,
     onOpenUrl: (String) -> Unit,
     onOpenExternal: (SchoolAnnouncementDetail) -> Unit,
-    pagePadding: PaddingValues,
+    contentPadding: PaddingValues,
 ) {
-    LazyColumn(
+    SelectionContainer(
         modifier = Modifier
             .fillMaxSize()
             .navigationBarsPadding(),
-        contentPadding = readingContentPadding(navigationContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, bottom = 16.dp))),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "detail-header") { AnnouncementDetailHeader(detail) }
-        if (detail.isExternal) {
-            item(key = "detail-external") {
-                FilledTonalButton(onClick = { onOpenExternal(detail) }) {
-                    Text("開啟公告連結")
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(contentPadding),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            AnnouncementDetailHeader(detail)
+            if (detail.isExternal) {
+                DisableSelection {
+                    FilledTonalButton(onClick = { onOpenExternal(detail) }) {
+                        Text("開啟公告連結")
+                    }
                 }
             }
-        }
-        if (detail.htmlContent.isNotBlank()) {
-            item(key = "detail-article") { AnnouncementHtml(detail.htmlContent, onOpenUrl) }
-        }
-        items(detail.images, key = SchoolAnnouncementImage::url) { image ->
-            AnnouncementImageCard(image, onOpenUrl)
-        }
-        if (detail.attachments.isNotEmpty()) {
-            item(key = "attachment-heading") {
-                Text(
-                    text = "附件",
-                    modifier = Modifier.padding(top = 8.dp, start = 4.dp),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
+            if (detail.htmlContent.isNotBlank()) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                AnnouncementHtml(detail.htmlContent, onOpenUrl)
             }
-            items(detail.attachments, key = SchoolAnnouncementAttachment::url) { attachment ->
-                AnnouncementAttachmentButton(attachment, onOpenUrl)
+            detail.images.forEach { image ->
+                key(image.url) { AnnouncementImage(image, onOpenUrl) }
+            }
+            if (detail.attachments.isNotEmpty()) {
+                DisableSelection { AnnouncementAttachments(detail.attachments, onOpenUrl) }
             }
         }
-
     }
 }
 
 @Composable
 private fun AnnouncementDetailHeader(detail: SchoolAnnouncementDetail) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.largeIncreased,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = detail.title,
+            modifier = Modifier.semantics { heading() },
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(
-                text = detail.title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            val metadata = listOf(detail.category, detail.date, detail.unit, detail.issuer)
+            if (detail.category.isNotBlank()) {
+                Box(Modifier.align(Alignment.CenterVertically)) {
+                    AnnouncementBadge(detail.category)
+                }
+            }
+            val date = detail.date.replace(announcementDateTimePattern, "$1/$2/$3 $4")
+            val metadata = listOf(detail.issuer.ifBlank { detail.unit }, date)
                 .filter(String::isNotBlank)
                 .joinToString(" · ")
             if (metadata.isNotBlank()) {
                 Text(
                     text = metadata,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                    modifier = Modifier.align(Alignment.CenterVertically),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -1001,111 +1043,140 @@ private fun AnnouncementDetailHeader(detail: SchoolAnnouncementDetail) {
 
 @Composable
 private fun AnnouncementHtml(html: String, onOpenUrl: (String) -> Unit) {
-    val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
-    val linkColor = MaterialTheme.colorScheme.primary.toArgb()
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-    ) {
-        AndroidView(
-            factory = { context ->
-                TextView(context).apply {
-                    movementMethod = LinkMovementMethod.getInstance()
-                    linksClickable = true
-                    textSize = 16f
-                    setLineSpacing(0f, 1.25f)
-                }
+    val linkColor = MaterialTheme.colorScheme.primary
+    val openUrl by rememberUpdatedState(onOpenUrl)
+    val article = remember(html, linkColor) {
+        val formatted = AnnotatedString.fromHtml(
+            htmlString = html,
+            linkStyles = TextLinkStyles(
+                style = SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline),
+            ),
+            linkInteractionListener = { link ->
+                if (link is LinkAnnotation.Url) openUrl(link.url)
             },
+        ).flatMapAnnotations { range ->
+            val link = range.item as? LinkAnnotation.Url ?: return@flatMapAnnotations listOf(range)
+            val url = safeAnnouncementWebUrl(link.url) ?: return@flatMapAnnotations emptyList()
+            listOf(AnnotatedString.Range(link.copy(url = url), range.start, range.end, range.tag))
+        }
+        formatted.subSequence(0, formatted.text.trimEnd('\n').length)
+    }
+    Text(
+        text = article,
+        modifier = Modifier.fillMaxWidth(),
+        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp),
+    )
+}
+
+@Composable
+private fun AnnouncementImage(image: SchoolAnnouncementImage, onOpenUrl: (String) -> Unit) {
+    var failed by remember(image.url) { mutableStateOf(false) }
+    if (!image.canPreview) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "外部圖片未自動載入",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = { onOpenUrl(image.url) }) { Text("開啟圖片") }
+        }
+    } else if (failed) {
+        Text(
+            text = "圖片暫時無法載入",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    } else {
+        AsyncImage(
+            model = image.url,
+            contentDescription = image.description,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            update = { textView ->
-                textView.setTextColor(textColor)
-                textView.setLinkTextColor(linkColor)
-                textView.text = linkedHtml(html, linkColor, onOpenUrl)
-            },
+                .heightIn(min = 120.dp, max = 480.dp)
+                .clip(MaterialTheme.shapes.medium)
+                .clickable(onClickLabel = "開啟原圖") { onOpenUrl(image.url) },
+            contentScale = ContentScale.Fit,
+            onError = { failed = true },
         )
     }
 }
 
 @Composable
-private fun AnnouncementImageCard(image: SchoolAnnouncementImage, onOpenUrl: (String) -> Unit) {
-    var failed by remember(image.url) { mutableStateOf(false) }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-    ) {
-        if (!image.canPreview) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = "外部圖片未自動載入",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                FilledTonalButton(
-                    onClick = { onOpenUrl(image.url) },
-                    shapes = ButtonDefaults.shapes(),
-                ) {
-                    Text("開啟圖片")
+private fun AnnouncementAttachments(
+    attachments: List<SchoolAnnouncementAttachment>,
+    onOpenUrl: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "附件",
+            modifier = Modifier.semantics { heading() },
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            Column {
+                attachments.forEachIndexed { index, attachment ->
+                    if (index > 0) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 64.dp, end = 12.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                        )
+                    }
+                    AnnouncementAttachmentRow(attachment, onOpenUrl)
                 }
             }
-        } else if (failed) {
-            Text(
-                text = "圖片暫時無法載入",
-                modifier = Modifier.padding(20.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            AsyncImage(
-                model = image.url,
-                contentDescription = image.description,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 120.dp, max = 480.dp)
-                    .clickable(onClickLabel = "開啟原圖") { onOpenUrl(image.url) },
-                contentScale = ContentScale.Fit,
-                onError = { failed = true },
-            )
         }
     }
 }
 
 @Composable
-private fun AnnouncementAttachmentButton(
+private fun AnnouncementAttachmentRow(
     attachment: SchoolAnnouncementAttachment,
     onOpenUrl: (String) -> Unit,
 ) {
-    FilledTonalButton(
-        onClick = { onOpenUrl(attachment.url) },
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        shapes = ButtonDefaults.shapes(),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClickLabel = "開啟附件", role = Role.Button) { onOpenUrl(attachment.url) }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        OutlinedRoundedSymbol(icon = "arrow_outward", size = 24.dp, contentDescription = null)
-        Column(
+        Icon(
+            painter = painterResource(R.drawable.ic_announcement_attachment),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimaryContainer,
             modifier = Modifier
-                .weight(1f)
-                .padding(start = 12.dp),
-            horizontalAlignment = Alignment.Start,
-        ) {
+                .size(40.dp)
+                .clip(MaterialTheme.shapes.medium)
+                .background(MaterialTheme.colorScheme.primaryContainer)
+                .padding(9.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = attachment.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             attachment.sizeBytes?.let { size ->
                 Text(
                     text = formatFileSize(size),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
+        OutlinedRoundedSymbol(
+            icon = "arrow_outward",
+            size = 20.dp,
+            tint = MaterialTheme.colorScheme.primary,
+        )
     }
 }
 
@@ -1193,42 +1264,73 @@ private fun AnnouncementsLoadingList() {
     )
     {
         repeat(5) {
-            AnnouncementLoadingBlock(112.dp, shimmerProgress = shimmerProgress)
+            AnnouncementLoadingBlock(
+                height = 112.dp,
+                shimmerProgress = shimmerProgress,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
 
 @Composable
-private fun AnnouncementDetailLoading() {
+private fun AnnouncementDetailLoading(contentPadding: PaddingValues) {
     val shimmerProgress = rememberLoadingShimmerProgress("announcement-detail-loading-shimmer")
     Column(
         modifier = Modifier
             .fillMaxSize()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(contentPadding)
             .semantics { contentDescription = "正在載入公告內容" },
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        AnnouncementLoadingBlock(
-            height = 180.dp,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shimmerProgress = shimmerProgress,
-            shape = MaterialTheme.shapes.largeIncreased,
-        )
-        AnnouncementLoadingBlock(260.dp, shimmerProgress = shimmerProgress)
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            AnnouncementLoadingBlock(
+                height = 28.dp,
+                shimmerProgress = shimmerProgress,
+                modifier = Modifier.fillMaxWidth(0.86f),
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AnnouncementLoadingBlock(
+                    height = 26.dp,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    shimmerProgress = shimmerProgress,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.width(42.dp),
+                )
+                AnnouncementLoadingBlock(
+                    height = 12.dp,
+                    shimmerProgress = shimmerProgress,
+                    modifier = Modifier.fillMaxWidth(0.55f),
+                )
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            for (widthFraction in listOf(1f, 0.94f, 0.68f, 0.98f, 0.77f)) {
+                AnnouncementLoadingBlock(
+                    height = 12.dp,
+                    shimmerProgress = shimmerProgress,
+                    modifier = Modifier.fillMaxWidth(widthFraction),
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun AnnouncementLoadingBlock(
     height: Dp,
-    color: Color = MaterialTheme.colorScheme.surfaceContainer,
     shimmerProgress: State<Float>,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.surfaceContainer,
     shape: Shape = MaterialTheme.shapes.large,
 ) {
     Spacer(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .height(height)
             .clip(shape)
             .background(color)
@@ -1249,31 +1351,7 @@ private fun AnnouncementLoadingBlock(
     )
 }
 
-private fun linkedHtml(html: String, linkColor: Int, onOpenUrl: (String) -> Unit): SpannableString {
-    val source = Html.fromHtml(html, Html.FROM_HTML_MODE_COMPACT)
-    val result = SpannableString(source)
-    source.getSpans(0, source.length, URLSpan::class.java).forEach { span ->
-        val start = source.getSpanStart(span)
-        val end = source.getSpanEnd(span)
-        val flags = source.getSpanFlags(span)
-        result.removeSpan(span)
-        val safeUrl = safeAnnouncementWebUrl(span.url) ?: return@forEach
-        result.setSpan(
-            object : ClickableSpan() {
-                override fun onClick(widget: View) = onOpenUrl(safeUrl)
-
-                override fun updateDrawState(drawState: android.text.TextPaint) {
-                    drawState.color = linkColor
-                    drawState.isUnderlineText = true
-                }
-            },
-            start,
-            end,
-            flags.takeIf { it != 0 } ?: Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
-        )
-    }
-    return result
-}
+private val announcementDateTimePattern = Regex("""^(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2}):\d{2}$""")
 
 private fun formatFileSize(bytes: Long): String = when {
     bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))

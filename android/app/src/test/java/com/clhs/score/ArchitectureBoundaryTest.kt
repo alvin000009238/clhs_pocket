@@ -614,26 +614,15 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    fun announcementDetailLoadingKeepsTheHeaderCornerShape() {
+    fun announcementDetailKeepsSelectableContentInOneScrollContainer() {
         val source = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
-        val detailLoading = source.substringAfter("private fun AnnouncementDetailLoading()")
-            .substringBefore("private fun AnnouncementLoadingBlock(")
-
-        assertTrue(detailLoading.contains("shape = MaterialTheme.shapes.largeIncreased"))
-    }
-
-    @Test
-    fun announcementHtmlLinksRemainClickable() {
-        val source = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
-        val textViewSetup = source.substringAfter("TextView(context).apply {")
-            .substringBefore("textSize = 16f")
-
-        assertTrue(textViewSetup.contains("movementMethod = LinkMovementMethod.getInstance()"))
-        assertTrue(textViewSetup.contains("linksClickable = true"))
-        assertFalse(
-            "Text selection replaces LinkMovementMethod and makes announcement links unclickable",
-            textViewSetup.contains("setTextIsSelectable(true)"),
-        )
+        val detail = source.substringAfter("private fun AnnouncementDetailContent(")
+            .substringBefore("private fun AnnouncementDetailHeader(")
+        val selection = detail.indexOf("SelectionContainer(")
+        val scroll = detail.indexOf(".verticalScroll(")
+        val article = detail.indexOf("AnnouncementHtml(")
+        assertTrue(selection >= 0 && selection < scroll && scroll < article)
+        assertFalse(detail.contains("LazyColumn("))
     }
 
     @Test
