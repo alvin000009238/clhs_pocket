@@ -38,9 +38,11 @@ final class PlatformSettings {
         didSet {
             defaults.set(announcementUnitIds, forKey: Key.announcementUnits)
             // The seen list belongs to the old units; the next check records a new one instead of
-            // announcing the other units' earlier posts as new.
+            // announcing the other units' earlier posts as new. That check is due at once, as Android
+            // records the new baseline right away: posts published before it are not news later.
             if announcementUnitIds != oldValue {
                 defaults.removeObject(forKey: PocketNotificationCenter.seenAnnouncementsKey)
+                announcementLastCheck = nil
             }
         }
     }
