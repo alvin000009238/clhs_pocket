@@ -5,14 +5,20 @@ import com.clhs.score.viewmodel.AnnouncementBookmarksUiState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.tooling.preview.PreviewParameterProvider
 import androidx.compose.ui.unit.dp
+import coil3.ColorImage
+import coil3.annotation.ExperimentalCoilApi
+import coil3.compose.AsyncImagePreviewHandler
+import coil3.compose.LocalAsyncImagePreviewHandler
 import com.clhs.score.data.AppSettings
 import com.clhs.score.data.FakeData
 import com.clhs.score.data.MockGradeSystem
+import com.clhs.score.data.SchoolAnnouncementImage
 import com.clhs.score.data.StudentScenario
 import com.clhs.score.data.buildGradeAnalysis
 import com.clhs.score.data.buildGradeTrend
@@ -219,6 +225,37 @@ private fun SchoolAnnouncementTablePreview() {
             onOpenUrl = {},
             officialUrl = detail.officialUrl,
         )
+    }
+}
+
+@OptIn(ExperimentalCoilApi::class)
+@Preview(name = "Announcement image below viewport", widthDp = 390, heightDp = 180)
+@Preview(name = "Announcement image in viewport", widthDp = 390, heightDp = 650)
+@Composable
+private fun SchoolAnnouncementImagePreview() {
+    val detail = FakeData.announcementDetail.copy(
+        images = listOf(
+            SchoolAnnouncementImage(
+                url = "https://example.invalid/announcement.png",
+                description = "示範公告圖片",
+                canPreview = true,
+            ),
+        ),
+    )
+    CompositionLocalProvider(
+        LocalAsyncImagePreviewHandler provides AsyncImagePreviewHandler {
+            ColorImage(color = 0xFF46799C.toInt(), width = 640, height = 360)
+        },
+    ) {
+        ScoreTheme {
+            com.clhs.score.ui.announcements.SchoolAnnouncementDetailScreen(
+                uiState = SchoolAnnouncementDetailUiState(isLoading = false, detail = detail),
+                onBack = {},
+                onRetry = {},
+                onOpenUrl = {},
+                officialUrl = detail.officialUrl,
+            )
+        }
     }
 }
 

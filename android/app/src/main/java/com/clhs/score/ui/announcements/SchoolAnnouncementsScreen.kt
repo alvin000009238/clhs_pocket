@@ -1267,14 +1267,7 @@ private fun AnnouncementHtml(html: String, onOpenUrl: (String) -> Unit) {
             linkStyles = TextLinkStyles(
                 style = SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline),
             ),
-            linkInteractionListener = { link ->
-                if (link is LinkAnnotation.Url) openUrl(link.url)
-            },
-        ).flatMapAnnotations { range ->
-            val link = range.item as? LinkAnnotation.Url ?: return@flatMapAnnotations listOf(range)
-            val url = safeAnnouncementWebUrl(link.url) ?: return@flatMapAnnotations emptyList()
-            listOf(AnnotatedString.Range(link.copy(url = url), range.start, range.end, range.tag))
-        }
+        ).withAnnouncementLinks { openUrl(it) }
         formatted.subSequence(0, formatted.text.trimEnd('\n').length)
     }
     Text(
@@ -1283,6 +1276,14 @@ private fun AnnouncementHtml(html: String, onOpenUrl: (String) -> Unit) {
         style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp),
     )
 }
+
+internal fun AnnotatedString.withAnnouncementLinks(onOpenUrl: (String) -> Unit): AnnotatedString =
+    flatMapAnnotations { range ->
+        val link = range.item as? LinkAnnotation.Url ?: return@flatMapAnnotations listOf(range)
+        val url = safeAnnouncementWebUrl(link.url) ?: return@flatMapAnnotations emptyList()
+        val clickable = link.copy(url = url, linkInteractionListener = { onOpenUrl(url) })
+        listOf(AnnotatedString.Range(clickable, range.start, range.end, range.tag))
+    }
 
 private fun announcementHtmlWithReadableSpacing(html: String): String {
     val document = Jsoup.parseBodyFragment(html)
