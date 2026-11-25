@@ -5,6 +5,8 @@ on:
     branches: [main, dev]
     paths:
       - 'android/shared/**'
+      # Bundled into the iOS app as the weather location catalogue.
+      - 'android/app/src/main/assets/weather_locations.json'
       - 'android/settings.gradle.kts'
       - 'android/build.gradle.kts'
       - 'android/gradle.properties'
