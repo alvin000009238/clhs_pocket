@@ -230,6 +230,26 @@ object FakeData {
     const val CURRENT_YEAR_VALUE = "114_1"
     const val CURRENT_EXAM_VALUE = "114_1_E4"
 
+    val overviewGradeReminder: GradeReminderState = GradeReminderState(
+        studentNo = session.studentNo,
+        latestChangeSet = GradeChangeSet(
+            studentNo = session.studentNo,
+            yearValue = "114_1",
+            examValue = "114_1_E1",
+            examName = "第一次段考",
+            checkedAtMillis = 0L,
+            changes = listOf(
+                GradeChange(
+                    targetName = "國文",
+                    subjectName = "國文",
+                    field = GradeChangeField.SUBJECT_SCORE,
+                    oldValue = "70",
+                    newValue = "72",
+                ),
+            ),
+        ),
+    )
+
     val announcementPage = SchoolAnnouncementPage(
         announcements = listOf(
             SchoolAnnouncement(
@@ -629,10 +649,12 @@ object FakeScheduleData {
         val weekItems = semesterReport.items
             .filterNot { it.dayOfWeek == 1 && it.period == 4 }
             .map { item ->
-                if (item.dayOfWeek == 2 && item.period == 3) {
-                    item.copy(subjectName = "數學", teacherName = "李四", classroom = "高二31")
-                } else {
-                    item
+                when {
+                    item.dayOfWeek == 2 && item.period == 3 ->
+                        item.copy(subjectName = "數學", teacherName = "李四", classroom = "高二31")
+                    item.dayOfWeek == 4 && item.period == 6 -> item.copy(classroom = "專題教室")
+                    item.dayOfWeek == 5 && item.period == 8 -> item.copy(classroom = "實驗室")
+                    else -> item
                 }
             } + ScheduleItem(
                 dayOfWeek = 3,

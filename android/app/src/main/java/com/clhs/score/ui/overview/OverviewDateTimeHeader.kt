@@ -74,7 +74,7 @@ internal fun OverviewDateTimeHeader(
     val animated by animateFloatAsState(if (docked || forceCompact) 1f else 0f,
         spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
         label = "date-card-morph")
-    val fraction = if (forceCompact) 1f else animated.coerceIn(0f, 1f)
+    val fraction = animated.coerceIn(0f, 1f)
     val headerScroll = with(density) { scrollOffset.toDp() }.coerceIn(0.dp, travel)
     val height = lerp(expandedHeight, compactHeight, fraction)
     val width = lerp(expandedWidth, dockWidth, fraction)
@@ -102,6 +102,7 @@ internal fun OverviewDateTimeHeader(
     val compactLeft = with(density) { (dockWidth.toPx() - compactLayout.size.width).toDp() / 2 }
     val prefixWidth = with(density) { compactLayout.getHorizontalPosition(compactPrefix.length, true).toDp() }
     val timeWidth = with(density) { expandedTime.size.width.toDp() }
+    val stacked = expandedWidth - timeWidth < 152.dp * density.fontScale
     val headerShape = RoundedCornerShape(lerp(28.dp, height / 2, fraction))
     Surface(
         modifier = Modifier.offset(lerp(expandedLeft, 16.dp, fraction),
@@ -115,13 +116,14 @@ internal fun OverviewDateTimeHeader(
             // Keep one clock throughout the morph; swapping faded text changes its position mid-flight.
             Text(time,
                 modifier = Modifier.offset(lerp(20.dp, compactLeft + prefixWidth, fraction),
-                    (height - with(density) { timeLayout.size.height.toDp() }) / 2)
+                    lerp(if (stacked) 0.dp else (expandedHeight - with(density) { expandedTime.size.height.toDp() }) / 2,
+                        (compactHeight - with(density) { compactLayout.size.height.toDp() }) / 2, fraction))
                     .requiredSize(with(density) { timeLayout.size.width.toDp() },
                         with(density) { timeLayout.size.height.toDp() }),
                 style = timeStyle, color = MaterialTheme.colorScheme.primary, maxLines = 1)
-            Column(Modifier.offset { IntOffset((timeWidth + 40.dp).roundToPx(),
-                ((expandedHeight - 46.dp * density.fontScale) / 2).roundToPx()) }
-                .width((expandedWidth - timeWidth - 60.dp).coerceAtLeast(1.dp)).alpha((1f - fraction * 2).coerceAtLeast(0f)),
+            Column(Modifier.offset { IntOffset((if (stacked) 20.dp else timeWidth + 40.dp).roundToPx(),
+                (if (stacked) expandedHeight - 48.dp * density.fontScale else (expandedHeight - 46.dp * density.fontScale) / 2).roundToPx()) }
+                .width((expandedWidth - if (stacked) 40.dp else timeWidth + 60.dp).coerceAtLeast(1.dp)).alpha((1f - fraction * 2).coerceAtLeast(0f)),
                 verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(date, style = MaterialTheme.typography.titleMedium, maxLines = 2)
                 Text(weekday, style = MaterialTheme.typography.bodyMedium,

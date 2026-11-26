@@ -13,7 +13,6 @@ import com.clhs.score.data.ScheduleItem
 import com.clhs.score.data.ScheduleReport
 import com.clhs.score.data.ScheduleRepository
 import com.clhs.score.data.ScheduleScope
-import com.clhs.score.data.displayChanges
 import com.clhs.score.data.displayItems
 import com.clhs.score.data.SchoolAnnouncementPage
 import com.clhs.score.data.SchoolAnnouncement
@@ -136,9 +135,19 @@ class OverviewCoordinator(
             (it.config() as? OverviewWidgetConfig.YouBike)?.station
         }.distinctBy(YouBikeStation::id) }.distinctUntilChanged()
         val bikeStates = youBikeRepository?.observeStations(stations, youBikeEnabled, youBikeRefreshes) ?: flowOf(emptyMap())
+        val countdownBoundaries = widgets.map { instances ->
+            val configs = instances.filter { it.enabled }.map { it.config() }
+            OverviewClockTargets(
+                eventIds = configs.filterIsInstance<OverviewWidgetConfig.SchoolEvent>().map { it.eventId }.toSet(),
+                customDeadlines = configs.filterIsInstance<OverviewWidgetConfig.CustomCountdown>().mapNotNull { config ->
+                    runCatching { LocalDate.parse(config.date).atTime(config.time?.let(LocalTime::parse) ?: LocalTime.MIDNIGHT) }.getOrNull()
+                },
+            )
+        }.distinctUntilChanged()
         val baseStates = observeLegacy(
             refreshes, session, clockEnabled, youBikeEnabled, youBikeRefreshes,
             legacyPublic = false, announcementRefreshes = announcementRefreshes,
+            countdownBoundaries = countdownBoundaries,
         )
         return combine(baseStates, widgets, weatherStates, bikeStates) { base, layout, weather, bikes ->
             base.copy(widgets = layout, weatherLocations = weather.first, manuallyRefreshingWeatherKeys = weather.second, youBikeStations = bikes,
@@ -159,7 +168,8 @@ class OverviewCoordinator(
         youBikeRefreshes: Flow<Unit> = flowOf(Unit),
         legacyPublic: Boolean = true,
         announcementRefreshes: Flow<Unit>,
-    ): Flow<OverviewState> = merge(
+        countdownBoundaries: Flow<OverviewClockTargets> = flowOf(OverviewClockTargets()),
+    ): Flow<OverviewState> = combine(merge(
         refreshes.flatMapLatest {
             merge(
                 if (session != null) scheduleUpdates(session) else flowOf(OverviewUpdate.Schedule(null, false, false)),
@@ -171,13 +181,19 @@ class OverviewCoordinator(
         if (session != null) gradeUpdates(session.studentNo) else flowOf(OverviewUpdate.Grades(GradeReminderState())),
         youBikeRepository?.takeIf { legacyPublic }?.observe(youBikeEnabled, youBikeRefreshes)?.map(OverviewUpdate::YouBike)
             ?: flowOf(OverviewUpdate.YouBike(YouBikeState())),
-        clockEnabled.distinctUntilChanged().flatMapLatest { enabled ->
-            if (enabled) clockUpdates() else emptyFlow()
-        },
-    ).runningFold(OverviewAccumulator(now = schoolNow())) { current, update ->
-        current.apply(update).let { if (update == OverviewUpdate.Clock) it.copy(now = schoolNow()) else it }
-    }.map { accumulator ->
-        buildState(accumulator, requireNotNull(accumulator.now))
+    ).runningFold(OverviewAccumulator()) { current, update -> current.apply(update) },
+        clockEnabled.distinctUntilChanged(), countdownBoundaries,
+    ) { accumulator, enabled, boundaries -> Triple(accumulator, enabled, boundaries) }
+    .flatMapLatest { (accumulator, enabled, boundaries) -> flow {
+        val deadlines = boundaries.customDeadlines + accumulator.calendarEvents.flatMap { listOf(it.start, it.endExclusive) }
+        val countdowns = boundaries.customDeadlines + accumulator.calendarEvents.filter { it.id in boundaries.eventIds && !it.isAllDay }
+            .flatMap { listOf(it.start, it.endExclusive) }
+        do {
+            val now = schoolNow()
+            emit(buildState(accumulator, now))
+            if (enabled) delay(overviewClockDelayMillis(now, deadlines, countdowns).milliseconds)
+        } while (enabled)
+    }
     }.distinctUntilChanged()
 
     private fun schoolNow(): LocalDateTime = LocalDateTime.ofInstant(clock.instant(), SCHOOL_ZONE)
@@ -324,14 +340,6 @@ class OverviewCoordinator(
             }
     }
 
-    private fun clockUpdates(): Flow<OverviewUpdate> = flow {
-        while (true) {
-            emit(OverviewUpdate.Clock)
-            val now = schoolNow()
-            delay(overviewClockDelayMillis(now).milliseconds)
-        }
-    }
-
     private fun buildState(accumulator: OverviewAccumulator, now: LocalDateTime): OverviewState {
         val scheduleItems = accumulator.schedule?.let { scheduleOverviewItems(it, now) }
             ?: if (
@@ -425,9 +433,27 @@ internal fun scheduleRefreshDelayMillis(
 }
 
 
-internal fun overviewClockDelayMillis(now: LocalDateTime): Long {
-    val nextSecond = now.truncatedTo(ChronoUnit.SECONDS).plusSeconds(1)
-    return Duration.between(now, nextSecond).toMillis().coerceAtLeast(100L)
+internal fun overviewClockDelayMillis(
+    now: LocalDateTime,
+    deadlines: List<LocalDateTime> = emptyList(),
+    countdownDeadlines: List<LocalDateTime> = emptyList(),
+): Long {
+    // Minute labels need wall-clock ticks and relative countdown ticks, including their exact endpoint.
+    val nextMinute = now.truncatedTo(ChronoUnit.MINUTES).plusMinutes(1)
+    val countdownTicks = countdownDeadlines.filter { it.isAfter(now) }.map { deadline ->
+        val remaining = Duration.between(now, deadline)
+        val boundary = when {
+            remaining.toDays() > 0 -> deadline.minusDays(remaining.toDays())
+            remaining.toHours() > 0 -> deadline.minusHours(remaining.toHours())
+            remaining.toMinutes() > 1 -> deadline.minusMinutes(remaining.toMinutes())
+            else -> deadline
+        }
+        // Floor-based countdown labels change immediately after an exact duration boundary.
+        if (boundary == deadline) boundary else boundary.plusNanos(1_000_000)
+    }
+    val next = (deadlines + countdownTicks).filter { it.isAfter(now) }.minOrNull()
+        ?.let { minOf(it, nextMinute) } ?: nextMinute
+    return Duration.between(now, next).toMillis().coerceAtLeast(1L)
 }
 
 internal fun overviewContext(report: ScheduleReport?, now: LocalDateTime): OverviewContext {
@@ -450,7 +476,7 @@ internal fun scheduleOverviewItems(report: ScheduleReport, now: LocalDateTime): 
     val result = mutableListOf<OverviewItem>()
 
     val displayDate = scheduleOverviewHero(report, now)?.date?.toLocalDate()
-    report.displayChanges()
+    report.changes.orEmpty()
         .sortedBy(ScheduleChange::period)
         .mapNotNull { change ->
             val removedToday = change.type == ScheduleChangeType.REMOVED && report.isValidOn(today) &&
@@ -458,7 +484,7 @@ internal fun scheduleOverviewItems(report: ScheduleReport, now: LocalDateTime): 
                 change.semesterItem?.occurrenceOn(today)?.end?.isAfter(now.atZone(SCHOOL_ZONE).toInstant()) == true
             val date = if (removedToday) today else displayDate
             date?.takeIf { report.isValidOn(it) && change.dayOfWeek == it.dayOfWeek.value }
-                ?.let { change.toOverviewItem(it) }
+                ?.let { change.toOverviewItem(report, it, today) }
         }
         .forEach { result += it }
 
@@ -515,6 +541,11 @@ internal fun scheduleOverviewHero(report: ScheduleReport, now: LocalDateTime): O
             headline = if (current != null) "正在上課" else "接下來",
             courseLabel = "第 ${item.period} 節",
             courseName = item.subjectName,
+            courseKey = OverviewCourseKey(today, item.period),
+            teacherName = item.teacherName,
+            classroom = item.classroom,
+            nextCourse = if (current != null) upcoming?.toOverviewCourse(today) else null,
+            scheduleChanges = report.overviewChangesOn(today, today),
             startsAt = periodTime?.let { today.atTime(LocalTime.parse(it.start)) },
             endsAt = periodTime?.let { today.atTime(LocalTime.parse(it.end)) },
             courseProgress = if (current != null && periodTime != null) {
@@ -536,6 +567,10 @@ internal fun scheduleOverviewHero(report: ScheduleReport, now: LocalDateTime): O
         headline = nextSchoolDayLabel(today, nextDate),
         courseLabel = "第 ${first.period} 節",
         courseName = first.subjectName,
+        courseKey = OverviewCourseKey(nextDate, first.period),
+        teacherName = first.teacherName,
+        classroom = first.classroom,
+        scheduleChanges = report.overviewChangesOn(nextDate, today),
         startsAt = PERIOD_TIMES.getOrNull(first.period - 1)?.let { nextDate.atTime(LocalTime.parse(it.start)) },
         endsAt = PERIOD_TIMES.getOrNull(first.period - 1)?.let { nextDate.atTime(LocalTime.parse(it.end)) },
         supportingText = listOf(first.classroom, first.teacherName)
@@ -543,6 +578,25 @@ internal fun scheduleOverviewHero(report: ScheduleReport, now: LocalDateTime): O
             .joinToString(" · "),
     )
 }
+
+private fun ScheduleItem.toOverviewCourse(date: LocalDate): OverviewCourse {
+    val periodTime = PERIOD_TIMES.getOrNull(period - 1)
+    return OverviewCourse(
+        courseLabel = "第 $period 節",
+        courseName = subjectName,
+        key = OverviewCourseKey(date, period),
+        teacherName = teacherName,
+        classroom = classroom,
+        startsAt = periodTime?.let { date.atTime(LocalTime.parse(it.start)) },
+        endsAt = periodTime?.let { date.atTime(LocalTime.parse(it.end)) },
+    )
+}
+
+private fun ScheduleReport.overviewChangesOn(date: LocalDate, today: LocalDate): List<OverviewItem> =
+    if (!isValidOn(date)) emptyList() else changes.orEmpty()
+        .filter { it.dayOfWeek == date.dayOfWeek.value }
+        .sortedBy(ScheduleChange::period)
+        .map { it.toOverviewItem(this, date, today) }
 
 private fun nextSchoolDayLabel(today: LocalDate, date: LocalDate): String =
     when (val days = ChronoUnit.DAYS.between(today, date)) {
@@ -614,7 +668,7 @@ internal fun gradeOverviewItems(state: GradeReminderState?): List<OverviewItem> 
             priority = OverviewPriority.P2,
             kind = OverviewItemKind.GradeUpdate,
             title = "${changeSet.examName}有 ${changeSet.changes.size} 項更新",
-            supportingText = "查看最新成績與排名變化",
+            supportingText = "查看成績與排名",
             label = "新成績",
             icon = "science",
             destination = OverviewDestination.GradeExam(changeSet.yearValue, changeSet.examValue),
@@ -651,6 +705,11 @@ internal fun announcementOverviewItem(announcement: SchoolAnnouncement): Overvie
 
 private enum class OverviewSource { Schedule, Calendar, Announcements, Grades }
 
+private data class OverviewClockTargets(
+    val customDeadlines: List<LocalDateTime> = emptyList(),
+    val eventIds: Set<String> = emptySet(),
+)
+
 private sealed interface OverviewUpdate {
     data class SourceStarted(val source: OverviewSource) : OverviewUpdate
     data class Schedule(val report: ScheduleReport?, val refreshing: Boolean, val failed: Boolean, val unpublished: Boolean = false) : OverviewUpdate
@@ -660,11 +719,9 @@ private sealed interface OverviewUpdate {
     data class Weather(val state: WeatherRepositoryState) : OverviewUpdate
     data class YouBike(val state: YouBikeState) : OverviewUpdate
     data object WeatherConfigurationFailed : OverviewUpdate
-    data object Clock : OverviewUpdate
 }
 
 private data class OverviewAccumulator(
-    val now: LocalDateTime? = null,
     val schedule: ScheduleReport? = null,
     val scheduleUnpublished: Boolean = false,
     val calendarEvents: List<SchoolCalendarEvent> = emptyList(),
@@ -711,7 +768,6 @@ private data class OverviewAccumulator(
             weather = weather?.copy(isRefreshing = false) ?: WeatherRepositoryState(null, false),
             weatherConfigurationFailed = true,
         )
-        OverviewUpdate.Clock -> this
     }
 
     private fun sourceResult(
@@ -780,29 +836,63 @@ private fun ScheduleItem.toCourseOverviewItem(
     )
 }
 
-private fun ScheduleChange.toOverviewItem(date: LocalDate): OverviewItem {
+private fun ScheduleChange.toOverviewItem(report: ScheduleReport, date: LocalDate, today: LocalDate): OverviewItem {
     val effective = if (type == ScheduleChangeType.REMOVED) semesterItem else weekItem ?: semesterItem
+    fun displayName(subject: String): String =
+        report.subjectOverrides.firstOrNull { it.originalSubjectName == subject }?.customSubjectName ?: subject
     val action = when (type) {
         ScheduleChangeType.ADDED -> "新增課程"
         ScheduleChangeType.MODIFIED -> "調課"
         ScheduleChangeType.REMOVED -> "停課"
     }
-    val details = listOfNotNull(
-        effective?.subjectName?.takeIf(String::isNotBlank),
-        effective?.classroom?.takeIf(String::isNotBlank),
-        effective?.teacherName?.takeIf(String::isNotBlank),
-    ).joinToString(" · ")
+    val details = modifiedDetails(::displayName) ?: effective?.subjectName?.let(::displayName).orEmpty()
+    val dayLabel = when (date) {
+        today -> "今日"
+        today.plusDays(1) -> "明日"
+        else -> "週${"一二三四五六日"[date.dayOfWeek.value - 1]}"
+    }
+    val periodLabel = "一二三四五六七八九".getOrNull(period - 1)?.toString() ?: period.toString()
     return OverviewItem(
-        id = "schedule-change-$date-$dayOfWeek-$period-$type",
+        id = "schedule-change-$date-$period-$type-${officialChangeFingerprint(report)}",
+        courseChange = OverviewCourseChange(OverviewCourseKey(date, period), type),
         priority = OverviewPriority.P0,
         kind = OverviewItemKind.ScheduleChange,
-        title = "第 $period 節$action",
+        title = "${dayLabel}第${periodLabel}節$action",
         supportingText = details.ifBlank { "課表已更新" },
         label = "課程異動",
         icon = "swap_vert",
         destination = OverviewDestination.Schedule,
         order = 0,
     )
+}
+
+private fun ScheduleChange.officialChangeFingerprint(report: ScheduleReport): String {
+    val fields = listOf(report.yearTermValue, report.classNo) + listOf(semesterItem, weekItem).flatMap { item ->
+        listOf(item?.subjectName, item?.teacherName, item?.classroom)
+    }
+    val encoded = fields.joinToString(separator = "") { field ->
+        if (field == null) "-1:" else "${field.length}:$field"
+    }
+    return java.security.MessageDigest.getInstance("SHA-256").digest(encoded.encodeToByteArray()).toHexString()
+}
+
+private fun ScheduleChange.modifiedDetails(displayName: (String) -> String): String? {
+    if (type != ScheduleChangeType.MODIFIED) return null
+    val before = semesterItem ?: return null
+    val after = weekItem ?: return null
+    fun changed(label: String, old: String, new: String): String? =
+        if (old == new) null else "$label${old.ifBlank { "未提供" }} → ${new.ifBlank { "未提供" }}"
+    val subject = if (before.subjectName == after.subjectName) {
+        displayName(after.subjectName).takeIf(String::isNotBlank)
+    } else {
+        changed("", displayName(before.subjectName), displayName(after.subjectName))
+            ?: changed("", before.subjectName, after.subjectName)
+    }
+    return listOfNotNull(
+        subject,
+        changed("教師 ", before.teacherName, after.teacherName),
+        changed("教室 ", before.classroom, after.classroom),
+    ).joinToString(" · ").takeIf(String::isNotBlank)
 }
 
 private fun calendarTimeText(event: SchoolCalendarEvent, now: LocalDateTime): String = when {

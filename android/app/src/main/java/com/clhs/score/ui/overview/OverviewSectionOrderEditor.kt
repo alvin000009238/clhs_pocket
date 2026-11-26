@@ -64,7 +64,7 @@ internal fun OverviewSectionOrderEditor(
                 "schedule" -> "課表摘要"
                 "weather" -> "天氣"
                 "youbike" -> "YouBike"
-                "alerts" -> "課程與成績異動"
+                "alerts" -> "課程／成績異動"
                 "countdown" -> "倒數"
                 "calendar" -> "近期行程"
                 else -> "重要公告"
