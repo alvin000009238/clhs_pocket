@@ -12,13 +12,15 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.clhs.score.BuildConfig
 import com.clhs.score.MainActivity
 import com.clhs.score.R
 import com.clhs.score.data.ANNOUNCEMENT_REMINDER_INTERVALS_MINUTES
 import com.clhs.score.data.AnnouncementReminderRepository
-import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
+import com.clhs.score.data.DemoAnnouncementUnitUnavailableException
 import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.loadAnnouncementReminderSnapshot
+import com.clhs.score.data.schoolAnnouncementsRepository
 import com.clhs.score.notifications.NotificationActionCapabilities
 import com.clhs.score.notifications.NotificationAction
 import com.clhs.score.notifications.NotificationChannels
@@ -67,7 +69,7 @@ class AnnouncementReminderWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
     private val reminderRepository = AnnouncementReminderRepository(appContext)
-    private val announcementsRepository = NetworkSchoolAnnouncementsRepository(appContext.cacheDir)
+    private val announcementsRepository = schoolAnnouncementsRepository(appContext.cacheDir, BuildConfig.USE_FAKE_DATA)
     private val readRepository = com.clhs.score.data.AnnouncementReadRepository.get(appContext)
     private val notifier = AnnouncementReminderNotifier(appContext)
 
@@ -95,7 +97,7 @@ class AnnouncementReminderWorker(
             if (pause.contains(Instant.now())) return Result.success()
             val announcements = loadAnnouncementReminderSnapshot(
                 selectedUnitIds = state.selectedUnitIds,
-                knownIds = state.knownIds,
+                state = state,
                 loadPage = { pageIndex, unitId ->
                     announcementsRepository.loadPage(pageIndex = pageIndex, unitId = unitId)
                 },
@@ -103,19 +105,21 @@ class AnnouncementReminderWorker(
             if (!applicationContext.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)) {
                 return Result.success()
             }
-            readRepository.discover(announcements)
+            readRepository.discover(announcements.announcements)
             if (!applicationContext.canPostNotifications(NotificationChannels.SCHOOL_ANNOUNCEMENTS_CHANNEL_ID)) {
                 return Result.success()
             }
             val newAnnouncements = reminderRepository.recordCheck(
                 expectedUnitIds = state.selectedUnitIds,
-                announcements = announcements,
+                snapshot = announcements,
                 checkedAtMillis = System.currentTimeMillis(),
             )
             if (newAnnouncements.isNotEmpty()) notifier.show(newAnnouncements)
             Result.success()
         } catch (_: android.database.sqlite.SQLiteException) {
             Result.retry()
+        } catch (_: DemoAnnouncementUnitUnavailableException) {
+            Result.failure()
         } catch (_: IOException) {
             Result.retry()
         }

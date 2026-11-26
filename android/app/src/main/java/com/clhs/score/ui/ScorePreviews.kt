@@ -1,13 +1,20 @@
 package com.clhs.score.ui
 
+import com.clhs.score.data.AnnouncementBookmark
+import com.clhs.score.viewmodel.AnnouncementBookmarksUiState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.tooling.preview.PreviewParameterProvider
 import androidx.compose.ui.unit.dp
+import coil3.ColorImage
+import coil3.annotation.ExperimentalCoilApi
+import coil3.compose.AsyncImagePreviewHandler
+import coil3.compose.LocalAsyncImagePreviewHandler
 import com.clhs.score.data.AppSettings
 import com.clhs.score.data.FakeData
 import com.clhs.score.data.MockGradeSystem
@@ -143,12 +150,22 @@ private fun SchoolAnnouncementsPreview(
     ScoreTheme {
         com.clhs.score.ui.announcements.SchoolAnnouncementsScreen(
             uiState = state,
+            unreadIds = state.announcements.take(1).map { it.id }.toSet(),
+            bookmarksUiState = AnnouncementBookmarksUiState(
+                bookmarks = listOf(
+                    AnnouncementBookmark.from(FakeData.announcementPage.announcements.first()).copy(
+                        id = "preview-archived",
+                        title = "校慶活動照片與回顧",
+                    ),
+                ),
+            ),
             onBack = {},
             onRefresh = {},
             onLoadMore = {},
             onSearch = {},
             onClearSearch = {},
             onOpenAnnouncement = {},
+            onOpenSavedAnnouncement = {},
             onOpenOfficialWebsite = {},
             onOpenAnnouncementReminder = {},
             onNoticeShown = {},
@@ -157,18 +174,80 @@ private fun SchoolAnnouncementsPreview(
 }
 
 @Preview(name = "School Announcement Detail", showBackground = true, widthDp = 390, heightDp = 844)
+@Preview(name = "School Announcement Detail · Dark", widthDp = 390, heightDp = 844, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun SchoolAnnouncementDetailPreview() {
+    val detail = FakeData.examAnnouncementDetail
     ScoreTheme {
         com.clhs.score.ui.announcements.SchoolAnnouncementDetailScreen(
             uiState = SchoolAnnouncementDetailUiState(
                 isLoading = false,
-                detail = FakeData.announcementDetail,
+                detail = detail,
             ),
             onBack = {},
             onRetry = {},
             onOpenUrl = {},
-            officialUrl = FakeData.announcementDetail.officialUrl,
+            officialUrl = detail.officialUrl,
+        )
+    }
+}
+
+@Preview(name = "Announcement with Table", widthDp = 390, heightDp = 844)
+@Preview(name = "Announcement with Table · Dark", widthDp = 390, heightDp = 844, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun SchoolAnnouncementTablePreview() {
+    val detail = FakeData.announcementDetail.copy(containsTables = true)
+    ScoreTheme {
+        com.clhs.score.ui.announcements.SchoolAnnouncementDetailScreen(
+            uiState = SchoolAnnouncementDetailUiState(isLoading = false, detail = detail),
+            onBack = {},
+            onRetry = {},
+            onOpenUrl = {},
+            officialUrl = detail.officialUrl,
+        )
+    }
+}
+
+@OptIn(ExperimentalCoilApi::class)
+@Preview(name = "Announcement image below viewport", widthDp = 390, heightDp = 180)
+@Preview(name = "Announcement image in viewport", widthDp = 390, heightDp = 650)
+@Composable
+private fun SchoolAnnouncementImagePreview() {
+    val detail = FakeData.announcementDetailWithImage
+    CompositionLocalProvider(
+        LocalAsyncImagePreviewHandler provides AsyncImagePreviewHandler {
+            ColorImage(color = 0xFF46799C.toInt(), width = 640, height = 360)
+        },
+    ) {
+        ScoreTheme {
+            com.clhs.score.ui.announcements.SchoolAnnouncementDetailScreen(
+                uiState = SchoolAnnouncementDetailUiState(isLoading = false, detail = detail),
+                onBack = {},
+                onRetry = {},
+                onOpenUrl = {},
+                officialUrl = detail.officialUrl,
+            )
+        }
+    }
+}
+
+@Preview(name = "School Announcement External Link", showBackground = true, widthDp = 390, heightDp = 844)
+@Composable
+private fun SchoolAnnouncementExternalLinkPreview() {
+    val detail = FakeData.announcementDetail.copy(
+        isExternal = true,
+        externalUrl = "https://example.org/announcement",
+        htmlContent = "",
+        images = emptyList(),
+        attachments = emptyList(),
+    )
+    ScoreTheme {
+        com.clhs.score.ui.announcements.SchoolAnnouncementDetailScreen(
+            uiState = SchoolAnnouncementDetailUiState(isLoading = false, detail = detail),
+            onBack = {},
+            onRetry = {},
+            onOpenUrl = {},
+            officialUrl = detail.officialUrl,
         )
     }
 }
@@ -353,6 +432,7 @@ private fun fakeGradesState(
 }
 
 @Preview(name = "Announcement loading clearance", widthDp = 390, heightDp = 844)
+@Preview(name = "Announcement loading clearance · Dark", widthDp = 390, heightDp = 844, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun AnnouncementLoadingClearancePreview() {
     ScoreTheme {

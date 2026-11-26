@@ -69,7 +69,6 @@ import com.clhs.score.ui.navigation.DeveloperSettingsRoute
 import com.clhs.score.ui.navigation.GradesRoute
 import com.clhs.score.ui.navigation.OpenSourceLicensesRoute
 import com.clhs.score.ui.navigation.OverviewRoute
-import com.clhs.score.ui.navigation.PersonalRoute
 import com.clhs.score.ui.navigation.GeneralSettingsRoute
 import com.clhs.score.ui.navigation.AttendanceRoute
 import com.clhs.score.ui.navigation.MeritRoute
@@ -172,20 +171,41 @@ fun AppShell(
     val navigator = remember(navigationState) { AppNavigator(navigationState) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
-    fun openAnnouncement(announcement: com.clhs.score.data.SchoolAnnouncement) {
-        if (announcement.contentType.equals("url", ignoreCase = true)) {
-            if (announcement.externalUrl != null) {
-                if (context.openAnnouncementUrl(announcement.externalUrl)) {
-                    announcementReminderViewModel.markRead(announcement.id)
-                }
-            } else android.widget.Toast.makeText(
+    fun openExternalAnnouncement(id: String, url: String?): Boolean {
+        if (url == null) {
+            android.widget.Toast.makeText(
                 context,
                 "這則消息的連結無法開啟",
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
-        } else {
-            navigator.navigate(SchoolAnnouncementDetailRoute(announcement.id, announcement.category))
+            return false
         }
+        if (!context.openAnnouncementUrl(url)) return false
+        announcementReminderViewModel.markRead(id)
+        return true
+    }
+
+    fun openAnnouncementInBrowser(announcement: com.clhs.score.data.SchoolAnnouncement): Boolean =
+        if (announcement.contentType.equals("url", ignoreCase = true) && announcement.externalUrl != null) {
+            openExternalAnnouncement(announcement.id, announcement.externalUrl)
+        } else {
+            context.openAnnouncementUrl(schoolAnnouncementOfficialUrl(announcement.id))
+        }
+
+    fun openAnnouncement(id: String, category: String, externalUrl: String?, isExternal: Boolean) {
+        if (isExternal) {
+            openExternalAnnouncement(id, externalUrl)
+        } else {
+            navigator.navigate(SchoolAnnouncementDetailRoute(id, category))
+        }
+    }
+    fun openAnnouncement(announcement: com.clhs.score.data.SchoolAnnouncement) {
+        openAnnouncement(
+            announcement.id,
+            announcement.category,
+            announcement.externalUrl,
+            announcement.contentType.equals("url", ignoreCase = true),
+        )
     }
     val navigationMotion = PocketMotion.navigation()
     val useFakeData = BuildConfig.USE_FAKE_DATA
@@ -248,6 +268,11 @@ fun AppShell(
         }
     }
 
+    val campusVisible = navigationState.currentRoute == CampusRoute
+    LaunchedEffect(campusVisible, overviewViewModel) {
+        if (campusVisible) overviewViewModel.refreshAnnouncements()
+    }
+
     ReportDrawnWhen { !overviewState.isInitialLoading }
 
     LaunchedEffect(navigationState.currentRoute, gradesState.studentNo, gradesState.selectedYearValue, gradesState.selectedExamValue, gradesState.report) {
@@ -288,6 +313,7 @@ fun AppShell(
         onDismissExportResult()
     }
 
+    var refreshAnnouncementsFromNotification by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(launchTarget, navigator, settings.hasCompletedOnboarding) {
         if (!settings.hasCompletedOnboarding) return@LaunchedEffect
         when (launchTarget) {
@@ -301,7 +327,10 @@ fun AppShell(
             is AppLaunchTarget.Announcement -> navigator.navigate(
                 SchoolAnnouncementDetailRoute(launchTarget.id, launchTarget.category),
             )
-            AppLaunchTarget.Announcements -> navigator.navigate(SchoolAnnouncementsRoute)
+            AppLaunchTarget.Announcements -> {
+                refreshAnnouncementsFromNotification = true
+                navigator.navigate(SchoolAnnouncementsRoute)
+            }
             null -> return@LaunchedEffect
         }
         if (launchTarget !is AppLaunchTarget.GradeExam) onLaunchTargetHandled()
@@ -360,7 +389,7 @@ fun AppShell(
 
     val rootAuthFallback: @Composable (String, String, String) -> Unit = { feature, description, icon ->
         RootFloatingScaffold(dynamicColor = settings.dynamicColor,
-            actions = { AccountIconButton(onClick = { navigator.navigate(PersonalRoute) },
+            actions = { AccountIconButton(onClick = { navigator.navigate(GeneralSettingsRoute) },
                 showUpdateBadge = showUpdateBadge, animateShape = false) }) { padding, header ->
             androidx.compose.foundation.layout.Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
                 header()
@@ -443,7 +472,7 @@ fun AppShell(
                         onRefreshWeather = overviewViewModel::refreshWeather,
                         onRefresh = overviewViewModel::refresh,
                         onRefreshYouBike = overviewViewModel::refreshYouBike,
-                        onOpenPersonal = { navigator.navigate(PersonalRoute) },
+                        onOpenPersonal = { navigator.navigate(GeneralSettingsRoute) },
                         authState = authState,
                         onRequestLogin = ::requestLogin,
                         showUpdateBadge = showUpdateBadge,
@@ -462,15 +491,9 @@ fun AppShell(
                                     pendingGradeTarget = destination.yearValue to destination.examValue
                                 }
                                 is OverviewDestination.Announcement -> {
-                                    if (destination.externalUrl != null) {
-                                        if (context.openAnnouncementUrl(destination.externalUrl)) {
-                                            announcementReminderViewModel.markRead(destination.id)
-                                        }
-                                    } else {
-                                        navigator.navigate(
-                                            SchoolAnnouncementDetailRoute(destination.id, destination.category),
-                                        )
-                                    }
+                                    openAnnouncement(
+                                        destination.id, destination.category, destination.externalUrl, destination.isExternal,
+                                    )
                                 }
                             }
                         },
@@ -511,7 +534,7 @@ fun AppShell(
                             uiState = uiState,
                             dynamicColor = settings.dynamicColor,
                             notificationMenu = courseMenu,
-                            onOpenPersonal = { navigator.navigate(PersonalRoute) },
+                            onOpenPersonal = { navigator.navigate(GeneralSettingsRoute) },
                             showUpdateBadge = showUpdateBadge,
                             onOpenSubjectCustomizations = { navigator.navigate(ScheduleCustomizationsRoute) },
                             onRefresh = hapticClick(viewModel::refresh),
@@ -606,7 +629,7 @@ fun AppShell(
                             onSetNotificationsEnabled = onSetNotificationsEnabled,
                             onGradeReminderPrerequisiteFailed = onGradeReminderPrerequisiteFailed,
                             onDismissGradeReminderChanges = onDismissGradeReminderChanges,
-                            onOpenPersonal = { navigator.navigate(PersonalRoute) },
+                            onOpenPersonal = { navigator.navigate(GeneralSettingsRoute) },
                             showUpdateBadge = showUpdateBadge,
                             onOpenCreditSettings = {
                                 scoreViewModel.prepareSimulatorCredits()
@@ -709,17 +732,20 @@ fun AppShell(
                         dynamicColor = settings.dynamicColor,
                         state = overviewState,
                         unreadAnnouncementCount = announcementReminderUiState.unreadIds.size,
-                        onOpenPersonal = { navigator.navigate(PersonalRoute) },
+                        onOpenPersonal = { navigator.navigate(GeneralSettingsRoute) },
                         showUpdateBadge = showUpdateBadge,
                         onOpenAnnouncements = { navigator.navigate(SchoolAnnouncementsRoute) },
+                        onOpenAnnouncement = ::openAnnouncement,
                         onOpenCalendar = { navigator.navigate(SchoolCalendarRoute()) },
+                        onOpenAttendance = { navigator.navigate(AttendanceRoute) },
+                        onOpenMerit = { navigator.navigate(MeritRoute) },
                         onOpenSearch = { navigator.navigate(CampusSearchRoute) },
                         onOpenSchoolWebsite = if (useFakeData) null else { { navigator.navigate(SchoolWebsiteRoute) } },
                     )
                 }
                 entry<CampusSearchRoute> {
                     val announcementsViewModel = androidx.lifecycle.viewmodel.compose.viewModel<SchoolAnnouncementsViewModel>(
-                        factory = SchoolAnnouncementsViewModel.factory(context),
+                        factory = SchoolAnnouncementsViewModel.factory(context, supplementPinnedPages = false),
                     )
                     val calendarViewModel = androidx.lifecycle.viewmodel.compose.viewModel<SchoolCalendarViewModel>(
                         factory = SchoolCalendarViewModel.factory(context),
@@ -741,6 +767,7 @@ fun AppShell(
                         onRetryCalendar = calendarViewModel::refresh,
                         onLoadMore = announcementsViewModel::loadMore,
                         onOpenAnnouncement = ::openAnnouncement,
+                        onOpenAnnouncementInBrowser = ::openAnnouncementInBrowser,
                         onOpenCalendarEvent = { navigator.navigate(SchoolCalendarRoute(it.id)) },
                     )
                 }
@@ -792,6 +819,12 @@ fun AppShell(
                     val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<SchoolAnnouncementsViewModel>(
                         factory = SchoolAnnouncementsViewModel.factory(context),
                     )
+                    LaunchedEffect(refreshAnnouncementsFromNotification) {
+                        if (refreshAnnouncementsFromNotification) {
+                            refreshAnnouncementsFromNotification = false
+                            viewModel.refreshLatest()
+                        }
+                    }
                     val bookmarksViewModel = androidx.lifecycle.viewmodel.compose.viewModel<AnnouncementBookmarksViewModel>(
                         factory = AnnouncementBookmarksViewModel.factory(context),
                     )
@@ -806,7 +839,9 @@ fun AppShell(
                         unreadIds = announcementReminderUiState.unreadIds,
                         isReadingAvailable = announcementReminderUiState.isReadingAvailable,
                         isMarkingAllRead = announcementReminderUiState.isMarkingAllRead,
+                        markedReadSnapshot = announcementReminderUiState.markedReadSnapshot,
                         onMarkAllRead = announcementReminderViewModel::markAllRead,
+                        onMarkedReadSnapshotConsumed = announcementReminderViewModel::consumeMarkedReadSnapshot,
                         onBack = { navigator.goBack() },
                         onRefresh = viewModel::refresh,
                         onLoadMore = viewModel::loadMore,
@@ -815,6 +850,10 @@ fun AppShell(
                         onSetFilters = viewModel::setFilters,
                         onRefreshFilters = viewModel::refreshFilters,
                         onOpenAnnouncement = ::openAnnouncement,
+                        onOpenSavedAnnouncement = { announcement ->
+                            navigator.navigate(SchoolAnnouncementDetailRoute(announcement.id, announcement.category))
+                        },
+                        onOpenAnnouncementInBrowser = ::openAnnouncementInBrowser,
                         onOpenOfficialWebsite = {
                             context.openAnnouncementUrl(SCHOOL_ANNOUNCEMENTS_WEB_URL)
                         },
@@ -831,8 +870,9 @@ fun AppShell(
                         factory = SchoolAnnouncementDetailViewModel.factory(context, route.id, route.category),
                     )
                     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-                    LaunchedEffect(uiState.detail?.id) {
-                        uiState.detail?.id?.let(announcementReminderViewModel::markRead)
+                    val readableDetailId = uiState.detail?.takeIf { it.marksReadOnDisplay }?.id
+                    LaunchedEffect(readableDetailId) {
+                        readableDetailId?.let(announcementReminderViewModel::markRead)
                     }
                     val bookmarksViewModel = androidx.lifecycle.viewmodel.compose.viewModel<AnnouncementBookmarksViewModel>(
                         factory = AnnouncementBookmarksViewModel.factory(context),
@@ -842,7 +882,17 @@ fun AppShell(
                         uiState = uiState,
                         onBack = { navigator.goBack() },
                         onRetry = viewModel::retry,
-                        onOpenUrl = { context.openAnnouncementUrl(it) },
+                        onOpenUrl = { url ->
+                            val detail = uiState.detail
+                            if (detail != null && detail.isSummaryOnly && url == detail.officialUrl) {
+                                openExternalAnnouncement(detail.id, url)
+                            } else {
+                                context.openAnnouncementUrl(url)
+                            }
+                        },
+                        onOpenExternal = { detail ->
+                            openAnnouncement(detail.id, detail.category, detail.externalUrl, isExternal = true)
+                        },
                         officialUrl = schoolAnnouncementOfficialUrl(route.id),
                         isBookmarked = bookmarksState.bookmarks.any { it.id == route.id },
                         onToggleBookmark = {
@@ -850,7 +900,8 @@ fun AppShell(
                                 bookmarksViewModel.toggle(com.clhs.score.data.SchoolAnnouncement(
                                     id = detail.id, title = detail.title, date = detail.date,
                                     category = detail.category, unit = detail.unit, issuer = detail.issuer,
-                                    isPinned = false, contentType = "html",
+                                    isPinned = false, contentType = if (detail.isExternal) "url" else "html",
+                                    externalUrl = detail.externalUrl,
                                 ))
                             }
                         },
@@ -867,31 +918,20 @@ fun AppShell(
                         Box(modifier = Modifier.fillMaxSize())
                     }
                 }
-                entry<PersonalRoute> {
-                    LaunchedEffect(authState) {
-                        if (authState !is AuthState.Authenticated) return@LaunchedEffect
-                        scoreViewModel.refreshStudentInfo()
-                    }
-                    PersonalScreen(
-                        showUpdateAvailable = showUpdateBadge,
-                        onCheckUpdate = onCheckUpdate,
-                        state = gradesState,
-                        authState = authState,
-                        onRequestLogin = ::requestLogin,
-                        settings = settings,
-                        onBack = { navigator.goBack() },
-                        onCycleProfileAvatarShape = onCycleProfileAvatarShape,
-                        onSetBiometricEnabled = onSetBiometricEnabled,
-                        onOpenSettings = { navigator.navigate(GeneralSettingsRoute) },
-                        onOpenAttendance = { navigator.navigate(AttendanceRoute) },
-                        onOpenMerits = { navigator.navigate(MeritRoute) },
-                        onLogout = onLogout,
-                    )
-                }
                 entry<GeneralSettingsRoute> {
+                    LaunchedEffect(authState) {
+                        if (authState is AuthState.Authenticated) scoreViewModel.refreshStudentInfo()
+                    }
                     GeneralSettingsScreen(
                         settings = settings,
                         uiState = settingsUiState,
+                        authState = authState,
+                        studentInfo = gradesState.studentInfo,
+                        studentNo = gradesState.studentNo,
+                        onRequestLogin = ::requestLogin,
+                        onLogout = onLogout,
+                        onCycleProfileAvatarShape = onCycleProfileAvatarShape,
+                        onSetBiometricEnabled = onSetBiometricEnabled,
                         onBack = { navigator.goBack() },
                         onSetThemeMode = onSetThemeMode,
                         onSetStartOnSchedule = onSetStartOnSchedule,

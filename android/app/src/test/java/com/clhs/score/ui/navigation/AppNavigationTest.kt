@@ -11,20 +11,57 @@ import org.junit.Test
 
 class AppNavigationTest {
     @Test
-    fun pushingAndPoppingPersonalKeepsRootGeometryAndChildHasNoOverlaySpace() {
+    fun reopeningAnnouncementRoutesReturnsToExistingEntries() {
+        val state = navigationStateForTest()
+        val navigator = AppNavigator(state)
+        val firstDetail = SchoolAnnouncementDetailRoute("100", "公告")
+        navigator.navigate(SchoolAnnouncementsRoute)
+        navigator.navigate(firstDetail)
+        navigator.navigate(SchoolAnnouncementDetailRoute("200", "公告"))
+
+        navigator.navigate(SchoolAnnouncementDetailRoute("100", ""))
+        assertEquals(listOf(CampusRoute, SchoolAnnouncementsRoute, firstDetail), state.currentBackStack.toList())
+
+        navigator.selectTopLevel(TopLevelDestination.Overview)
+        navigator.navigate(SchoolAnnouncementsRoute)
+        assertEquals(listOf(CampusRoute, SchoolAnnouncementsRoute), state.currentBackStack.toList())
+    }
+
+    @Test
+    fun pushingAndPoppingSettingsKeepsRootGeometryAndChildHasNoOverlaySpace() {
         val state = navigationStateForTest()
         val navigator = AppNavigator(state)
         navigator.selectTopLevel(TopLevelDestination.Schedule)
         val clearance = PocketNavigationLayout.clearance
         assertEquals(clearance, entryNavigationClearance(state.currentRoute, clearance))
 
-        navigator.navigate(PersonalRoute)
-        assertEquals(listOf(clearance, 0.dp), state.currentBackStack.map { entryNavigationClearance(it, clearance) })
         navigator.navigate(GeneralSettingsRoute)
+        assertEquals(listOf(ScheduleRoute, GeneralSettingsRoute), state.currentBackStack.toList())
+        assertEquals(listOf(clearance, 0.dp), state.currentBackStack.map { entryNavigationClearance(it, clearance) })
+        navigator.navigate(DeveloperSettingsRoute)
         assertEquals(listOf(clearance, 0.dp, 0.dp), state.currentBackStack.map { entryNavigationClearance(it, clearance) })
         assertTrue(navigator.goBack())
         assertTrue(navigator.goBack())
         assertEquals(clearance, entryNavigationClearance(state.currentRoute, clearance))
+    }
+
+    @Test
+    fun restoredPersonalStacksOpenOneSettingsPageAndKeepTheirChildren() {
+        val state = navigationStateForTest(
+            mapOf(
+                OverviewRoute to listOf(PersonalRoute),
+                ScheduleRoute to listOf(PersonalRoute, GeneralSettingsRoute, DeveloperSettingsRoute),
+            ),
+        )
+        val navigator = AppNavigator(state)
+        assertEquals(listOf(OverviewRoute, GeneralSettingsRoute), state.currentBackStack.toList())
+
+        navigator.selectTopLevel(TopLevelDestination.Schedule)
+        assertEquals(listOf(ScheduleRoute, GeneralSettingsRoute, DeveloperSettingsRoute), state.currentBackStack.toList())
+        assertTrue(navigator.goBack())
+        assertEquals(GeneralSettingsRoute, state.currentRoute)
+        assertTrue(navigator.goBack())
+        assertEquals(ScheduleRoute, state.currentRoute)
     }
 
     @Test
@@ -39,7 +76,7 @@ class AppNavigationTest {
                 val rootClearance = if (topLevelNavigationType(width, height) == NavigationSuiteType.NavigationRail) 0.dp
                     else PocketNavigationLayout.clearance
                 assertEquals(expected, entryNavigationClearance(destination.route, rootClearance))
-                assertEquals(0.dp, entryNavigationClearance(PersonalRoute, rootClearance))
+                assertEquals(0.dp, entryNavigationClearance(GeneralSettingsRoute, rootClearance))
             }
             assertEquals(104.dp, entryNavigationClearance(destination.route, 104.dp))
         }
@@ -89,14 +126,18 @@ class AppNavigationTest {
 
     @Test
     fun campusDeepDestinationSelectsCampusStack() {
-        val state = navigationStateForTest()
-        val navigator = AppNavigator(state)
         val detail = SchoolAnnouncementDetailRoute("123", "news")
+        for (route in listOf(detail, AttendanceRoute, MeritRoute)) {
+            val state = navigationStateForTest()
+            val navigator = AppNavigator(state)
 
-        navigator.navigate(detail)
+            navigator.navigate(route)
 
-        assertEquals(CampusRoute, state.topLevelRoute)
-        assertEquals(listOf(CampusRoute, detail), state.currentBackStack.toList())
+            assertEquals(CampusRoute, state.topLevelRoute)
+            assertEquals(listOf(CampusRoute, route), state.currentBackStack.toList())
+            assertTrue(navigator.goBack())
+            assertEquals(CampusRoute, state.currentRoute)
+        }
     }
 
     @Test
@@ -162,7 +203,7 @@ class AppNavigationTest {
         val state = navigationStateForTest()
         val navigator = AppNavigator(state)
 
-        navigator.navigate(PersonalRoute)
+        navigator.navigate(GeneralSettingsRoute)
         navigator.navigate(DeveloperSettingsRoute)
         navigator.restartOnboarding()
 
@@ -170,10 +211,10 @@ class AppNavigationTest {
         assertEquals(OverviewRoute, state.topLevelRoute)
     }
 
-    private fun navigationStateForTest(): AppNavigationState {
+    private fun navigationStateForTest(restoredChildren: Map<NavKey, List<NavKey>> = emptyMap()): AppNavigationState {
         val routes = TopLevelDestination.entries.map { it.route as NavKey }
         val stacks = routes.associateWith { route ->
-            NavBackStack(route)
+            NavBackStack(route).apply { addAll(restoredChildren[route].orEmpty()) }
         }
         return AppNavigationState(
             startRoute = OverviewRoute,

@@ -157,8 +157,7 @@ internal fun AppRoute.analyticsScreenName(): String = when (this) {
     ScheduleReliabilitySettingsRoute -> AnalyticsScreenNames.SCHEDULE_RELIABILITY_SETTINGS
     CourseNotificationSettingsRoute -> AnalyticsScreenNames.COURSE_NOTIFICATION_SETTINGS
     SchoolWebsiteRoute -> AnalyticsScreenNames.SCHOOL_WEBSITE
-    PersonalRoute -> AnalyticsScreenNames.PERSONAL
-    GeneralSettingsRoute -> "general_settings"
+    PersonalRoute, GeneralSettingsRoute -> AnalyticsScreenNames.PERSONAL
     AttendanceRoute -> "attendance_records"
     MeritRoute -> "merit_records"
     SettingsTransferRoute -> AnalyticsScreenNames.SETTINGS_TRANSFER
@@ -205,6 +204,17 @@ class AppNavigationState internal constructor(
     topLevelRoute: MutableState<NavKey>,
     val backStacks: Map<NavKey, NavBackStack<NavKey>>,
 ) {
+    init {
+        backStacks.values.forEach { stack ->
+            for (index in stack.lastIndex downTo 1) {
+                if (stack[index] == PersonalRoute) {
+                    if (stack.getOrNull(index + 1) == GeneralSettingsRoute) stack.removeAt(index)
+                    else stack[index] = GeneralSettingsRoute
+                }
+            }
+        }
+    }
+
     var topLevelRoute: NavKey by topLevelRoute
 
     val currentRoute: NavKey
@@ -223,8 +233,17 @@ class AppNavigator(private val state: AppNavigationState) {
         if (parent != null && parent.route != route) state.topLevelRoute = parent.route
         if (parent?.route == route) {
             selectTopLevel(parent)
-        } else if (state.currentBackStack.lastOrNull() != route) {
-            state.currentBackStack.add(route)
+        } else {
+            val stack = state.currentBackStack
+            val existing = when (route) {
+                SchoolAnnouncementsRoute -> stack.indexOf(route)
+                is SchoolAnnouncementDetailRoute -> stack.indexOfFirst {
+                    it is SchoolAnnouncementDetailRoute && it.id == route.id
+                }
+                else -> if (stack.lastOrNull() == route) stack.lastIndex else -1
+            }
+            if (existing < 0) stack.add(route)
+            else while (stack.lastIndex > existing) stack.removeLastOrNull()
         }
     }
 
@@ -286,11 +305,11 @@ private fun AppRoute.topLevelDestination(): TopLevelDestination? = when (this) {
     SchoolAnnouncementsRoute,
     is SchoolAnnouncementDetailRoute,
     SchoolWebsiteRoute,
+    AttendanceRoute,
+    MeritRoute,
     -> TopLevelDestination.Campus
     PersonalRoute,
     GeneralSettingsRoute,
-    AttendanceRoute,
-    MeritRoute,
     AnnouncementReminderSettingsRoute,
     AnnouncementReminderUnitsRoute,
     BackgroundPauseSettingsRoute,
@@ -328,7 +347,7 @@ fun AppNavigationState.toEntries(
     val decoratedEntries = backStacks.mapValues { (parent, stack) ->
         rememberDecoratedNavEntries(stack, decorators) { route ->
             val entry = entryProvider(route)
-            // Common routes (e.g. Personal) may exist in several stacks at once.
+            // Settings can appear in several stacks at once.
             NavEntry(route, contentKey = "$parent:${entry.contentKey}", metadata = entry.metadata +
                 if (TopLevelDestination.entries.any { it.route == route }) mapOf(RootSceneDestinationKey to route)
                 else emptyMap()) {

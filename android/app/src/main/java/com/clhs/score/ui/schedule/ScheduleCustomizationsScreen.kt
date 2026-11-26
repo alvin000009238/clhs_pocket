@@ -1,8 +1,12 @@
 package com.clhs.score.ui.schedule
 
+import com.clhs.score.ui.rememberPocketOverflowMenuState
+import com.clhs.score.ui.PocketOverflowDropdownMenu
+import com.clhs.score.ui.pocketOverflowMenuAnchor
+import com.clhs.score.ui.PocketOverflowMenuItem
+
 import com.clhs.score.ui.navigation.navigationContentPadding
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.layout.Arrangement
@@ -26,8 +30,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -86,6 +88,7 @@ fun ScheduleCustomizationsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var showMoreMenu by remember { mutableStateOf(false) }
+    val overflowMenu = rememberPocketOverflowMenuState { showMoreMenu = it }
     var showRestoreAllDialog by remember { mutableStateOf(false) }
     var editingOverride by remember { mutableStateOf<ScheduleSubjectOverride?>(null) }
 
@@ -102,17 +105,18 @@ fun ScheduleCustomizationsScreen(
         actions = {
             if (state.overrides.isNotEmpty()) {
                 IconButton(
+                    modifier = Modifier.pocketOverflowMenuAnchor(overflowMenu, !state.isSaving),
                     onClick = { showMoreMenu = true },
                     enabled = !state.isSaving,
                     shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
                 ) {
                     OutlinedRoundedSymbol("more_vert", contentDescription = "更多選項")
                 }
-                DropdownMenu(offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
+                PocketOverflowDropdownMenu(state = overflowMenu, offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
                     expanded = showMoreMenu,
                     onDismissRequest = { showMoreMenu = false },
                 ) {
-                    DropdownMenuItem(
+                    PocketOverflowMenuItem(
                         text = { Text("全部還原") },
                         onClick = {
                             showMoreMenu = false
@@ -123,17 +127,25 @@ fun ScheduleCustomizationsScreen(
             }
         },
     ) { pagePadding ->
+        val contentPadding = com.clhs.score.ui.readingContentPadding(navigationContentPadding(androidx.compose.foundation.layout.PaddingValues(
+            start = 16.dp, end = 16.dp,
+            top = pagePadding.calculateTopPadding() + 8.dp,
+            bottom = pagePadding.calculateBottomPadding() + 16.dp,
+        )))
         when {
-            state.isLoading -> LoadingCustomizationList()
-            state.loadFailed -> CustomizationLoadError(onRetry)
-            state.overrides.isEmpty() -> EmptyCustomizationList()
+            state.isLoading || state.loadFailed || state.overrides.isEmpty() -> Column(
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(contentPadding),
+                verticalArrangement = if (state.isLoading || state.loadFailed) Arrangement.Top else Arrangement.Center,
+            ) {
+                when {
+                    state.isLoading -> LoadingCustomizationList()
+                    state.loadFailed -> CustomizationLoadError(onRetry)
+                    else -> EmptyCustomizationList()
+                }
+            }
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = com.clhs.score.ui.readingContentPadding(navigationContentPadding(androidx.compose.foundation.layout.PaddingValues(
-                    start = 16.dp, end = 16.dp,
-                    top = pagePadding.calculateTopPadding() + 8.dp,
-                    bottom = pagePadding.calculateBottomPadding() + 16.dp,
-                ))),
+                contentPadding = contentPadding,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(state.overrides, key = ScheduleSubjectOverride::originalSubjectName) { override ->
@@ -216,7 +228,7 @@ fun ScheduleCustomizationsScreen(
 @Composable
 private fun LoadingCustomizationList() {
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Card(
@@ -239,7 +251,7 @@ private fun LoadingCustomizationList() {
 @Composable
 private fun EmptyCustomizationList() {
     Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -273,7 +285,7 @@ private fun EmptyCustomizationList() {
 @Composable
 private fun CustomizationLoadError(onRetry: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -297,10 +309,14 @@ private fun CustomizationRow(
     onRestore: () -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onEdit),
+        onClick = onEdit,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = enabled,
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            disabledContentColor = MaterialTheme.colorScheme.onSurface,
         ),
     ) {
         Row(

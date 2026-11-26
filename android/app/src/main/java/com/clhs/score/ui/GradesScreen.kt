@@ -207,6 +207,7 @@ fun GradesScreen(
         if (navigationCompact) showGradeTabs = false
     }
     var showMoreMenu by rememberSaveable { mutableStateOf(false) }
+    val overflowMenu = rememberPocketOverflowMenuState { showMoreMenu = it }
     var showGradeReminderDetails by rememberSaveable { mutableStateOf(false) }
     var showExportDialog by rememberSaveable { mutableStateOf(false) }
     var notificationsAvailable by remember(context, inspectionMode) {
@@ -408,7 +409,7 @@ fun GradesScreen(
                     Box {
                         IconButton(
                             onClick = { showMoreMenu = true },
-                            modifier = Modifier.semantics {
+                            modifier = Modifier.pocketOverflowMenuAnchor(overflowMenu).semantics {
                                 if (summaryDisplay.needsCreditAttention) stateDescription = "學分待確認"
                             },
                             shapes = IconButtonDefaults.shapes(pressedShape = IconButtonDefaults.standardShape),
@@ -421,31 +422,27 @@ fun GradesScreen(
                                 )
                             }
                         }
-                        DropdownMenu(
+                        PocketOverflowDropdownMenu(state = overflowMenu,
                             expanded = showMoreMenu,
                             onDismissRequest = { showMoreMenu = false },
                             offset = DpOffset(x = 0.dp, y = 10.dp),
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("學分設定") },
-                                trailingIcon = { if (summaryDisplay.needsCreditAttention) Badge() },
-                                modifier = Modifier.semantics {
-                                    if (summaryDisplay.needsCreditAttention) stateDescription = "學分待確認"
-                                },
+                            GradeCreditSettingsMenuItem(
+                                needsAttention = summaryDisplay.needsCreditAttention,
                                 enabled = state.report != null && state.selectedYearValue != null && state.selectedExamValue != null,
                                 onClick = {
                                     showMoreMenu = false
                                     onOpenCreditSettings()
                                 },
                             )
-                            DropdownMenuItem(
+                            PocketOverflowMenuItem(
                                 text = { Text("段考更新提醒") },
                                 onClick = {
                                     showMoreMenu = false
                                     showGradeReminderDetails = true
                                 },
                             )
-                            DropdownMenuItem(
+                            PocketOverflowMenuItem(
                                 text = { Text("匯出成績") },
                                 enabled = !state.isExporting,
                                 onClick = {
@@ -1411,6 +1408,30 @@ private fun EmptyPanel(message: String, onReload: () -> Unit) {
             Text("重新整理")
         }
     }
+}
+
+@Composable
+internal fun GradeCreditSettingsMenuItem(
+    needsAttention: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    PocketOverflowMenuItem(
+        text = {
+            Column {
+                Text("學分設定")
+                if (needsAttention) {
+                    Text(
+                        "學分待確認",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        enabled = enabled,
+        onClick = onClick,
+    )
 }
 
 private fun diffSentence(diff: Double): String = when {

@@ -4,7 +4,8 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
+import com.clhs.score.BuildConfig
+import com.clhs.score.data.AnnouncementBookmarkRepository
 import com.clhs.score.data.ALL_UNITS_ID
 import com.clhs.score.data.AnnouncementFilterOptions
 import com.clhs.score.data.ANNOUNCEMENT_UNIT_ID_REGEX
@@ -12,11 +13,13 @@ import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.SchoolAnnouncementDetail
 import com.clhs.score.data.SchoolAnnouncementPage
 import com.clhs.score.data.SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH
+import com.clhs.score.data.schoolAnnouncementsRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -42,11 +45,15 @@ data class SchoolAnnouncementsUiState(
     val hasFilters: Boolean get() = unitId != ALL_UNITS_ID || categoryId != ALL_UNITS_ID
 }
 
+private const val ANNOUNCEMENT_INITIAL_LOAD_MAX_PAGES = 20
+
 class SchoolAnnouncementsViewModel(
     private val loadCached: suspend () -> SchoolAnnouncementPage?,
     private val loadPage: suspend (Int, String, String, String) -> SchoolAnnouncementPage,
     private val loadCachedFilters: suspend () -> AnnouncementFilterOptions = { AnnouncementFilterOptions() },
     private val loadFilters: suspend () -> AnnouncementFilterOptions = { AnnouncementFilterOptions() },
+    private val loadUnreadIds: suspend () -> Set<String> = { emptySet() },
+    private val supplementPinnedPages: Boolean = true,
 ) : ViewModel() {
     private var loadJob: Job? = null
     private var loadMoreJob: Job? = null
@@ -60,6 +67,21 @@ class SchoolAnnouncementsViewModel(
 
     fun refresh() {
         loadFirstPage(includeCache = false, keyword = _uiState.value.searchQuery)
+    }
+
+    fun refreshLatest() {
+        val current = _uiState.value
+        val isFiltered = current.hasFilters || current.searchQuery.isNotEmpty()
+        if (isFiltered) {
+            _uiState.update {
+                it.copy(
+                    searchQuery = "", unitId = ALL_UNITS_ID, categoryId = ALL_UNITS_ID,
+                    announcements = emptyList(), pageIndex = 0, hasMore = false, lastUpdatedAt = null,
+                    errorMessage = null, noticeMessage = null, loadMoreError = null,
+                )
+            }
+        }
+        loadFirstPage(includeCache = isFiltered || current.lastUpdatedAt == null)
     }
 
     fun search(keyword: String) {
@@ -184,6 +206,7 @@ class SchoolAnnouncementsViewModel(
             }
             try {
                 showFirstPage(loadPage(0, keyword, filters.unitId, filters.categoryId))
+                if (keyword.isEmpty() && !filters.hasFilters) completeInitialList()
             } catch (error: Exception) {
                 error.throwIfAnnouncementCancellation()
                 _uiState.update { state ->
@@ -205,6 +228,39 @@ class SchoolAnnouncementsViewModel(
         }
     }
 
+    private suspend fun completeInitialList() {
+        if (!_uiState.value.hasMore) return
+        _uiState.update { it.copy(isLoadingMore = true) }
+        try {
+            // Discovery on later pages must not extend this lookup into a crawl of the archive.
+            val unreadSnapshot = loadUnreadIds()
+            val firstPage = _uiState.value.announcements
+            val startsWithOnlyPinned = supplementPinnedPages &&
+                firstPage.isNotEmpty() && firstPage.all(SchoolAnnouncement::isPinned)
+            repeat(ANNOUNCEMENT_INITIAL_LOAD_MAX_PAGES - 1) {
+                val state = _uiState.value
+                val loadedIds = state.announcements.mapTo(HashSet(), SchoolAnnouncement::id)
+                val needsOrdinaryAnnouncement = startsWithOnlyPinned && state.announcements.all(SchoolAnnouncement::isPinned)
+                if (!state.hasMore || (loadedIds.containsAll(unreadSnapshot) && !needsOrdinaryAnnouncement)) return
+                val page = loadPage(state.pageIndex + 1, "", ALL_UNITS_ID, ALL_UNITS_ID)
+                _uiState.update {
+                    it.copy(
+                        announcements = (it.announcements + page.announcements).distinctBy(SchoolAnnouncement::id),
+                        pageIndex = page.pageIndex,
+                        hasMore = page.pageIndex + 1 < page.totalPages,
+                        lastUpdatedAt = page.fetchedAt,
+                    )
+                }
+                if (page.announcements.isEmpty()) return
+            }
+        } catch (error: Exception) {
+            error.throwIfAnnouncementCancellation()
+            _uiState.update { it.copy(loadMoreError = "無法載入更多消息，請稍後再試。") }
+        } finally {
+            _uiState.update { it.copy(isLoadingMore = false) }
+        }
+    }
+
     private fun showFirstPage(page: SchoolAnnouncementPage) {
         _uiState.update {
             it.copy(
@@ -222,18 +278,22 @@ class SchoolAnnouncementsViewModel(
     }
 
     companion object {
-        fun factory(context: Context): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+        fun factory(context: Context, supplementPinnedPages: Boolean = true): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                val repository = NetworkSchoolAnnouncementsRepository(
+                val reading = com.clhs.score.data.AnnouncementReadRepository.get(context)
+                val repository = schoolAnnouncementsRepository(
                     context.applicationContext.cacheDir,
-                    readRepository = com.clhs.score.data.AnnouncementReadRepository.get(context),
+                    BuildConfig.USE_FAKE_DATA,
+                    readRepository = reading,
                 )
                 return SchoolAnnouncementsViewModel(
                     loadCached = repository::loadCached,
                     loadPage = repository::loadPage,
                     loadCachedFilters = repository::loadCachedFilterOptions,
                     loadFilters = repository::loadFilterOptions,
+                    loadUnreadIds = { reading.unreadIds.first() },
+                    supplementPinnedPages = supplementPinnedPages,
                 ) as T
             }
         }
@@ -285,7 +345,13 @@ class SchoolAnnouncementDetailViewModel(
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    val repository = NetworkSchoolAnnouncementsRepository(context.applicationContext.cacheDir)
+                    val repository = schoolAnnouncementsRepository(
+                        context.applicationContext.cacheDir, BuildConfig.USE_FAKE_DATA,
+                        loadBookmark = { id ->
+                            AnnouncementBookmarkRepository.get(context).bookmarks.first()
+                                .firstOrNull { it.id == id }
+                        },
+                    )
                     return SchoolAnnouncementDetailViewModel {
                         repository.loadDetail(announcementId, category)
                     } as T

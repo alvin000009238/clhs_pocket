@@ -95,14 +95,29 @@ internal fun SimulatorCreditPanel(
     onReset: () -> Unit,
     onRetry: () -> Unit,
 ) {
+    if (!state.isLoaded) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (state.isLoading) {
+                Text("正在載入這次考試的學分…", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                state.error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                }
+                TextButton(onClick = onRetry, shapes = ButtonDefaults.shapes()) { Text("重新載入") }
+                if (state.canRestoreDefaults) {
+                    TextButton(onClick = onReset, shapes = ButtonDefaults.shapes()) { Text("恢復預設") }
+                }
+            }
+        }
+        return
+    }
     var showInference by rememberSaveable(state.identity) { mutableStateOf(false) }
     val credits = state.credits
     val verification = remember(report, credits) {
         credits?.let { SimulatorCredits.verify(report.subjects, report.examSummary, it) }
     }
-    val busy = !state.isLoaded || state.isSaving
+    val busy = state.isSaving
     val source = when {
-        state.isLoading -> "載入中…"
         state.isInferring -> "推算中…"
         state.confirmed && state.source == "inferred" -> "推算・已確認"
         state.confirmed && state.source == "default" -> "預設・已儲存"
@@ -122,23 +137,18 @@ internal fun SimulatorCreditPanel(
                 )
             }
         }
-        if (!state.isLoading) {
-            Text(
-                when {
-                    credits == null -> "學分需為 1～${SimulatorCredits.MAX_CREDITS} 的整數"
-                    verification?.status == SimulatorCredits.VerificationStatus.UNAVAILABLE -> "暫無法比對官方成績"
-                    verification?.status == SimulatorCredits.VerificationStatus.MISMATCH -> "與官方成績不符"
-                    else -> "與官方成績相符"
-                },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(
+            when {
+                credits == null -> "學分需為 1～${SimulatorCredits.MAX_CREDITS} 的整數"
+                verification?.status == SimulatorCredits.VerificationStatus.UNAVAILABLE -> "暫無法比對官方成績"
+                verification?.status == SimulatorCredits.VerificationStatus.MISMATCH -> "與官方成績不符"
+                else -> "與官方成績相符"
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         state.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            if (!state.isLoaded) {
-                TextButton(onClick = onRetry, enabled = !state.isLoading && !state.isSaving, shapes = ButtonDefaults.shapes()) { Text("重新載入") }
-            }
         }
         if (!state.confirmed) state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         CreditComparisonRow("", "加權總分", "平均")
@@ -221,7 +231,7 @@ internal fun SimulatorCreditPanel(
         }
         TextButton(
             onClick = onReset,
-            enabled = !state.isLoading && !state.isSaving && (state.isLoaded || state.canRestoreDefaults),
+            enabled = !busy,
             shapes = ButtonDefaults.shapes(),
         ) { Text("恢復預設") }
     }

@@ -33,7 +33,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -42,7 +42,6 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -63,6 +62,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -85,17 +85,31 @@ import java.util.Locale
 import kotlinx.coroutines.launch
 
 @Preview(name = "行事曆", widthDp = 390, heightDp = 844)
+@Preview(name = "行事曆 · 大字體", widthDp = 320, heightDp = 1000, fontScale = 2f)
 @Composable
 private fun CalendarContentPreview() {
     com.clhs.score.ui.theme.ScoreTheme {
-        val start = LocalDate.now(SCHOOL_COURSE_ZONE).atStartOfDay()
         SchoolCalendarScreen(
-            uiState = SchoolCalendarUiState(isInitialLoading = false, events = listOf(
-                SchoolCalendarEvent("preview-event", "校園活動", start, start.plusDays(1), true),
-            )),
+            uiState = SchoolCalendarUiState(isInitialLoading = false,
+                events = com.clhs.score.data.FakeData.calendarEvents,
+                skippedRecurringEvents = 1,
+            ),
             onBack = {}, onRefresh = {}, onSearch = {}, onClearSearch = {},
             onOpenGoogleCalendar = {}, onAddToHome = {}, onNoticeShown = {},
             targetEventId = "preview-event",
+        )
+    }
+}
+
+@Preview(name = "行事曆 · 搜尋結果", widthDp = 390, heightDp = 844)
+@Composable
+private fun CalendarSearchPreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        SchoolCalendarScreen(
+            uiState = SchoolCalendarUiState(isInitialLoading = false,
+                events = com.clhs.score.data.FakeData.calendarEvents, searchQuery = "期中"),
+            onBack = {}, onRefresh = {}, onSearch = {}, onClearSearch = {},
+            onOpenGoogleCalendar = {}, onAddToHome = {}, onNoticeShown = {},
         )
     }
 }
@@ -223,6 +237,11 @@ private fun CalendarAgenda(
     }
 
     var targetHandled by rememberSaveable(targetEventId) { mutableStateOf(false) }
+    var previousQuery by rememberSaveable { mutableStateOf(uiState.searchQuery) }
+    LaunchedEffect(uiState.searchQuery) {
+        if (previousQuery != uiState.searchQuery) listState.scrollToItem(0)
+        previousQuery = uiState.searchQuery
+    }
     LaunchedEffect(targetEventId, groupedEvents, uiState.isInitialLoading, uiState.isRefreshing, uiState.errorMessage, uiState.searchQuery) {
         if (targetEventId == null || targetHandled || uiState.isInitialLoading ||
             uiState.errorMessage != null || uiState.searchQuery.isNotEmpty()) return@LaunchedEffect
@@ -248,7 +267,17 @@ private fun CalendarAgenda(
             contentPadding = readingContentPadding(navigationContentPadding(PaddingValues(start = 16.dp, top = topPadding + 8.dp, end = 16.dp, bottom = 88.dp))),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-
+            if (uiState.searchQuery.isNotEmpty()) {
+                item(key = "calendar-search-status") {
+                    InputChip(
+                        selected = false,
+                        onClick = onClearSearch,
+                        label = { Text("搜尋：${uiState.searchQuery}", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        trailingIcon = { OutlinedRoundedSymbol("close", contentDescription = null) },
+                        modifier = Modifier.semantics { contentDescription = "清除搜尋：${uiState.searchQuery}" },
+                    )
+                }
+            }
             if (uiState.skippedRecurringEvents > 0 && visibleEvents.isNotEmpty()) {
                 item(key = "recurring-warning") {
                     Card(
@@ -258,11 +287,12 @@ private fun CalendarAgenda(
                         ),
                         shape = MaterialTheme.shapes.large,
                     ) {
-                        Text(
-                            text = "部分重複活動請前往 Google 行事曆查看。",
-                            modifier = Modifier.padding(16.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("部分重複活動未列在下方。", style = MaterialTheme.typography.bodyMedium)
+                            FilledTonalButton(onClick = onOpenGoogleCalendar, shapes = ButtonDefaults.shapes()) {
+                                Text("查看完整行事曆")
+                            }
+                        }
                     }
                 }
             }
@@ -385,20 +415,19 @@ private fun CalendarEventCard(
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = eventTimeText(event),
-                modifier = Modifier.fillMaxWidth(0.25f),
-                style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold,
-            )
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                Text(
+                    text = eventTimeText(event),
+                    style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Text(
                     text = event.title,
                     style = MaterialTheme.typography.titleMedium,
@@ -414,14 +443,11 @@ private fun CalendarEventCard(
                 }
             }
             if (event.id.isNotBlank()) {
-                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-                    IconButton(onClick = hapticClick { onAddToHome(event) },
-                        modifier = Modifier.size(32.dp)) {
-                        OutlinedRoundedSymbol(
-                            icon = "add",
-                            contentDescription = "加入首頁倒數元件",
-                        )
-                    }
+                IconButton(onClick = hapticClick { onAddToHome(event) }) {
+                    OutlinedRoundedSymbol(
+                        icon = "add",
+                        contentDescription = "將「${event.title}」加入首頁倒數元件",
+                    )
                 }
             }
         }
@@ -526,7 +552,7 @@ private fun eventTimeText(event: SchoolCalendarEvent): String {
     if (event.isAllDay) {
         val lastDate = event.endExclusive.toLocalDate().minusDays(1)
         return if (lastDate > event.start.toLocalDate()) {
-            "全天\n${event.start.monthValue}/${event.start.dayOfMonth}－${lastDate.monthValue}/${lastDate.dayOfMonth}"
+            "全天 ${event.start.monthValue}/${event.start.dayOfMonth}－${lastDate.monthValue}/${lastDate.dayOfMonth}"
         } else {
             "全天"
         }
@@ -536,7 +562,7 @@ private fun eventTimeText(event: SchoolCalendarEvent): String {
     val startDate = event.start.toLocalDate()
     val endDate = event.endExclusive.toLocalDate()
     return if (startDate == endDate) {
-        "${event.start.format(timeFormatter)}\n${event.endExclusive.format(timeFormatter)}"
+        "${event.start.format(timeFormatter)}－${event.endExclusive.format(timeFormatter)}"
     } else {
         "${startDate.monthValue}/${startDate.dayOfMonth} ${event.start.format(timeFormatter)}\n" +
             "${endDate.monthValue}/${endDate.dayOfMonth} ${event.endExclusive.format(timeFormatter)}"

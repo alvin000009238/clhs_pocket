@@ -738,9 +738,13 @@ class ScoreViewModel(
             pendingReminderTarget = null
             gradeRequestId++
             _gradesState.update {
+                val sameExam = it.selectedYearValue == year.value && it.selectedExamValue == exam.value
                 it.copy(
                     selectedYearValue = year.value,
                     selectedExamValue = exam.value,
+                    report = it.report.takeIf { sameExam },
+                    analysis = it.analysis.takeIf { sameExam },
+                    gradeReminderChangeSet = it.gradeReminderChangeSet.takeIf { sameExam },
                     comparisonReport = null,
                     comparisonExamName = null,
                     comparisonError = null,
@@ -866,11 +870,15 @@ class ScoreViewModel(
                         pendingReminderTarget = null
                     }
                     _gradesState.update {
+                        val sameExam = it.selectedYearValue == selectedYear?.value && it.selectedExamValue == selectedExam?.value
                         it.copy(
                             isLoadingStructure = false,
                             structure = structure,
                             selectedYearValue = selectedYear?.value,
                             selectedExamValue = selectedExam?.value,
+                            report = it.report.takeIf { sameExam },
+                            analysis = it.analysis.takeIf { sameExam },
+                            gradeReminderChangeSet = it.gradeReminderChangeSet.takeIf { sameExam },
                             errorMessage = null,
                             loadErrorMessage = null,
                         )

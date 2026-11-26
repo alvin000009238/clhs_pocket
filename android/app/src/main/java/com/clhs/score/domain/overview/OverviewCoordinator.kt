@@ -2,7 +2,7 @@ package com.clhs.score.domain.overview
 
 import com.clhs.score.data.AuthenticatedSession
 import com.clhs.score.data.GradeReminderState
-import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
+import com.clhs.score.data.SchoolAnnouncementsRepository
 import com.clhs.score.data.NetworkSchoolCalendarRepository
 import com.clhs.score.data.occurrenceOn
 import com.clhs.score.data.SCHOOL_COURSE_ZONE
@@ -16,6 +16,7 @@ import com.clhs.score.data.ScheduleScope
 import com.clhs.score.data.displayItems
 import com.clhs.score.data.SchoolAnnouncementPage
 import com.clhs.score.data.SchoolAnnouncement
+import com.clhs.score.data.parseAnnouncementDate
 import com.clhs.score.data.SchoolCalendarEvent
 import com.clhs.score.data.SchoolCalendarSnapshot
 import com.clhs.score.data.parseYearTermOrNull
@@ -63,7 +64,7 @@ import java.util.Locale
 class OverviewCoordinator(
     private val scheduleRepository: ScheduleRepository,
     private val calendarRepository: NetworkSchoolCalendarRepository,
-    private val announcementsRepository: NetworkSchoolAnnouncementsRepository,
+    private val announcementsRepository: SchoolAnnouncementsRepository,
     private val reminderState: Flow<GradeReminderState>,
     private val weatherRepository: WeatherRepository? = null,
     private val weatherConfiguration: Flow<WeatherConfiguration> = flowOf(WeatherConfiguration(WeatherSource.OPEN_METEO)),
@@ -79,8 +80,12 @@ class OverviewCoordinator(
         youBikeRefreshes: Flow<Unit> = flowOf(Unit),
         widgets: Flow<List<OverviewWidgetInstance>>? = null,
         weatherRefreshes: Flow<Unit> = emptyFlow(),
+        announcementRefreshes: Flow<Unit> = emptyFlow(),
     ): Flow<OverviewState> {
-        if (widgets == null) return observeLegacy(refreshes, session, clockEnabled, youBikeEnabled, youBikeRefreshes)
+        if (widgets == null) return observeLegacy(
+            refreshes, session, clockEnabled, youBikeEnabled, youBikeRefreshes,
+            announcementRefreshes = announcementRefreshes,
+        )
         val weatherStates = widgets.map { instances -> instances.filter { it.enabled }.mapNotNull { it.config() as? OverviewWidgetConfig.Weather }.distinct() }
             .distinctUntilChanged().flatMapLatest { configurations ->
                 var latest: Map<String, OverviewWeatherState> = emptyMap()
@@ -139,8 +144,12 @@ class OverviewCoordinator(
                 },
             )
         }.distinctUntilChanged()
-        return combine(observeLegacy(refreshes, session, clockEnabled, youBikeEnabled, youBikeRefreshes,
-            legacyPublic = false, countdownBoundaries = countdownBoundaries), widgets, weatherStates, bikeStates) { base, layout, weather, bikes ->
+        val baseStates = observeLegacy(
+            refreshes, session, clockEnabled, youBikeEnabled, youBikeRefreshes,
+            legacyPublic = false, announcementRefreshes = announcementRefreshes,
+            countdownBoundaries = countdownBoundaries,
+        )
+        return combine(baseStates, widgets, weatherStates, bikeStates) { base, layout, weather, bikes ->
             base.copy(widgets = layout, weatherLocations = weather.first, manuallyRefreshingWeatherKeys = weather.second, youBikeStations = bikes,
                 weather = weather.first.values.firstOrNull() ?: OverviewWeatherState.Loading,
                 youBike = bikes[YouBikeStation.SCHOOL.id] ?: YouBikeState(),
@@ -158,13 +167,14 @@ class OverviewCoordinator(
         youBikeEnabled: Flow<Boolean> = clockEnabled,
         youBikeRefreshes: Flow<Unit> = flowOf(Unit),
         legacyPublic: Boolean = true,
+        announcementRefreshes: Flow<Unit>,
         countdownBoundaries: Flow<OverviewClockTargets> = flowOf(OverviewClockTargets()),
     ): Flow<OverviewState> = combine(merge(
         refreshes.flatMapLatest {
             merge(
                 if (session != null) scheduleUpdates(session) else flowOf(OverviewUpdate.Schedule(null, false, false)),
                 calendarUpdates(),
-                announcementUpdates(),
+                announcementRefreshes.onStart { emit(Unit) }.flatMapLatest { announcementUpdates() },
                 if (legacyPublic) weatherUpdates() else emptyFlow(),
             )
         },
@@ -682,9 +692,14 @@ internal fun announcementOverviewItem(announcement: SchoolAnnouncement): Overvie
         title = announcement.title,
         supportingText = listOf(announcement.unit, announcement.date).filter(String::isNotBlank).joinToString(" · "),
         label = if (announcement.isPinned) "置頂公告" else "公告",
-        displayDate = runCatching { LocalDate.parse(announcement.date.replace('/', '-')) }.getOrNull(),
+        displayDate = parseAnnouncementDate(announcement.date),
         icon = "campaign",
-        destination = OverviewDestination.Announcement(announcement.id, announcement.category, announcement.externalUrl),
+        destination = OverviewDestination.Announcement(
+            announcement.id,
+            announcement.category,
+            announcement.externalUrl,
+            isExternal = announcement.contentType.equals("url", ignoreCase = true),
+        ),
         order = 60,
     )
 

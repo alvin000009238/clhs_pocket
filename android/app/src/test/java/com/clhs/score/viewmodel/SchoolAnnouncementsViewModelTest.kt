@@ -38,6 +38,169 @@ class SchoolAnnouncementsViewModelTest {
     }
 
     @Test
+    fun unreadBeyondPinnedFirstPageIsLoadedAndSortedAheadWithoutScrolling() = runTest(dispatcher) {
+        val calls = mutableListOf<Int>()
+        val pins = (1..20).map { announcement("pin-$it").copy(isPinned = true) }
+        val unread = announcement("unread")
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { index, _, _, _ ->
+                calls += index
+                if (index == 0) page(*pins.toTypedArray(), totalPages = 50)
+                else page(unread, pageIndex = index, totalPages = 50)
+            },
+            loadUnreadIds = { setOf(unread.id) },
+        )
+        runCurrent()
+
+        assertEquals(listOf(0, 1), calls)
+        val displayed = com.clhs.score.ui.announcements.orderAnnouncements(viewModel.uiState.value.announcements, setOf(unread.id))
+        assertEquals(unread, displayed.first())
+        assertTrue(viewModel.uiState.value.hasMore)
+        assertFalse(viewModel.uiState.value.isLoadingMore)
+    }
+
+    @Test
+    fun pinnedOnlyPagesLoadThroughFirstOrdinaryAnnouncementWithNoUnread() = runTest(dispatcher) {
+        val calls = mutableListOf<Int>()
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { index, _, _, _ ->
+                calls += index
+                page(announcement("page-$index").copy(isPinned = index < 2), pageIndex = index, totalPages = 50)
+            },
+        )
+        runCurrent()
+
+        assertEquals(listOf(0, 1, 2), calls)
+        assertEquals(listOf("page-0", "page-1", "page-2"), viewModel.uiState.value.announcements.map { it.id })
+        assertTrue(viewModel.uiState.value.hasMore)
+    }
+
+    @Test
+    fun campusSearchOpeningSkipsPinnedSupplement() = runTest(dispatcher) {
+        val calls = mutableListOf<Int>()
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { index, _, _, _ ->
+                calls += index
+                page(announcement("pin").copy(isPinned = true), pageIndex = index, totalPages = 50)
+            },
+            supplementPinnedPages = false,
+        )
+        runCurrent()
+
+        assertEquals(listOf(0), calls)
+        assertTrue(viewModel.uiState.value.hasMore)
+    }
+
+    @Test
+    fun unreadLookupIsBoundedAndDoesNotChaseAnnouncementsDiscoveredDuringPaging() = runTest(dispatcher) {
+        val calls = mutableListOf<Int>()
+        var unreadIds = setOf("missing")
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { index, _, _, _ ->
+                calls += index
+                unreadIds = unreadIds + "discovered-$index"
+                page(announcement("page-$index"), pageIndex = index, totalPages = 100)
+            },
+            loadUnreadIds = { unreadIds },
+        )
+        runCurrent()
+        assertEquals((0..19).toList(), calls)
+        assertTrue(viewModel.uiState.value.hasMore)
+        viewModel.loadMore()
+        runCurrent()
+        assertEquals(20, calls.last())
+    }
+
+    @Test
+    fun visibleUnreadDoesNotFetchExtraPages() = runTest(dispatcher) {
+        val calls = mutableListOf<Int>()
+        SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { index, _, _, _ ->
+                calls += index
+                page(announcement("visible"), totalPages = 50)
+            },
+            loadUnreadIds = { setOf("visible") },
+        )
+        runCurrent()
+        assertEquals(listOf(0), calls)
+    }
+
+    @Test
+    fun unreadLookupStopsOnceOriginalSnapshotIsVisible() = runTest(dispatcher) {
+        var unreadIds = setOf("target")
+        val calls = mutableListOf<Int>()
+        SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { index, _, _, _ ->
+                calls += index
+                if (index == 0) page(announcement("pin").copy(isPinned = true), totalPages = 50)
+                else {
+                    unreadIds = unreadIds + "not-yet-loaded"
+                    page(announcement("target"), pageIndex = index, totalPages = 50)
+                }
+            },
+            loadUnreadIds = { unreadIds },
+        )
+        runCurrent()
+        assertEquals(listOf(0, 1), calls)
+    }
+
+    @Test
+    fun filteredResultsCancelUnreadLookupAndNeverFetchUnfilteredPages() = runTest(dispatcher) {
+        var cancelled = false
+        val calls = mutableListOf<Pair<Int, String>>()
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { index, _, unit, _ ->
+                calls += index to unit
+                if (index == 1) {
+                    try { awaitCancellation() } finally { cancelled = true }
+                }
+                page(announcement(unit), totalPages = 50)
+            },
+            loadUnreadIds = { setOf("missing") },
+        )
+        runCurrent()
+        viewModel.loadMore()
+        viewModel.setFilters("425", "-1")
+        runCurrent()
+        assertTrue(cancelled)
+        assertEquals(listOf(0 to "-1", 1 to "-1", 0 to "425"), calls)
+        assertEquals("425", viewModel.uiState.value.announcements.single().id)
+        viewModel.search("升學")
+        runCurrent()
+        assertEquals(0 to "425", calls.last())
+        assertEquals(4, calls.size)
+    }
+
+    @Test
+    fun unreadLookupFailureKeepsFirstPageAndManualPagingCanRetry() = runTest(dispatcher) {
+        var failed = true
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { index, _, _, _ ->
+                if (index > 0 && failed) throw IOException("offline")
+                page(announcement("page-$index"), pageIndex = index, totalPages = 2)
+            },
+            loadUnreadIds = { setOf("page-1") },
+        )
+        runCurrent()
+        assertEquals(listOf("page-0"), viewModel.uiState.value.announcements.map { it.id })
+        assertEquals("無法載入更多消息，請稍後再試。", viewModel.uiState.value.loadMoreError)
+        assertNull(viewModel.uiState.value.errorMessage)
+        failed = false
+        viewModel.loadMore()
+        runCurrent()
+        assertEquals(listOf("page-0", "page-1"), viewModel.uiState.value.announcements.map { it.id })
+        assertNull(viewModel.uiState.value.loadMoreError)
+    }
+
+    @Test
     fun filtersPreserveKeywordAcrossPagingRefreshAndClearWithoutUsingDefaultCache() = runTest(dispatcher) {
         val calls = mutableListOf<List<String>>()
         var cacheCalls = 0
@@ -76,6 +239,31 @@ class SchoolAnnouncementsViewModelTest {
         runCurrent()
         assertEquals(2, cacheCalls)
         assertFalse(viewModel.uiState.value.hasFilters)
+    }
+
+    @Test
+    fun notificationRefreshReplacesFilteredResultsWithLatestFeed() = runTest(dispatcher) {
+        var latest = "initial"
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { _, keyword, unit, category ->
+                if (keyword.isEmpty() && unit == "-1" && category == "-1") page(announcement(latest))
+                else page(announcement("filtered"))
+            },
+        )
+        runCurrent()
+        viewModel.search("升學")
+        viewModel.setFilters("425", "12")
+        runCurrent()
+        assertEquals("filtered", viewModel.uiState.value.announcements.single().id)
+
+        latest = "notification"
+        viewModel.refreshLatest()
+        runCurrent()
+
+        assertFalse(viewModel.uiState.value.hasFilters)
+        assertEquals("", viewModel.uiState.value.searchQuery)
+        assertEquals("notification", viewModel.uiState.value.announcements.single().id)
     }
 
     @Test

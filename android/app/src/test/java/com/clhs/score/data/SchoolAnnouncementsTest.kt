@@ -250,8 +250,9 @@ class SchoolAnnouncementsTest {
         assertTrue(detail.htmlContent.contains("https://www.clhs.tyc.edu.tw/notice"))
         assertFalse(detail.htmlContent.contains("script", ignoreCase = true))
         assertFalse(detail.htmlContent.contains("javascript:", ignoreCase = true))
-        assertTrue(detail.htmlContent.contains("⚠️ 此內容包含表格"))
-        assertEquals(1, detail.htmlContent.windowed("⚠️ 此內容包含表格".length).count { it == "⚠️ 此內容包含表格" })
+        assertTrue(detail.containsTables)
+        assertFalse(detail.htmlContent.contains("<table"))
+        assertFalse(detail.htmlContent.contains("請點擊下方"))
         assertEquals(2, detail.images.size)
         assertEquals(1, detail.images.count { it.canPreview })
         assertTrue(detail.images.first { it.canPreview }.url.startsWith("https://www.clhs.tyc.edu.tw/"))
@@ -259,6 +260,26 @@ class SchoolAnnouncementsTest {
         assertEquals(245_760L, detail.attachments.single().sizeBytes)
         assertTrue(detail.attachments.single().url.endsWith("/%E5%85%AB%E6%9C%88%E9%96%8B%E9%A4%A8%E6%99%82%E9%96%93.pdf"))
         assertNull(safeAnnouncementWebUrl("javascript:alert(1)"))
+    }
+
+    @Test
+    fun invalidDetailDoesNotResolveToAnAnnouncement() {
+        for (body in listOf("""[{}]""", """[{"rcode":200,"newsId":"other","title":"其他公告"}]""")) {
+            val result = runCatching { SchoolAnnouncementParser.parseDetail(body, "requested") }
+            assertTrue(result.exceptionOrNull() is java.io.IOException)
+        }
+    }
+
+    @Test
+    fun externalDetailPreservesLinkTypeEvenWhenUrlIsInvalid() {
+        val body = """[{"rcode":200,"newsId":"link","title":"公告","content_type":"url","content":"https://example.org/a"}]"""
+        val valid = SchoolAnnouncementParser.parseDetail(body, "link")
+        val invalid = SchoolAnnouncementParser.parseDetail(body.replace("https://example.org/a", "javascript:void(0)"), "link")
+
+        assertTrue(valid.isExternal)
+        assertEquals("https://example.org/a", valid.externalUrl)
+        assertTrue(invalid.isExternal)
+        assertNull(invalid.externalUrl)
     }
 
     @Test
@@ -283,6 +304,7 @@ class SchoolAnnouncementsTest {
     fun oversizedSchoolHeadingsBecomeBoldBodyParagraphs() {
         val detail = SchoolAnnouncementParser.parseDetail(HEADING_DETAIL_JSON, "45049", "公告")
 
+        assertFalse(detail.containsTables)
         assertFalse(detail.htmlContent.contains("<h1", ignoreCase = true))
         assertTrue(detail.htmlContent.contains("<p><strong>1.學生名單請參閱附加檔案</strong></p>"))
     }

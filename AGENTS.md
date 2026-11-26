@@ -34,8 +34,9 @@ Paths below are relative to the repository root.
 - UI work: [DESIGN.md](DESIGN.md), then the referenced theme and component source.
 - Guest UI: `ui/AuthGate.kt` receives feature-specific copy and optional subpage back navigation; compact Overview and personal prompts reuse `ui/GuestLoginContent.kt`. Keep authentication decisions in `AuthGate`.
 - Settings and destination rows: reuse `ui/PocketOptionIcon.kt` and the shared rows in `ui/GeneralSettingsScreen.kt`; preserve controls and selection semantics when applying the option style.
-- Title-free personal, general settings, records, announcement and calendar pages use `ui/FloatingSubpageLayout.kt`; keep top clearance inside scroll content so it can draw behind the status bar. Floating controls reuse `ui/PocketFloatingShadow.kt`.
-- Page back buttons use `PocketBackButton` from `ui/PocketCircleIconButton.kt`; the personal settings action uses the same circular button style.
+- The combined personal and settings page, records, announcements and calendar use `ui/FloatingSubpageLayout.kt`. Keep top clearance inside scroll content so it can draw behind the status bar. Floating controls reuse `ui/PocketFloatingShadow.kt`.
+- Three-dot action menus use `ui/PocketOverflowMenu.kt` to open on pointer down and support anchor-owned dragging across Popup windows. Releasing over the anchor keeps the menu open for a subsequent tap; consume the pointer stream to prevent duplicate IconButton clicks. Keep ordinary selection dropdowns separate; Overview editing must exclude the menu handle from reorder gestures.
+- Page back buttons use `PocketBackButton` from `ui/PocketCircleIconButton.kt`.
 - Use the `android-cli` skill for Android development and verification. After every UI change, run `android preview render` for the affected Compose previews and visually inspect the generated PNGs. Add or update relevant fake-data previews when needed. Report render failures explicitly; a build alone does not satisfy this visual check.
 - Prefer Android CLI for work previously done with ADB whenever it provides the required operation. See [Android CLI workflow](docs/development/android-cli.md) for verified references, capabilities and fallbacks. Host-required Device tools take precedence for device interaction; use explicit serials for CLI installs and unsupported-operation ADB fallbacks.
 - Adding Overview dashboard widgets: use [clhs-overview-widget](.agents/skills/clhs-overview-widget/SKILL.md) for integration points and reusable UI/test templates. This is separate from the Android home-screen Glance Widget.
@@ -92,6 +93,7 @@ Run commands from `android/` in PowerShell (`./gradlew` on Unix).
 - Before `connected*AndroidTest`, pin the emulator with `ANDROID_SERIAL` and verify the reported target. Runner arguments such as `android.testInstrumentationRunnerArguments.serial` do not select a device. Gradle device tests can uninstall the app and reset its data; do not run them on a user's phone for visual review. Use an in-place APK update for visual review.
 - When device work is explicitly requested, use available device/emulator tooling for interaction and evidence collection. Follow `docs/development/testing.md`; keep ADB/device selection explicit and use fake data unless the user authorizes real account data.
 - The Android/Kotlin toolchain requires JDK 25. If Java is missing, locate a real JDK 25 installation and verify `lib/jvm.cfg`; do not hardcode a machine-specific installation suffix. Use workspace-local `GRADLE_USER_HOME` / `ANDROID_USER_HOME` when required by the environment.
+- Toolchain diagnostics may print values only for explicitly named, non-sensitive variables such as `JAVA_HOME`, `ANDROID_HOME` and `ANDROID_SDK_ROOT`. For credentials, check presence without reading the value. When enumerating environment variables, output names only.
 
 ## Release and documentation
 

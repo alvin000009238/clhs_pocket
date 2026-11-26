@@ -35,6 +35,31 @@ class SimulatorCreditStateOwnerTest {
     private val names = report.subjects.map { cleanSubjectName(it.subjectName) }
 
     @Test
+    fun switchingExamsWaitsForCurrentCreditsBeforeShowingAttention() = runTest {
+        val repository = FakeGradeRepository()
+        repository.saveSimulatorCredits(
+            session, "114_1", "E2",
+            SavedSimulatorCredits(names.sorted(), mapOf(names[0] to 2, names[1] to 3), "manual"),
+        )
+        val owner = SimulatorCreditStateOwner(repository, this, StandardTestDispatcher(testScheduler))
+        owner.open(session, "114_1", "E1", report) { true }
+        runCurrent()
+        assertTrue(owner.state.value.summaryDisplay(report, session.studentNo, "114_1", "E1").needsCreditAttention)
+
+        assertFalse(owner.state.value.summaryDisplay(null, session.studentNo, "114_1", "E2").needsCreditAttention)
+        assertFalse(owner.state.value.summaryDisplay(report, session.studentNo, "114_1", "E2").needsCreditAttention)
+        owner.open(session, "114_1", "E2", report) { true }
+        assertFalse(owner.state.value.summaryDisplay(report, session.studentNo, "114_1", "E2").needsCreditAttention)
+        runCurrent()
+        assertFalse(owner.state.value.summaryDisplay(report, session.studentNo, "114_1", "E2").needsCreditAttention)
+
+        owner.open(session, "114_1", "E1", report) { true }
+        assertFalse(owner.state.value.summaryDisplay(report, session.studentNo, "114_1", "E1").needsCreditAttention)
+        runCurrent()
+        assertTrue(owner.state.value.summaryDisplay(report, session.studentNo, "114_1", "E1").needsCreditAttention)
+    }
+
+    @Test
     fun uniqueCandidateIsPreparedButOnlyExplicitConfirmationPersistsIt() = runTest {
         val repository = RecordingRepository()
         val owner = SimulatorCreditStateOwner(repository, this, StandardTestDispatcher(testScheduler))
@@ -542,7 +567,7 @@ class SimulatorCreditStateOwnerTest {
         ).forEach { (student, year, exam) ->
             val display = state.summaryDisplay(missingSummary, student, year, exam)
             assertEquals("--", display.averageText)
-            assertTrue(display.needsCreditAttention)
+            assertFalse(display.needsCreditAttention)
         }
         val changedSubjects = missingSummary.copy(subjects = missingSummary.subjects.map { it.copy(subjectName = it.subjectName + "-新") })
         assertEquals("--", state.summaryDisplay(changedSubjects, session.studentNo, "114_1", "E1").averageText)

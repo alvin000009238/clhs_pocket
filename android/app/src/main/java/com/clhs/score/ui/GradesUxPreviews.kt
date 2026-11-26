@@ -56,6 +56,42 @@ private fun GradeLoadFailurePreviewContent(state: GradesUiState) {
     }
 }
 
+@Preview(name = "Credit settings loading", widthDp = 390)
+@Composable
+private fun CreditSettingsLoadingPreview() {
+    CreditSettingsStatePreview(SimulatorCreditUiState(isLoading = true))
+}
+
+@Preview(name = "Credit settings read failure", widthDp = 390)
+@Preview(name = "Credit settings recovery large text", widthDp = 320, fontScale = 2f, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun CreditSettingsRecoveryPreview() {
+    CreditSettingsStatePreview(
+        SimulatorCreditUiState(error = "舊設定不適用，請重新確認學分", canRestoreDefaults = true),
+    )
+}
+
+@Composable
+private fun CreditSettingsStatePreview(state: SimulatorCreditUiState) {
+    ScoreTheme {
+        Surface {
+            Column(Modifier.padding(24.dp)) {
+                SimulatorCreditPanel(
+                    report = MockGradeSystem.generateReport(),
+                    state = state,
+                    onEdit = { _, _ -> },
+                    onToggleFixed = {},
+                    onInfer = {},
+                    onCandidate = {},
+                    onSave = {},
+                    onReset = {},
+                    onRetry = {},
+                )
+            }
+        }
+    }
+}
+
 @Preview(name = "Grade subjects", widthDp = 390, heightDp = 844)
 @Preview(name = "Grade subjects dark", widthDp = 390, heightDp = 844, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Preview(name = "Grade subjects large text", widthDp = 320, heightDp = 900, fontScale = 2f)

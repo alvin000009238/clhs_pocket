@@ -245,8 +245,8 @@ internal fun OverviewWidgetContent(
         "announcements" -> {
             val listConfig = config as OverviewWidgetConfig.ListItems
             val limit = listConfig.limit
-            val items = remember(state.announcements, listConfig, unreadAnnouncementIds, isReadingAvailable, bookmarksUiState.bookmarks) {
-                state.importantAnnouncements(listConfig, unreadAnnouncementIds.takeIf { isReadingAvailable }.orEmpty(), bookmarksUiState.bookmarks)
+            val items = remember(state.announcements, listConfig, unreadAnnouncementIds, bookmarksUiState.bookmarks) {
+                state.importantAnnouncements(listConfig, unreadAnnouncementIds, bookmarksUiState.bookmarks)
             }
             OverviewSection("重要公告", modifier.fillMaxWidth(), onViewAll = if (editing) null else { { open(OverviewDestination.Announcements) } }) {
                 if (!isReadingAvailable) Text("公告閱讀狀態暫時無法取得", style = MaterialTheme.typography.bodySmall,

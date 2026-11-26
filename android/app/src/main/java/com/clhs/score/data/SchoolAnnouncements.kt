@@ -83,7 +83,37 @@ data class SchoolAnnouncementDetail(
     val images: List<SchoolAnnouncementImage>,
     val attachments: List<SchoolAnnouncementAttachment>,
     val officialUrl: String,
-)
+    val isExternal: Boolean = false,
+    val externalUrl: String? = null,
+    val containsTables: Boolean = false,
+    val isSummaryOnly: Boolean = false,
+) {
+    internal val marksReadOnDisplay: Boolean get() = !isExternal && !isSummaryOnly
+}
+
+interface SchoolAnnouncementsRepository {
+    suspend fun loadCached(): SchoolAnnouncementPage?
+    suspend fun loadPage(
+        pageIndex: Int,
+        keyword: String = "",
+        unitId: String = ALL_UNITS_ID,
+        categoryId: String = ALL_UNITS_ID,
+    ): SchoolAnnouncementPage
+    suspend fun loadCachedFilterOptions(): AnnouncementFilterOptions
+    suspend fun loadFilterOptions(): AnnouncementFilterOptions
+    suspend fun loadDetail(id: String, categoryHint: String = ""): SchoolAnnouncementDetail
+}
+
+internal fun schoolAnnouncementsRepository(
+    cacheDirectory: File,
+    useFakeData: Boolean,
+    readRepository: AnnouncementReadRepository? = null,
+    loadBookmark: suspend (String) -> AnnouncementBookmark? = { null },
+): SchoolAnnouncementsRepository = if (useFakeData) {
+    FakeSchoolAnnouncementsRepository(readRepository, loadBookmark)
+} else {
+    NetworkSchoolAnnouncementsRepository(cacheDirectory, readRepository = readRepository)
+}
 
 class NetworkSchoolAnnouncementsRepository(
     cacheDirectory: File,
@@ -94,21 +124,21 @@ class NetworkSchoolAnnouncementsRepository(
     private val baseUrl: HttpUrl = SCHOOL_BASE_URL,
     private val nowProvider: () -> Instant = Instant::now,
     private val readRepository: AnnouncementReadRepository? = null,
-) {
+) : SchoolAnnouncementsRepository {
     private val cache = LatestCacheFile(cacheDirectory, CACHE_FILE_NAME)
     private val cacheFile = cache.file
     private val unitsCache = LatestCacheFile(cacheDirectory, UNITS_CACHE_FILE_NAME)
     private val unitsCacheFile = unitsCache.file
 
-    suspend fun loadCached(): SchoolAnnouncementPage? = withContext(Dispatchers.IO) {
+    override suspend fun loadCached(): SchoolAnnouncementPage? = withContext(Dispatchers.IO) {
         readCache()?.also { readRepository?.discoverForDisplay(it.announcements) }
     }
 
-    suspend fun loadPage(
+    override suspend fun loadPage(
         pageIndex: Int,
-        keyword: String = "",
-        unitId: String = ALL_UNITS_ID,
-        categoryId: String = ALL_UNITS_ID,
+        keyword: String,
+        unitId: String,
+        categoryId: String,
     ): SchoolAnnouncementPage {
         require(pageIndex >= 0) { "pageIndex must not be negative" }
         val normalizedKeyword = keyword.trim()
@@ -167,11 +197,11 @@ class NetworkSchoolAnnouncementsRepository(
 
     suspend fun loadUnits(): List<AnnouncementUnit> = loadFilterOptions().units
 
-    suspend fun loadCachedFilterOptions(): AnnouncementFilterOptions = withContext(Dispatchers.IO) {
+    override suspend fun loadCachedFilterOptions(): AnnouncementFilterOptions = withContext(Dispatchers.IO) {
         readFilterCache()
     }
 
-    suspend fun loadFilterOptions(): AnnouncementFilterOptions {
+    override suspend fun loadFilterOptions(): AnnouncementFilterOptions {
         val generation = unitsCache.beginWrite()
         val requestContext = currentCoroutineContext()
         return withContext(Dispatchers.IO) {
@@ -188,7 +218,7 @@ class NetworkSchoolAnnouncementsRepository(
         }
     }
 
-    suspend fun loadDetail(id: String, categoryHint: String = ""): SchoolAnnouncementDetail =
+    override suspend fun loadDetail(id: String, categoryHint: String): SchoolAnnouncementDetail =
         withContext(Dispatchers.IO) {
             require(id.isNotBlank()) { "Announcement id is required" }
             val officialUrl = announcementUrl(id, baseUrl)
@@ -346,12 +376,19 @@ internal object SchoolAnnouncementParser {
         val item = parseArray(source, "Invalid announcement detail").firstOrNull() as? JsonObject
             ?: throw IOException("Invalid announcement detail")
         if (item.int("rcode")?.let { it != 200 } == true) throw IOException("Announcement detail is unavailable")
-        val id = item.string("newsId")?.takeIf(String::isNotBlank) ?: requestedId
-        val decodedHtml = decodePercentEncoded(item.string("content").orEmpty())
+        val responseId = item.string("newsId")?.takeIf(String::isNotBlank)
+        val title = item.string("title")?.takeIf(String::isNotBlank)
+        if ((responseId != null && responseId != requestedId) || (responseId == null && title == null)) {
+            throw IOException("Invalid announcement detail")
+        }
+        val id = requestedId
+        val isExternal = item.string("content_type").equals("url", ignoreCase = true)
+        val content = item.string("content").orEmpty()
+        val decodedHtml = if (isExternal) "" else decodePercentEncoded(content)
         val article = parseArticle(decodedHtml)
         return SchoolAnnouncementDetail(
             id = id,
-            title = item.string("title").orEmpty().ifBlank { "未命名消息" },
+            title = title ?: "未命名消息",
             date = item.string("time").orEmpty(),
             category = categoryHint,
             unit = item.string("unit").orEmpty(),
@@ -360,6 +397,9 @@ internal object SchoolAnnouncementParser {
             images = article.images,
             attachments = parseAttachments(item.string("attachedfile"), id),
             officialUrl = announcementUrl(id),
+            isExternal = isExternal,
+            externalUrl = if (isExternal) safeAnnouncementWebUrl(content) else null,
+            containsTables = article.containsTables,
         )
     }
 
@@ -391,12 +431,9 @@ internal object SchoolAnnouncementParser {
                 canPreview = isOfficialPreviewImage(url),
             )
         }.distinctBy(SchoolAnnouncementImage::url)
-        document.select("table").let { tables ->
-            tables.firstOrNull()?.before(
-                "<p><strong>⚠️ 此內容包含表格</strong></p><p>請點擊下方「<strong>查看原文</strong>」來查看完整表格內容。</p>",
-            )
-            tables.remove()
-        }
+        val tables = document.select("table")
+        val containsTables = tables.isNotEmpty()
+        tables.remove()
         document.select("img").remove()
         val outputSettings = Document.OutputSettings().prettyPrint(false)
         val html = Jsoup.clean(
@@ -405,7 +442,7 @@ internal object SchoolAnnouncementParser {
             articleSafelist,
             outputSettings,
         ).trim()
-        return ParsedArticle(html, images)
+        return ParsedArticle(html, images, containsTables)
     }
 
     private fun parseAttachments(source: String?, newsId: String): List<SchoolAnnouncementAttachment> {
@@ -435,6 +472,7 @@ internal object SchoolAnnouncementParser {
     private data class ParsedArticle(
         val html: String,
         val images: List<SchoolAnnouncementImage>,
+        val containsTables: Boolean,
     )
 
     private val LEGACY_UNICODE_REGEX = Regex("%u([0-9a-fA-F]{4})")

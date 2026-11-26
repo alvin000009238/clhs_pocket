@@ -2,6 +2,11 @@
 
 package com.clhs.score.ui.overview
 
+import com.clhs.score.ui.rememberPocketOverflowMenuState
+import com.clhs.score.ui.PocketOverflowDropdownMenu
+import com.clhs.score.ui.pocketOverflowMenuAnchor
+import com.clhs.score.ui.PocketOverflowMenuItem
+
 import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -224,6 +229,12 @@ internal fun OverviewWidgetGrid(
                         return@awaitEachGesture
                     }
                     val origin = Offset(placement.column * widthPitch, topOf(placement) - scrollOffset)
+                    // The top-end menu owns its entire hold-and-drag stream.
+                    val menuHandle = with(density) { 56.dp.toPx() }
+                    if (currentEditing &&
+                        down.position.x >= origin.x + placement.columns * widthPitch - gap - menuHandle &&
+                        down.position.y < origin.y + menuHandle
+                    ) return@awaitEachGesture
                     val handle = with(density) { 48.dp.toPx() }
                     val resize = currentEditing && definition?.multiple == true && widget.config() != null &&
                         down.position.x >= origin.x + placement.columns * widthPitch - gap - handle &&
@@ -423,6 +434,7 @@ private fun OverviewWidgetHost(
 ) {
     val definition = OverviewWidgetDefinitions[widget.type]
     var menu by remember { mutableStateOf(false) }
+    val overflowMenu = rememberPocketOverflowMenuState { menu = it }
     val haptics = LocalHapticFeedback.current
     val title = definition?.title ?: "不支援的元件"
     val index = widgets.indexOfFirst { it.id == widget.id }
@@ -451,18 +463,18 @@ private fun OverviewWidgetHost(
                 }) })
             Box(Modifier.align(Alignment.TopEnd)) {
                 FilledTonalIconButton(onClick = { menu = true }, enabled = enabled,
-                    modifier = Modifier.padding(4.dp)) {
+                    modifier = Modifier.pocketOverflowMenuAnchor(overflowMenu, enabled).padding(4.dp)) {
                     OutlinedRoundedSymbol("more_vert", contentDescription = "$title 元件選單")
                 }
-                DropdownMenu(offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp), expanded = menu, onDismissRequest = { menu = false }) {
-                    if (widget.config() != null) DropdownMenuItem(text = { Text("設定") }, onClick = { menu = false; onConfigure(widget) })
-                    definition?.takeIf { it.multiple }?.sizes?.forEach { size -> DropdownMenuItem(text = { Text("${size.columns} × ${size.rows}" + if (size == widget.size) " ✓" else "") },
+                PocketOverflowDropdownMenu(state = overflowMenu, offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp), expanded = menu, onDismissRequest = { menu = false }) {
+                    if (widget.config() != null) PocketOverflowMenuItem(text = { Text("設定") }, onClick = { menu = false; onConfigure(widget) })
+                    definition?.takeIf { it.multiple }?.sizes?.forEach { size -> PocketOverflowMenuItem(text = { Text("${size.columns} × ${size.rows}" + if (size == widget.size) " ✓" else "") },
                         onClick = { menu = false; onChange(widget.copy(size = size)) }) }
-                    if (index > 0) DropdownMenuItem(text = { Text("上移") }, onClick = { menu = false; onMove(widget.id, index - 1) })
-                    if (index < widgets.lastIndex) DropdownMenuItem(text = { Text("下移") }, onClick = { menu = false; onMove(widget.id, index + 1) })
-                    if (definition?.multiple == true && widget.config() != null) DropdownMenuItem(text = { Text("複製") },
+                    if (index > 0) PocketOverflowMenuItem(text = { Text("上移") }, onClick = { menu = false; onMove(widget.id, index - 1) })
+                    if (index < widgets.lastIndex) PocketOverflowMenuItem(text = { Text("下移") }, onClick = { menu = false; onMove(widget.id, index + 1) })
+                    if (definition?.multiple == true && widget.config() != null) PocketOverflowMenuItem(text = { Text("複製") },
                         onClick = { menu = false; onDuplicate(widget) })
-                    DropdownMenuItem(text = { Text("移除", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; onRemove(widget.id) })
+                    PocketOverflowMenuItem(text = { Text("移除", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; onRemove(widget.id) })
                 }
             }
             if (definition?.multiple == true && widget.config() != null) {
