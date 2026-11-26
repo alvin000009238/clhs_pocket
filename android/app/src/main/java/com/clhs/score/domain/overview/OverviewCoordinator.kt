@@ -2,7 +2,7 @@ package com.clhs.score.domain.overview
 
 import com.clhs.score.data.AuthenticatedSession
 import com.clhs.score.data.GradeReminderState
-import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
+import com.clhs.score.data.SchoolAnnouncementsRepository
 import com.clhs.score.data.NetworkSchoolCalendarRepository
 import com.clhs.score.data.occurrenceOn
 import com.clhs.score.data.SCHOOL_COURSE_ZONE
@@ -65,7 +65,7 @@ import java.util.Locale
 class OverviewCoordinator(
     private val scheduleRepository: ScheduleRepository,
     private val calendarRepository: NetworkSchoolCalendarRepository,
-    private val announcementsRepository: NetworkSchoolAnnouncementsRepository,
+    private val announcementsRepository: SchoolAnnouncementsRepository,
     private val reminderState: Flow<GradeReminderState>,
     private val weatherRepository: WeatherRepository? = null,
     private val weatherConfiguration: Flow<WeatherConfiguration> = flowOf(WeatherConfiguration(WeatherSource.OPEN_METEO)),
@@ -81,8 +81,12 @@ class OverviewCoordinator(
         youBikeRefreshes: Flow<Unit> = flowOf(Unit),
         widgets: Flow<List<OverviewWidgetInstance>>? = null,
         weatherRefreshes: Flow<Unit> = emptyFlow(),
+        announcementRefreshes: Flow<Unit> = emptyFlow(),
     ): Flow<OverviewState> {
-        if (widgets == null) return observeLegacy(refreshes, session, clockEnabled, youBikeEnabled, youBikeRefreshes)
+        if (widgets == null) return observeLegacy(
+            refreshes, session, clockEnabled, youBikeEnabled, youBikeRefreshes,
+            announcementRefreshes = announcementRefreshes,
+        )
         val weatherStates = widgets.map { instances -> instances.filter { it.enabled }.mapNotNull { it.config() as? OverviewWidgetConfig.Weather }.distinct() }
             .distinctUntilChanged().flatMapLatest { configurations ->
                 var latest: Map<String, OverviewWeatherState> = emptyMap()
@@ -132,7 +136,11 @@ class OverviewCoordinator(
             (it.config() as? OverviewWidgetConfig.YouBike)?.station
         }.distinctBy(YouBikeStation::id) }.distinctUntilChanged()
         val bikeStates = youBikeRepository?.observeStations(stations, youBikeEnabled, youBikeRefreshes) ?: flowOf(emptyMap())
-        return combine(observeLegacy(refreshes, session, clockEnabled, youBikeEnabled, youBikeRefreshes, legacyPublic = false), widgets, weatherStates, bikeStates) { base, layout, weather, bikes ->
+        val baseStates = observeLegacy(
+            refreshes, session, clockEnabled, youBikeEnabled, youBikeRefreshes,
+            legacyPublic = false, announcementRefreshes = announcementRefreshes,
+        )
+        return combine(baseStates, widgets, weatherStates, bikeStates) { base, layout, weather, bikes ->
             base.copy(widgets = layout, weatherLocations = weather.first, manuallyRefreshingWeatherKeys = weather.second, youBikeStations = bikes,
                 weather = weather.first.values.firstOrNull() ?: OverviewWeatherState.Loading,
                 youBike = bikes[YouBikeStation.SCHOOL.id] ?: YouBikeState(),
@@ -150,12 +158,13 @@ class OverviewCoordinator(
         youBikeEnabled: Flow<Boolean> = clockEnabled,
         youBikeRefreshes: Flow<Unit> = flowOf(Unit),
         legacyPublic: Boolean = true,
+        announcementRefreshes: Flow<Unit>,
     ): Flow<OverviewState> = merge(
         refreshes.flatMapLatest {
             merge(
                 if (session != null) scheduleUpdates(session) else flowOf(OverviewUpdate.Schedule(null, false, false)),
                 calendarUpdates(),
-                announcementUpdates(),
+                announcementRefreshes.onStart { emit(Unit) }.flatMapLatest { announcementUpdates() },
                 if (legacyPublic) weatherUpdates() else emptyFlow(),
             )
         },

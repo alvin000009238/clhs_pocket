@@ -27,7 +27,7 @@ import com.clhs.score.data.FakeScheduleRepository
 import com.clhs.score.data.GradeCacheStore
 import com.clhs.score.data.GradeReminderRepository
 import com.clhs.score.data.NetworkScheduleRepository
-import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
+import com.clhs.score.data.schoolAnnouncementsRepository
 import com.clhs.score.data.NetworkSchoolCalendarRepository
 import com.clhs.score.data.OverviewPreferences
 import com.clhs.score.data.ScheduleRepository
@@ -44,6 +44,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -88,6 +89,7 @@ class OverviewViewModel(
     private val _uiState = MutableStateFlow(OverviewState())
     val uiState: StateFlow<OverviewState> = _uiState.asStateFlow()
     private val refreshVersion = MutableStateFlow(0L)
+    private val announcementRefreshes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     private val clockEnabled = MutableStateFlow(false)
     private val youBikeRefreshVersion = MutableStateFlow(0L)
     private var lastYouBikeRefreshAt: TimeMark? = null
@@ -241,6 +243,7 @@ class OverviewViewModel(
                             youBikeRefreshes = youBikeRefreshVersion.map { Unit },
                             widgets = widgetLayout.takeIf { layoutRepository != null },
                             weatherRefreshes = weatherRefreshVersion.map { Unit }.drop(1),
+                            announcementRefreshes = announcementRefreshes,
                         ),
                         settingsRepository.settings.retryWhen { error, _ ->
                             if (error !is IOException) throw error
@@ -262,6 +265,10 @@ class OverviewViewModel(
 
     fun refresh() {
         refreshVersion.value++
+    }
+
+    fun refreshAnnouncements() {
+        announcementRefreshes.tryEmit(Unit)
     }
 
     fun setClockEnabled(enabled: Boolean) {
@@ -323,8 +330,9 @@ class OverviewViewModel(
                     OverviewCoordinator(
                         scheduleRepository = scheduleRepository,
                         calendarRepository = NetworkSchoolCalendarRepository(appContext.cacheDir),
-                        announcementsRepository = NetworkSchoolAnnouncementsRepository(
+                        announcementsRepository = schoolAnnouncementsRepository(
                             appContext.cacheDir,
+                            useFakeData,
                             readRepository = com.clhs.score.data.AnnouncementReadRepository.get(appContext),
                         ),
                         reminderState = GradeReminderRepository(appContext).state,

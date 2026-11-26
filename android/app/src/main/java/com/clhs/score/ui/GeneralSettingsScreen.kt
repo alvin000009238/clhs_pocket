@@ -2,19 +2,19 @@
 
 package com.clhs.score.ui
 
-import com.clhs.score.ui.navigation.navigationContentPadding
-
-
 import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,9 +30,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -41,40 +46,54 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.clhs.score.BuildConfig
 import com.clhs.score.R
 import com.clhs.score.data.AppSettings
+import com.clhs.score.data.BiometricHelper
+import com.clhs.score.data.StudentInfo
 import com.clhs.score.data.ThemeMode
 import com.clhs.score.notifications.canPostNotifications
 import com.clhs.score.notifications.hasPostNotificationsPermission
 import com.clhs.score.notifications.openAppNotificationSettings
 import com.clhs.score.notifications.shouldShowPostNotificationsRationale
+import com.clhs.score.ui.components.PinSetupDialog
+import com.clhs.score.ui.navigation.AuthRequirement
+import com.clhs.score.ui.navigation.navigationContentPadding
 import com.clhs.score.ui.theme.OutfitFontFamily
+import com.clhs.score.ui.theme.PocketVisual
+import com.clhs.score.viewmodel.AuthState
 import com.clhs.score.viewmodel.SettingsUiState
 import com.clhs.score.viewmodel.UpdateState
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
@@ -103,6 +122,13 @@ fun GeneralSettingsScreen(
     onOpenWorkManagerInfo: () -> Unit,
     onOpenBackgroundPauseSettings: () -> Unit = {},
     onOpenScheduleReliabilitySettings: () -> Unit = {},
+    authState: AuthState = AuthState.Guest,
+    studentInfo: StudentInfo? = null,
+    studentNo: String = "",
+    onRequestLogin: () -> Unit = {},
+    onLogout: () -> Unit = {},
+    onCycleProfileAvatarShape: () -> Unit = {},
+    onSetBiometricEnabled: (Boolean, String?) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -119,6 +145,34 @@ fun GeneralSettingsScreen(
     }
     var isFetchingFeedback by remember { mutableStateOf(false) }
     var advancedBackgroundExpanded by rememberSaveable { mutableStateOf(false) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
+    var showPinSetupDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(authState) {
+        if (authState !is AuthState.Authenticated) {
+            showLogoutDialog = false
+            showPinSetupDialog = false
+        }
+    }
+
+    if (showLogoutDialog) {
+        LogoutConfirmDialog(
+            onDismiss = { showLogoutDialog = false },
+            onConfirm = {
+                showLogoutDialog = false
+                onLogout()
+            },
+        )
+    }
+    if (showPinSetupDialog) {
+        PinSetupDialog(
+            onConfirm = {
+                showPinSetupDialog = false
+                onSetBiometricEnabled(true, it)
+            },
+            onDismiss = { showPinSetupDialog = false },
+        )
+    }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -173,18 +227,102 @@ fun GeneralSettingsScreen(
         }
     }
 
+    val updateState = uiState.updateState
+
     MaterialTheme(motionScheme = rootMotionScheme) {
         FloatingSubpageLayout(
             onBack = onBack,
             snackbarHost = { SnackbarHost(snackbarHostState) },
         ) { pagePadding ->
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize(),
-                contentPadding = navigationContentPadding(PaddingValues(start = 16.dp, top = pagePadding.calculateTopPadding() + 8.dp, end = 16.dp, bottom = pagePadding.calculateBottomPadding() + 40.dp)),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = navigationContentPadding(
+                    PaddingValues(
+                        start = 16.dp,
+                        top = pagePadding.calculateTopPadding() + 8.dp,
+                        end = 16.dp,
+                        bottom = pagePadding.calculateBottomPadding() + 40.dp,
+                    ),
+                ),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
+                item {
+                    ProfileHero(
+                        studentInfo = studentInfo,
+                        studentNo = studentNo,
+                        authState = authState,
+                        onRequestLogin = onRequestLogin,
+                        avatarShapeIndex = settings.profileAvatarShapeIndex,
+                        onCycleAvatarShape = onCycleProfileAvatarShape,
+                    )
+                }
+
+                if (updateState is UpdateState.UpdateAvailable) {
+                    item {
+                        Box(Modifier.widthIn(max = ProfileMaxWidth).fillMaxWidth()) {
+                            SettingsGroup {
+                                SettingsRow(
+                                    icon = "system_update",
+                                    title = "有新版本",
+                                    supportingText = "查看更新內容",
+                                    value = "v${updateState.release.versionName}",
+                                    iconBadge = true,
+                                    compact = true,
+                                    onClick = onCheckUpdate,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (BiometricHelper.canAuthenticate(context)) {
+                    item {
+                        SettingsSection("帳號安全") {
+                            SettingsGroup {
+                                AuthGate(
+                                    authState = authState,
+                                    requirement = AuthRequirement.Session,
+                                    onRequestLogin = onRequestLogin,
+                                    restoring = {
+                                        SettingsRow(
+                                            icon = "fingerprint",
+                                            title = "生物識別解鎖",
+                                            supportingText = "正在確認登入狀態",
+                                            enabled = false,
+                                            compact = true,
+                                            onClick = {},
+                                        )
+                                    },
+                                    fallback = {
+                                        SettingsRow(
+                                            icon = "fingerprint",
+                                            title = "生物識別解鎖",
+                                            supportingText = "登入後可設定生物識別與備用密碼",
+                                            value = if (authState is AuthState.Authenticating) "確認中" else "登入",
+                                            enabled = authState is AuthState.Guest,
+                                            compact = true,
+                                            onClick = onRequestLogin,
+                                        )
+                                    },
+                                ) {
+                                    SettingsSwitchRow(
+                                        icon = "fingerprint",
+                                        title = "生物識別解鎖",
+                                        supportingText = "啟動時驗證，並設定 4–6 位備用密碼",
+                                        checked = settings.biometricEnabled,
+                                        onCheckedChange = { enabled ->
+                                            if (enabled) showPinSetupDialog = true
+                                            else onSetBiometricEnabled(false, null)
+                                        },
+                                        compact = true,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 item {
                     SettingsSection("外觀") {
                         SettingsGroup {
@@ -301,7 +439,6 @@ fun GeneralSettingsScreen(
                 }
 
                 item {
-                    val updateState = uiState.updateState
                     val updateValue = when (updateState) {
                         is UpdateState.UpdateAvailable -> "v${updateState.release.versionName} 可用"
                         is UpdateState.Checking -> "正在檢查"
@@ -363,6 +500,30 @@ fun GeneralSettingsScreen(
                     }
                 }
 
+                if (authState is AuthState.Authenticated) {
+                    item {
+                        TextButton(
+                            onClick = hapticClick { showLogoutDialog = true },
+                            modifier = Modifier
+                                .widthIn(max = ProfileMaxWidth)
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp),
+                            shapes = ButtonDefaults.shapes(),
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error,
+                            ),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                OutlinedRoundedSymbol("meeting_room", size = 20.dp, contentDescription = null)
+                                Text("登出帳號", style = MaterialTheme.typography.titleMedium)
+                            }
+                        }
+                    }
+                }
+
                 if (settings.developerEnabled) {
                     item {
                         SettingsSection("開發者選項", subdued = true) {
@@ -377,10 +538,171 @@ fun GeneralSettingsScreen(
                         }
                     }
                 }
-
             }
         }
     }
+}
+
+@Composable
+private fun ProfileHero(
+    studentInfo: StudentInfo?,
+    studentNo: String,
+    authState: AuthState,
+    onRequestLogin: () -> Unit,
+    avatarShapeIndex: Int,
+    onCycleAvatarShape: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .widthIn(max = ProfileMaxWidth)
+            .fillMaxWidth(),
+        shape = PocketVisual.heroShape,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    ) {
+        AuthGate(
+            authState = authState,
+            requirement = AuthRequirement.Session,
+            onRequestLogin = onRequestLogin,
+            fallback = {
+                ProfileGuestHero(authState, onRequestLogin)
+            },
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                ProfileAvatar(avatarShapeIndex, onCycleAvatarShape)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        studentInfo?.studentName?.takeIf(String::isNotBlank) ?: "學生帳號",
+                        style = MaterialTheme.typography.headlineSmallEmphasized,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        listOfNotNull(
+                            studentInfo?.className?.takeIf(String::isNotBlank),
+                            studentInfo?.seatNo?.takeIf(String::isNotBlank)?.let { "$it 號" },
+                        ).joinToString(" · ").ifBlank { "已登入" },
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        studentInfo?.studentNo?.takeIf(String::isNotBlank)
+                            ?: studentNo.takeIf(String::isNotBlank)
+                            ?: "學號讀取中",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileAvatar(shapeIndex: Int, onCycleShape: () -> Unit) {
+    val shapes = listOf(
+        MaterialShapes.Cookie9Sided.toShape(),
+        MaterialShapes.Clover4Leaf.toShape(),
+        MaterialShapes.Sunny.toShape(),
+        MaterialShapes.SoftBurst.toShape(),
+    )
+    val safeIndex = shapeIndex.coerceIn(0, shapes.lastIndex)
+    val clockwise = safeIndex % 2 == 0
+    val rotation = remember { Animatable(0f) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, clockwise) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            rotation.animateTo(
+                targetValue = rotation.value + if (clockwise) 360f else -360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 20_000, easing = LinearEasing),
+                ),
+            )
+        }
+    }
+    Surface(
+        onClick = hapticClick(onCycleShape),
+        modifier = Modifier
+            .size(64.dp)
+            .semantics {
+                role = Role.Button
+                contentDescription = "更換個人圖示形狀並反轉旋轉方向"
+            }
+            .graphicsLayer { rotationZ = rotation.value },
+        shape = shapes[safeIndex],
+        color = MaterialTheme.colorScheme.secondary,
+        contentColor = MaterialTheme.colorScheme.onSecondary,
+    ) {
+        Box(
+            modifier = Modifier.graphicsLayer { rotationZ = -rotation.value },
+            contentAlignment = Alignment.Center,
+        ) {
+            OutlinedRoundedSymbol("account_circle", size = 38.dp, contentDescription = null)
+        }
+    }
+}
+
+@Composable
+private fun ProfileGuestHero(authState: AuthState, onRequestLogin: () -> Unit) {
+    GuestLoginContent(
+        authState = authState,
+        title = "登入學校帳號",
+        description = "登入後顯示學生資訊，並可使用個人課表、成績與帳號安全設定。",
+        icon = "account_circle",
+        onRequestLogin = hapticClick(onRequestLogin),
+    )
+}
+
+@Composable
+internal fun ProfileCwaApiKeyDialog(
+    saving: Boolean,
+    configured: Boolean,
+    onConfirm: (String) -> Unit,
+    onRemove: () -> Unit,
+    onDismiss: () -> Unit,
+    message: String? = null,
+) {
+    var key by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("中央氣象署授權碼") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    if (configured) "授權碼已安全儲存在此裝置。輸入新授權碼即可更換。"
+                    else "輸入氣象資料開放平臺授權碼，驗證成功後即可使用。",
+                )
+                OutlinedTextField(
+                    value = key,
+                    onValueChange = { if (it.length <= 256) key = it },
+                    label = { Text("授權碼") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    enabled = !saving,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (configured) {
+                    TextButton(
+                        onClick = onRemove,
+                        enabled = !saving,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    ) { Text("點此移除授權碼") }
+                }
+                message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(key) }, enabled = !saving && key.isNotBlank()) {
+                Text(if (saving) "驗證中…" else "驗證並儲存")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("取消") } },
+    )
 }
 
 @Composable
