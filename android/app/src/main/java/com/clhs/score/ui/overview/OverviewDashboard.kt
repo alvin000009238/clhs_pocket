@@ -612,7 +612,7 @@ private fun OverviewAlertPanel(
                             Box(Modifier.fillMaxWidth().padding(horizontal = cardGutter)) {
                                 OverviewAlertCard(
                                     item = item,
-                                    expandStack = isTop && collapsed,
+                                    destinationArrowAlpha = expansion.value,
                                     enabled = enabled,
                                     containerAlpha = if (hasStackControl) 1f - 0.1f * expansion.value else 0.9f,
                                 ) {

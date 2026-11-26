@@ -51,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -557,7 +558,7 @@ internal fun OverviewItemKind.isOverviewAlert(): Boolean =
 @Composable
 internal fun OverviewAlertCard(
     item: OverviewItem,
-    expandStack: Boolean = false,
+    destinationArrowAlpha: Float = 1f,
     enabled: Boolean = true,
     containerAlpha: Float = 0.9f,
     onClick: () -> Unit,
@@ -591,8 +592,13 @@ internal fun OverviewAlertCard(
                         overflow = TextOverflow.Ellipsis)
                 }
             }
-            OutlinedRoundedSymbol(if (expandStack) "keyboard_arrow_down" else "keyboard_arrow_right",
-                size = 18.dp, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedRoundedSymbol(
+                "keyboard_arrow_right",
+                modifier = Modifier.graphicsLayer { alpha = destinationArrowAlpha },
+                size = 18.dp,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
