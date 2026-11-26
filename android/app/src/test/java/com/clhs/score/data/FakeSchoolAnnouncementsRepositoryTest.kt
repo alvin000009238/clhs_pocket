@@ -17,6 +17,27 @@ class FakeSchoolAnnouncementsRepositoryTest {
         assertEquals(bookmark.unit, detail.unit)
         assertEquals(schoolAnnouncementOfficialUrl(bookmark.id), detail.officialUrl)
         assertTrue(detail.htmlContent.contains("查看原文"))
+        assertFalse(detail.marksReadOnDisplay)
+    }
+
+    @Test fun legacyExternalBookmarkUsesOnlyItsOfficialDestination() = runTest {
+        val bookmark = AnnouncementBookmark(
+            id = "98765",
+            title = "舊外部公告",
+            date = "2026/08/01",
+            category = "公告",
+            unit = "讀者服務組",
+            issuer = "讀者服務組",
+            contentType = "url",
+            externalUrl = "https://example.org/old-announcement",
+        )
+        val repository = FakeSchoolAnnouncementsRepository(null, loadBookmark = { bookmark })
+
+        val detail = repository.loadDetail(bookmark.id)
+
+        assertFalse(detail.marksReadOnDisplay)
+        assertEquals(schoolAnnouncementOfficialUrl(bookmark.id), detail.officialUrl)
+        assertEquals(null, detail.externalUrl)
     }
 
     @Test fun savedLibraryUnitWorksAndUnsupportedUnitFailsTheCheck() = runTest {
@@ -33,5 +54,6 @@ class FakeSchoolAnnouncementsRepositoryTest {
         val detail = source.loadDetail(pinned.id)
         assertFalse(detail.htmlContent.isBlank())
         assertTrue(detail.attachments.isEmpty())
+        assertTrue(detail.marksReadOnDisplay)
     }
 }

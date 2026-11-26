@@ -870,8 +870,9 @@ fun AppShell(
                         factory = SchoolAnnouncementDetailViewModel.factory(context, route.id, route.category),
                     )
                     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-                    LaunchedEffect(uiState.detail?.id) {
-                        uiState.detail?.takeUnless { it.isExternal }?.id?.let(announcementReminderViewModel::markRead)
+                    val readableDetailId = uiState.detail?.takeIf { it.marksReadOnDisplay }?.id
+                    LaunchedEffect(readableDetailId) {
+                        readableDetailId?.let(announcementReminderViewModel::markRead)
                     }
                     val bookmarksViewModel = androidx.lifecycle.viewmodel.compose.viewModel<AnnouncementBookmarksViewModel>(
                         factory = AnnouncementBookmarksViewModel.factory(context),
@@ -881,7 +882,14 @@ fun AppShell(
                         uiState = uiState,
                         onBack = { navigator.goBack() },
                         onRetry = viewModel::retry,
-                        onOpenUrl = { context.openAnnouncementUrl(it) },
+                        onOpenUrl = { url ->
+                            val detail = uiState.detail
+                            if (detail != null && detail.isSummaryOnly && url == detail.officialUrl) {
+                                openExternalAnnouncement(detail.id, url)
+                            } else {
+                                context.openAnnouncementUrl(url)
+                            }
+                        },
                         onOpenExternal = { detail ->
                             openAnnouncement(detail.id, detail.category, detail.externalUrl, isExternal = true)
                         },

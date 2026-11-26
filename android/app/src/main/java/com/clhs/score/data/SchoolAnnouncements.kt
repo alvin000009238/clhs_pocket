@@ -86,7 +86,10 @@ data class SchoolAnnouncementDetail(
     val isExternal: Boolean = false,
     val externalUrl: String? = null,
     val containsTables: Boolean = false,
-)
+    val isSummaryOnly: Boolean = false,
+) {
+    internal val marksReadOnDisplay: Boolean get() = !isExternal && !isSummaryOnly
+}
 
 interface SchoolAnnouncementsRepository {
     suspend fun loadCached(): SchoolAnnouncementPage?

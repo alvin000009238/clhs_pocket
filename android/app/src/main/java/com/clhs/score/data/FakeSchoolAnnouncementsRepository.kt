@@ -74,6 +74,7 @@ internal class FakeSchoolAnnouncementsRepository(
             images = emptyList(),
             attachments = emptyList(),
             officialUrl = schoolAnnouncementOfficialUrl(id),
+            isSummaryOnly = announcement == null,
         )
     }
 }
