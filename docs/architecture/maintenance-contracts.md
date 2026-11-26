@@ -132,7 +132,7 @@
 
 ## 設定匯入／匯出
 
-入口：個人頁齒輪 → 設定「開發者選項」→「備份與還原」。主要操作是儲存目前配置與從檔案還原；備份範圍另以說明視窗呈現，JSON 編輯／複製收合於進階區域。檔案讀入後直接呈現還原確認，尚未確認不寫入。資料由 SettingsTransferRepository 經既有 SettingsRepository、OverviewLayoutRepository、AnnouncementReminderRepository、CourseNotificationPreferences 及 ScheduleRepository 讀寫；Composable 只呈現 SettingsTransferViewModel 狀態。
+從頂層頁的帳號按鈕開啟個人與設定頁，再進入「開發者選項」的「備份與還原」。主要操作是儲存目前配置與從檔案還原；備份範圍另以說明視窗呈現，JSON 編輯／複製收合於進階區域。檔案讀入後直接呈現還原確認，尚未確認不寫入。資料由 SettingsTransferRepository 經既有 SettingsRepository、OverviewLayoutRepository、AnnouncementReminderRepository、CourseNotificationPreferences 及 ScheduleRepository 讀寫；Composable 只呈現 SettingsTransferViewModel 狀態。
 
 - JSON 備份格式 1 必須包含 app 與 version；保留首頁元件身份、原排列版本、停用項目、不透明的新元件設定與各實例內容。空首頁是有效配置。設定白名單包括外觀、啟動、頭像形狀、推播偏好、精確鬧鐘偏好、背景暫停、天氣來源及開發者偏好；公告備份包括開關、間隔與單位，另含課前提醒偏好。
 - 不匯出登入 Session、學號、PIN／生物識別、API key、onboarding、成績／課表快取、閱讀狀態、提醒 baseline／generation／當日暫停、目前課程／成績提醒啟用狀態或各 GlanceId 配置。自訂科目文字可能包含個人資訊，檔案與剪貼簿由使用者自行保管。

@@ -69,7 +69,6 @@ import com.clhs.score.ui.navigation.DeveloperSettingsRoute
 import com.clhs.score.ui.navigation.GradesRoute
 import com.clhs.score.ui.navigation.OpenSourceLicensesRoute
 import com.clhs.score.ui.navigation.OverviewRoute
-import com.clhs.score.ui.navigation.PersonalRoute
 import com.clhs.score.ui.navigation.GeneralSettingsRoute
 import com.clhs.score.ui.navigation.AttendanceRoute
 import com.clhs.score.ui.navigation.MeritRoute
@@ -385,7 +384,7 @@ fun AppShell(
 
     val rootAuthFallback: @Composable (String, String, String) -> Unit = { feature, description, icon ->
         RootFloatingScaffold(dynamicColor = settings.dynamicColor,
-            actions = { AccountIconButton(onClick = { navigator.navigate(PersonalRoute) },
+            actions = { AccountIconButton(onClick = { navigator.navigate(GeneralSettingsRoute) },
                 showUpdateBadge = showUpdateBadge, animateShape = false) }) { padding, header ->
             androidx.compose.foundation.layout.Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
                 header()
@@ -468,7 +467,7 @@ fun AppShell(
                         onRefreshWeather = overviewViewModel::refreshWeather,
                         onRefresh = overviewViewModel::refresh,
                         onRefreshYouBike = overviewViewModel::refreshYouBike,
-                        onOpenPersonal = { navigator.navigate(PersonalRoute) },
+                        onOpenPersonal = { navigator.navigate(GeneralSettingsRoute) },
                         authState = authState,
                         onRequestLogin = ::requestLogin,
                         showUpdateBadge = showUpdateBadge,
@@ -530,7 +529,7 @@ fun AppShell(
                             uiState = uiState,
                             dynamicColor = settings.dynamicColor,
                             notificationMenu = courseMenu,
-                            onOpenPersonal = { navigator.navigate(PersonalRoute) },
+                            onOpenPersonal = { navigator.navigate(GeneralSettingsRoute) },
                             showUpdateBadge = showUpdateBadge,
                             onOpenSubjectCustomizations = { navigator.navigate(ScheduleCustomizationsRoute) },
                             onRefresh = hapticClick(viewModel::refresh),
@@ -625,7 +624,7 @@ fun AppShell(
                             onSetNotificationsEnabled = onSetNotificationsEnabled,
                             onGradeReminderPrerequisiteFailed = onGradeReminderPrerequisiteFailed,
                             onDismissGradeReminderChanges = onDismissGradeReminderChanges,
-                            onOpenPersonal = { navigator.navigate(PersonalRoute) },
+                            onOpenPersonal = { navigator.navigate(GeneralSettingsRoute) },
                             showUpdateBadge = showUpdateBadge,
                             onOpenCreditSettings = {
                                 scoreViewModel.prepareSimulatorCredits()
@@ -728,10 +727,13 @@ fun AppShell(
                         dynamicColor = settings.dynamicColor,
                         state = overviewState,
                         unreadAnnouncementCount = announcementReminderUiState.unreadIds.size,
-                        onOpenPersonal = { navigator.navigate(PersonalRoute) },
+                        onOpenPersonal = { navigator.navigate(GeneralSettingsRoute) },
                         showUpdateBadge = showUpdateBadge,
                         onOpenAnnouncements = { navigator.navigate(SchoolAnnouncementsRoute) },
+                        onOpenAnnouncement = ::openAnnouncement,
                         onOpenCalendar = { navigator.navigate(SchoolCalendarRoute()) },
+                        onOpenAttendance = { navigator.navigate(AttendanceRoute) },
+                        onOpenMerit = { navigator.navigate(MeritRoute) },
                         onOpenSearch = { navigator.navigate(CampusSearchRoute) },
                         onOpenSchoolWebsite = if (useFakeData) null else { { navigator.navigate(SchoolWebsiteRoute) } },
                     )
@@ -903,31 +905,20 @@ fun AppShell(
                         Box(modifier = Modifier.fillMaxSize())
                     }
                 }
-                entry<PersonalRoute> {
-                    LaunchedEffect(authState) {
-                        if (authState !is AuthState.Authenticated) return@LaunchedEffect
-                        scoreViewModel.refreshStudentInfo()
-                    }
-                    PersonalScreen(
-                        showUpdateAvailable = showUpdateBadge,
-                        onCheckUpdate = onCheckUpdate,
-                        state = gradesState,
-                        authState = authState,
-                        onRequestLogin = ::requestLogin,
-                        settings = settings,
-                        onBack = { navigator.goBack() },
-                        onCycleProfileAvatarShape = onCycleProfileAvatarShape,
-                        onSetBiometricEnabled = onSetBiometricEnabled,
-                        onOpenSettings = { navigator.navigate(GeneralSettingsRoute) },
-                        onOpenAttendance = { navigator.navigate(AttendanceRoute) },
-                        onOpenMerits = { navigator.navigate(MeritRoute) },
-                        onLogout = onLogout,
-                    )
-                }
                 entry<GeneralSettingsRoute> {
+                    LaunchedEffect(authState) {
+                        if (authState is AuthState.Authenticated) scoreViewModel.refreshStudentInfo()
+                    }
                     GeneralSettingsScreen(
                         settings = settings,
                         uiState = settingsUiState,
+                        authState = authState,
+                        studentInfo = gradesState.studentInfo,
+                        studentNo = gradesState.studentNo,
+                        onRequestLogin = ::requestLogin,
+                        onLogout = onLogout,
+                        onCycleProfileAvatarShape = onCycleProfileAvatarShape,
+                        onSetBiometricEnabled = onSetBiometricEnabled,
                         onBack = { navigator.goBack() },
                         onSetThemeMode = onSetThemeMode,
                         onSetStartOnSchedule = onSetStartOnSchedule,
