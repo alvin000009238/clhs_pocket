@@ -738,7 +738,7 @@ fun AppShell(
                 }
                 entry<CampusSearchRoute> {
                     val announcementsViewModel = androidx.lifecycle.viewmodel.compose.viewModel<SchoolAnnouncementsViewModel>(
-                        factory = SchoolAnnouncementsViewModel.factory(context),
+                        factory = SchoolAnnouncementsViewModel.factory(context, supplementPinnedPages = false),
                     )
                     val calendarViewModel = androidx.lifecycle.viewmodel.compose.viewModel<SchoolCalendarViewModel>(
                         factory = SchoolCalendarViewModel.factory(context),
@@ -843,6 +843,9 @@ fun AppShell(
                         onSetFilters = viewModel::setFilters,
                         onRefreshFilters = viewModel::refreshFilters,
                         onOpenAnnouncement = ::openAnnouncement,
+                        onOpenSavedAnnouncement = { announcement ->
+                            navigator.navigate(SchoolAnnouncementDetailRoute(announcement.id, announcement.category))
+                        },
                         onOpenAnnouncementInBrowser = ::openAnnouncementInBrowser,
                         onOpenOfficialWebsite = {
                             context.openAnnouncementUrl(SCHOOL_ANNOUNCEMENTS_WEB_URL)

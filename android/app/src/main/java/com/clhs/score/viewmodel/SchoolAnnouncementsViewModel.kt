@@ -51,6 +51,7 @@ class SchoolAnnouncementsViewModel(
     private val loadCachedFilters: suspend () -> AnnouncementFilterOptions = { AnnouncementFilterOptions() },
     private val loadFilters: suspend () -> AnnouncementFilterOptions = { AnnouncementFilterOptions() },
     private val loadUnreadIds: suspend () -> Set<String> = { emptySet() },
+    private val supplementPinnedPages: Boolean = true,
 ) : ViewModel() {
     private var loadJob: Job? = null
     private var loadMoreJob: Job? = null
@@ -232,7 +233,8 @@ class SchoolAnnouncementsViewModel(
             // Discovery on later pages must not extend this lookup into a crawl of the archive.
             val unreadSnapshot = loadUnreadIds()
             val firstPage = _uiState.value.announcements
-            val startsWithOnlyPinned = firstPage.isNotEmpty() && firstPage.all(SchoolAnnouncement::isPinned)
+            val startsWithOnlyPinned = supplementPinnedPages &&
+                firstPage.isNotEmpty() && firstPage.all(SchoolAnnouncement::isPinned)
             repeat(ANNOUNCEMENT_INITIAL_LOAD_MAX_PAGES - 1) {
                 val state = _uiState.value
                 val loadedIds = state.announcements.mapTo(HashSet(), SchoolAnnouncement::id)
@@ -274,7 +276,7 @@ class SchoolAnnouncementsViewModel(
     }
 
     companion object {
-        fun factory(context: Context): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+        fun factory(context: Context, supplementPinnedPages: Boolean = true): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val reading = com.clhs.score.data.AnnouncementReadRepository.get(context)
@@ -288,6 +290,7 @@ class SchoolAnnouncementsViewModel(
                     loadCachedFilters = repository::loadCachedFilterOptions,
                     loadFilters = repository::loadFilterOptions,
                     loadUnreadIds = { reading.unreadIds.first() },
+                    supplementPinnedPages = supplementPinnedPages,
                 ) as T
             }
         }

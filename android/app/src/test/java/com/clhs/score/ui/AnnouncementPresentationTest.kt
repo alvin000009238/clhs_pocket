@@ -58,6 +58,16 @@ class AnnouncementPresentationTest {
     }
 
     @Test
+    fun anUnreadBookmarkAtTheTopDoesNotRequestTheAnchorAgainWhenPagesChange() {
+        val anchor = AnnouncementTopAnchor()
+        val displayedIds = setOf("page-0", "saved")
+        assertFalse(anchor.shouldKeepAtTop(setOf("page-0"), null, isAtTop = true, isScrollInProgress = false))
+        assertTrue(anchor.shouldKeepAtTop(displayedIds, "saved", isAtTop = true, isScrollInProgress = false))
+        assertFalse(anchor.shouldKeepAtTop(displayedIds, "saved", isAtTop = true, isScrollInProgress = false))
+        assertFalse(anchor.shouldKeepAtTop(displayedIds + "page-1", "saved", isAtTop = true, isScrollInProgress = false))
+    }
+
+    @Test
     fun readStateChangesAndReplacementResultsDoNotRequestTopAnchor() {
         val anchor = AnnouncementTopAnchor()
         assertFalse(anchor.shouldKeepAtTop(setOf("pin", "unread"), "unread", isAtTop = true, isScrollInProgress = false))
@@ -68,21 +78,23 @@ class AnnouncementPresentationTest {
     @Test
     fun reorderingPagesAboveTheSameViewportDoesNotRequestAnotherPage() {
         val viewport = AnnouncementPrefetchViewport()
-        assertTrue(viewport.shouldRequest(listOf("18", "19", "20"), nearEnd = true))
-        assertFalse(viewport.shouldRequest(listOf("19", "20"), nearEnd = true))
-        assertFalse(viewport.shouldRequest(listOf("20", "18", "19"), nearEnd = true))
-        assertFalse(viewport.shouldRequest(listOf("21", "22"), nearEnd = false))
-        assertTrue(viewport.shouldRequest(listOf("18", "19", "20"), nearEnd = true))
+        assertTrue(viewport.shouldRequest(listOf("18", "19", "20"), nearEnd = true, pageIndex = 0, atEnd = false))
+        assertFalse(viewport.shouldRequest(listOf("19", "20"), nearEnd = true, pageIndex = 0, atEnd = true))
+        assertFalse(viewport.shouldRequest(listOf("20", "18", "19"), nearEnd = true, pageIndex = 1, atEnd = false))
+        assertFalse(viewport.shouldRequest(listOf("21", "22"), nearEnd = false, pageIndex = 1, atEnd = false))
+        assertTrue(viewport.shouldRequest(listOf("18", "19", "20"), nearEnd = true, pageIndex = 1, atEnd = false))
     }
 
     @Test
-    fun shortViewportCanFillWhenNewRowsActuallyBecomeVisible() {
+    fun unchangedBottomViewportContinuesAfterPageProgressWithABound() {
         val viewport = AnnouncementPrefetchViewport()
-        assertTrue(viewport.shouldRequest(listOf("1"), nearEnd = true, shortPage = 0))
-        assertTrue(viewport.shouldRequest(listOf("1"), nearEnd = true, shortPage = 1))
-        assertFalse(viewport.shouldRequest(listOf("1"), nearEnd = true, shortPage = 1))
-        assertTrue(viewport.shouldRequest(listOf("1", "2"), nearEnd = true, shortPage = 2))
-        assertFalse(viewport.shouldRequest(listOf("1", "2"), nearEnd = true, shortPage = 2))
+        val sameRows = listOf("bookmark", "last-read")
+        assertTrue(viewport.shouldRequest(sameRows, nearEnd = true, pageIndex = 0, atEnd = true))
+        assertFalse(viewport.shouldRequest(sameRows.reversed(), nearEnd = true, pageIndex = 0, atEnd = true))
+        assertTrue(viewport.shouldRequest(sameRows, nearEnd = true, pageIndex = 1, atEnd = true))
+        assertTrue(viewport.shouldRequest(sameRows, nearEnd = true, pageIndex = 2, atEnd = true))
+        assertFalse(viewport.shouldRequest(sameRows, nearEnd = true, pageIndex = 3, atEnd = true))
+        assertTrue(viewport.shouldRequest(listOf("last-read", "new-tail"), nearEnd = true, pageIndex = 3, atEnd = true))
     }
 
     @Test

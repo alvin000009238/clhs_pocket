@@ -78,6 +78,23 @@ class SchoolAnnouncementsViewModelTest {
     }
 
     @Test
+    fun campusSearchOpeningSkipsPinnedSupplement() = runTest(dispatcher) {
+        val calls = mutableListOf<Int>()
+        val viewModel = SchoolAnnouncementsViewModel(
+            loadCached = { null },
+            loadPage = { index, _, _, _ ->
+                calls += index
+                page(announcement("pin").copy(isPinned = true), pageIndex = index, totalPages = 50)
+            },
+            supplementPinnedPages = false,
+        )
+        runCurrent()
+
+        assertEquals(listOf(0), calls)
+        assertTrue(viewModel.uiState.value.hasMore)
+    }
+
+    @Test
     fun unreadLookupIsBoundedAndDoesNotChaseAnnouncementsDiscoveredDuringPaging() = runTest(dispatcher) {
         val calls = mutableListOf<Int>()
         var unreadIds = setOf("missing")

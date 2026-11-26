@@ -165,6 +165,7 @@ private fun SchoolAnnouncementsPreview(
             onSearch = {},
             onClearSearch = {},
             onOpenAnnouncement = {},
+            onOpenSavedAnnouncement = {},
             onOpenOfficialWebsite = {},
             onOpenAnnouncementReminder = {},
             onNoticeShown = {},

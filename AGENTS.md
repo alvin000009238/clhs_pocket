@@ -93,6 +93,7 @@ Run commands from `android/` in PowerShell (`./gradlew` on Unix).
 - Before `connected*AndroidTest`, pin the emulator with `ANDROID_SERIAL` and verify the reported target. Runner arguments such as `android.testInstrumentationRunnerArguments.serial` do not select a device. Gradle device tests can uninstall the app and reset its data; do not run them on a user's phone for visual review. Use an in-place APK update for visual review.
 - When device work is explicitly requested, use available device/emulator tooling for interaction and evidence collection. Follow `docs/development/testing.md`; keep ADB/device selection explicit and use fake data unless the user authorizes real account data.
 - The Android/Kotlin toolchain requires JDK 25. If Java is missing, locate a real JDK 25 installation and verify `lib/jvm.cfg`; do not hardcode a machine-specific installation suffix. Use workspace-local `GRADLE_USER_HOME` / `ANDROID_USER_HOME` when required by the environment.
+- Toolchain diagnostics may print values only for explicitly named, non-sensitive variables such as `JAVA_HOME`, `ANDROID_HOME` and `ANDROID_SDK_ROOT`. For credentials, check presence without reading the value. When enumerating environment variables, output names only.
 
 ## Release and documentation
 

@@ -66,6 +66,7 @@ import com.clhs.score.ui.announcements.AnnouncementCard
 import com.clhs.score.ui.announcements.AnnouncementListFooter
 import com.clhs.score.ui.announcements.orderAnnouncements
 import com.clhs.score.ui.announcements.PrefetchAnnouncementPages
+import com.clhs.score.ui.announcements.ANNOUNCEMENT_FOOTER_KEY
 import com.clhs.score.ui.announcements.announcementItemKey
 import com.clhs.score.viewmodel.SchoolAnnouncementsUiState
 import com.clhs.score.viewmodel.SchoolCalendarUiState
@@ -285,7 +286,7 @@ fun CampusSearchScreen(
                                 )
                             }
                             if (messages.isNotEmpty()) {
-                                item(key = "announcements-footer") {
+                                item(key = ANNOUNCEMENT_FOOTER_KEY) {
                                     AnnouncementListFooter(announcements.hasMore, announcements.isLoadingMore,
                                         announcements.loadMoreError, onLoadMore)
                                 }
