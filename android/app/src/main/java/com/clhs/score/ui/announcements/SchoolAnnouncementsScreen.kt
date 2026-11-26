@@ -185,6 +185,7 @@ fun SchoolAnnouncementsScreen(
     onSearch: (String) -> Unit,
     onClearSearch: () -> Unit,
     onOpenAnnouncement: (SchoolAnnouncement) -> Unit,
+    onOpenSavedAnnouncement: (SchoolAnnouncement) -> Unit,
     onOpenAnnouncementInBrowser: (SchoolAnnouncement) -> Boolean = { false },
     onOpenOfficialWebsite: () -> Unit,
     onOpenAnnouncementReminder: () -> Unit,
@@ -222,6 +223,9 @@ fun SchoolAnnouncementsScreen(
     val bookmarkCount = bookmarksUiState.bookmarks.size
     val bookmarkedIds = remember(bookmarksUiState.bookmarks) {
         bookmarksUiState.bookmarks.mapTo(mutableSetOf(), AnnouncementBookmark::id)
+    }
+    val loadedIds = remember(uiState.announcements) {
+        uiState.announcements.mapTo(HashSet(), SchoolAnnouncement::id)
     }
     val clearSearch: () -> Unit = {
         searchText = ""
@@ -301,9 +305,9 @@ fun SchoolAnnouncementsScreen(
                 unreadIds = unreadIds,
                 onOpenAnnouncement = { announcement ->
                     showBookmarks = false
-                    onOpenAnnouncement(announcement)
+                    onOpenSavedAnnouncement(announcement)
                 },
-                onOpenAnnouncementInBrowser = onOpenAnnouncementInBrowser,
+                onOpenAnnouncementInBrowser = { onOpenAnnouncementInBrowser(it.copy(externalUrl = null)) },
                 onToggleBookmark = onToggleBookmark,
                 onRetry = onRetryBookmarks,
             )
@@ -387,6 +391,7 @@ fun SchoolAnnouncementsScreen(
                     topPadding = pagePadding.calculateTopPadding(),
                     uiState = uiState,
                     unreadIds = unreadIds,
+                    bookmarks = bookmarksUiState.bookmarks,
                     bookmarkedIds = bookmarkedIds,
                     onRefresh = onRefresh,
                     onClearSearch = clearSearchAndHideKeyboard,
@@ -397,11 +402,14 @@ fun SchoolAnnouncementsScreen(
                     },
                     onOpenAnnouncement = { announcement ->
                         clearFocusAndHideKeyboard()
-                        onOpenAnnouncement(announcement)
+                        if (announcement.id in loadedIds) onOpenAnnouncement(announcement)
+                        else onOpenSavedAnnouncement(announcement)
                     },
                     onOpenAnnouncementInBrowser = { announcement ->
                         clearFocusAndHideKeyboard()
-                        onOpenAnnouncementInBrowser(announcement)
+                        onOpenAnnouncementInBrowser(
+                            if (announcement.id in loadedIds) announcement else announcement.copy(externalUrl = null),
+                        )
                     },
                     onToggleBookmark = onToggleBookmark,
                     onOpenOfficialWebsite = {
@@ -467,6 +475,7 @@ private fun AnnouncementList(
     topPadding: androidx.compose.ui.unit.Dp,
     uiState: SchoolAnnouncementsUiState,
     unreadIds: Set<String>,
+    bookmarks: List<AnnouncementBookmark>,
     bookmarkedIds: Set<String>,
     onRefresh: () -> Unit,
     onClearSearch: () -> Unit,
@@ -478,12 +487,16 @@ private fun AnnouncementList(
     onOpenOfficialWebsite: () -> Unit,
 ) {
     val listState = rememberLazyListState()
-    val announcements = remember(uiState.announcements, unreadIds, bookmarkedIds) {
-        orderAnnouncements(uiState.announcements, unreadIds, bookmarkedIds)
+    val includeUnloadedBookmarks = uiState.searchQuery.isEmpty() && !uiState.hasFilters
+    val announcements = remember(uiState.announcements, unreadIds, bookmarks, includeUnloadedBookmarks) {
+        orderAnnouncements(
+            uiState.announcements, unreadIds, bookmarkedIds,
+            bookmarkFallbacks = if (includeUnloadedBookmarks) bookmarks else emptyList(),
+        )
     }
     val topAnchor = remember { AnnouncementTopAnchor() }
-    val loadedIds = remember(uiState.announcements) {
-        uiState.announcements.mapTo(HashSet(), SchoolAnnouncement::id)
+    val displayedIds = remember(announcements) {
+        announcements.mapTo(HashSet(), SchoolAnnouncement::id)
     }
     val firstId = announcements.firstOrNull()?.id
     val firstUnreadId = firstId?.takeIf { it in unreadIds }
@@ -495,7 +508,7 @@ private fun AnnouncementList(
         previousBookmarks = bookmarkedIds
         previousFirstId = firstId
         val keepTopAfterUnreadInsertion = topAnchor.shouldKeepAtTop(
-                loadedIds, firstUnreadId,
+                displayedIds, firstUnreadId,
                 isAtTop = !listState.canScrollBackward,
                 isScrollInProgress = listState.isScrollInProgress,
         )
@@ -564,6 +577,16 @@ private fun AnnouncementList(
                     TextButton(onClick = onClearFilters) { Text("已套用公告篩選 · 清除") }
                 }
             }
+            itemsIndexed(announcements, key = { _, item -> announcementItemKey(item.id) }) { index, announcement ->
+                AnnouncementCard(
+                    announcement = announcement, index = index, count = announcements.size,
+                    isUnread = announcement.id in unreadIds,
+                    isBookmarked = announcement.id in bookmarkedIds,
+                    onClick = { onOpenAnnouncement(announcement) },
+                    onOpenInBrowser = { onOpenAnnouncementInBrowser(announcement) },
+                    onBookmarkClick = { onToggleBookmark(announcement) },
+                )
+            }
             when {
                 uiState.isInitialLoading -> item(key = "announcement-loading") {
                     AnnouncementsLoadingList()
@@ -609,17 +632,7 @@ private fun AnnouncementList(
                     )
                 }
                 else -> {
-                    itemsIndexed(announcements, key = { _, item -> announcementItemKey(item.id) }) { index, announcement ->
-                        AnnouncementCard(
-                            announcement = announcement, index = index, count = announcements.size,
-                            isUnread = announcement.id in unreadIds,
-                            isBookmarked = announcement.id in bookmarkedIds,
-                            onClick = { onOpenAnnouncement(announcement) },
-                            onOpenInBrowser = { onOpenAnnouncementInBrowser(announcement) },
-                            onBookmarkClick = { onToggleBookmark(announcement) },
-                        )
-                    }
-                    item(key = "announcement-footer") {
+                    item(key = ANNOUNCEMENT_FOOTER_KEY) {
                         AnnouncementListFooter(
                             hasMore = uiState.hasMore,
                             isLoadingMore = uiState.isLoadingMore,
@@ -670,48 +683,70 @@ internal fun orderAnnouncements(
     announcements: List<SchoolAnnouncement>,
     unreadIds: Set<String>,
     bookmarkedIds: Set<String> = emptySet(),
-): List<SchoolAnnouncement> = announcements.sortedWith(
-    compareByDescending<SchoolAnnouncement> { it.id in bookmarkedIds }
-        .thenByDescending { it.id in unreadIds }
-        .thenByDescending { it.isPinned },
-)
+    bookmarkFallbacks: List<AnnouncementBookmark> = emptyList(),
+): List<SchoolAnnouncement> = (announcements + bookmarkFallbacks.map(AnnouncementBookmark::toAnnouncement))
+    .distinctBy(SchoolAnnouncement::id)
+    .sortedWith(
+        compareByDescending<SchoolAnnouncement> { it.id in bookmarkedIds }
+            .thenByDescending { it.id in unreadIds }
+            .thenByDescending { it.isPinned },
+    )
 
 private const val ANNOUNCEMENT_ITEM_PREFIX = "school-announcement:"
+internal const val ANNOUNCEMENT_FOOTER_KEY = "announcement-footer"
 internal fun announcementItemKey(id: String): String = ANNOUNCEMENT_ITEM_PREFIX + id
 
 internal class AnnouncementTopAnchor {
     private var previousIds = emptySet<String>()
 
     fun shouldKeepAtTop(
-        loadedIds: Set<String>,
+        displayedIds: Set<String>,
         firstUnreadId: String?,
         isAtTop: Boolean,
         isScrollInProgress: Boolean,
     ): Boolean {
         val newUnreadAtTop = firstUnreadId != null && firstUnreadId !in previousIds &&
-            previousIds.isNotEmpty() && loadedIds.containsAll(previousIds)
-        previousIds = loadedIds
+            previousIds.isNotEmpty() && displayedIds.containsAll(previousIds)
+        previousIds = displayedIds
         return newUnreadAtTop && isAtTop && !isScrollInProgress
     }
 }
 
 internal class AnnouncementPrefetchViewport {
     private var requestedKeys = emptySet<String>()
-    private var requestedShortPage: Int? = null
+    private var requestedPage = -1
+    private var continuedPages = 0
 
-    fun shouldRequest(visibleKeys: List<String>, nearEnd: Boolean, shortPage: Int? = null): Boolean {
+    fun shouldRequest(
+        visibleKeys: List<String>,
+        nearEnd: Boolean,
+        pageIndex: Int,
+        atEnd: Boolean,
+    ): Boolean {
         if (visibleKeys.isEmpty()) return false
         val sameRows = visibleKeys.all(requestedKeys::contains)
         if (!nearEnd) {
             if (!sameRows) requestedKeys = emptySet()
             return false
         }
-        if (sameRows && (shortPage == null || shortPage == requestedShortPage)) return false
+        if (sameRows) {
+            if (!atEnd || pageIndex <= requestedPage || continuedPages >= 2) return false
+            continuedPages++
+        } else {
+            continuedPages = 0
+        }
         requestedKeys = visibleKeys.toSet()
-        requestedShortPage = shortPage
+        requestedPage = pageIndex
         return true
     }
 }
+
+private data class AnnouncementViewportSnapshot(
+    val visibleKeys: List<String>,
+    val nearEnd: Boolean,
+    val pageIndex: Int,
+    val atEnd: Boolean,
+)
 
 @Composable
 internal fun PrefetchAnnouncementPages(
@@ -735,12 +770,13 @@ internal fun PrefetchAnnouncementPages(
             val nearEnd = shouldPrefetchAnnouncements(
                 state, layout.visibleItemsInfo.lastOrNull()?.index ?: -1, layout.totalItemsCount,
             )
-            val shortPage = state.pageIndex.takeIf { !listState.canScrollBackward && !listState.canScrollForward }
-            Triple(visibleKeys, nearEnd, shortPage)
+            val footerVisible = layout.visibleItemsInfo.any { it.key == ANNOUNCEMENT_FOOTER_KEY }
+            AnnouncementViewportSnapshot(visibleKeys, nearEnd, state.pageIndex, atEnd = footerVisible)
         }.collect { candidate ->
-            if (candidate != null && viewport.shouldRequest(candidate.first, candidate.second, candidate.third)) {
-                currentLoadMore()
-            }
+            if (candidate != null && viewport.shouldRequest(
+                    candidate.visibleKeys, candidate.nearEnd, candidate.pageIndex, candidate.atEnd,
+                )
+            ) currentLoadMore()
         }
     }
 }
@@ -1075,6 +1111,9 @@ internal fun AnnouncementListFooter(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            else -> FilledTonalButton(onClick = onLoadMore, shapes = ButtonDefaults.shapes()) {
+                Text("載入更多")
+            }
         }
     }
 }
