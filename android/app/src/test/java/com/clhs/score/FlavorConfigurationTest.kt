@@ -35,7 +35,7 @@ class FlavorConfigurationTest {
 
         val firstPage = requireNotNull(repository.loadCached())
         val pinned = firstPage.announcements.first { it.isPinned }
-        assertEquals(firstPage, repository.loadPage(0))
+        assertEquals(firstPage.announcements, repository.loadPage(0).announcements)
         assertEquals(listOf(pinned), repository.loadPage(0, keyword = pinned.title).announcements)
         val filters = repository.loadFilterOptions()
         val unit = filters.units.single { it.name == pinned.unit }

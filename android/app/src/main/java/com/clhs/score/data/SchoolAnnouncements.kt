@@ -105,8 +105,9 @@ internal fun schoolAnnouncementsRepository(
     cacheDirectory: File,
     useFakeData: Boolean,
     readRepository: AnnouncementReadRepository? = null,
+    loadBookmark: suspend (String) -> AnnouncementBookmark? = { null },
 ): SchoolAnnouncementsRepository = if (useFakeData) {
-    FakeSchoolAnnouncementsRepository(readRepository)
+    FakeSchoolAnnouncementsRepository(readRepository, loadBookmark)
 } else {
     NetworkSchoolAnnouncementsRepository(cacheDirectory, readRepository = readRepository)
 }

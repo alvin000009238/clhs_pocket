@@ -17,6 +17,7 @@ import com.clhs.score.MainActivity
 import com.clhs.score.R
 import com.clhs.score.data.ANNOUNCEMENT_REMINDER_INTERVALS_MINUTES
 import com.clhs.score.data.AnnouncementReminderRepository
+import com.clhs.score.data.DemoAnnouncementUnitUnavailableException
 import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.loadAnnouncementReminderSnapshot
 import com.clhs.score.data.schoolAnnouncementsRepository
@@ -117,6 +118,8 @@ class AnnouncementReminderWorker(
             Result.success()
         } catch (_: android.database.sqlite.SQLiteException) {
             Result.retry()
+        } catch (_: DemoAnnouncementUnitUnavailableException) {
+            Result.failure()
         } catch (_: IOException) {
             Result.retry()
         }

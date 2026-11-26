@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.clhs.score.BuildConfig
+import com.clhs.score.data.AnnouncementBookmarkRepository
 import com.clhs.score.data.ALL_UNITS_ID
 import com.clhs.score.data.AnnouncementFilterOptions
 import com.clhs.score.data.ANNOUNCEMENT_UNIT_ID_REGEX
@@ -346,6 +347,10 @@ class SchoolAnnouncementDetailViewModel(
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     val repository = schoolAnnouncementsRepository(
                         context.applicationContext.cacheDir, BuildConfig.USE_FAKE_DATA,
+                        loadBookmark = { id ->
+                            AnnouncementBookmarkRepository.get(context).bookmarks.first()
+                                .firstOrNull { it.id == id }
+                        },
                     )
                     return SchoolAnnouncementDetailViewModel {
                         repository.loadDetail(announcementId, category)
