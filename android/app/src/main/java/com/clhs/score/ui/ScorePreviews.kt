@@ -152,7 +152,12 @@ private fun SchoolAnnouncementsPreview(
             uiState = state,
             unreadIds = state.announcements.take(1).map { it.id }.toSet(),
             bookmarksUiState = AnnouncementBookmarksUiState(
-                bookmarks = state.announcements.drop(1).take(1).map(AnnouncementBookmark::from),
+                bookmarks = listOf(
+                    AnnouncementBookmark.from(FakeData.announcementPage.announcements.first()).copy(
+                        id = "preview-archived",
+                        title = "校慶活動照片與回顧",
+                    ),
+                ),
             ),
             onBack = {},
             onRefresh = {},

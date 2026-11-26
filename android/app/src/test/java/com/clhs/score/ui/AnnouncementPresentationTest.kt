@@ -2,6 +2,7 @@ package com.clhs.score.ui
 
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
+import com.clhs.score.data.AnnouncementBookmark
 import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.notifications.NotificationAction
 import com.clhs.score.reminders.announcementNotificationAction
@@ -105,6 +106,22 @@ class AnnouncementPresentationTest {
             orderAnnouncements(announcements, unreadIds, bookmarkedIds = setOf(ordinary.id)),
         )
         assertEquals(listOf(unread, pinned, ordinary), orderAnnouncements(announcements, unreadIds))
+    }
+
+    @Test
+    fun bookmarksOutsideLoadedPagesAppearFirstAndUseFreshDataWhenLoaded() {
+        val saved = AnnouncementBookmark.from(ordinary)
+        val updated = ordinary.copy(title = "更新後的公告標題")
+        val bookmarkedIds = setOf(saved.id)
+
+        assertEquals(
+            listOf(ordinary),
+            orderAnnouncements(emptyList(), emptySet(), bookmarkedIds, bookmarkFallbacks = listOf(saved)),
+        )
+        assertEquals(
+            listOf(updated, unread, pinned),
+            orderAnnouncements(listOf(pinned, unread, updated), setOf(unread.id), bookmarkedIds, listOf(saved)),
+        )
     }
 
     @Test

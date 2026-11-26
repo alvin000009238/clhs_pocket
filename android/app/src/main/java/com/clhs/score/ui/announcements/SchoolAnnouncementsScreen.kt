@@ -387,6 +387,7 @@ fun SchoolAnnouncementsScreen(
                     topPadding = pagePadding.calculateTopPadding(),
                     uiState = uiState,
                     unreadIds = unreadIds,
+                    bookmarks = bookmarksUiState.bookmarks,
                     bookmarkedIds = bookmarkedIds,
                     onRefresh = onRefresh,
                     onClearSearch = clearSearchAndHideKeyboard,
@@ -467,6 +468,7 @@ private fun AnnouncementList(
     topPadding: androidx.compose.ui.unit.Dp,
     uiState: SchoolAnnouncementsUiState,
     unreadIds: Set<String>,
+    bookmarks: List<AnnouncementBookmark>,
     bookmarkedIds: Set<String>,
     onRefresh: () -> Unit,
     onClearSearch: () -> Unit,
@@ -478,8 +480,12 @@ private fun AnnouncementList(
     onOpenOfficialWebsite: () -> Unit,
 ) {
     val listState = rememberLazyListState()
-    val announcements = remember(uiState.announcements, unreadIds, bookmarkedIds) {
-        orderAnnouncements(uiState.announcements, unreadIds, bookmarkedIds)
+    val includeUnloadedBookmarks = uiState.searchQuery.isEmpty() && !uiState.hasFilters
+    val announcements = remember(uiState.announcements, unreadIds, bookmarks, includeUnloadedBookmarks) {
+        orderAnnouncements(
+            uiState.announcements, unreadIds, bookmarkedIds,
+            bookmarkFallbacks = if (includeUnloadedBookmarks) bookmarks else emptyList(),
+        )
     }
     val topAnchor = remember { AnnouncementTopAnchor() }
     val loadedIds = remember(uiState.announcements) {
@@ -564,6 +570,16 @@ private fun AnnouncementList(
                     TextButton(onClick = onClearFilters) { Text("已套用公告篩選 · 清除") }
                 }
             }
+            itemsIndexed(announcements, key = { _, item -> announcementItemKey(item.id) }) { index, announcement ->
+                AnnouncementCard(
+                    announcement = announcement, index = index, count = announcements.size,
+                    isUnread = announcement.id in unreadIds,
+                    isBookmarked = announcement.id in bookmarkedIds,
+                    onClick = { onOpenAnnouncement(announcement) },
+                    onOpenInBrowser = { onOpenAnnouncementInBrowser(announcement) },
+                    onBookmarkClick = { onToggleBookmark(announcement) },
+                )
+            }
             when {
                 uiState.isInitialLoading -> item(key = "announcement-loading") {
                     AnnouncementsLoadingList()
@@ -609,16 +625,6 @@ private fun AnnouncementList(
                     )
                 }
                 else -> {
-                    itemsIndexed(announcements, key = { _, item -> announcementItemKey(item.id) }) { index, announcement ->
-                        AnnouncementCard(
-                            announcement = announcement, index = index, count = announcements.size,
-                            isUnread = announcement.id in unreadIds,
-                            isBookmarked = announcement.id in bookmarkedIds,
-                            onClick = { onOpenAnnouncement(announcement) },
-                            onOpenInBrowser = { onOpenAnnouncementInBrowser(announcement) },
-                            onBookmarkClick = { onToggleBookmark(announcement) },
-                        )
-                    }
                     item(key = "announcement-footer") {
                         AnnouncementListFooter(
                             hasMore = uiState.hasMore,
@@ -670,11 +676,14 @@ internal fun orderAnnouncements(
     announcements: List<SchoolAnnouncement>,
     unreadIds: Set<String>,
     bookmarkedIds: Set<String> = emptySet(),
-): List<SchoolAnnouncement> = announcements.sortedWith(
-    compareByDescending<SchoolAnnouncement> { it.id in bookmarkedIds }
-        .thenByDescending { it.id in unreadIds }
-        .thenByDescending { it.isPinned },
-)
+    bookmarkFallbacks: List<AnnouncementBookmark> = emptyList(),
+): List<SchoolAnnouncement> = (announcements + bookmarkFallbacks.map(AnnouncementBookmark::toAnnouncement))
+    .distinctBy(SchoolAnnouncement::id)
+    .sortedWith(
+        compareByDescending<SchoolAnnouncement> { it.id in bookmarkedIds }
+            .thenByDescending { it.id in unreadIds }
+            .thenByDescending { it.isPinned },
+    )
 
 private const val ANNOUNCEMENT_ITEM_PREFIX = "school-announcement:"
 internal fun announcementItemKey(id: String): String = ANNOUNCEMENT_ITEM_PREFIX + id
