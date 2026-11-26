@@ -11,6 +11,8 @@ Set-Location android
 
 YouBike 在 Demo 與 Production 都使用官方公開即時資料，不受 `USE_FAKE_DATA` 控制；Preview 與隔離單元測試仍使用假資料。
 
+Demo 的首頁與校園置頂卡、公告列表、搜尋、詳情和公告提醒共用範例公告。返回校園重新讀取範例資料，不查詢校網。Production 使用共用的第一頁快取及校網來源。
+
 新增 preview 情境時，先擴充 `FakeData.kt`，不要在個別 Composable 寫臨時硬編資料。假資料不能包含真實學生、課表、帳號或 cookie。
 
 `MockGradeSystem.generateReport` 以顯示至小數第 2 位的科目分數及模擬器預設學分產生加權總分與平均，國文、英文、數學為 4 學分，其餘為 2 學分；摘要以 HALF_UP 顯示兩位小數。一般 Demo 考試可用預設學分核對，測試仍可透過 `customTotalScore`、`customAverageScore` 明確覆寫官方摘要。SPECIAL 情境保留缺考與作弊，摘要將這些科目以 0 分計入學分，但模擬器仍拒絕用這些成績核對或推算；`-999` 科目則完全省略。

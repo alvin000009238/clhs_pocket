@@ -2,7 +2,7 @@ package com.clhs.score.domain.overview
 
 import com.clhs.score.data.AuthenticatedSession
 import com.clhs.score.data.GradeReminderState
-import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
+import com.clhs.score.data.SchoolAnnouncementsRepository
 import com.clhs.score.data.NetworkSchoolCalendarRepository
 import com.clhs.score.data.occurrenceOn
 import com.clhs.score.data.SCHOOL_COURSE_ZONE
@@ -65,7 +65,7 @@ import java.util.Locale
 class OverviewCoordinator(
     private val scheduleRepository: ScheduleRepository,
     private val calendarRepository: NetworkSchoolCalendarRepository,
-    private val announcementsRepository: NetworkSchoolAnnouncementsRepository,
+    private val announcementsRepository: SchoolAnnouncementsRepository,
     private val reminderState: Flow<GradeReminderState>,
     private val weatherRepository: WeatherRepository? = null,
     private val weatherConfiguration: Flow<WeatherConfiguration> = flowOf(WeatherConfiguration(WeatherSource.OPEN_METEO)),

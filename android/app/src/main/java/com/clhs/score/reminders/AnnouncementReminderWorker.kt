@@ -12,13 +12,14 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.clhs.score.BuildConfig
 import com.clhs.score.MainActivity
 import com.clhs.score.R
 import com.clhs.score.data.ANNOUNCEMENT_REMINDER_INTERVALS_MINUTES
 import com.clhs.score.data.AnnouncementReminderRepository
-import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
 import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.loadAnnouncementReminderSnapshot
+import com.clhs.score.data.schoolAnnouncementsRepository
 import com.clhs.score.notifications.NotificationActionCapabilities
 import com.clhs.score.notifications.NotificationAction
 import com.clhs.score.notifications.NotificationChannels
@@ -67,7 +68,7 @@ class AnnouncementReminderWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
     private val reminderRepository = AnnouncementReminderRepository(appContext)
-    private val announcementsRepository = NetworkSchoolAnnouncementsRepository(appContext.cacheDir)
+    private val announcementsRepository = schoolAnnouncementsRepository(appContext.cacheDir, BuildConfig.USE_FAKE_DATA)
     private val readRepository = com.clhs.score.data.AnnouncementReadRepository.get(appContext)
     private val notifier = AnnouncementReminderNotifier(appContext)
 

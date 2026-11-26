@@ -88,6 +88,29 @@ data class SchoolAnnouncementDetail(
     val containsTables: Boolean = false,
 )
 
+interface SchoolAnnouncementsRepository {
+    suspend fun loadCached(): SchoolAnnouncementPage?
+    suspend fun loadPage(
+        pageIndex: Int,
+        keyword: String = "",
+        unitId: String = ALL_UNITS_ID,
+        categoryId: String = ALL_UNITS_ID,
+    ): SchoolAnnouncementPage
+    suspend fun loadCachedFilterOptions(): AnnouncementFilterOptions
+    suspend fun loadFilterOptions(): AnnouncementFilterOptions
+    suspend fun loadDetail(id: String, categoryHint: String = ""): SchoolAnnouncementDetail
+}
+
+internal fun schoolAnnouncementsRepository(
+    cacheDirectory: File,
+    useFakeData: Boolean,
+    readRepository: AnnouncementReadRepository? = null,
+): SchoolAnnouncementsRepository = if (useFakeData) {
+    FakeSchoolAnnouncementsRepository(readRepository)
+} else {
+    NetworkSchoolAnnouncementsRepository(cacheDirectory, readRepository = readRepository)
+}
+
 class NetworkSchoolAnnouncementsRepository(
     cacheDirectory: File,
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -97,21 +120,21 @@ class NetworkSchoolAnnouncementsRepository(
     private val baseUrl: HttpUrl = SCHOOL_BASE_URL,
     private val nowProvider: () -> Instant = Instant::now,
     private val readRepository: AnnouncementReadRepository? = null,
-) {
+) : SchoolAnnouncementsRepository {
     private val cache = LatestCacheFile(cacheDirectory, CACHE_FILE_NAME)
     private val cacheFile = cache.file
     private val unitsCache = LatestCacheFile(cacheDirectory, UNITS_CACHE_FILE_NAME)
     private val unitsCacheFile = unitsCache.file
 
-    suspend fun loadCached(): SchoolAnnouncementPage? = withContext(Dispatchers.IO) {
+    override suspend fun loadCached(): SchoolAnnouncementPage? = withContext(Dispatchers.IO) {
         readCache()?.also { readRepository?.discoverForDisplay(it.announcements) }
     }
 
-    suspend fun loadPage(
+    override suspend fun loadPage(
         pageIndex: Int,
-        keyword: String = "",
-        unitId: String = ALL_UNITS_ID,
-        categoryId: String = ALL_UNITS_ID,
+        keyword: String,
+        unitId: String,
+        categoryId: String,
     ): SchoolAnnouncementPage {
         require(pageIndex >= 0) { "pageIndex must not be negative" }
         val normalizedKeyword = keyword.trim()
@@ -170,11 +193,11 @@ class NetworkSchoolAnnouncementsRepository(
 
     suspend fun loadUnits(): List<AnnouncementUnit> = loadFilterOptions().units
 
-    suspend fun loadCachedFilterOptions(): AnnouncementFilterOptions = withContext(Dispatchers.IO) {
+    override suspend fun loadCachedFilterOptions(): AnnouncementFilterOptions = withContext(Dispatchers.IO) {
         readFilterCache()
     }
 
-    suspend fun loadFilterOptions(): AnnouncementFilterOptions {
+    override suspend fun loadFilterOptions(): AnnouncementFilterOptions {
         val generation = unitsCache.beginWrite()
         val requestContext = currentCoroutineContext()
         return withContext(Dispatchers.IO) {
@@ -191,7 +214,7 @@ class NetworkSchoolAnnouncementsRepository(
         }
     }
 
-    suspend fun loadDetail(id: String, categoryHint: String = ""): SchoolAnnouncementDetail =
+    override suspend fun loadDetail(id: String, categoryHint: String): SchoolAnnouncementDetail =
         withContext(Dispatchers.IO) {
             require(id.isNotBlank()) { "Announcement id is required" }
             val officialUrl = announcementUrl(id, baseUrl)

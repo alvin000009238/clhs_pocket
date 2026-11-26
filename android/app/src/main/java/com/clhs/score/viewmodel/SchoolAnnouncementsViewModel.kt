@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
+import com.clhs.score.BuildConfig
 import com.clhs.score.data.ALL_UNITS_ID
 import com.clhs.score.data.AnnouncementFilterOptions
 import com.clhs.score.data.ANNOUNCEMENT_UNIT_ID_REGEX
@@ -12,6 +12,7 @@ import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.SchoolAnnouncementDetail
 import com.clhs.score.data.SchoolAnnouncementPage
 import com.clhs.score.data.SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH
+import com.clhs.score.data.schoolAnnouncementsRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -280,8 +281,9 @@ class SchoolAnnouncementsViewModel(
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val reading = com.clhs.score.data.AnnouncementReadRepository.get(context)
-                val repository = NetworkSchoolAnnouncementsRepository(
+                val repository = schoolAnnouncementsRepository(
                     context.applicationContext.cacheDir,
+                    BuildConfig.USE_FAKE_DATA,
                     readRepository = reading,
                 )
                 return SchoolAnnouncementsViewModel(
@@ -342,7 +344,9 @@ class SchoolAnnouncementDetailViewModel(
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    val repository = NetworkSchoolAnnouncementsRepository(context.applicationContext.cacheDir)
+                    val repository = schoolAnnouncementsRepository(
+                        context.applicationContext.cacheDir, BuildConfig.USE_FAKE_DATA,
+                    )
                     return SchoolAnnouncementDetailViewModel {
                         repository.loadDetail(announcementId, category)
                     } as T

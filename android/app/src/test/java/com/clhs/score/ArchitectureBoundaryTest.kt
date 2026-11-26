@@ -703,7 +703,7 @@ class ArchitectureBoundaryTest {
     fun announcementReminderWorkerUsesOnlyPublicAnnouncementData() {
         val worker = readSource("app/src/main/java/com/clhs/score/reminders/AnnouncementReminderWorker.kt")
 
-        assertTrue(worker.contains("NetworkSchoolAnnouncementsRepository"))
+        assertTrue(worker.contains("schoolAnnouncementsRepository(appContext.cacheDir, BuildConfig.USE_FAKE_DATA)"))
         assertTrue(worker.contains("AnnouncementReminderRepository"))
         assertTrue(worker.contains("school_announcement_poll"))
         listOf("SessionStore", "SchoolGradeClient", "SchoolCookieJar", "AuthenticatedSession").forEach { term ->

@@ -27,7 +27,7 @@ import com.clhs.score.data.FakeScheduleRepository
 import com.clhs.score.data.GradeCacheStore
 import com.clhs.score.data.GradeReminderRepository
 import com.clhs.score.data.NetworkScheduleRepository
-import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
+import com.clhs.score.data.schoolAnnouncementsRepository
 import com.clhs.score.data.NetworkSchoolCalendarRepository
 import com.clhs.score.data.OverviewPreferences
 import com.clhs.score.data.ScheduleRepository
@@ -330,8 +330,9 @@ class OverviewViewModel(
                     OverviewCoordinator(
                         scheduleRepository = scheduleRepository,
                         calendarRepository = NetworkSchoolCalendarRepository(appContext.cacheDir),
-                        announcementsRepository = NetworkSchoolAnnouncementsRepository(
+                        announcementsRepository = schoolAnnouncementsRepository(
                             appContext.cacheDir,
+                            useFakeData,
                             readRepository = com.clhs.score.data.AnnouncementReadRepository.get(appContext),
                         ),
                         reminderState = GradeReminderRepository(appContext).state,
