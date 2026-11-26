@@ -46,6 +46,7 @@
 - 首頁課程進度由 `OverviewCoordinator` 依 `PERIOD_TIMES` 計算；每秒時鐘只在首頁可見且 Activity 至少為 STARTED 時運作，返回首頁立即更新。公告與成績投影及行事曆排序只在來源更新時計算；時間相依的課程、事件與倒數保留每秒推進，UI 分類與區塊順序依資料及偏好記憶化。只有上課中的 Hero 提供 `courseProgress`，畫面使用 `LinearWavyProgressIndicator`。下一個上課日依日期差顯示「明天／後天／N 天後」，保留課表有效日期限制。課程異動跟隨 Hero 日期篩選；當天尚未到原下課時間的停課異動也須保留，即使 Hero 已指向下一個上課日或不存在，仍須符合課表有效日期。不以今天的星期套用其他週的異動；課表區塊使用獨立的 `isScheduleRefreshing` 顯示更新狀態。倒數的 `displayDate` 使用實際倒數目標日期，全天事件結束扣除排他邊界；全天行程從 start（含）到 endExclusive（不含）顯示「進行中」，開始前才倒數；「已到期／已結束／今天／進行中」不附加剩餘時間前後綴，畫面與無障礙描述沿用同一份文案。
 - `LatestCacheFile` 同 canonical path 的 instance 共用 generation／提交鎖。網路開始前取得 generation，每次用唯一 temp，只有最新 generation 可 atomic replace。
 - 公告全部單位的 `flock` 為空，限定單位用 `unit_<ID>`；獨立 `unit` 參數無效。列表首筆是分頁 metadata；只有無關鍵字、全部單位的第一頁寫入離線 cache。
+- 校園根頁重新顯示時，重新讀取共用公告第一頁快取，依既有有效期限決定是否連網。列表刷新所更新的置頂公告會反映在主卡及點擊目標。此訊號僅重新檢查公告來源。
 - 詳情先由 `show.php` 取 `g_news_unique_id` 再取 content。HTML 移除主動內容與危險 scheme；只有 HTTPS 校網圖片自動載入，其他連結由使用者開啟。詳情限制 2 MiB。
 - 公告收藏使用獨立的 `announcement_bookmarks` Preferences DataStore，保存穩定 `newsId` 與清單摘要，不保存 HTML、Session 或個資。收藏不改 Room 閱讀狀態、提醒基準或公告 cache；收藏清單離線顯示摘要，點選後仍以 ID 重新載入來源詳情。外部連結重新驗證後才開啟。收藏不綁校務帳號，登出不清除此公開內容偏好。
 - 校園公告主列表沿用本機收藏摘要補入尚未分頁載入的公告，初次載入或連線失敗時也可顯示。依公告 ID 去重，同 ID 優先顯示最新載入的資料。收藏排在未讀與置頂之前。搜尋或套用篩選時，只顯示伺服器回傳的公告。 點選收藏摘要會以 ID 載入最新詳情，從瀏覽器開啟則前往該 ID 的官網頁面。

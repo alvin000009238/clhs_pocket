@@ -268,6 +268,11 @@ fun AppShell(
         }
     }
 
+    val campusVisible = navigationState.currentRoute == CampusRoute
+    LaunchedEffect(campusVisible, overviewViewModel) {
+        if (campusVisible) overviewViewModel.refreshAnnouncements()
+    }
+
     ReportDrawnWhen { !overviewState.isInitialLoading }
 
     LaunchedEffect(navigationState.currentRoute, gradesState.studentNo, gradesState.selectedYearValue, gradesState.selectedExamValue, gradesState.report) {
