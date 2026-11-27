@@ -115,7 +115,10 @@ struct AnnouncementListView: View {
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, 1)
             .onChange(of: scrollRequest) {
-                withAnimation(reduceMotion || !animatesScroll ? nil : .smooth) { proxy.scrollTo(Self.topId, anchor: .top) }
+                // Scroll after this update, once the rows of a new filter or search are in the list.
+                Task { @MainActor in
+                    withAnimation(reduceMotion || !animatesScroll ? nil : .smooth) { proxy.scrollTo(Self.topId, anchor: .top) }
+                }
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
