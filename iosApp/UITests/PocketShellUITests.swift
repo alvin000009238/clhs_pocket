@@ -668,21 +668,22 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(swipeBookmark.waitForExistence(timeout: 5))
         capture("50b-announcements-swipe-bookmark")
         swipeBookmark.tap()
-        XCTAssertTrue(waitUntil { swiped.label.contains("已收藏") }, swiped.label)
+        // Bookmarked rows sort first, so at accessibility sizes the row can move off the screen.
+        _ = waitUntil(timeout: 3) { !swiped.exists || swiped.label.contains("已收藏") }
+        let saved = announcementRow("announcement-45049")
+        XCTAssertTrue(waitUntil { saved.label.contains("已收藏") }, saved.label)
         XCTAssertFalse(app.buttons["announcement-bookmark"].exists, "the swipe must not open the announcement")
 
         // Opening an announcement marks it read; bookmarking it fills the 收藏 filter.
-        let unreadBefore = app.segmentedControls["announcement-filter"].buttons.element(boundBy: 1).label
+        let unreadBefore = announcementFilter().buttons.element(boundBy: 1).label
         announcementRow("announcement-45055").tap()
         XCTAssertTrue(app.buttons["announcement-bookmark"].waitForExistence(timeout: 5))
         app.buttons["announcement-bookmark"].tap()
         capture("52-announcement-detail")
         app.navigationBars.buttons.firstMatch.tap()
-        // At accessibility text sizes the taller cards leave the list scrolled past the filter on return.
-        let filter = app.segmentedControls["announcement-filter"]
-        for _ in 0..<6 where !filter.waitForExistence(timeout: 1) { app.swipeDown() }
+        let filter = announcementFilter()
         XCTAssertNotEqual(filter.buttons.element(boundBy: 1).label, unreadBefore)
-        app.segmentedControls["announcement-filter"].buttons["收藏"].tap()
+        filter.buttons["收藏"].tap()
         XCTAssertTrue(app.buttons["announcement-45055"].waitForExistence(timeout: 5))
         capture("53-announcements-bookmarked")
         app.segmentedControls["announcement-filter"].buttons["全部"].tap()
@@ -792,7 +793,7 @@ final class PocketShellUITests: XCTestCase {
         app.buttons["announcements-clear-filters"].tap()
         XCTAssertTrue(announcementRow("announcement-45055").exists)
 
-        app.segmentedControls["announcement-filter"].buttons["收藏"].tap()
+        announcementFilter().buttons["收藏"].tap()
         XCTAssertGreaterThanOrEqual(rows.count, 1, "the later-page bookmark is listed")
         capture("76-announcements-bookmarks")
         app.segmentedControls["announcement-filter"].buttons["全部"].tap()
@@ -1069,17 +1070,26 @@ final class PocketShellUITests: XCTestCase {
     }
 
     /// Scrolls until the element can be tapped.
-    /// Lists only create the rows near the screen, and at accessibility text sizes unread rows
-    /// sorted to the top push the rest out of it: look above and below, then bring the row into view.
+    /// Lists only create the rows near the screen, and at accessibility text sizes the unread and
+    /// bookmarked rows sorted to the top push the rest out of it. Searches first-page rows from the
+    /// top down; scrolling further would load later pages instead.
     @discardableResult
     private func announcementRow(_ identifier: String) -> XCUIElement {
         let row = app.buttons[identifier]
         if !row.waitForExistence(timeout: 5) {
-            for _ in 0..<8 where !row.exists { app.swipeUp() }
-            for _ in 0..<16 where !row.exists { app.swipeDown() }
+            let top = app.buttons["announcements-top"]
+            if top.exists { top.tap() }
+            for _ in 0..<10 where !row.exists { app.swipeUp() }
         }
         reveal(row)
         return row
+    }
+
+    /// At accessibility text sizes the taller cards can leave the list scrolled past its filter.
+    private func announcementFilter() -> XCUIElement {
+        let filter = app.segmentedControls["announcement-filter"]
+        for _ in 0..<8 where !filter.waitForExistence(timeout: 1) { app.swipeDown() }
+        return filter
     }
 
     private func reveal(_ element: XCUIElement) {
@@ -1121,7 +1131,9 @@ final class PocketShellUITests: XCTestCase {
             return button
         }
         let button = app.tabBars.buttons[title]
-        for _ in 0..<4 where !button.waitForExistence(timeout: 2) {
+        // The collapsed bar's one button carries the current tab's title, so reselecting the
+        // current tab must expand the bar first: tapping the collapsed button only expands it.
+        for _ in 0..<4 where !button.waitForExistence(timeout: 2) || button.value as? String == "Collapsed" {
             let collapsed = app.tabBars.buttons.matching(NSPredicate(format: "value == %@", "Collapsed")).firstMatch
             if collapsed.exists { collapsed.tap() } else { app.swipeDown() }
         }
