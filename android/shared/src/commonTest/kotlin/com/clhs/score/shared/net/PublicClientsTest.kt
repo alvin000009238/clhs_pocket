@@ -75,10 +75,10 @@ class PublicClientsTest {
         val detail = PublicAnnouncementParser.parseDetail(PublicFixtures.RECORDED_DETAIL_JSON, "45072", "公告")
         assertEquals("公告", detail.category)
         assertEquals(
-            "<p><strong>閉館日期</strong><a href=\"https://www.clhs.tyc.edu.tw/notice\">詳情</a><a>bad</a></p>" +
-                "<p><strong>⚠️ 此內容包含表格</strong></p><p>請點擊下方「<strong>查看原文</strong>」來查看完整表格內容。</p>",
+            "<p><strong>閉館日期</strong><a href=\"https://www.clhs.tyc.edu.tw/notice\">詳情</a><a>bad</a></p>",
             detail.htmlContent,
         )
+        assertTrue(detail.containsTables)
         assertEquals(2, detail.images.size)
         assertEquals("公告圖片", detail.images.first().description)
         assertTrue(detail.images.first().canPreview)
@@ -97,6 +97,7 @@ class PublicClientsTest {
     fun headingsBecomeBoldParagraphsAndUnknownTagsAreUnwrapped() {
         val heading = PublicAnnouncementParser.parseDetail(PublicFixtures.HEADING_DETAIL_JSON, "45049", "公告")
         assertEquals("<p><strong>1.學生名單請參閱附加檔案</strong></p>", heading.htmlContent)
+        assertFalse(heading.containsTables)
         fun html(content: String) = PublicAnnouncementParser.parseDetail(
             """[{"rcode":200,"newsId":"1","content":"${PortableUrl.encodeComponent(content)}"}]""", "1",
         ).htmlContent
@@ -112,7 +113,7 @@ class PublicClientsTest {
         val deep = html("<div>".repeat(5000) + "<b>".repeat(5000) + "深層" + "</b>".repeat(5000) + "</div>".repeat(5000))
         assertTrue(deep.contains("深層"))
         assertTrue(deep.split("<b>").size - 1 <= 32, "nesting must be capped")
-        // A table or heading inside the deepest level adds its own markup without passing the cap,
+        // A heading inside the deepest level adds its own markup without passing the cap,
         // and the text after the deep section is kept.
         val tail = html("<b>".repeat(40) + "<table><tr><td>格</td></tr></table><h2>標題</h2>" + "</b>".repeat(40) + "<p>後面</p>")
         assertTrue(tail.endsWith("<p>後面</p>"), tail)
