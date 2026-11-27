@@ -37,7 +37,9 @@ class AnnouncementBookmarksViewModel(
     fun toggle(announcement: SchoolAnnouncement) {
         viewModelScope.launch {
             try {
-                repository.toggle(announcement)
+                if (repository.toggle(announcement)) {
+                    _uiState.update { it.copy(message = "已取消收藏及校園頁釘選。") }
+                }
             } catch (error: Exception) {
                 error.rethrowIfBookmarkCancellation()
                 _uiState.update { it.copy(message = "無法更新公告收藏，請稍後再試。") }

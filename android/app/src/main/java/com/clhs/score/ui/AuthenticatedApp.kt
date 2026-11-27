@@ -109,6 +109,7 @@ import com.clhs.score.viewmodel.ScheduleCustomizationsViewModel
 import com.clhs.score.viewmodel.SchoolAnnouncementDetailViewModel
 import com.clhs.score.viewmodel.SchoolAnnouncementsViewModel
 import com.clhs.score.viewmodel.AnnouncementBookmarksViewModel
+import com.clhs.score.viewmodel.CampusAnnouncementPinViewModel
 import com.clhs.score.viewmodel.SchoolCalendarViewModel
 import com.clhs.score.viewmodel.ScoreViewModel
 import com.clhs.score.viewmodel.SettingsUiState
@@ -171,6 +172,16 @@ fun AppShell(
     val navigator = remember(navigationState) { AppNavigator(navigationState) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val campusPinViewModel = androidx.lifecycle.viewmodel.compose.viewModel<CampusAnnouncementPinViewModel>(
+        factory = CampusAnnouncementPinViewModel.factory(context),
+    )
+    val campusPinState by campusPinViewModel.uiState.collectAsStateWithLifecycle()
+    LaunchedEffect(campusPinState.message) {
+        campusPinState.message?.let { message ->
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+            campusPinViewModel.consumeMessage()
+        }
+    }
     fun openExternalAnnouncement(id: String, url: String?): Boolean {
         if (url == null) {
             android.widget.Toast.makeText(
@@ -732,10 +743,14 @@ fun AppShell(
                         dynamicColor = settings.dynamicColor,
                         state = overviewState,
                         unreadAnnouncementCount = announcementReminderUiState.unreadIds.size,
+                        campusPin = campusPinState.pin?.toAnnouncement(),
                         onOpenPersonal = { navigator.navigate(GeneralSettingsRoute) },
                         showUpdateBadge = showUpdateBadge,
                         onOpenAnnouncements = { navigator.navigate(SchoolAnnouncementsRoute) },
                         onOpenAnnouncement = ::openAnnouncement,
+                        onOpenCampusPin = { announcement ->
+                            navigator.navigate(SchoolAnnouncementDetailRoute(announcement.id, announcement.category))
+                        },
                         onOpenCalendar = { navigator.navigate(SchoolCalendarRoute()) },
                         onOpenAttendance = { navigator.navigate(AttendanceRoute) },
                         onOpenMerit = { navigator.navigate(MeritRoute) },
@@ -878,6 +893,22 @@ fun AppShell(
                         factory = AnnouncementBookmarksViewModel.factory(context),
                     )
                     val bookmarksState by bookmarksViewModel.uiState.collectAsStateWithLifecycle()
+                    LaunchedEffect(bookmarksState.message) {
+                        bookmarksState.message?.let { message ->
+                            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                            bookmarksViewModel.consumeMessage()
+                        }
+                    }
+                    val detail = uiState.detail
+                    val announcement = detail?.let {
+                        com.clhs.score.data.SchoolAnnouncement(
+                            id = it.id, title = it.title, date = it.date,
+                            category = it.category, unit = it.unit, issuer = it.issuer,
+                            isPinned = false, contentType = if (it.isExternal) "url" else "html",
+                            externalUrl = it.externalUrl,
+                        )
+                    }
+                    val isPinnedToCampus = campusPinState.pin?.id == route.id
                     com.clhs.score.ui.announcements.SchoolAnnouncementDetailScreen(
                         uiState = uiState,
                         onBack = { navigator.goBack() },
@@ -895,15 +926,12 @@ fun AppShell(
                         },
                         officialUrl = schoolAnnouncementOfficialUrl(route.id),
                         isBookmarked = bookmarksState.bookmarks.any { it.id == route.id },
-                        onToggleBookmark = {
-                            uiState.detail?.let { detail ->
-                                bookmarksViewModel.toggle(com.clhs.score.data.SchoolAnnouncement(
-                                    id = detail.id, title = detail.title, date = detail.date,
-                                    category = detail.category, unit = detail.unit, issuer = detail.issuer,
-                                    isPinned = false, contentType = if (detail.isExternal) "url" else "html",
-                                    externalUrl = detail.externalUrl,
-                                ))
-                            }
+                        onToggleBookmark = { announcement?.let(bookmarksViewModel::toggle) },
+                        isPinnedToCampus = isPinnedToCampus,
+                        onToggleCampusPin = when {
+                            campusPinState.isLoading || campusPinState.isSaving -> null
+                            isPinnedToCampus -> { { campusPinViewModel.remove(route.id) } }
+                            else -> { { campusPinViewModel.pin(route.id) } }
                         },
                     )
                 }

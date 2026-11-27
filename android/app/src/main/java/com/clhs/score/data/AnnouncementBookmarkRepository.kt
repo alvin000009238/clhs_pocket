@@ -67,21 +67,55 @@ class AnnouncementBookmarkRepository internal constructor(
         decodeBookmarks(preferences[BOOKMARKS])
     }
 
-    suspend fun toggle(announcement: SchoolAnnouncement) {
+    val campusPin: Flow<AnnouncementBookmark?> = dataStore.data.map { preferences ->
+        decodeCampusPin(preferences[CAMPUS_PIN])?.takeIf { pin ->
+            decodeBookmarks(preferences[BOOKMARKS]).any { it.id == pin.id }
+        }
+    }
+
+    suspend fun pinToCampus(id: String): Boolean {
+        var saved = false
+        dataStore.edit { preferences ->
+            val bookmark = decodeBookmarks(preferences[BOOKMARKS]).firstOrNull { it.id == id }
+            if (bookmark != null) {
+                preferences[CAMPUS_PIN] = announcementBookmarkJson.encodeToString(bookmark)
+                saved = true
+            }
+        }
+        return saved
+    }
+
+    suspend fun removeCampusPin(id: String) {
+        dataStore.edit { preferences ->
+            if (decodeCampusPin(preferences[CAMPUS_PIN])?.id == id) {
+                preferences.remove(CAMPUS_PIN)
+            }
+        }
+    }
+
+    suspend fun toggle(announcement: SchoolAnnouncement): Boolean {
         require(announcement.id.isNotBlank()) { "Announcement id is required" }
+        var removedCampusPin = false
         dataStore.edit { preferences ->
             val current = decodeBookmarks(preferences[BOOKMARKS])
-            val next = if (current.any { it.id == announcement.id }) {
+            val wasBookmarked = current.any { it.id == announcement.id }
+            if (decodeCampusPin(preferences[CAMPUS_PIN])?.id == announcement.id) {
+                preferences.remove(CAMPUS_PIN)
+                removedCampusPin = wasBookmarked
+            }
+            val next = if (wasBookmarked) {
                 current.filterNot { it.id == announcement.id }
             } else {
                 listOf(AnnouncementBookmark.from(announcement)) + current
             }
             preferences[BOOKMARKS] = announcementBookmarkJson.encodeToString(next)
         }
+        return removedCampusPin
     }
 
     companion object {
         private val BOOKMARKS = stringPreferencesKey("bookmarks_v1")
+        private val CAMPUS_PIN = stringPreferencesKey("campus_pin_v1")
 
         @Volatile
         private var instance: AnnouncementBookmarkRepository? = null
@@ -91,6 +125,15 @@ class AnnouncementBookmarkRepository internal constructor(
                 context.applicationContext.announcementBookmarksDataStore,
             ).also { instance = it }
         }
+    }
+}
+
+private fun decodeCampusPin(encoded: String?): AnnouncementBookmark? {
+    if (encoded == null) return null
+    return try {
+        announcementBookmarkJson.decodeFromString<AnnouncementBookmark>(encoded).takeIf { it.id.isNotBlank() }
+    } catch (_: SerializationException) {
+        null
     }
 }
 
