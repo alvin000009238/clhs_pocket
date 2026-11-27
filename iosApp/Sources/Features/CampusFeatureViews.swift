@@ -330,6 +330,8 @@ struct AnnouncementListView: View {
             .accessibilityElement(children: .combine)
             .accessibilityValue(item.isUnread ? "未讀" : "")
             .accessibilityIdentifier("announcement-\(item.id)")
+            .accessibilityAction(named: Text(bookmarkLabel)) { toggleBookmark(item) }
+            .accessibilityAction(named: Text("在瀏覽器開啟")) { openInBrowser(item, feed: feed) }
             .swipeActions(edge: .leading, allowsFullSwipe: true) {
                 Button("在瀏覽器開啟", systemImage: "arrow.up.right") { openInBrowser(item, feed: feed) }
                     .tint(PocketColor.tertiary)
