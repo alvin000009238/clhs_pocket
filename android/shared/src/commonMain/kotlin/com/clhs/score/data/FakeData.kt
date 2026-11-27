@@ -92,6 +92,44 @@ object FakeData {
         officialUrl = "https://www.clhs.tyc.edu.tw/ischool/public/news_view/show.php?nid=45072",
     )
 
+    val examAnnouncementDetail = announcementDetail.let { sample ->
+        sample.copy(
+            title = "【第二次期中考】本學年度第一學期高一至高三考試範圍與考程表",
+            issuer = "實驗研究組",
+            unit = "實驗研究組官網",
+            htmlContent = """
+                <p><strong>考試範圍更新</strong></p>
+                <ul>
+                    <li>高三選修化學的修正範圍為選修化學四第一章。
+                        <ul><li>請以最新版本的考試範圍為準。</li></ul>
+                    </li>
+                    <li>高二選修化學的修正範圍請見附件。</li>
+                </ul>
+                <p>1. 完整考試範圍請見<a href="${sample.officialUrl}">學校網站</a>。</p>
+                <p>2. 考試期間，如需請假，請依學校公告程序辦理。</p>
+                <p>3. 請確認各節考試的起訖時間，並依時程進入指定教室。</p>
+            """.trimIndent(),
+            attachments = listOf(
+                sample.attachments.first().copy(name = "期中考考程表.pdf"),
+                sample.attachments.first().copy(
+                    name = "考試範圍.pdf",
+                    sizeBytes = 36_864,
+                    url = "${sample.attachments.first().url}?file=scope",
+                ),
+            ),
+        )
+    }
+
+    val announcementDetailWithImage = announcementDetail.copy(
+        images = listOf(
+            SchoolAnnouncementImage(
+                url = "https://example.invalid/announcement.png",
+                description = "示範公告圖片",
+                canPreview = true,
+            ),
+        ),
+    )
+
     private val reports: Map<Pair<String, String>, GradeReport> by lazy {
         mapOf(
             ("114_1" to "114_1_E4") to MockGradeSystem.generateReport(

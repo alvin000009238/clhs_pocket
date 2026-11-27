@@ -78,7 +78,7 @@ fun AccountIconButton(
             OutlinedRoundedSymbol(
                 icon = "account_circle",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                contentDescription = "個人",
+                contentDescription = if (showUpdateBadge) "個人與設定，有新版本" else "個人與設定",
             )
             if (showUpdateBadge) {
                 Box(
