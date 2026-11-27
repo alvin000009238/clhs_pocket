@@ -227,11 +227,6 @@ private struct NoLessonCard: View {
                 Text(model.live?.isLoadingPrivate == true ? "正在載入課表…" : "近期沒有課程")
                     .font(PocketFont.display(compact ? 20 : 24, relativeTo: .title2))
                     .foregroundStyle(PocketColor.onPrimaryContainer)
-                if !compact {
-                    Text("開學或課表公布後，這裡會顯示目前與下一堂課。")
-                        .font(.subheadline)
-                        .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

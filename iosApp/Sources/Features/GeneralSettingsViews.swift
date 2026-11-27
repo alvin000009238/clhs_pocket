@@ -182,8 +182,6 @@ struct DeveloperSettingsView: View {
                 }
             } header: {
                 Text("本機資料與儲存空間")
-            } footer: {
-                Text("設定資料只能透過「資料管理」中的刪除資料移除。自訂科目名稱與大頭貼不會被清除快取影響。")
             }
 
             Section {

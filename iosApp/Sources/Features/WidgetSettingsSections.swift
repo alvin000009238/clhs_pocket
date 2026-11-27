@@ -100,8 +100,6 @@ struct WeatherWidgetSettings: View {
             }
         } header: {
             Text("地點")
-        } footer: {
-            Text("可搜尋臺灣各縣市的鄉鎮市區。")
         }
         .task(id: query) {
             let input = query.trimmingCharacters(in: .whitespaces)
@@ -209,8 +207,6 @@ struct YouBikeWidgetSettings: View {
             }
         } header: {
             Text("站點")
-        } footer: {
-            Text(model.usesLiveData ? "搜尋 YouBike 公開資料中的所有站點。" : "示範資料只包含桃園地區的幾個站點，例如「中壢」或「桃園」。")
         }
         .task(id: "\(query)#\(retry)") {
             let input = query.trimmingCharacters(in: .whitespaces)
@@ -298,7 +294,7 @@ struct AnnouncementPrioritySettings: View {
         } header: {
             Text("優先順序")
         } footer: {
-            Text("越上方越優先；其餘名額依發布時間補滿。")
+            Text("越上方越優先")
         }
     }
 
@@ -331,8 +327,6 @@ struct LongEventSettings: View {
                 }
                 .accessibilityIdentifier("calendar-max-days")
             }
-        } footer: {
-            Text("依完整行程長度判斷；相同天數仍顯示。")
         }
     }
 }
