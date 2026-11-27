@@ -193,8 +193,10 @@ struct AnnouncementListView: View {
     }
 
     private func openInBrowser(_ item: PocketAnnouncement, feed: AnnouncementFeed) {
-        let external = feed.items.first { $0.id == item.id }?.externalUrl
-        guard let url = AnnouncementFeed.browserURL(id: item.id, externalUrl: external) else { return }
+        let external = AnnouncementFeed.externalLink(
+            id: item.id, loaded: feed.items, saved: PocketData.shared.current.savedAnnouncements
+        )
+        guard let url = external ?? AnnouncementFeed.browserURL(id: item.id, externalUrl: nil) else { return }
         browserTick += 1
         openURL(url)
     }

@@ -188,6 +188,27 @@ final class AnnouncementFeedTests: XCTestCase {
         XCTAssertEqual(AnnouncementFeed.ordered(listed, unreadIds: ["a"], bookmarkedIds: ["old"]).map(\.id), ["old", "a", "b"])
     }
 
+    func testASavedLinkAnnouncementOutsideTheLoadedPagesOpensItsOwnPage() {
+        func item(_ id: String, type: String, url: String?) -> SchoolAnnouncement {
+            SchoolAnnouncement(
+                id: id, title: id, date: "2026/11/18", category: "公告", unit: "教務處", issuer: "",
+                isPinned: false, contentType: type, externalUrl: url
+            )
+        }
+        let saved = [item("link", type: "URL", url: "https://example.org/event"), item("page", type: "", url: nil)]
+        XCTAssertEqual(
+            AnnouncementFeed.externalLink(id: "link", loaded: [], saved: saved)?.absoluteString,
+            "https://example.org/event"
+        )
+        XCTAssertNil(AnnouncementFeed.externalLink(id: "page", loaded: [], saved: saved))
+        XCTAssertNil(AnnouncementFeed.externalLink(
+            id: "link", loaded: [item("link", type: "", url: "https://example.org/event")], saved: saved
+        ))
+        XCTAssertNil(AnnouncementFeed.externalLink(
+            id: "x", loaded: [item("x", type: "url", url: "javascript:alert(1)")], saved: []
+        ))
+    }
+
     func testDetailMetadataJoinsIssuerUnitAndDateWithoutRepeats() {
         XCTAssertEqual(AnnouncementFeed.detailMetadata(issuer: "人事室", unit: "人事室", date: "2026-11-23 10:13:18"), "人事室 · 2026/11/23 10:13")
         XCTAssertEqual(AnnouncementFeed.detailMetadata(issuer: "", unit: "教務處", date: "2026-11-23"), "教務處 · 2026/11/23")

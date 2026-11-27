@@ -131,6 +131,15 @@ final class AnnouncementFeed {
         return rows + fallbacks.filter { seen.insert($0.id).inserted }
     }
 
+    /// The page a link announcement points to, from the loaded pages or its saved copy; nil for an ordinary one.
+    static func externalLink(id: String, loaded: [SchoolAnnouncement], saved: [SchoolAnnouncement]) -> URL? {
+        guard let source = loaded.first(where: { $0.id == id }) ?? saved.first(where: { $0.id == id }),
+              source.contentType.caseInsensitiveCompare("url") == .orderedSame,
+              let url = source.externalUrl.flatMap(URL.init(string:)),
+              url.scheme == "https" || url.scheme == "http" else { return nil }
+        return url
+    }
+
     /// The school's page for an announcement, or the page a link announcement points to.
     static func browserURL(id: String, externalUrl: String?) -> URL? {
         if let external = externalUrl.flatMap(URL.init(string:)), external.scheme == "https" || external.scheme == "http" {
