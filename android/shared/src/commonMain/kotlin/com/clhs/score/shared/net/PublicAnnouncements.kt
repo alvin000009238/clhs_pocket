@@ -105,8 +105,6 @@ object PublicAnnouncementParser {
     )
     private val removedWithContent = setOf("script", "style", "iframe", "form", "object", "embed", "table")
     private val headings = setOf("h1", "h2", "h3", "h4", "h5", "h6")
-    private const val TABLE_NOTICE =
-        "<p><strong>⚠️ 此內容包含表格</strong></p><p>請點擊下方「<strong>查看原文</strong>」來查看完整表格內容。</p>"
     private val LEGACY_UNICODE_REGEX = Regex("%u([0-9a-fA-F]{4})")
     private val EXPLICIT_SCHEME = Regex("^([A-Za-z][A-Za-z0-9+.-]*):")
 
@@ -185,8 +183,9 @@ object PublicAnnouncementParser {
             category = categoryHint,
             unit = item.text("unit").orEmpty(),
             issuer = item.text("issuer").orEmpty(),
-            htmlContent = article.first,
-            images = article.second,
+            htmlContent = article.html,
+            images = article.images,
+            containsTables = article.containsTables,
             attachments = parseAttachments(item.text("attachedfile"), id),
             officialUrl = officialUrl(id),
             isExternal = isExternal,
@@ -225,13 +224,19 @@ object PublicAnnouncementParser {
      * with their contents, images are returned separately, unknown tags are unwrapped, and links keep
      * only absolute http(s) targets.
      */
-    private fun sanitizeArticle(source: String): Pair<String, List<SchoolAnnouncementImage>> {
+    private class SanitizedArticle(
+        val html: String,
+        val images: List<SchoolAnnouncementImage>,
+        val containsTables: Boolean,
+    )
+
+    private fun sanitizeArticle(source: String): SanitizedArticle {
         val output = StringBuilder()
         val images = ArrayList<SchoolAnnouncementImage>()
         val open = ArrayList<OpenElement>()
         var skipName: String? = null
         var skipDepth = 0
-        var tableNoticeWritten = false
+        var containsTables = false
 
         fun addImage(token: HtmlToken.Start) {
             val url = token.attributes["src"]?.let(::safeWebUrl) ?: return
@@ -280,16 +285,13 @@ object PublicAnnouncementParser {
                     when {
                         // Deeper elements keep their text but lose their tags, so renderers never see
                         // more than MAX_NESTING levels (a hostile page could otherwise overflow them).
-                        // Two levels stay free for the markup this sanitizer adds itself: TABLE_NOTICE
-                        // and a heading's <p><strong>.
+                        // Two levels stay free for the markup this sanitizer adds itself: a heading's
+                        // <p><strong>.
                         open.size >= MAX_NESTING - 2 && name !in removedWithContent && name != "img" &&
                             name != "br" && name != "hr" && name !in VOID_HTML_TAGS && !token.selfClosing ->
                             open.add(OpenElement(name, emitted = false, headingStart = -1))
                         name in removedWithContent -> {
-                            if (name == "table" && !tableNoticeWritten) {
-                                output.append(TABLE_NOTICE)
-                                tableNoticeWritten = true
-                            }
+                            if (name == "table") containsTables = true
                             // `/>` does not close a non-void element, so its content is still removed.
                             if (name !in VOID_HTML_TAGS) {
                                 skipName = name
@@ -329,7 +331,7 @@ object PublicAnnouncementParser {
             }
         }
         while (open.isNotEmpty()) close(open.removeAt(open.lastIndex))
-        return output.toString().trim() to images.distinctBy(SchoolAnnouncementImage::url)
+        return SanitizedArticle(output.toString().trim(), images.distinctBy(SchoolAnnouncementImage::url), containsTables)
     }
 
     private fun parseAttachments(source: String?, newsId: String): List<SchoolAnnouncementAttachment> {
