@@ -66,8 +66,6 @@ Android 介面使用 dp 表示間距與形狀、sp 表示字級。常見內距�
 
 一般容器使用對應的 shape role。圖表、課表格與 Glance Widget 可依資料幾何使用較小圓角。按鈕和切換元件沿用 Material 3 `shapes()`／`toggleableShapes()`；互動範圍至少 48dp。首頁編輯、個人、完成與新增元件入口使用固定形狀，按壓時保留 ripple 與既有觸覺回饋，不做形狀變換。
 
-數字 badge 共用 `ui/UiUtils.kt` 的 `CountBadge`，直徑取內容所需寬高的較大值；多位數與放大字體仍維持正圓。使用 error／onError 語意色，保留各入口計數與無障礙描述。
-
 圖示使用 [SymbolWrapper.kt](android/app/src/main/java/com/clhs/score/ui/SymbolWrapper.kt) 的 Rounded Material Symbols subset。新增 ligature 時更新並執行 [generate_material_symbol_subset.py](android/scripts/generate_material_symbol_subset.py)，同步產生 outline／filled 字型。首頁 Logo 使用由 `docs/public/logo.svg` 原始 path 與 viewBox 轉換的 `clhs_pocket_logo.xml`，按實際尺寸繪製；不要放大帶有安全區留白的 launcher foreground。
 
 ## 頁面骨架與版面
@@ -144,7 +142,7 @@ YouBike 由使用者新增並選站。2×1 顯示總量與一般／電輔數量�
 
 ### 校園、公告與行事曆
 
-`ui/HubScreens.kt` 以紫色主卡顯示置頂公告，並以兩欄圖示卡片提供「公告」、「行事曆」、「出缺勤」與「獎懲」入口。公告卡右上角的未讀 badge 與副標共用同一計數，歸零時隱藏 badge。點選置頂公告開啟該則消息，閱讀狀態與首頁共用。缺曠與獎懲資料於進入對應子頁後按需載入。欣河智慧校園平台使用獨立入口。
+`ui/HubScreens.kt` 以紫色主卡顯示置頂公告，並以兩欄圖示卡片提供「公告」、「行事曆」、「出缺勤」與「獎懲」入口。有未讀公告時，公告圖示右上角顯示紅點，副標顯示未讀則數。全部已讀時，紅點消失，副標顯示「學校最新消息」。點選置頂公告開啟該則消息，閱讀狀態與首頁共用。缺曠與獎懲資料於進入對應子頁後按需載入。欣河智慧校園平台使用獨立入口。
 
 `ui/CampusSearchScreen.kt` 使用緊湊工具列與 M3 填色搜尋列；空白狀態提供快速搜尋，分類 Chips 在同頁切換全部、行事曆與學校公告。行事曆使用日期方塊；公告以日期和單位為次要資訊。相符文字加粗，列表重排沿用 `PocketMotion`。各來源分別載入與重試；公告沿用自動分頁及未讀／置頂排序。
 

@@ -18,10 +18,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -33,7 +35,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -96,12 +97,13 @@ fun CampusScreen(
                     onClick = if (pinned == null) onOpenAnnouncements else { { onOpenAnnouncement(pinned) } },
                 )
                 CampusTileRow {
+                    val hasUnread = unreadAnnouncementCount > 0
                     CampusTile(
                         title = "公告",
-                        description = if (unreadAnnouncementCount > 0) "$unreadText 則未讀" else "學校最新消息",
+                        description = if (hasUnread) "$unreadText 則未讀" else "學校最新消息",
                         icon = "campaign",
                         onClick = onOpenAnnouncements,
-                        badge = unreadText.takeIf { unreadAnnouncementCount > 0 },
+                        hasUnread = hasUnread,
                     )
                     CampusTile(
                         title = "行事曆",
@@ -225,7 +227,7 @@ private fun androidx.compose.foundation.layout.RowScope.CampusTile(
     description: String,
     icon: String,
     onClick: () -> Unit,
-    badge: String? = null,
+    hasUnread: Boolean = false,
 ) {
     Card(
         onClick = onClick,
@@ -237,15 +239,10 @@ private fun androidx.compose.foundation.layout.RowScope.CampusTile(
             modifier = Modifier.fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(Modifier.fillMaxWidth()) {
+            Box {
                 PocketOptionIcon(icon)
-                if (badge != null) {
-                    Box(
-                        modifier = Modifier.matchParentSize().clearAndSetSemantics {},
-                        contentAlignment = Alignment.CenterEnd,
-                    ) {
-                        CountBadge(badge)
-                    }
+                if (hasUnread) {
+                    Badge(modifier = Modifier.align(Alignment.TopEnd).size(8.dp))
                 }
             }
             Spacer(modifier = Modifier.weight(1f))
