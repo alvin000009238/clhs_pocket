@@ -196,9 +196,13 @@ struct AnnouncementListView: View {
         let external = AnnouncementFeed.externalLink(
             id: item.id, loaded: feed.items, saved: PocketData.shared.current.savedAnnouncements
         )
-        guard let url = external ?? AnnouncementFeed.browserURL(id: item.id, externalUrl: nil) else { return }
         browserTick += 1
-        openURL(url)
+        if let external {
+            // As on Android, opening a link announcement counts as reading it; the school-page fallback does not.
+            openURL(external) { accepted in if accepted { model.markAnnouncementRead(item.id) } }
+        } else if let url = AnnouncementFeed.browserURL(id: item.id, externalUrl: nil) {
+            openURL(url)
+        }
     }
 
     private func toggleBookmark(_ item: PocketAnnouncement) {
