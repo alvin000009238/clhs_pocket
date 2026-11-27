@@ -72,6 +72,8 @@ ICONS = (
     "bookmark",
     "bookmark_add",
     "bookmark_added",
+    "share",
+    "description",
     "battery_saver",
     "check_circle",
     "download",

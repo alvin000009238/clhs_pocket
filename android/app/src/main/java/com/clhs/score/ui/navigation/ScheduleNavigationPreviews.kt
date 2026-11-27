@@ -21,7 +21,7 @@ import java.time.LocalDate
 @Composable
 private fun ScheduleRootNavigationPreview() = ScheduleNavigationPreview(covered = false)
 
-@Preview(name = "Schedule beneath personal", widthDp = 390, heightDp = 844, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "Schedule beneath settings", widthDp = 390, heightDp = 844, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun ScheduleCoveredNavigationPreview() = ScheduleNavigationPreview(covered = true)
 
@@ -34,7 +34,7 @@ private fun ScheduleNavigationPreview(covered: Boolean) {
             topLevelRoute = mutableStateOf<NavKey>(ScheduleRoute),
             backStacks = TopLevelDestination.entries.associate { destination ->
                 (destination.route as NavKey) to NavBackStack<NavKey>(destination.route).apply {
-                    if (covered && destination == TopLevelDestination.Schedule) add(PersonalRoute)
+                    if (covered && destination == TopLevelDestination.Schedule) add(GeneralSettingsRoute)
                 }
             },
         )

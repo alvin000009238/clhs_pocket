@@ -5,21 +5,22 @@ package com.clhs.score.ui
 import com.clhs.score.ui.navigation.navigationContentPadding
 
 import com.clhs.score.ui.theme.PocketVisual
-import com.clhs.score.ui.theme.pocketMeshBackground
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -31,14 +32,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.clhs.score.domain.overview.OverviewItem
-import com.clhs.score.domain.overview.OverviewItemKind
+import com.clhs.score.data.FakeData
+import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.domain.overview.OverviewState
 import com.clhs.score.data.announcementBadgeText
 
@@ -51,7 +52,10 @@ fun CampusScreen(
     onOpenPersonal: () -> Unit,
     showUpdateBadge: Boolean = false,
     onOpenAnnouncements: () -> Unit,
+    onOpenAnnouncement: (SchoolAnnouncement) -> Unit,
     onOpenCalendar: () -> Unit,
+    onOpenAttendance: () -> Unit,
+    onOpenMerit: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSchoolWebsite: (() -> Unit)?,
 ) {
@@ -83,25 +87,43 @@ fun CampusScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                val announcement = state.items.firstOrNull { it.kind == OverviewItemKind.Announcement }
-                val calendarEvent = state.items.firstOrNull { it.kind == OverviewItemKind.CalendarEvent }
-                AnnouncementHeroCard(
-                    announcement = announcement,
-                    isLoading = state.isInitialLoading,
-                    unreadAnnouncementCount = unreadAnnouncementCount,
-                    onClick = onOpenAnnouncements,
+                val unreadText = announcementBadgeText(unreadAnnouncementCount)
+                val pinned = state.announcements.firstOrNull(SchoolAnnouncement::isPinned)
+                PinnedAnnouncementCard(
+                    announcement = pinned,
+                    isLoading = state.announcementsLoading,
+                    isFailed = state.announcementsFailed,
+                    onClick = if (pinned == null) onOpenAnnouncements else { { onOpenAnnouncement(pinned) } },
                 )
-                CampusModuleCard(
-                    title = "行事曆",
-                    description = when {
-                        calendarEvent != null -> "${calendarEvent.label} · ${calendarEvent.title}"
-                        state.isInitialLoading -> "正在取得最近行程"
-                        else -> "近期沒有校園行程"
-                    },
-                    icon = "calendar_today",
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    onClick = onOpenCalendar,
-                )
+                CampusTileRow {
+                    CampusTile(
+                        title = "公告",
+                        description = if (unreadAnnouncementCount > 0) "$unreadText 則未讀" else "學校最新消息",
+                        icon = "campaign",
+                        onClick = onOpenAnnouncements,
+                        badge = unreadText.takeIf { unreadAnnouncementCount > 0 },
+                    )
+                    CampusTile(
+                        title = "行事曆",
+                        description = "${state.now.year} 年 ${state.now.monthValue} 月",
+                        icon = "calendar_today",
+                        onClick = onOpenCalendar,
+                    )
+                }
+                CampusTileRow {
+                    CampusTile(
+                        title = "出缺勤",
+                        description = "請假與缺曠",
+                        icon = "person",
+                        onClick = onOpenAttendance,
+                    )
+                    CampusTile(
+                        title = "獎懲",
+                        description = "功過紀錄",
+                        icon = "thumbs_up_down",
+                        onClick = onOpenMerit,
+                    )
+                }
                 if (onOpenSchoolWebsite != null) {
                     CampusModuleCard(
                         title = "欣河智慧校園平台",
@@ -118,77 +140,122 @@ fun CampusScreen(
 }
 
 @Composable
-private fun AnnouncementHeroCard(
-    announcement: OverviewItem?,
+private fun PinnedAnnouncementCard(
+    announcement: SchoolAnnouncement?,
     isLoading: Boolean,
-    unreadAnnouncementCount: Int,
+    isFailed: Boolean,
     onClick: () -> Unit,
 ) {
     Card(
         onClick = onClick,
-        modifier = Modifier
-            .widthIn(max = 720.dp)
-            .fillMaxWidth()
-            .heightIn(min = 176.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 176.dp),
         shape = PocketVisual.heroShape,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
         ),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().pocketMeshBackground(MaterialTheme.colorScheme.secondaryContainer).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
-                    modifier = Modifier.size(52.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+            if (announcement != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        OutlinedRoundedSymbol("campaign", size = 28.dp, contentDescription = null)
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        contentColor = MaterialTheme.colorScheme.onTertiary,
+                    ) {
+                        Text(
+                            "置頂公告",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    if (announcement.date.isNotBlank()) {
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(announcement.date, style = MaterialTheme.typography.labelLarge)
                     }
                 }
-                Spacer(modifier = Modifier.weight(1f))
-                if (unreadAnnouncementCount > 0) {
-                    CountBadge(announcementBadgeText(unreadAnnouncementCount), Modifier.semantics {
-                        contentDescription = "${announcementBadgeText(unreadAnnouncementCount)} 則未讀公告"
-                    })
-                    Spacer(modifier = Modifier.size(12.dp))
-                }
-                OutlinedRoundedSymbol("arrow_forward", size = 24.dp, contentDescription = null)
             }
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = when {
+                    announcement != null -> announcement.title
+                    isLoading -> "正在取得置頂公告"
+                    isFailed -> "公告暫時無法更新"
+                    else -> "目前沒有置頂公告"
+                },
+                style = MaterialTheme.typography.headlineSmallEmphasized.copy(lineBreak = LineBreak.Heading),
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "學校公告",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = when {
-                        announcement != null -> announcement.title
-                        isLoading -> "正在取得最新與置頂消息"
-                        else -> "查看學校最新與置頂消息"
-                    },
-                    style = MaterialTheme.typography.headlineSmallEmphasized,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 3,
+                    text = announcement
+                        ?.let { listOf(it.unit.ifBlank { it.issuer }, it.category).filter(String::isNotBlank).joinToString(" · ") }
+                        ?.ifBlank { null }
+                        ?: "查看全部學校公告",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                announcement?.supportingText?.takeIf(String::isNotBlank)?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                OutlinedRoundedSymbol("arrow_forward", size = 24.dp, contentDescription = null)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CampusTileRow(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        content = content,
+    )
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.CampusTile(
+    title: String,
+    description: String,
+    icon: String,
+    onClick: () -> Unit,
+    badge: String? = null,
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 128.dp),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(Modifier.fillMaxWidth()) {
+                PocketOptionIcon(icon)
+                if (badge != null) {
+                    Box(
+                        modifier = Modifier.matchParentSize().clearAndSetSemantics {},
+                        contentAlignment = Alignment.CenterEnd,
+                    ) {
+                        CountBadge(badge)
+                    }
                 }
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleLargeEmphasized)
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -199,7 +266,7 @@ private fun CampusModuleCard(
     title: String,
     description: String,
     icon: String,
-    containerColor: androidx.compose.ui.graphics.Color,
+    containerColor: Color,
     onClick: () -> Unit,
 ) {
     Card(
@@ -241,16 +308,21 @@ private fun CampusModuleCard(
 }
 
 @Preview(name = "校園 · Compact", widthDp = 390, heightDp = 844)
+@Preview(name = "校園 · Dark", widthDp = 390, heightDp = 844, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
 @Preview(name = "校園 · Expanded", widthDp = 1100, heightDp = 900)
 @Preview(name = "校園 · Large Text", widthDp = 320, heightDp = 1000, fontScale = 1.5f)
 @Composable
 private fun CampusScreenPreview() {
     com.clhs.score.ui.theme.ScoreTheme {
         CampusScreen(
-            state = OverviewState(isInitialLoading = false),
+            state = OverviewState(isInitialLoading = false, announcements = FakeData.announcementPage.announcements),
+            unreadAnnouncementCount = 3,
             onOpenPersonal = {},
             onOpenAnnouncements = {},
+            onOpenAnnouncement = {},
             onOpenCalendar = {},
+            onOpenAttendance = {},
+            onOpenMerit = {},
             onOpenSearch = {},
             onOpenSchoolWebsite = {},
         )
