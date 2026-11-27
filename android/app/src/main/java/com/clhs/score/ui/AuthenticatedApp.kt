@@ -39,6 +39,7 @@ import com.clhs.score.analytics.AnalyticsLogger
 import com.clhs.score.analytics.AnalyticsParameterSanitizer
 import com.clhs.score.analytics.AnalyticsParams
 import com.clhs.score.analytics.AnalyticsValues
+import com.clhs.score.data.marksReadOnDisplay
 import com.clhs.score.data.AppSettings
 import com.clhs.score.data.ExamSelection
 import com.clhs.score.data.FakeScheduleRepository
