@@ -366,7 +366,7 @@ struct AnnouncementListView: View {
         ContentUnavailableView {
             Label(emptyTitle(feed), systemImage: emptySymbol(feed))
         } description: {
-            Text(emptyDetail(feed))
+            if let detail = emptyDetail(feed) { Text(detail) }
         } actions: {
             switch filter {
             case .unread, .bookmarked:
@@ -474,11 +474,10 @@ struct AnnouncementListView: View {
         }
     }
 
-    private func emptyDetail(_ feed: AnnouncementFeed) -> String {
+    private func emptyDetail(_ feed: AnnouncementFeed) -> String? {
         switch filter {
-        case .bookmarked: return query.isEmpty ? "目前沒有收藏。可在公告詳情按書籤，稍後再回來查看。" : "試試其他關鍵字。"
-        case .unread: return query.isEmpty ? "" : "試試其他關鍵字。"
-        default: return feed.searchQuery.isEmpty && !feed.hasFilters ? "可以稍後重新整理，或前往學校網站查看。" : "請嘗試其他關鍵字或篩選條件。"
+        case .bookmarked, .unread: return query.isEmpty ? nil : "試試其他關鍵字。"
+        default: return feed.searchQuery.isEmpty && !feed.hasFilters ? nil : "請嘗試其他關鍵字或篩選條件。"
         }
     }
 }
@@ -689,8 +688,6 @@ struct AnnouncementFilterSheet: View {
                         ForEach(options(feed.filterOptions.categories.map { ($0.id, $0.name) }), id: \.0) { Text($0.1).tag($0.0) }
                     }
                     .accessibilityIdentifier("filter-category")
-                } footer: {
-                    Text("依學校網站的單位與類別篩選，可與搜尋同時使用。")
                 }
                 Section {
                     Button("重設") { unitId = all; categoryId = all }
@@ -961,8 +958,6 @@ struct AnnouncementReminderView: View {
                     .foregroundStyle(PocketColor.warning)
                 }
                 LabeledContent("最近檢查時間", value: settings.announcementLastCheck.map { fetchedTimeFormat.string(from: $0) } ?? "尚未檢查")
-            } footer: {
-                Text("有新公告時在這台裝置通知你。iOS 由系統決定背景執行的時機，實際檢查可能較設定晚。")
             }
             Section {
                 Picker("檢查頻率", selection: $settings.announcementIntervalMinutes) {
