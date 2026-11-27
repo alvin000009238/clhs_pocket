@@ -197,7 +197,7 @@ struct AnnouncementListView: View {
 
     private func openInBrowser(_ item: PocketAnnouncement, feed: AnnouncementFeed) {
         let external = AnnouncementFeed.externalLink(
-            id: item.id, loaded: feed.items, saved: PocketData.shared.current.savedAnnouncements
+            id: item.id, loaded: feed.items, saved: model.usesLiveData ? PocketLive.shared.savedAnnouncements : []
         )
         browserTick += 1
         if let external {
