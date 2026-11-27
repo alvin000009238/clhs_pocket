@@ -17,7 +17,6 @@ import com.clhs.score.data.displayChanges
 import com.clhs.score.data.displayItems
 import com.clhs.score.data.SchoolAnnouncementPage
 import com.clhs.score.data.SchoolAnnouncement
-import com.clhs.score.data.parseAnnouncementDate
 import com.clhs.score.data.SchoolCalendarEvent
 import com.clhs.score.data.SchoolCalendarSnapshot
 import com.clhs.score.data.parseYearTermOrNull
@@ -299,7 +298,7 @@ class OverviewCoordinator(
         reminderState.map {
             OverviewUpdate.Grades(
                 it.takeIf { state -> state.studentNo == studentNo &&
-                    (state.latestChangeSet == null || state.latestChangeSet.studentNo == studentNo) }
+                    (state.latestChangeSet?.let { changes -> changes.studentNo == studentNo } != false) }
                     ?: GradeReminderState(),
             )
         }
@@ -622,32 +621,6 @@ internal fun gradeOverviewItems(state: GradeReminderState?): List<OverviewItem> 
         ),
     )
 }
-
-internal fun announcementOverviewItems(page: SchoolAnnouncementPage): List<OverviewItem> =
-    page.announcements
-        .asSequence()
-        .filter { it.isPinned }
-        .map(::announcementOverviewItem)
-        .toList()
-
-internal fun announcementOverviewItem(announcement: SchoolAnnouncement): OverviewItem =
-    OverviewItem(
-        id = "announcement-${announcement.id}",
-        priority = OverviewPriority.P2,
-        kind = OverviewItemKind.Announcement,
-        title = announcement.title,
-        supportingText = listOf(announcement.unit, announcement.date).filter(String::isNotBlank).joinToString(" · "),
-        label = if (announcement.isPinned) "置頂公告" else "公告",
-        displayDate = parseAnnouncementDate(announcement.date),
-        icon = "campaign",
-        destination = OverviewDestination.Announcement(
-            announcement.id,
-            announcement.category,
-            announcement.externalUrl,
-            isExternal = announcement.contentType.equals("url", ignoreCase = true),
-        ),
-        order = 60,
-    )
 
 private enum class OverviewSource { Schedule, Calendar, Announcements, Grades }
 

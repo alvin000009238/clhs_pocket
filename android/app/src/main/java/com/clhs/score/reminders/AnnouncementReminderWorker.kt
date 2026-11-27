@@ -15,6 +15,7 @@ import androidx.work.WorkerParameters
 import com.clhs.score.BuildConfig
 import com.clhs.score.MainActivity
 import com.clhs.score.R
+import com.clhs.score.data.contains
 import com.clhs.score.data.ANNOUNCEMENT_REMINDER_INTERVALS_MINUTES
 import com.clhs.score.data.AnnouncementReminderRepository
 import com.clhs.score.data.DemoAnnouncementUnitUnavailableException
