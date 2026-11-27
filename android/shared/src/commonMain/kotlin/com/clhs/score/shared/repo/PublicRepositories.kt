@@ -174,7 +174,7 @@ class AnnouncementsRepository(
         val exists = current.any { it.id == announcement.id }
         val next = if (exists) current.filterNot { it.id == announcement.id } else listOf(announcement) + current
         val encoded = storeJson.encodeToString(
-            next.take(MAX_BOOKMARKS).map { Bookmark(it.id, it.title, it.date, it.category, it.unit, it.issuer, it.contentType, it.externalUrl) },
+            next.map { Bookmark(it.id, it.title, it.date, it.category, it.unit, it.issuer, it.contentType, it.externalUrl) },
         )
         files.write(BOOKMARKS, encoded, now()).orThrow("Bookmark write")
         !exists
@@ -192,7 +192,6 @@ class AnnouncementsRepository(
         private const val OPTIONS_CACHE = "${FileStore.PUBLIC}/school-announcement-units.html"
         const val READ_STATE = "${FileStore.SETTINGS}/announcement-read.json"
         const val BOOKMARKS = "${FileStore.SETTINGS}/announcement-bookmarks.json"
-        private const val MAX_BOOKMARKS = 500
     }
 }
 

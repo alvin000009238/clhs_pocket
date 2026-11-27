@@ -16,7 +16,7 @@ class RootSceneStrategyTest {
 
     @Test fun rootsShareHomeSceneIdentityAndPreserveBackEntries() {
         val home = entry(OverviewRoute)
-        val child = entry(PersonalRoute, root = false)
+        val child = entry(GeneralSettingsRoute, root = false)
         val schedule = entry(ScheduleRoute)
         val first = requireNotNull(scene(listOf(home)))
         val other = requireNotNull(scene(listOf(home, child, schedule)))
@@ -27,7 +27,7 @@ class RootSceneStrategyTest {
 
     @Test fun childRoutesAndOnboardingKeepDefaultSceneStrategy() {
         val home = entry(OverviewRoute)
-        assertNull(scene(listOf(home, entry(PersonalRoute, root = false))))
+        assertNull(scene(listOf(home, entry(GeneralSettingsRoute, root = false))))
         assertNull(scene(listOf(entry(WelcomeRoute, root = false))))
         assertNull(scene(listOf(entry(ScheduleRoute))))
     }

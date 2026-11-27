@@ -67,8 +67,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.clhs.score.BuildConfig
 import com.clhs.score.data.ALL_UNITS_ID
 import com.clhs.score.data.ANNOUNCEMENT_REMINDER_INTERVALS_MINUTES
+import com.clhs.score.data.AnnouncementReminderState
 import com.clhs.score.data.AnnouncementUnit
 import com.clhs.score.notifications.canPostNotifications
 import com.clhs.score.notifications.NotificationChannels
@@ -153,8 +155,13 @@ fun AnnouncementReminderSettingsScreen(
     val notificationBlocked = reminder.enabled && !notificationsAvailable
     val units = rememberReminderUnits(uiState)
     val unitSummary = announcementUnitSummary(units, reminder.selectedUnitIds)
+    val hasUnsupportedDemoUnit = BuildConfig.USE_FAKE_DATA &&
+        !uiState.isLoadingUnits && !uiState.unitLoadFailed &&
+        reminder.selectedUnitIds.any { id -> id != ALL_UNITS_ID && uiState.units.none { it.id == id } }
     val statusSummary = if (!uiState.isStateAvailable) {
         if (uiState.stateLoadFailed) "無法讀取設定，正在重試" else "正在讀取設定"
+    } else if (hasUnsupportedDemoUnit) {
+        "Demo 不支援已選來源，請重新選擇接收單位"
     } else if (notificationBlocked) {
         "通知已關閉，背景檢查暫停"
     } else buildString {
@@ -720,5 +727,24 @@ private fun ReminderFloatingPreview() {
     com.clhs.score.ui.theme.ScoreTheme {
         AnnouncementReminderSettingsScreen(AnnouncementReminderUiState(isStateAvailable = true, isLoadingUnits = false),
             onBack = {}, onSetEnabled = {}, onSetIntervalMinutes = {}, onOpenUnits = {}, onCheckResultConsumed = {})
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Demo unsupported reminder source", widthDp = 390, heightDp = 844)
+@Composable
+private fun DemoUnsupportedReminderSourcePreview() {
+    com.clhs.score.ui.theme.ScoreTheme {
+        AnnouncementReminderSettingsScreen(
+            AnnouncementReminderUiState(
+                isStateAvailable = true,
+                isLoadingUnits = false,
+                reminder = AnnouncementReminderState(enabled = true, selectedUnitIds = setOf("999999")),
+            ),
+            onBack = {},
+            onSetEnabled = {},
+            onSetIntervalMinutes = {},
+            onOpenUnits = {},
+            onCheckResultConsumed = {},
+        )
     }
 }
