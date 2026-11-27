@@ -128,7 +128,7 @@ final class PocketShellUITests: XCTestCase {
         let pickedExam = app.buttons["exam-picker"].label
 
         tab("校園").tap()
-        XCTAssertTrue(app.staticTexts["近期行事"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["campus-pinned"].waitForExistence(timeout: 5))
         capture("14-campus")
         app.swipeUp()
         capture("15-campus-lower")
@@ -143,14 +143,14 @@ final class PocketShellUITests: XCTestCase {
         tab("校園").tap()
         XCTAssertTrue(app.navigationBars["公告"].waitForExistence(timeout: 5))
         app.navigationBars["公告"].buttons.firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["近期行事"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["campus-pinned"].waitForExistence(timeout: 5))
         app.buttons["campus-行事曆"].tap()
         XCTAssertTrue(app.navigationBars["行事曆"].waitForExistence(timeout: 5))
         capture("17-campus-calendar")
 
         // Reselecting the active tab pops its stack back to the root.
         tab("校園").tap()
-        XCTAssertTrue(app.staticTexts["近期行事"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["campus-pinned"].waitForExistence(timeout: 5))
         app.buttons["personal-button"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["示範帳號 DEMO-000"].waitForExistence(timeout: 5))
         capture("18-personal")
@@ -642,9 +642,35 @@ final class PocketShellUITests: XCTestCase {
         launch(onboarded: true, session: "demo")
         tab("校園").tap()
         XCTAssertTrue(app.buttons["campus-公告"].waitForExistence(timeout: 10))
+
+        // The hub's hero opens the pinned announcement, whose school page has a table the app leaves out.
+        let pinned = app.buttons["campus-pinned"]
+        XCTAssertTrue(pinned.waitForExistence(timeout: 5))
+        XCTAssertTrue(pinned.label.contains("置頂公告"), pinned.label)
+        pinned.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["announcement-table-notice"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["announcement-share"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["announcement-original"].exists)
+        capture("49c-announcement-pinned-detail")
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["campus-公告"].waitForExistence(timeout: 5))
+
         app.buttons["campus-公告"].tap()
         XCTAssertTrue(app.segmentedControls["announcement-filter"].waitForExistence(timeout: 5))
         capture("50-announcements")
+
+        // A trailing swipe bookmarks a row without opening it.
+        let swiped = app.buttons["announcement-45049"]
+        XCTAssertTrue(swiped.waitForExistence(timeout: 5))
+        reveal(swiped)
+        swiped.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: swiped.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5)))
+        let swipeBookmark = app.buttons["收藏公告"].firstMatch
+        XCTAssertTrue(swipeBookmark.waitForExistence(timeout: 5))
+        capture("50b-announcements-swipe-bookmark")
+        swipeBookmark.tap()
+        XCTAssertTrue(waitUntil { swiped.label.contains("已收藏") }, swiped.label)
+        XCTAssertFalse(app.buttons["announcement-bookmark"].exists, "the swipe must not open the announcement")
 
         // Opening an announcement marks it read; bookmarking it fills the 收藏 filter.
         let unreadBefore = app.segmentedControls["announcement-filter"].buttons.element(boundBy: 1).label
