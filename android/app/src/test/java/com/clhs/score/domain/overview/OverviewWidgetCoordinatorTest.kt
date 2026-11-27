@@ -64,6 +64,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.io.IOException
+import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -75,6 +76,34 @@ class OverviewWidgetCoordinatorTest {
     private val publicRequests = AtomicInteger()
     private val scheduleReads = AtomicInteger()
     private val reminderSubscriptions = AtomicInteger()
+
+    @Test fun returningToCampusReadsTheLatestPinnedAnnouncementFromTheListCache() = runBlocking<Unit> {
+        val directory = temporaryFolder.newFolder()
+        val refreshes = MutableSharedFlow<Unit>()
+        MockWebServer().use { server ->
+            val listRepository = NetworkSchoolAnnouncementsRepository(
+                directory, baseUrl = server.url("/"), nowProvider = { instant },
+            )
+            val observation = record(
+                coordinator(directory = directory), flowOf(emptyList()),
+                visible = flowOf(false), announcementRefreshes = refreshes,
+            )
+            try {
+                observation.await { it.announcements.firstOrNull { item -> item.isPinned }?.id == "public" }
+                observation.await { it.calendarEvents.isNotEmpty() }
+                server.enqueue(MockResponse().setBody(
+                    """[{"pageNum":0,"totalPages":1},{"newsId":"new","title":"新置頂公告","top":"1","time":"2026-10-02"}]""",
+                ))
+                listRepository.loadPage(0)
+                withTimeout(10_000) { refreshes.subscriptionCount.first { it > 0 } }
+                refreshes.emit(Unit)
+
+                val updated = observation.await { it.announcements.any { item -> item.id == "new" } }
+                assertEquals("new", updated.announcements.first { it.isPinned }.id)
+                assertEquals(2, publicRequests.get())
+            } finally { observation.job.cancelAndJoin() }
+        }
+    }
 
     @Test fun returningHomeKeepsLoadedWeatherWhilePollingIsPaused() = runBlocking<Unit> {
         MockWebServer().use { server ->
@@ -211,8 +240,11 @@ class OverviewWidgetCoordinatorTest {
             val observation = record(coordinator(weatherRepository = weatherRepository(server)),
                 flowOf(listOf(OverviewWidgetInstance.create("weather", configuration))), refreshes = retry)
             try {
-                observation.await { !it.isInitialLoading && it.calendarEvents.isNotEmpty() && it.announcements.isNotEmpty() &&
-                    (it.weatherLocations[configuration.resourceKey()] as? OverviewWeatherState.Available)?.snapshot?.temperatureCelsius == 28 }
+                observation.await {
+                    it.calendarEvents.isNotEmpty() && it.announcements.isNotEmpty() &&
+                        (it.weatherLocations[configuration.resourceKey()] as? OverviewWeatherState.Available)
+                            ?.snapshot?.temperatureCelsius == 28
+                }
                 withTimeout(10_000) { retry.subscriptionCount.first { it > 0 } }
                 assertTrue(observation.state.value.manuallyRefreshingWeatherKeys.isEmpty())
                 val before = publicRequests.get()
@@ -313,8 +345,8 @@ class OverviewWidgetCoordinatorTest {
     )
 
     private fun coordinator(weatherRepository: WeatherRepository? = null, youBikeRepository: YouBikeRepository? = null,
-        configuration: Flow<WeatherConfiguration> = flowOf(WeatherConfiguration(WeatherSource.OPEN_METEO))): OverviewCoordinator {
-        val directory = temporaryFolder.newFolder()
+        configuration: Flow<WeatherConfiguration> = flowOf(WeatherConfiguration(WeatherSource.OPEN_METEO)),
+        directory: File = temporaryFolder.newFolder()): OverviewCoordinator {
         val publicClient = OkHttpClient.Builder().addInterceptor { chain ->
             publicRequests.incrementAndGet()
             Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
@@ -340,10 +372,14 @@ class OverviewWidgetCoordinatorTest {
     }
 
     private fun CoroutineScope.record(coordinator: OverviewCoordinator, widgets: Flow<List<OverviewWidgetInstance>>,
-        visible: Flow<Boolean> = flowOf(true), refreshes: Flow<Unit> = emptyFlow()): Observation {
+        visible: Flow<Boolean> = flowOf(true), refreshes: Flow<Unit> = emptyFlow(),
+        announcementRefreshes: Flow<Unit> = emptyFlow()): Observation {
         val state = MutableStateFlow(OverviewState())
         val job = launch(Dispatchers.Default) {
-            coordinator.observe(session = null, clockEnabled = visible, widgets = widgets, weatherRefreshes = refreshes).collect { state.value = it }
+            coordinator.observe(
+                session = null, clockEnabled = visible, widgets = widgets,
+                weatherRefreshes = refreshes, announcementRefreshes = announcementRefreshes,
+            ).collect { state.value = it }
         }
         return Observation(state, job)
     }

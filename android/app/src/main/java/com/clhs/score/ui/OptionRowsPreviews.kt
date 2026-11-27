@@ -13,7 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.clhs.score.data.AppSettings
+import com.clhs.score.data.FakeData
 import com.clhs.score.ui.theme.ScoreTheme
+import com.clhs.score.viewmodel.AuthState
 import com.clhs.score.viewmodel.SettingsUiState
 
 @Preview(name = "共用選項狀態 · Light", widthDp = 390, heightDp = 900)
@@ -48,15 +50,24 @@ private fun SharedOptionStatesPreview() {
     }
 }
 
-@Preview(name = "設定選項 · Light", widthDp = 390, heightDp = 1100)
+@Preview(name = "設定選項 · Light", widthDp = 390, heightDp = 1800)
 @Preview(name = "設定選項 · Dark", widthDp = 390, heightDp = 1100, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Preview(name = "設定選項 · Large text", widthDp = 360, heightDp = 1200, fontScale = 1.5f)
 @Composable
-private fun GeneralOptionsPreview() {
+private fun GeneralOptionsPreview() = GeneralSettingsContentPreview(signedIn = true)
+
+@Preview(name = "個人與設定 · 訪客", widthDp = 390, heightDp = 1800)
+@Composable
+private fun GuestSettingsPreview() = GeneralSettingsContentPreview(signedIn = false)
+
+@Composable
+private fun GeneralSettingsContentPreview(signedIn: Boolean) {
     ScoreTheme {
         GeneralSettingsScreen(
             settings = AppSettings(),
             uiState = SettingsUiState(),
+            authState = if (signedIn) AuthState.Authenticated(0L) else AuthState.Guest,
+            studentInfo = if (signedIn) FakeData.latestReport().studentInfo else null,
             onBack = {},
             onSetThemeMode = {},
             onSetStartOnSchedule = {},

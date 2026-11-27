@@ -34,7 +34,18 @@ final class PlatformSettings {
     var pauseStartMinute: Int { didSet { defaults.set(pauseStartMinute, forKey: Key.pauseStart) } }
     var pauseEndMinute: Int { didSet { defaults.set(pauseEndMinute, forKey: Key.pauseEnd) } }
     /// School units whose new announcements notify; `-1` means every unit, as on Android.
-    var announcementUnitIds: [String] { didSet { defaults.set(announcementUnitIds, forKey: Key.announcementUnits) } }
+    var announcementUnitIds: [String] {
+        didSet {
+            defaults.set(announcementUnitIds, forKey: Key.announcementUnits)
+            // The seen list belongs to the old units; the next check records a new one instead of
+            // announcing the other units' earlier posts as new. That check is due at once, as Android
+            // records the new baseline right away: posts published before it are not news later.
+            if announcementUnitIds != oldValue {
+                defaults.removeObject(forKey: PocketNotificationCenter.seenAnnouncementsKey)
+                announcementLastCheck = nil
+            }
+        }
+    }
     var announcementIntervalMinutes: Int { didSet { defaults.set(announcementIntervalMinutes, forKey: Key.announcementInterval) } }
     var announcementLastCheck: Date? { didSet { defaults.set(announcementLastCheck, forKey: Key.announcementLastCheck) } }
 

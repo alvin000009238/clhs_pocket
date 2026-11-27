@@ -125,7 +125,8 @@ object PocketGrades {
             .firstOrNull { cleanSubjectName(it.subject.subjectName) == subjectName } ?: return null
         val subject = item.subject
         val standard = item.standard
-        val hasScore = !subject.absent && !subject.cheating
+        // Neither a number nor a stored score means unpublished, which is no score of 0.
+        val hasScore = !subject.absent && !subject.cheating && subject.publishedScore != null
         val diff = (subject.diffValue * 10).roundToInt()
         val history = term.exams.mapNotNull { option ->
             source.report(term.value, option.value)?.subjects
@@ -160,7 +161,7 @@ object PocketGrades {
             distribution = standard?.let { scoreDistributions(subject.scoreValue, it) }.orEmpty()
                 .map { PocketDistributionBar(it.label, it.count, it.isMine && hasScore) },
             distributionSummary = item.distributionSummary.orEmpty(),
-            trend = history.filter { !it.second.absent && !it.second.cheating }
+            trend = history.filter { !it.second.absent && !it.second.cheating && it.second.publishedScore != null }
                 .map { (name, score) -> PocketTrendPoint(name, score.scoreValue, score.scoreDisplay) },
             classTrend = history
                 .map { (name, score) -> PocketTrendPoint(name, score.classAverageValue, score.classAverageDisplay) },
@@ -423,3 +424,5 @@ class PocketSimulator internal constructor(private val report: GradeReport) {
         )
     }
 }
+
+internal val SubjectScore.publishedScore: Double? get() = scoreDisplay.toDoubleOrNull() ?: score

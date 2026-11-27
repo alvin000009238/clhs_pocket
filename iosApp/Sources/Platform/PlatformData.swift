@@ -18,6 +18,8 @@ protocol PlatformDataProviding {
     func announcementHeadlines(at date: Date) -> [AnnouncementHeadline]?
     /// A grade-change alert when a check found differences. May fetch from the school.
     func gradeNotification(at date: Date, settings: PlatformNotificationSettings) async -> PlannedNotification?
+    /// Headlines of only the subscribed school units; nil when they are unknown.
+    func announcementHeadlines(unitIds: [String], at date: Date) async -> [AnnouncementHeadline]?
 }
 
 extension PlatformDataProviding {

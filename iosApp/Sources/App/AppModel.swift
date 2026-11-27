@@ -251,6 +251,17 @@ final class AppModel {
     }
     @ObservationIgnored private var syncingUnread = false
 
+    /// Marks an opened announcement read, also one not in the unread set yet (found by search before
+    /// the set was synced), so the next sync does not list it as unread again.
+    func markAnnouncementRead(_ id: String) {
+        if unreadAnnouncementIds.contains(id) {
+            unreadAnnouncementIds.remove(id)
+            return
+        }
+        guard usesLiveData, let live else { return }
+        Task { try? await live.backend.call { try await $0.markAnnouncementsRead(ids: [id], token: $1) } }
+    }
+
     var bookmarkedAnnouncementIds: Set<String> {
         didSet {
             defaults.set(Array(bookmarkedAnnouncementIds), forKey: Key.bookmarks)
@@ -273,8 +284,28 @@ final class AppModel {
         didSet {
             defaults.set(weatherSource, forKey: Key.weatherSource)
             // Nothing is fetched while the demo shows or while delete-all resets the preferences.
-            guard oldValue != weatherSource, !resettingPreferences, usesLiveData, let live else { return }
+            guard oldValue != weatherSource, !resettingPreferences else { return }
+            // The home weather widgets follow the chosen source; CWA falls back where it has no forecast.
+            // As on Android, they only move to CWA once a key is stored, so they keep showing a forecast.
+            if weatherSource == "cwa" {
+                let layout = dashboardLayout
+                Task {
+                    guard await hasCwaKey(), weatherSource == "cwa", dashboardLayout == layout else { return }
+                    applyWeatherSourceToWidgets()
+                }
+            } else {
+                applyWeatherSourceToWidgets()
+            }
+            guard usesLiveData, let live else { return }
             Task { await live.refreshPublic(weatherSource: sharedWeatherSource, force: true) }
+        }
+    }
+
+    private func applyWeatherSourceToWidgets() {
+        let dashboard = PocketDashboard.shared
+        dashboardLayout = dashboard.instances(layout: dashboardLayout).reduce(dashboardLayout) { layout, widget in
+            guard let weather = widget.config() as? OverviewWidgetConfigWeather else { return layout }
+            return dashboard.setWeather(layout: layout, id: widget.id, locationId: weather.location.id, source: sharedWeatherSource.name)
         }
     }
 
@@ -527,7 +558,9 @@ final class AppModel {
     /// Signs out like 登出 and waits for the account cleanup, so a failure reaches the caller too.
     func clearSession() async throws(PocketError) {
         let wasDemo = session == .demo
-        forgetScheduleChoice()
+        // Leaving the demo keeps the school account's timetable choice; the demo's own choice
+        // goes with the session change.
+        if !wasDemo { forgetScheduleChoice() }
         demoProfilePhoto = nil
         session = .guest
         paths = [:]
@@ -631,6 +664,7 @@ final class AppModel {
     func saveCwaKey(_ key: String) async throws(PocketError) -> CwaKeyValidation {
         guard let backend = transferBackend else { throw PocketError(kind: .storage, message: "無法存取設定儲存空間") }
         let result = try await backend.call { try await $0.saveCwaKey(rawKey: key, token: $1) }
+        if result == .valid, weatherSource == "cwa" { applyWeatherSourceToWidgets() }
         if result == .valid, let live { await live.refreshPublic(weatherSource: sharedWeatherSource, force: true) }
         return result
     }
@@ -657,7 +691,7 @@ final class AppModel {
             backgroundPauseEnabled: pauseEnabled, backgroundPauseStartMinute: Int32(pauseStart),
             backgroundPauseEndMinute: Int32(pauseEnd), overview: PocketDashboard.shared.instances(layout: dashboardLayout),
             overviewLegacyOrder: false, announcementReminderEnabled: notifyAnnouncements,
-            announcementIntervalMinutes: stored.announcementIntervalMinutes, announcementUnitIds: stored.announcementUnitIds,
+            announcementIntervalMinutes: Int32(platform.announcementIntervalMinutes), announcementUnitIds: Set(platform.announcementUnitIds),
             remindBeforeClass: notifyLessons
         )
         try await backend.call { try await $0.saveSettings(settings: next, token: $1) }
@@ -695,14 +729,17 @@ final class AppModel {
         case .dark: .dark
         default: .system
         }
-        dashboardLayout = PocketDashboard.shared.layout(instances: restored.overview)
+        // The source first: choosing it rewrites the current widgets, the backup's layout then replaces them.
         weatherSource = restored.weatherSource == .cwa ? "cwa" : "open-meteo"
+        dashboardLayout = PocketDashboard.shared.layout(instances: restored.overview)
         pauseStart = Int(restored.backgroundPauseStartMinute)
         pauseEnd = Int(restored.backgroundPauseEndMinute)
         pauseEnabled = restored.backgroundPauseEnabled
         startOnSchedule = restored.startOnSchedule
         developerEnabled = restored.developerEnabled
         notifyAnnouncements = restored.announcementReminderEnabled
+        platform.announcementUnitIds = restored.announcementUnitIds.sorted()
+        platform.announcementIntervalMinutes = Int(restored.announcementIntervalMinutes)
         notifyLessons = restored.remindBeforeClass
         if !restored.notificationsEnabled { notificationsEnabled = false }
         platformSettingsChanged()
@@ -719,6 +756,9 @@ final class AppModel {
                 try await live.deleteAllData()
             } else if let backend = transferBackend {
                 try await backend.deleteAllData()
+            } else {
+                // No storage could be opened, so nothing stored was removed.
+                throw PocketError(kind: .storage, message: "無法存取設定儲存空間")
             }
         } catch {
             accountError = Self.cleanupMessage(PocketError(error))

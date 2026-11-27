@@ -111,7 +111,8 @@ internal object DemoCampus {
             announcements = sharedAnnouncements(clock),
             now = now,
             isInitialLoading = false,
-            items = events.filter { it.endExclusive > now }.map {
+            // Like Android's overview, only events starting within the next 14 days are candidates.
+            items = events.filter { it.endExclusive > now && it.start < now.datePart().shiftDays(14).at(now.timePart()) }.map {
                 OverviewItem(
                     id = "event-${it.id}", priority = OverviewPriority.P2, kind = OverviewItemKind.CalendarEvent,
                     title = it.title, supportingText = "", label = "行事曆", icon = "event",
@@ -146,7 +147,8 @@ internal object DemoCampus {
         clock: PocketClock, config: OverviewWidgetConfig.ListItems,
         unreadIds: Set<String> = defaultUnreadIds, bookmarkedIds: Set<String> = emptySet(),
     ): List<PocketAnnouncement> {
-        val all = sharedAnnouncements(clock).associateBy { it.id }
+        // Bookmarks outside the loaded page are candidates too; the store keeps their summaries.
+        val all = (sharedAnnouncements(clock) + PocketData.current.savedAnnouncements).distinctBy { it.id }.associateBy { it.id }
         return overview(clock)
             .importantAnnouncementsFrom(config, unreadIds, all.values.filter { it.id in bookmarkedIds })
             .mapNotNull { all[(it.destination as? OverviewDestination.Announcement)?.id] }
