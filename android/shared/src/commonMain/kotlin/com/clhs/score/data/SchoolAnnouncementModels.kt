@@ -63,6 +63,8 @@ data class SchoolAnnouncementDetail(
     val officialUrl: String,
     val isExternal: Boolean = false,
     val externalUrl: String? = null,
+    val containsTables: Boolean = false,
+    val isSummaryOnly: Boolean = false,
 )
 
 const val ALL_UNITS_ID = "-1"

@@ -10,10 +10,28 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.IOException
+import java.time.Instant
 import java.time.LocalDate
 
 class AnnouncementReadRepositoryTest {
     private val cutoff = LocalDate.of(2026, 10, 1)
+
+    @Test fun demoDiscoveryUsesTaipeiTodayAndKeepsReadSamplesRead() = runTest {
+        val demoCutoff = LocalDate.of(2026, 11, 26)
+        val reading = AnnouncementReadRepository(MemoryReads(), AnnouncementReminderRepository(MemoryPreferences())) { demoCutoff }
+        val at = Instant.parse("2026-11-25T16:00:00Z")
+        val source = FakeSchoolAnnouncementsRepository(reading, now = { at })
+        val firstPage = source.loadCached()
+        val ids = firstPage.announcements.map { it.id }.toSet()
+        assertEquals(setOf("legacy", "unread") + ids, reading.unreadIds.first())
+        val pinned = firstPage.announcements.first { it.isPinned }
+        assertEquals(pinned.date, source.loadDetail(pinned.id).date)
+        reading.markRead(pinned.id)
+
+        val nextDay = FakeSchoolAnnouncementsRepository(reading, now = { at.plusSeconds(86_400) })
+        assertEquals(ids, nextDay.loadPage(0).announcements.map { it.id }.toSet())
+        assertEquals(setOf("legacy", "unread") + (ids - pinned.id), reading.unreadIds.first())
+    }
 
     @Test fun migrationRetriesWithoutMovingCutoffOrOverwritingRoom() = runTest {
         val store = MemoryPreferences()

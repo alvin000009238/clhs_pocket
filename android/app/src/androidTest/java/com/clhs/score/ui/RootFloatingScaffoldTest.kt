@@ -46,13 +46,13 @@ class RootFloatingScaffoldTest {
             }
         }
         val before = rule.onNodeWithContentDescription(brandDescription).fetchSemanticsNode().boundsInRoot
-        val actionsBefore = rule.onNodeWithContentDescription("個人").fetchSemanticsNode().boundsInRoot
+        val actionsBefore = rule.onNodeWithContentDescription("個人與設定").fetchSemanticsNode().boundsInRoot
         assertTrue(rule.onNodeWithTag("first").fetchSemanticsNode().boundsInRoot.top > before.bottom)
         rule.onNodeWithTag("scroll").performTouchInput { swipeUp() }
         rule.waitForIdle()
         val after = rule.onNodeWithContentDescription(brandDescription).fetchSemanticsNode().boundsInRoot
         assertTrue(after.top < before.top)
-        assertEquals(actionsBefore, rule.onNodeWithContentDescription("個人").fetchSemanticsNode().boundsInRoot)
+        assertEquals(actionsBefore, rule.onNodeWithContentDescription("個人與設定").fetchSemanticsNode().boundsInRoot)
         assertTrue(rule.onNodeWithTag("first").fetchSemanticsNode().boundsInRoot.top < before.top)
     }
 
@@ -104,6 +104,6 @@ class RootFloatingScaffoldTest {
             // A tall native viewport can show the whole timetable without scrolling.
             rule.onAllNodes(hasContentDescription("第 8 節", substring = true))[0].assertIsDisplayed()
         }
-        rule.onNodeWithContentDescription("個人").assertHasClickAction()
+        rule.onNodeWithContentDescription("個人與設定").assertHasClickAction()
     }
 }

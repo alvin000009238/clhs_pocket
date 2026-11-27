@@ -64,7 +64,7 @@ class SchoolAnnouncementsScreenTest {
                                 uiState = state,
                                 onBack = {}, onRefresh = viewModel::refresh, onLoadMore = viewModel::loadMore,
                                 onSearch = viewModel::search, onClearSearch = { viewModel.clearSearch() },
-                                onOpenAnnouncement = {}, onOpenOfficialWebsite = {},
+                                onOpenAnnouncement = {}, onOpenSavedAnnouncement = {}, onOpenOfficialWebsite = {},
                                 onOpenAnnouncementReminder = {}, onNoticeShown = viewModel::consumeNotice,
                             )
                         }
