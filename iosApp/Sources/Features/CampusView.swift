@@ -3,6 +3,24 @@ import SwiftUI
 
 struct CampusView: View {
     @Environment(AppModel.self) private var model
+    @State private var showingSchoolSystem = false
+
+    /// Android shows 欣河智慧校園平台 only with real data; here also only once a school session is in memory.
+    /// `-demoSchoolSystemCard YES` shows it with demo data in Debug builds, for tests and screenshots.
+    static func showsSchoolSystem(usesLiveData: Bool, hasSession: Bool, demoPreview: Bool) -> Bool {
+        (usesLiveData && hasSession) || demoPreview
+    }
+
+    private var showsSchoolSystem: Bool {
+        #if DEBUG
+        let demoPreview = UserDefaults.standard.bool(forKey: "demoSchoolSystemCard")
+        #else
+        let demoPreview = false
+        #endif
+        return Self.showsSchoolSystem(
+            usesLiveData: model.usesLiveData, hasSession: model.live?.session != nil, demoPreview: demoPreview
+        )
+    }
 
     var body: some View {
         let announcements = PocketCampusStore.shared.announcements(
@@ -36,6 +54,9 @@ struct CampusView: View {
                         CampusShortcut(title: "獎懲", detail: "功過紀錄", systemImage: "hand.thumbsup", route: .merits)
                     }
                 }
+                if showsSchoolSystem {
+                    SchoolSystemCard { showingSchoolSystem = true }
+                }
             }
             .frame(maxWidth: 720)
             .pocketPage()
@@ -48,6 +69,89 @@ struct CampusView: View {
                 }
                 .accessibilityIdentifier("campus-search")
             }
+        }
+        .fullScreenCover(isPresented: $showingSchoolSystem) {
+            SchoolSystemScreen()
+        }
+    }
+}
+
+/// Android's `CampusModuleCard` for 欣河智慧校園平台.
+private struct SchoolSystemCard: View {
+    let action: () -> Void
+    @ScaledMetric(relativeTo: .title3) private var iconSize: CGFloat = 48
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                PocketIconTile(systemImage: "books.vertical", size: iconSize)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("欣河智慧校園平台")
+                        .font(PocketFont.display(22, relativeTo: .title3))
+                        .foregroundStyle(PocketColor.onSurface)
+                    Text("前往校務系統")
+                        .font(.subheadline)
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                        .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "arrow.right")
+                    .font(.title3)
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                    .accessibilityHidden(true)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, minHeight: 104)
+            .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
+            .contentShape(.rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("campus-school-system")
+    }
+}
+
+/// The signed-in student's school system. The web view gets the in-memory session only while the
+/// app is unlocked, and closes when the session ends.
+private struct SchoolSystemScreen: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var page = SchoolWebPageState()
+    @State private var reloadToken = 0
+
+    var body: some View {
+        let session = model.live?.session
+        VStack(spacing: 0) {
+            SchoolWebHeader(page: page, onClose: { dismiss() }) { reloadToken += 1 }
+            ZStack(alignment: .top) {
+                if let session {
+                    if !model.lock.isLocked {
+                        SchoolSiteWebView(cookies: session.cookies, page: $page, reloadToken: reloadToken) {
+                            // The school sent the student back to its login page: let the
+                            // existing expiry path end the session, as Android does.
+                            dismiss()
+                            Task { await model.live?.refreshPrivate(force: true) }
+                        }
+                        .ignoresSafeArea(.container, edges: .bottom)
+                    }
+                    if page.loadFailed {
+                        SchoolWebLoadFailure { reloadToken += 1 }
+                    }
+                    if page.isLoading {
+                        ProgressView(value: page.progress)
+                            .progressViewStyle(.linear)
+                            .tint(PocketColor.primary)
+                    }
+                } else {
+                    ContentUnavailableView("無法開啟校務系統", systemImage: "lock.fill")
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(PocketColor.background.ignoresSafeArea())
+        .onChange(of: session == nil) { _, ended in
+            if ended { dismiss() }
         }
     }
 }
