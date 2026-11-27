@@ -24,26 +24,7 @@ enum AnnouncementMarkup {
     /// The body as SwiftUI text; nil when nothing readable is left.
     static func attributed(html: String) -> AttributedString? {
         var blocks: [(text: AttributedString, isItem: Bool)] = []
-        var inline = AttributedString()
-        func flush() {
-            if !inline.characters.allSatisfy(\.isWhitespace) { blocks.append((trimmed(inline), false)) }
-            inline = AttributedString()
-        }
-        for node in parse(html) {
-            switch node {
-            case let .paragraph(children):
-                flush()
-                let text = render(children)
-                if !text.characters.allSatisfy(\.isWhitespace) { blocks.append((trimmed(text), false)) }
-            case let .listItem(children):
-                flush()
-                let text = render(children)
-                if !text.characters.allSatisfy(\.isWhitespace) { blocks.append((AttributedString("• ") + trimmed(text), true)) }
-            default:
-                inline += render([node])
-            }
-        }
-        flush()
+        collect(parse(html), listDepth: 0, bullet: false, into: &blocks)
         guard !blocks.isEmpty else { return nil }
         var result = AttributedString()
         for (index, block) in blocks.enumerated() {
@@ -56,6 +37,42 @@ enum AnnouncementMarkup {
             result[run.range].underlineStyle = .single
         }
         return result
+    }
+
+    /// Paragraphs and list items as separate blocks; a nested item is indented one step per level and the
+    /// text after a nested list continues its item without a second bullet.
+    private static func collect(
+        _ nodes: [AnnouncementNode], listDepth: Int, bullet: Bool,
+        into blocks: inout [(text: AttributedString, isItem: Bool)]
+    ) {
+        var inline = AttributedString()
+        var bullet = bullet
+        func flush() {
+            defer { inline = AttributedString() }
+            guard !inline.characters.allSatisfy(\.isWhitespace) else { return }
+            var text = trimmed(inline)
+            if listDepth > 0 {
+                let indent = String(repeating: "\u{2003}", count: listDepth - 1)
+                text = AttributedString(indent + (bullet ? (listDepth == 1 ? "• " : "◦ ") : "\u{2003}")) + text
+            }
+            blocks.append((text, listDepth > 0))
+            bullet = false
+        }
+        for node in nodes {
+            switch node {
+            case let .paragraph(children):
+                flush()
+                let count = blocks.count
+                collect(children, listDepth: listDepth, bullet: bullet, into: &blocks)
+                if blocks.count > count { bullet = false }
+            case let .listItem(children):
+                flush()
+                collect(children, listDepth: listDepth + 1, bullet: true, into: &blocks)
+            default:
+                inline += render([node])
+            }
+        }
+        flush()
     }
 
     private static func render(_ nodes: [AnnouncementNode]) -> AttributedString {

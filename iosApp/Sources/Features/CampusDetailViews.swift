@@ -74,7 +74,8 @@ struct AnnouncementDetailView: View {
                 richBody = detail.flatMap { AnnouncementMarkup.attributed(html: $0.html) }
             }
             // Only a body the user can actually read counts as read; a failed live load keeps it unread.
-            .onChange(of: detail != nil, initial: true) { _, loaded in
+            // A bookmark summary without its body is not read yet either.
+            .onChange(of: detail != nil && detail?.isSummaryOnly != true, initial: true) { _, loaded in
                 if loaded { model.markAnnouncementRead(id) }
             }
     }
@@ -85,54 +86,78 @@ struct AnnouncementDetailView: View {
             if let detail {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 6) {
-                            if detail.isPinned {
-                                AnnouncementBadge(text: "置頂", systemImage: "pin.fill", style: .emphasized)
-                            }
-                            if !detail.category.isEmpty { AnnouncementBadge(text: detail.category) }
-                        }
                         Text(detail.title)
-                            .font(PocketFont.display(26, relativeTo: .title))
+                            .font(.title2.bold())
+                            .foregroundStyle(PocketColor.onSurface)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityAddTraits(.isHeader)
-                        Text([detail.dateText, detail.unit].filter { !$0.isEmpty }.joined(separator: " · "))
-                            .font(.subheadline)
-                            .monospacedDigit()
-                            .opacity(0.8)
+                            .accessibilityIdentifier("announcement-title")
+                        BadgeFlowLayout(spacing: 8) {
+                            if !detail.category.isEmpty { AnnouncementBadge(text: detail.category) }
+                            Text(AnnouncementFeed.detailMetadata(issuer: detail.issuer, unit: detail.unit, date: detail.dateText))
+                                .font(.footnote)
+                                .monospacedDigit()
+                                .foregroundStyle(PocketColor.onSurfaceVariant)
+                                .padding(.vertical, 3)
+                        }
                     }
-                    .foregroundStyle(PocketColor.onPrimaryContainer)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
-                    .background(PocketColor.primaryContainer, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
-                    VStack(alignment: .leading, spacing: 0) {
-                    if let rich = richBody {
-                        Text(rich)
-                            .lineSpacing(5)
+                    if let external = detail.externalUrl.flatMap(URL.init(string:)) {
+                        Button("開啟公告連結", systemImage: "arrow.up.right") { openURL(external) }
+                            .buttonStyle(.bordered)
                             .tint(PocketColor.primary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityIdentifier("announcement-body")
-                    } else {
-                        VStack(alignment: .leading, spacing: 14) {
-                            ForEach(Array(detail.paragraphs.enumerated()), id: \.offset) { _, paragraph in
-                                Text(paragraph)
-                                    .font(.body)
-                                    .lineSpacing(5)
-                                    .foregroundStyle(PocketColor.onSurface)
-                                    .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("announcement-external")
+                    }
+                    if detail.containsTables || richBody != nil || !detail.paragraphs.isEmpty {
+                        Divider()
+                    }
+                    if detail.containsTables, let original = URL(string: detail.officialUrl) {
+                        Button { openURL(original) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "info.circle").accessibilityHidden(true)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("查看完整表格").font(.subheadline.weight(.semibold))
+                                    Text("在學校網站開啟公告原文").font(.footnote)
+                                }
+                                Spacer(minLength: 8)
+                                Image(systemName: "arrow.up.right").font(.footnote.weight(.semibold)).accessibilityHidden(true)
+                            }
+                            .foregroundStyle(PocketColor.onSecondaryContainer)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(PocketColor.secondaryContainer, in: .rect(cornerRadius: 16, style: .continuous))
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("announcement-table-notice")
+                    }
+                    Group {
+                        if let rich = richBody {
+                            Text(rich)
+                                .accessibilityIdentifier("announcement-body")
+                        } else {
+                            VStack(alignment: .leading, spacing: 14) {
+                                ForEach(Array(detail.paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                                    Text(paragraph).foregroundStyle(PocketColor.onSurface)
+                                }
                             }
                         }
                     }
-                    }
+                    .font(.body)
+                    .lineSpacing(6)
+                    .tint(PocketColor.primary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
-                    .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
                     ForEach(Array(detail.images.enumerated()), id: \.offset) { _, image in
                         AnnouncementImageView(image: image)
                     }
                     if !detail.attachments.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            PocketSectionHeader(title: "附件") { EmptyView() }
+                            Text("附件")
+                                .font(.headline)
+                                .foregroundStyle(PocketColor.onSurface)
+                                .accessibilityAddTraits(.isHeader)
+                                .padding(.top, 4)
                             PocketCard(padding: 8) {
                                 VStack(spacing: 0) {
                                     ForEach(Array(detail.attachments.enumerated()), id: \.offset) { index, file in
@@ -179,7 +204,9 @@ struct AnnouncementDetailView: View {
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+                .frame(maxWidth: 720, alignment: .leading)
+                .frame(maxWidth: .infinity)
                 .pocketPage()
             } else if model.usesLiveData {
                 PocketPendingView(isLoading: loadingDetail, title: "無法載入公告內容", message: model.live?.lastError) {
@@ -203,22 +230,23 @@ struct AnnouncementDetailView: View {
             if let detail {
                 let saved = model.bookmarkedAnnouncementIds.contains(id)
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button(saved ? "取消收藏" : "收藏", systemImage: saved ? "bookmark.fill" : "bookmark") {
+                    Button(saved ? "取消收藏公告" : "收藏公告", systemImage: saved ? "bookmark.fill" : "bookmark") {
                         if saved { model.bookmarkedAnnouncementIds.remove(id) } else { model.bookmarkedAnnouncementIds.insert(id) }
                     }
                     .contentTransition(.symbolEffect(.replace))
                     .sensoryFeedback(.impact(weight: .light), trigger: saved)
                     .accessibilityIdentifier("announcement-bookmark")
-                    // Tables and other content the app cannot show are read on the school's page; a link
-                    // announcement opens the page it points to. Demo announcements have no page there.
-                    if model.usesLiveData, let original = URL(string: detail.externalUrl ?? detail.officialUrl) {
-                        Link(destination: original) { Label("查看原文", systemImage: "safari") }
-                            .accessibilityIdentifier("announcement-original")
-                    }
                     if let url = URL(string: detail.officialUrl) {
                         ShareLink(item: url, subject: Text(detail.title)) {
-                            Label("分享", systemImage: "square.and.arrow.up")
+                            Label("分享公告連結", systemImage: "square.and.arrow.up")
                         }
+                        .accessibilityIdentifier("announcement-share")
+                    }
+                    // Tables and other content the app cannot show are read on the school's page; a link
+                    // announcement opens the page it points to.
+                    if let original = AnnouncementFeed.browserURL(id: detail.id, externalUrl: detail.externalUrl) {
+                        Link(destination: original) { Label("查看原文", systemImage: "arrow.up.forward.square") }
+                            .accessibilityIdentifier("announcement-original")
                     }
                 }
             }

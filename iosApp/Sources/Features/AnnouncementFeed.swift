@@ -108,15 +108,48 @@ final class AnnouncementFeed {
         unreadIds.intersection(listedIds).count
     }
 
-    /// Android's list order: unread first, then pinned, otherwise the school's order. `unreadIds` is the
-    /// unread set when the list last changed, so reading an announcement does not move rows under the reader.
-    static func ordered(_ rows: [PocketAnnouncement], unreadIds: Set<String>) -> [PocketAnnouncement] {
+    /// Android's list order: bookmarked, then unread, then pinned, otherwise the school's order.
+    /// `unreadIds` is the unread set when the list last changed, so reading an announcement does not move
+    /// rows under the reader.
+    static func ordered(
+        _ rows: [PocketAnnouncement], unreadIds: Set<String>, bookmarkedIds: Set<String> = []
+    ) -> [PocketAnnouncement] {
         rows.enumerated().sorted { a, b in
+            let aSaved = bookmarkedIds.contains(a.element.id), bSaved = bookmarkedIds.contains(b.element.id)
+            if aSaved != bSaved { return aSaved }
             let aUnread = unreadIds.contains(a.element.id), bUnread = unreadIds.contains(b.element.id)
             if aUnread != bUnread { return aUnread }
             if a.element.isPinned != b.element.isPinned { return a.element.isPinned }
             return a.offset < b.offset
         }.map(\.element)
+    }
+
+    /// The loaded rows followed by saved bookmarks the loaded pages do not include, each id once; a loaded
+    /// row wins over its saved summary.
+    static func withBookmarks(_ rows: [PocketAnnouncement], fallbacks: [PocketAnnouncement]) -> [PocketAnnouncement] {
+        var seen = Set(rows.map(\.id))
+        return rows + fallbacks.filter { seen.insert($0.id).inserted }
+    }
+
+    /// The school's page for an announcement, or the page a link announcement points to.
+    static func browserURL(id: String, externalUrl: String?) -> URL? {
+        if let external = externalUrl.flatMap(URL.init(string:)), external.scheme == "https" || external.scheme == "http" {
+            return external
+        }
+        var components = URLComponents(string: PocketAnnouncementFeed.shared.SCHOOL_WEBSITE_URL + "ischool/public/news_view/show.php")
+        components?.queryItems = [URLQueryItem(name: "nid", value: id)]
+        return components?.url
+    }
+
+    /// 「發布者 · 單位 · yyyy/MM/dd HH:mm」, without repeating a unit that is also the issuer.
+    static func detailMetadata(issuer: String, unit: String, date: String) -> String {
+        var parts: [String] = []
+        for part in [issuer, unit] where !part.isEmpty && !parts.contains(part) { parts.append(part) }
+        let formatted = date.replacing(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}:\d{2})(:\d{2})?$/) { match in
+            "\(match.1)/\(match.2)/\(match.3) \(match.4)"
+        }.replacing(/^(\d{4})-(\d{1,2})-(\d{1,2})$/) { match in "\(match.1)/\(match.2)/\(match.3)" }
+        if !formatted.isEmpty { parts.append(formatted) }
+        return parts.joined(separator: " · ")
     }
 
     /// Cached content first, then the latest page and the filter options.
@@ -245,11 +278,14 @@ final class AnnouncementFeed {
         guard current == generation else { return }
         // The first page was ordered before the sync; re-sort with announcements it newly marked unread.
         listRevision += 1
-        guard !snapshot.isEmpty else { return }
+        // A first page of pinned announcements only also reads on to the first ordinary one.
+        func onlyPinned() -> Bool { !items.contains { !$0.isPinned } }
+        guard !snapshot.isEmpty || onlyPinned() else { return }
         isLoadingMore = true
         defer { if current == generation { isLoadingMore = false } }
         for _ in 1..<Self.unreadLookupMaxPages {
-            guard current == generation, hasMore, !snapshot.isSubset(of: Set(items.map(\.id))) else { return }
+            guard current == generation, hasMore,
+                  !snapshot.isSubset(of: Set(items.map(\.id))) || onlyPinned() else { return }
             let all = PocketAnnouncementFeed.shared.ALL_ID
             do {
                 guard let page = try await loader.page(pageIndex + 1, keyword: "", unitId: all, categoryId: all),

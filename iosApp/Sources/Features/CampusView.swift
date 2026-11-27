@@ -5,67 +5,39 @@ struct CampusView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let campus = model.dataSource.campus(clock: model.clock)
         let announcements = PocketCampusStore.shared.announcements(
             clock: model.clock, category: "全部", query: "", filter: .all,
             unreadIds: model.unreadAnnouncementIds, bookmarkedIds: model.bookmarkedAnnouncementIds
         )
         let unread = Int(PocketCampusStore.shared.unreadCount(clock: model.clock, unreadIds: model.unreadAnnouncementIds))
-        let featured = announcements.first
+        let unreadText = unread > 99 ? "99+" : "\(unread)"
+        let pinned = announcements.first(where: \.isPinned)
+        let failed = model.usesLiveData && announcements.isEmpty && model.live?.lastError != nil
         ScrollView {
-            VStack(alignment: .leading, spacing: PocketMetrics.sectionSpacing) {
-                PocketColumns {
-                    if let featured {
-                        FeaturedAnnouncementCard(announcement: featured)
-                    }
-                    HStack(spacing: PocketMetrics.cardSpacing) {
+            VStack(spacing: PocketMetrics.cardSpacing) {
+                PinnedAnnouncementCard(
+                    announcement: pinned,
+                    isLoading: model.usesLiveData && announcements.isEmpty && !failed,
+                    isFailed: failed
+                )
+                Grid(horizontalSpacing: PocketMetrics.cardSpacing, verticalSpacing: PocketMetrics.cardSpacing) {
+                    GridRow {
                         CampusShortcut(
                             title: "公告",
-                            detail: unread > 0 ? "\(unread) 則未讀" : "已全部讀完",
-                            systemImage: "megaphone.fill",
+                            detail: unread > 0 ? "\(unreadText) 則未讀" : "學校最新消息",
+                            systemImage: "megaphone",
                             route: .announcements,
-                            badge: unread
+                            showsDot: unread > 0
                         )
-                        CampusShortcut(
-                            title: "行事曆",
-                            detail: campus.calendarHeadline,
-                            systemImage: "calendar",
-                            route: .calendar
-                        )
+                        CampusShortcut(title: "行事曆", detail: "\(model.clock.year) 年 \(model.clock.month) 月", systemImage: "calendar", route: .calendar)
                     }
-                    HStack(spacing: PocketMetrics.cardSpacing) {
-                        CampusShortcut(title: "出缺勤", detail: model.isSignedIn ? "請假與缺曠" : "需要登入", systemImage: "person.badge.clock.fill", route: .attendance)
-                        CampusShortcut(title: "獎懲", detail: model.isSignedIn ? "功過紀錄" : "需要登入", systemImage: "rosette", route: .merits)
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        PocketSectionHeader(title: "近期行事") {
-                            PocketMoreLink(value: PocketRoute.calendar)
-                        }
-                        PocketCard(padding: 8) {
-                            EventRows(events: Array(campus.events.prefix(4)))
-                        }
-                    }
-                } trailing: {
-                    VStack(alignment: .leading, spacing: 8) {
-                        PocketSectionHeader(title: "最新公告") {
-                            PocketMoreLink(value: PocketRoute.announcements)
-                        }
-                        PocketCard(padding: 8) {
-                            AnnouncementRows(announcements: Array(announcements.dropFirst().prefix(5)))
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        PocketSectionHeader(title: "學校連結") { EmptyView() }
-                        PocketCard(padding: 8) {
-                            CampusLinkRow(title: "學校網站", detail: "龍潭高中官方網站", systemImage: "globe",
-                                          url: PocketAnnouncementFeed.shared.SCHOOL_WEBSITE_URL)
-                            PocketRowDivider().padding(.leading, 60)
-                            CampusLinkRow(title: "Google 行事曆", detail: "查看完整行事曆", systemImage: "calendar.badge.clock",
-                                          url: PocketAnnouncementFeed.shared.SCHOOL_CALENDAR_URL)
-                        }
+                    GridRow {
+                        CampusShortcut(title: "出缺勤", detail: "請假與缺曠", systemImage: "person", route: .attendance)
+                        CampusShortcut(title: "獎懲", detail: "功過紀錄", systemImage: "hand.thumbsup", route: .merits)
                     }
                 }
             }
+            .frame(maxWidth: 720)
             .pocketPage()
         }
         .navigationTitle(PocketTab.campus.title)
@@ -80,121 +52,96 @@ struct CampusView: View {
     }
 }
 
-private struct CampusLinkRow: View {
-    @Environment(\.openURL) private var openURL
-    let title: String
-    let detail: String
-    let systemImage: String
-    let url: String
+/// Android's `PinnedAnnouncementCard`: the pinned announcement, or a state line that opens the list.
+private struct PinnedAnnouncementCard: View {
+    let announcement: PocketAnnouncement?
+    let isLoading: Bool
+    let isFailed: Bool
 
     var body: some View {
-        Button {
-            if let url = URL(string: url) { openURL(url) }
-        } label: {
-            HStack(spacing: 14) {
-                PocketIconTile(systemImage: systemImage)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.body.weight(.medium)).foregroundStyle(PocketColor.onSurface)
-                    Text(detail).font(.footnote).foregroundStyle(PocketColor.onSurfaceVariant)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "arrow.up.right").font(.footnote.weight(.semibold))
-                    .foregroundStyle(PocketColor.onSurfaceVariant)
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("在瀏覽器開啟")
-        .accessibilityIdentifier("campus-link-\(title)")
-    }
-}
-
-private struct FeaturedAnnouncementCard: View {
-    let announcement: PocketAnnouncement
-
-    var body: some View {
-        NavigationLink(value: PocketRoute.announcement(announcement.id)) {
-            PocketCard(fill: PocketColor.tertiaryContainer, padding: 24) {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 8) {
-                        PocketChip(
-                            text: announcement.isPinned ? "置頂公告" : "最新公告",
-                            systemImage: announcement.isPinned ? "pin.fill" : nil,
-                            foreground: PocketColor.tertiaryContainer,
-                            background: PocketColor.onTertiaryContainer
-                        )
-                        Spacer()
+        NavigationLink(value: announcement.map { PocketRoute.announcement($0.id) } ?? PocketRoute.announcements) {
+            VStack(alignment: .leading, spacing: 12) {
+                if let announcement {
+                    HStack(spacing: 12) {
+                        Text("置頂公告")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(PocketColor.tertiaryContainer)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 4)
+                            .background(PocketColor.tertiary, in: .capsule)
+                        Spacer(minLength: 8)
                         Text(announcement.dateText)
-                            .font(.footnote)
+                            .font(.subheadline.weight(.medium))
                             .monospacedDigit()
                     }
-                    Text(announcement.title)
-                        .font(PocketFont.display(24, relativeTo: .title2))
-                        .multilineTextAlignment(.leading)
-                        .lineSpacing(2)
-                        .padding(.top, 16)
-                    HStack {
-                        Text("\(announcement.unit) · \(announcement.category)")
-                            .font(.subheadline)
-                        Spacer()
-                        Image(systemName: "arrow.right")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .padding(.top, 12)
                 }
-                .foregroundStyle(PocketColor.onTertiaryContainer)
+                Text(announcement?.title ?? (isLoading ? "正在取得置頂公告" : isFailed ? "公告暫時無法更新" : "目前沒有置頂公告"))
+                    .font(PocketFont.display(24, relativeTo: .title2))
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 0)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(announcement.map { [$0.unit, $0.category].filter { !$0.isEmpty }.joined(separator: " · ") }
+                        .flatMap { $0.isEmpty ? nil : $0 } ?? "查看全部學校公告")
+                        .font(.subheadline)
+                        .lineLimit(2)
+                    Spacer(minLength: 8)
+                    Image(systemName: "arrow.right")
+                        .font(.body.weight(.semibold))
+                        .accessibilityHidden(true)
+                }
             }
+            .foregroundStyle(PocketColor.onTertiaryContainer)
+            .padding(24)
+            .frame(maxWidth: .infinity, minHeight: 176, alignment: .topLeading)
+            .background(PocketColor.tertiaryContainer, in: .rect(cornerRadius: 32, style: .continuous))
+            .contentShape(.rect(cornerRadius: 32, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("campus-pinned")
     }
 }
 
+/// One of the hub's equal-height tiles: icon top-left, with a dot on its corner for unread items, then the
+/// title and subtitle at the bottom. The dot is decorative; the subtitle already says how many are unread.
 private struct CampusShortcut: View {
     let title: String
     let detail: String
     let systemImage: String
     let route: PocketRoute
-    var badge = 0
+    var showsDot = false
+    @ScaledMetric(relativeTo: .title3) private var iconSize: CGFloat = 56
+    @ScaledMetric(relativeTo: .title3) private var dotSize: CGFloat = 12
 
     var body: some View {
         NavigationLink(value: route) {
-            PocketCard(padding: 16) {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(alignment: .top) {
-                        PocketIconTile(systemImage: systemImage)
-                        Spacer(minLength: 8)
-                        if badge > 0 {
-                            Text(badge, format: .number)
-                                .font(.caption.weight(.bold))
-                                .monospacedDigit()
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 7)
-                                .frame(minWidth: 24, minHeight: 24)
-                                .background(PocketColor.negative, in: .capsule)
-                                .accessibilityHidden(true)
-                        } else {
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(PocketColor.onSurfaceVariant)
+            VStack(alignment: .leading, spacing: 12) {
+                PocketIconTile(systemImage: systemImage, size: iconSize)
+                    .overlay(alignment: .topTrailing) {
+                        if showsDot {
+                            Circle()
+                                .fill(PocketColor.negative)
+                                .frame(width: dotSize, height: dotSize)
+                                .offset(x: dotSize * 0.25, y: -dotSize * 0.25)
                                 .accessibilityHidden(true)
                         }
                     }
+                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .lineLimit(1)
-                        .font(PocketFont.cardTitle)
+                        .font(PocketFont.display(22, relativeTo: .title3))
                         .foregroundStyle(PocketColor.onSurface)
-                        .padding(.top, 14)
                     Text(detail)
                         .font(.subheadline)
                         .foregroundStyle(PocketColor.onSurfaceVariant)
-                        .padding(.top, 2)
                 }
             }
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 128, maxHeight: .infinity, alignment: .topLeading)
+            .background(PocketColor.surface, in: .rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
+            .contentShape(.rect(cornerRadius: PocketMetrics.cardRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)

@@ -6,6 +6,7 @@ import com.clhs.score.data.RecordCategoryCount
 
 import com.clhs.score.data.MeritRecord
 
+import com.clhs.score.data.FakeData
 import com.clhs.score.data.FakeRecordData
 import com.clhs.score.shared.time.compareTo
 import com.clhs.score.shared.time.datePart
@@ -37,6 +38,11 @@ data class PocketAnnouncementDetail(
     val images: List<PocketAnnouncementImage> = emptyList(),
     /** The page a link announcement points to; null for an ordinary one. */
     val externalUrl: String? = null,
+    val issuer: String = "",
+    /** The school's body has tables the native renderer leaves out; the reader opens the original. */
+    val containsTables: Boolean = false,
+    /** Only the list summary is known (no body yet), so opening it does not count as read. */
+    val isSummaryOnly: Boolean = false,
 )
 
 /** [canPreview] is false for images outside the school site, which are opened on request only, as on Android. */
@@ -160,6 +166,9 @@ object PocketCampusStore {
                 html = formattingHtml(live.htmlContent),
                 images = live.images.map { PocketAnnouncementImage(it.url, it.description, it.canPreview) },
                 externalUrl = live.externalUrl,
+                issuer = live.issuer,
+                containsTables = live.containsTables,
+                isSummaryOnly = live.isSummaryOnly,
             )
         }
         item ?: return null
@@ -170,18 +179,26 @@ object PocketCampusStore {
             unit = item.unit,
             category = item.category,
             isPinned = item.isPinned,
+            issuer = item.issuer,
             paragraphs = listOf(
                 "各位同學好：",
                 "「${item.title}」相關事項已公告，請同學留意時程並依規定辦理。若有疑問，請於上班時間洽${item.unit}。",
                 "此為示範資料，內容為虛構，僅用於展示公告內文的排版。",
             ),
-            attachments = if (item.isPinned || item.category == "活動") {
+            attachments = if (item.isPinned) {
+                FakeData.examAnnouncementDetail.attachments.map { file ->
+                    PocketAttachment(file.name, file.sizeBytes?.let { "${(it + 1023) / 1024} KB" }.orEmpty(), file.url)
+                }
+            } else if (item.category == "活動") {
                 listOf(PocketAttachment("實施計畫.pdf", "248 KB"), PocketAttachment("報名表.docx", "36 KB"))
             } else emptyList(),
             officialUrl = "https://www.clhs.tyc.edu.tw/ischool/public/news_view/show.php?nid=${item.id}",
-            html = "<p>各位同學好：</p>" +
+            // The pinned sample stands for a school page with a schedule table the app leaves out.
+            containsTables = item.isPinned,
+            html = if (item.isPinned) formattingHtml(FakeData.examAnnouncementDetail.htmlContent) else "<p>各位同學好：</p>" +
                 "<p>「${item.title}」相關事項已公告，請同學留意時程並<b>依規定辦理</b>。</p>" +
-                "<ul><li>請於期限內完成，<u>逾期不受理</u>。</li><li>若有疑問，請於上班時間洽${item.unit}。</li></ul>" +
+                "<ul><li>請於期限內完成，<u>逾期不受理</u>。<ul><li>以學校最新公告為準。</li></ul></li>" +
+                "<li>若有疑問，請於上班時間洽${item.unit}。</li></ul>" +
                 "<p>詳細說明請見<a href=\"https://www.clhs.tyc.edu.tw/\">學校網站</a>。</p>" +
                 "<p>此為示範資料，內容為虛構，僅用於展示公告內文的排版。</p>",
         )

@@ -34,6 +34,12 @@ final class AnnouncementMarkupTests: XCTestCase {
         XCTAssertEqual(String(body.characters), "注意事項：\n\n• 攜帶學生證\n• 穿著制服\n\n第二行\n第三行")
     }
 
+    func testNestedListItemsAreIndentedUnderTheirParent() throws {
+        let html = "<ul><li>高三範圍\n<ul><li>以最新版本為準。</li></ul>補充說明</li><li>高二範圍</li></ul>"
+        let body = try XCTUnwrap(AnnouncementMarkup.attributed(html: html))
+        XCTAssertEqual(String(body.characters), "• 高三範圍\n\u{2003}◦ 以最新版本為準。\n\u{2003}補充說明\n• 高二範圍")
+    }
+
     func testThousandsOfNestedTagsAreFlattenedWithoutOverflowingTheStack() throws {
         let html = String(repeating: "<b><i>", count: 5000) + "深層" + String(repeating: "</i></b>", count: 5000)
         let body = try XCTUnwrap(AnnouncementMarkup.attributed(html: html))

@@ -32,6 +32,7 @@ private final class FlakyLoader: AnnouncementPageLoading {
 private final class EndlessLoader: AnnouncementPageLoading {
     var failAt: Int?
     let totalPages: Int
+    var pinnedPages = 0
     private(set) var requests: [Int] = []
     private let fetchedAt = PocketAnnouncementFeed.shared.demoPage(
         clock: PocketClock(year: 2026, month: 11, day: 18, dayOfWeek: 3, minuteOfDay: 600), pageIndex: 0, keyword: "", unitId: "-1", categoryId: "-1"
@@ -50,7 +51,7 @@ private final class EndlessLoader: AnnouncementPageLoading {
         let items = (0..<10).map { row in
             SchoolAnnouncement(
                 id: "p\(index)-\(row)", title: "公告 \(index)-\(row)", date: "2026/11/18", category: "公告",
-                unit: "教務處", issuer: "", isPinned: false, contentType: "", externalUrl: nil
+                unit: "教務處", issuer: "", isPinned: index < self.pinnedPages, contentType: "", externalUrl: nil
             )
         }
         return SchoolAnnouncementPage(announcements: items, pageIndex: Int32(index), totalPages: Int32(totalPages), fetchedAt: fetchedAt)
@@ -165,6 +166,34 @@ final class AnnouncementFeedTests: XCTestCase {
         let listed = ["first-page"] + feed.items.map(\.id) + feed.items.prefix(3).map(\.id)
         XCTAssertEqual(AnnouncementFeed.unreadCount(listed, unreadIds: ["first-page", "p2-0", "elsewhere"]), 2,
                        "a revealed later-page item counts, duplicates and unlisted ids do not")
+    }
+
+    func testAFirstPageOfPinnedOnlyReadsOnToTheFirstOrdinaryAnnouncement() async {
+        let loader = EndlessLoader()
+        loader.pinnedPages = 2
+        let feed = AnnouncementFeed(loader: loader)
+        await feed.start()
+        XCTAssertEqual(loader.requests, [0, 1, 2])
+        XCTAssertTrue(feed.items.contains { !$0.isPinned })
+    }
+
+    func testBookmarksBeyondTheLoadedPagesJoinTheListOnceAndSortFirst() {
+        func row(_ id: String, pinned: Bool = false) -> PocketAnnouncement {
+            PocketAnnouncement(id: id, title: id, dateText: "", shortDateText: "", unit: "", category: "",
+                               isPinned: pinned, isUnread: false, isBookmarked: false)
+        }
+        let listed = AnnouncementFeed.withBookmarks([row("a"), row("b", pinned: true)], fallbacks: [row("b"), row("old")])
+        XCTAssertEqual(listed.map(\.id), ["a", "b", "old"], "a loaded row wins over its saved summary")
+        XCTAssertTrue(listed[1].isPinned)
+        XCTAssertEqual(AnnouncementFeed.ordered(listed, unreadIds: ["a"], bookmarkedIds: ["old"]).map(\.id), ["old", "a", "b"])
+    }
+
+    func testDetailMetadataJoinsIssuerUnitAndDateWithoutRepeats() {
+        XCTAssertEqual(AnnouncementFeed.detailMetadata(issuer: "人事室", unit: "人事室", date: "2026-11-23 10:13:18"), "人事室 · 2026/11/23 10:13")
+        XCTAssertEqual(AnnouncementFeed.detailMetadata(issuer: "", unit: "教務處", date: "2026-11-23"), "教務處 · 2026/11/23")
+        XCTAssertEqual(AnnouncementFeed.browserURL(id: "45055", externalUrl: nil)?.absoluteString,
+                       "https://www.clhs.tyc.edu.tw/ischool/public/news_view/show.php?nid=45055")
+        XCTAssertEqual(AnnouncementFeed.browserURL(id: "1", externalUrl: "javascript:alert(1)")?.host, "www.clhs.tyc.edu.tw")
     }
 
     func testListShowsUnreadThenPinnedThenTheSchoolOrder() {
