@@ -37,7 +37,7 @@ struct PersonalView: View {
                         .padding(12)
                     }
 
-                    section("啟動") {
+                    section("啟動與導覽") {
                         Toggle(isOn: $model.startOnSchedule) {
                             HStack(spacing: 14) {
                                 PocketIconTile(systemImage: "calendar.day.timeline.left", size: 40)
@@ -56,20 +56,30 @@ struct PersonalView: View {
                         .accessibilityIdentifier("start-on-schedule")
                     }
 
-                    section("設定") {
+                    section("通知與提醒") {
                         VStack(spacing: 0) {
                             navRow("bell.badge", "通知", model.notificationsEnabled ? "已開啟" : "已關閉") { NotificationSettingsView() }
                             PocketRowDivider().padding(.leading, 66)
                             navRow("moon.zzz", "安靜時段", model.pauseEnabled ? "\(SettingsFormat.time(model.pauseStart)) – \(SettingsFormat.time(model.pauseEnd))" : "未啟用") { BackgroundPauseView() }
-                            PocketRowDivider().padding(.leading, 66)
-                            navRow("cloud.sun", "天氣來源", SettingsFormat.weatherSources.first { $0.id == model.weatherSource }?.title ?? "") { WeatherSourceView() }
-                            PocketRowDivider().padding(.leading, 66)
+                        }
+                    }
+
+                    section("首頁資料") {
+                        navRow("cloud.sun", "天氣來源", SettingsFormat.weatherSources.first { $0.id == model.weatherSource }?.title ?? "") { WeatherSourceView() }
+                    }
+
+                    section("資料與隱私") {
+                        VStack(spacing: 0) {
                             navRow("lock", "App 鎖定", model.appLockEnabled ? "已開啟" : "已關閉") { AppLockSettingsView() }
                             PocketRowDivider().padding(.leading, 66)
                             navRow("externaldrive", "資料管理", "匯入、匯出與刪除") { DataSettingsView() }
                             PocketRowDivider().padding(.leading, 66)
                             navRow("chart.bar", "使用統計", "各功能使用次數") { UsageStatisticsView() }
-                            PocketRowDivider().padding(.leading, 66)
+                        }
+                    }
+
+                    section("關於") {
+                        VStack(spacing: 0) {
                             navRow("info.circle", "關於", "") { AboutView() }
                             if model.developerEnabled {
                                 PocketRowDivider().padding(.leading, 66)
@@ -264,7 +274,7 @@ struct PersonalView: View {
         Button {
             confirmingSignOut = true
         } label: {
-            Label(model.session == .demo ? "登出示範帳號" : "登出", systemImage: "rectangle.portrait.and.arrow.right")
+            Label(model.session == .demo ? "登出示範帳號" : "登出帳號", systemImage: "rectangle.portrait.and.arrow.right")
                 .font(.headline)
                 .foregroundStyle(PocketColor.negative)
                 .frame(maxWidth: .infinity, minHeight: 56)
