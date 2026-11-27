@@ -231,6 +231,22 @@ class PortableSchoolClientTest {
     }
 
     @Test
+    fun queuedRequestSendsTheCookieRotatedWhileItWaitedForAPermit() = runTest {
+        val transport = FakeHttpTransport().apply { hold = true }
+        val client = schoolClient(transport)
+        client.restoreSession(session)
+        val jobs = (1..5).map { launch { client.fetchGrades(session, "114_1", "exam-$it") } }
+        runCurrent()
+        assertEquals(4, transport.pending.size)
+        transport.pending[0].respond(response(SchoolFixtures.gradeJson, setCookies = listOf(cookie("ASP.NET_SessionId", "rotated"))))
+        runCurrent()
+        assertEquals(5, transport.pending.size)
+        assertEquals("ASP.NET_SessionId=rotated", transport.pending[4].request.header("Cookie"))
+        transport.pending.drop(1).forEach { it.respond(response(SchoolFixtures.gradeJson)) }
+        jobs.forEach { it.join() }
+    }
+
+    @Test
     fun cancellingACallCancelsTheTransportCall() = runTest {
         val transport = FakeHttpTransport().apply { hold = true }
         val client = schoolClient(transport)

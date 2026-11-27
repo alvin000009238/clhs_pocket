@@ -200,6 +200,23 @@ class DemoPocketDataSourceTest {
         }
     }
 
+    /** A term whose timetable has not loaded (or failed) never shows the cached timetable of another term. */
+    @Test
+    fun liveTimetableOfAnotherTermIsNotTheChosenTerm() {
+        val today = PocketClock(2026, 11, 18, 3, 635).date()
+        PocketData.useLive()
+        try {
+            PocketLive.clearAll()
+            PocketLive.putSchedule("", FakeScheduleData.report("115_1", "230", ScheduleScope.SEMESTER, today))
+            assertNull(PocketLive.schedule(ScheduleScope.SEMESTER, today, "", "114_2"))
+            assertEquals("115_1", PocketLive.schedule(ScheduleScope.SEMESTER, today, "", "115_1")?.yearTermValue)
+            assertEquals("115_1", PocketLive.schedule(ScheduleScope.SEMESTER, today, "", "")?.yearTermValue)
+        } finally {
+            PocketLive.clearAll()
+            PocketData.useDemo()
+        }
+    }
+
     @Test
     fun ownTimetableIsNeverTitledWithTheFirstSchoolClass() {
         val clock = PocketClock(2026, 11, 18, 3, 635)

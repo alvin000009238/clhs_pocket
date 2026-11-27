@@ -59,12 +59,14 @@ object PocketScheduleStore {
         PocketChoice(week.startDate, week.text, "${start.shortText()} – ${end.shortText()}")
     }
 
-    /** Whole weeks from the week of [clock] to the week starting on [startDate]; null when the date is malformed. */
+    /**
+     * The offset whose requested day (today plus that many weeks) falls in the school week starting
+     * on [startDate]; null when the date is malformed. School weeks may start on a Sunday or a Monday.
+     */
     fun weekOffset(clock: PocketClock, startDate: String): Int? {
         val start = parseLocalDateOrNull(startDate) ?: return null
-        val monday = clock.date().shiftDays(-(clock.dayOfWeek - 1).toLong())
-        val days = monday.daysUntil(start)
-        return (if (days >= 0) days / 7 else (days - 6) / 7).toInt()
+        val days = start.daysUntil(clock.date())
+        return -(if (days >= 0) days / 7 else (days - 6) / 7).toInt()
     }
 
     /**

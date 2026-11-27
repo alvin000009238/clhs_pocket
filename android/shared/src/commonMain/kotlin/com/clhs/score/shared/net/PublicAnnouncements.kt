@@ -163,16 +163,24 @@ object PublicAnnouncementParser {
         val item = parseArray(source, "Invalid announcement detail").firstOrNull() as? JsonObject
             ?: throw PublicDataException("Invalid announcement detail")
         if (item.int("rcode")?.let { it != 200 } == true) throw PublicDataException("Announcement detail is unavailable")
-        val id = item.text("newsId")?.takeIf(String::isNotBlank) ?: requestedId
-        val decodedHtml = try {
-            PortableUrl.percentDecode(item.text("content").orEmpty())
+        val responseId = item.text("newsId")?.takeIf(String::isNotBlank)
+        val title = item.text("title")?.takeIf(String::isNotBlank)
+        // A detail must describe the requested announcement; another ID or an empty record is not a detail.
+        if ((responseId != null && responseId != requestedId) || (responseId == null && title == null)) {
+            throw PublicDataException("Invalid announcement detail")
+        }
+        val id = requestedId
+        val isExternal = item.text("content_type").equals("url", ignoreCase = true)
+        val content = item.text("content").orEmpty()
+        val decodedHtml = if (isExternal) "" else try {
+            PortableUrl.percentDecode(content)
         } catch (error: Exception) {
             throw PublicDataException("Invalid announcement content", cause = error)
         }
         val article = sanitizeArticle(decodedHtml)
         return SchoolAnnouncementDetail(
             id = id,
-            title = item.text("title").orEmpty().ifBlank { "未命名消息" },
+            title = title ?: "未命名消息",
             date = item.text("time").orEmpty(),
             category = categoryHint,
             unit = item.text("unit").orEmpty(),
@@ -181,6 +189,8 @@ object PublicAnnouncementParser {
             images = article.second,
             attachments = parseAttachments(item.text("attachedfile"), id),
             officialUrl = officialUrl(id),
+            isExternal = isExternal,
+            externalUrl = if (isExternal) safeWebUrl(content) else null,
         )
     }
 
@@ -201,7 +211,9 @@ object PublicAnnouncementParser {
         if (explicitScheme != null && explicitScheme != "http" && explicitScheme != "https") return null
         val url = (if (explicitScheme != null) PortableUrl.parse(raw) else siteBase.resolve(raw)) ?: return null
         if (url.hasUserInfo) return null
-        return url.toString()
+        // The fragment never reaches the server but locates the section or page inside the opened document.
+        val fragment = if ('#' in raw) "#" + PortableUrl.encodeUnsafe(raw.substringAfter('#')) else ""
+        return url.toString() + fragment
     }
 
     private const val MAX_NESTING = 32
