@@ -541,13 +541,8 @@ private struct SimulatorEntry: View {
                     .frame(width: 44, height: 44)
                     .background(PocketColor.background.opacity(0.6), in: .circle)
                     .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("成績模擬器")
-                        .font(.headline)
-                    Text("調整分數，預估加權平均與總分")
-                        .font(.subheadline)
-                        .opacity(0.8)
-                }
+                Text("成績模擬器")
+                    .font(.headline)
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
                     .font(.footnote.weight(.semibold))
