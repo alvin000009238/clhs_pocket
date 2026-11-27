@@ -75,7 +75,7 @@ struct AnnouncementDetailView: View {
             }
             // Only a body the user can actually read counts as read; a failed live load keeps it unread.
             .onChange(of: detail != nil, initial: true) { _, loaded in
-                if loaded { model.unreadAnnouncementIds.remove(id) }
+                if loaded { model.markAnnouncementRead(id) }
             }
     }
 
@@ -209,6 +209,12 @@ struct AnnouncementDetailView: View {
                     .contentTransition(.symbolEffect(.replace))
                     .sensoryFeedback(.impact(weight: .light), trigger: saved)
                     .accessibilityIdentifier("announcement-bookmark")
+                    // Tables and other content the app cannot show are read on the school's page; a link
+                    // announcement opens the page it points to. Demo announcements have no page there.
+                    if model.usesLiveData, let original = URL(string: detail.externalUrl ?? detail.officialUrl) {
+                        Link(destination: original) { Label("查看原文", systemImage: "safari") }
+                            .accessibilityIdentifier("announcement-original")
+                    }
                     if let url = URL(string: detail.officialUrl) {
                         ShareLink(item: url, subject: Text(detail.title)) {
                             Label("分享", systemImage: "square.and.arrow.up")

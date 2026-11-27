@@ -287,4 +287,19 @@ final class AnnouncementReminderSettingsTests: XCTestCase {
         XCTAssertTrue(settings.announcementCheckDue(at: now.addingTimeInterval(3 * 60 * 60)))
         XCTAssertTrue(settings.announcementCheckDue(at: now.addingTimeInterval(-60)), "a clock set back does not stop checks")
     }
+
+    /// New units start a new baseline at the next check, which is due at once: otherwise a post
+    /// published before that late check would join the baseline instead of being announced.
+    func testChangingTheUnitsMakesTheBaselineCheckDueAtOnce() {
+        let defaults = UserDefaults(suiteName: "reminder-\(UUID().uuidString)")!
+        let settings = PlatformSettings(defaults: defaults)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        defaults.set(["1"], forKey: PocketNotificationCenter.seenAnnouncementsKey)
+        settings.announcementLastCheck = now
+        XCTAssertFalse(settings.announcementCheckDue(at: now.addingTimeInterval(60)))
+        settings.announcementUnitIds = ["12"]
+        XCTAssertNil(defaults.stringArray(forKey: PocketNotificationCenter.seenAnnouncementsKey))
+        XCTAssertTrue(settings.announcementCheckDue(at: now.addingTimeInterval(60)))
+        XCTAssertNil(PlatformSettings(defaults: defaults).announcementLastCheck, "the reset is stored")
+    }
 }

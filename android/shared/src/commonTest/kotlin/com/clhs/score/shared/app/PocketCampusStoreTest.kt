@@ -1,5 +1,8 @@
 package com.clhs.score.shared.app
 
+import com.clhs.score.shared.time.at
+import com.clhs.score.shared.time.localTimeOf
+import com.clhs.score.shared.time.shiftDays
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -55,6 +58,44 @@ class PocketCampusStoreTest {
             val detail = PocketCampusStore.announcementDetail(clock, "old-1")
             assertEquals(listOf("內文"), detail?.paragraphs)
             assertFalse(detail!!.isPinned)
+        } finally {
+            PocketLive.clearAll()
+            PocketData.useDemo()
+        }
+    }
+
+    @Test
+    fun homeAnnouncementsIncludeABookmarkThatLeftTheLoadedPage() {
+        val old = com.clhs.score.data.SchoolAnnouncement("old-1", "舊公告", "2026-09-01", "一般", "教務處", "", false, "")
+        PocketData.useLive()
+        try {
+            PocketLive.putAnnouncements(DemoCampus.demoAnnouncements(clock))
+            PocketLive.savedAnnouncements = listOf(old)
+            val rows = DemoCampus.importantAnnouncements(
+                clock,
+                com.clhs.score.domain.overview.OverviewWidgetConfig.ListItems(
+                    3, listOf(com.clhs.score.domain.overview.AnnouncementPriority.Bookmarked),
+                ),
+                unreadIds = emptySet(), bookmarkedIds = setOf("old-1"),
+            )
+            assertEquals(listOf("old-1"), rows.map { it.id })
+            assertTrue(rows.single().isBookmarked)
+        } finally {
+            PocketLive.clearAll()
+            PocketData.useDemo()
+        }
+    }
+
+    @Test
+    fun homeEventsOnlyCoverTheNextFourteenDays() {
+        val today = clock.date()
+        fun event(id: String, days: Long) = com.clhs.score.data.SchoolCalendarEvent(
+            id, id, today.shiftDays(days).at(localTimeOf(0, 0)), today.shiftDays(days + 1).at(localTimeOf(0, 0)), isAllDay = true,
+        )
+        PocketData.useLive()
+        try {
+            PocketLive.putEvents(listOf(event("day14", 14), event("day15", 15), event("far", 40)))
+            assertEquals(listOf("day14"), DemoCampus.events(clock).map { it.id })
         } finally {
             PocketLive.clearAll()
             PocketData.useDemo()

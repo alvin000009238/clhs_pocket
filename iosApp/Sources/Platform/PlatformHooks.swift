@@ -23,7 +23,7 @@ private struct PocketPlatformHook: ViewModifier {
             .onChange(of: model.lock.isLocked) { PocketPlatformCoordinator.shared.flushPendingLink() }
             .task(id: RefreshTrigger(
                 active: scenePhase == .active, signedIn: model.isSignedIn, schedule: model.live?.scheduleRevision ?? 0,
-                locked: model.lock.isLocked
+                locked: model.lock.isLocked, restored: model.live?.restoreSettled ?? true
             )) {
                 // Nothing personal is loaded or published while the lock screen is up.
                 guard !model.lock.isLocked else { return }
@@ -31,6 +31,9 @@ private struct PocketPlatformHook: ViewModifier {
                     PocketPlatformCoordinator.shared.scheduleBackgroundRefresh()
                     return
                 }
+                // Before the stored session has been read, not being signed in is unknown, not a
+                // sign-out: clearing now would drop delivered alerts and an active「暫停一日」.
+                guard model.isSignedIn || (model.live?.restoreSettled ?? true) else { return }
                 await PocketPlatformCoordinator.shared.sessionChanged(signedIn: model.isSignedIn)
             }
     }
@@ -40,5 +43,6 @@ private struct PocketPlatformHook: ViewModifier {
         let signedIn: Bool
         let schedule: Int
         let locked: Bool
+        let restored: Bool
     }
 }

@@ -81,8 +81,9 @@ struct AnnouncementListView: View {
             clock: model.clock, category: "全部", query: "", filter: .all,
             unreadIds: model.unreadAnnouncementIds, bookmarkedIds: model.bookmarkedAnnouncementIds
         )
+        // With a unit or category filter the unread list holds only the filtered results; so does the count.
         let unread = AnnouncementFeed.unreadCount(
-            firstPage.map(\.id) + feed.items.map(\.id), unreadIds: model.unreadAnnouncementIds
+            (feed.hasFilters ? [] : firstPage.map(\.id)) + feed.items.map(\.id), unreadIds: model.unreadAnnouncementIds
         )
         let rows = rows(feed)
         ScrollView {
@@ -191,7 +192,7 @@ struct AnnouncementListView: View {
                 readAllTick += 1
                 scrollToTop()
             }
-            .disabled(unread == 0)
+            .disabled(model.unreadAnnouncementIds.isEmpty)
             .accessibilityIdentifier("announcements-read-all")
             Button(bookmarks > 0 ? "已收藏公告（\(bookmarks)）" : "已收藏公告", systemImage: "bookmark") { filter = .bookmarked }
                 .accessibilityIdentifier("announcements-bookmarks")
@@ -684,6 +685,9 @@ struct CampusSearchView: View {
     @State private var searching = false
     @State private var failed = false
     @State private var selectedEvent: PocketEventDetail?
+    @State private var found: [SchoolAnnouncement] = []
+    @State private var nextPage: Int?
+    @State private var loadingMore = false
 
     private static let quickTerms = ["期中考", "期末考", "校慶", "補考"]
 
@@ -732,6 +736,12 @@ struct CampusSearchView: View {
                             emptyRow("沒有符合的公告")
                         } else {
                             AnnouncementRows(announcements: announcements)
+                            if nextPage != nil {
+                                Button(loadingMore ? "載入中…" : "載入更多公告") { Task { await loadMore(trimmed) } }
+                                    .disabled(loadingMore)
+                                    .frame(maxWidth: .infinity, minHeight: 44)
+                                    .accessibilityIdentifier("search-load-more")
+                            }
                         }
                     }
                     PocketSectionHeader(title: "行事曆") { EmptyView() }
@@ -772,19 +782,44 @@ struct CampusSearchView: View {
     }
 
     private func search(_ text: String) async {
+        nextPage = nil
+        found = []
         guard !text.isEmpty else { announcements = []; return }
         searching = true
         failed = false
         defer { searching = false }
         do {
-            let page = try await model.makeAnnouncementLoader().page(0, keyword: text, unitId: "-1", categoryId: "-1")
+            let loader = model.makeAnnouncementLoader()
+            let page = try await loader.page(0, keyword: text, unitId: "-1", categoryId: "-1")
             guard !Task.isCancelled, let page else { return }
-            announcements = PocketAnnouncementFeed.shared.rows(
-                items: page.announcements, unreadIds: model.unreadAnnouncementIds, bookmarkedIds: model.bookmarkedAnnouncementIds
-            )
+            // Known announcements are what a bookmark can be saved from.
+            loader.remember(page.announcements)
+            show(page)
         } catch {
             if !(error is CancellationError) { failed = true }
         }
+    }
+
+    /// The school pages its search results; later pages are loaded on request, as in the list.
+    private func loadMore(_ text: String) async {
+        guard let index = nextPage, !loadingMore else { return }
+        loadingMore = true
+        defer { loadingMore = false }
+        let loader = model.makeAnnouncementLoader()
+        // A failed page keeps the button, so it can be tried again.
+        guard let page = try? await loader.page(index, keyword: text, unitId: "-1", categoryId: "-1"),
+              !Task.isCancelled, text == PocketAnnouncementFeed.shared.normalizedQuery(query: query) else { return }
+        loader.remember(page.announcements)
+        show(page)
+    }
+
+    private func show(_ page: SchoolAnnouncementPage) {
+        let known = Set(found.map(\.id))
+        found += page.announcements.filter { !known.contains($0.id) }
+        nextPage = page.pageIndex + 1 < page.totalPages ? Int(page.pageIndex) + 1 : nil
+        announcements = PocketAnnouncementFeed.shared.rows(
+            items: found, unreadIds: model.unreadAnnouncementIds, bookmarkedIds: model.bookmarkedAnnouncementIds
+        )
     }
 }
 

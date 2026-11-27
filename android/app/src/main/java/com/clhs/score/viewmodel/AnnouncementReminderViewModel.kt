@@ -13,7 +13,9 @@ import com.clhs.score.data.AnnouncementReminderRepository
 import com.clhs.score.data.AnnouncementReadRepository
 import com.clhs.score.data.AnnouncementReminderState
 import com.clhs.score.data.AnnouncementUnit
-import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
+import com.clhs.score.BuildConfig
+import com.clhs.score.data.SchoolAnnouncementsRepository
+import com.clhs.score.data.schoolAnnouncementsRepository
 import com.clhs.score.data.defaultAnnouncementUnits
 import com.clhs.score.data.loadAnnouncementReminderSnapshot
 import com.clhs.score.reminders.AnnouncementReminderScheduler
@@ -56,7 +58,7 @@ data class AnnouncementReminderCheckResult(
 
 class AnnouncementReminderViewModel internal constructor(
     private val repository: AnnouncementReminderRepository,
-    private val announcementsRepository: NetworkSchoolAnnouncementsRepository,
+    private val announcementsRepository: SchoolAnnouncementsRepository,
     private val schedule: (Int) -> Unit,
     private val cancel: () -> Unit,
     private val analyticsLogger: AnalyticsLogger = NoOpAnalyticsLogger,
@@ -64,7 +66,7 @@ class AnnouncementReminderViewModel internal constructor(
 ) : ViewModel() {
     constructor(
         repository: AnnouncementReminderRepository,
-        announcementsRepository: NetworkSchoolAnnouncementsRepository,
+        announcementsRepository: SchoolAnnouncementsRepository,
         scheduler: AnnouncementReminderScheduler,
         analyticsLogger: AnalyticsLogger = NoOpAnalyticsLogger,
     ) : this(repository, announcementsRepository, scheduler::schedule, scheduler::cancel, analyticsLogger)
@@ -133,10 +135,10 @@ class AnnouncementReminderViewModel internal constructor(
     fun refreshUnits() {
         unitLoadJob?.cancel()
         unitLoadJob = viewModelScope.launch {
-            val cached = announcementsRepository.loadCachedUnits()
+            val cached = announcementsRepository.loadCachedFilterOptions().units
             _uiState.update { it.copy(units = cached, isLoadingUnits = true, unitLoadFailed = false) }
             try {
-                val units = announcementsRepository.loadUnits()
+                val units = announcementsRepository.loadFilterOptions().units
                 _uiState.update { it.copy(units = units, isLoadingUnits = false) }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
@@ -281,7 +283,7 @@ class AnnouncementReminderViewModel internal constructor(
                 val scheduler = AnnouncementReminderScheduler(appContext)
                 return AnnouncementReminderViewModel(
                     repository = AnnouncementReminderRepository(appContext),
-                    announcementsRepository = NetworkSchoolAnnouncementsRepository(appContext.cacheDir),
+                    announcementsRepository = schoolAnnouncementsRepository(appContext.cacheDir, BuildConfig.USE_FAKE_DATA),
                     schedule = scheduler::schedule,
                     cancel = scheduler::cancel,
                     analyticsLogger = analyticsLogger,
