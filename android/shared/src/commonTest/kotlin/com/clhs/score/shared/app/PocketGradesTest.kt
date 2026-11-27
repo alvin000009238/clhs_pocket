@@ -1,0 +1,185 @@
+package com.clhs.score.shared.app
+
+import com.clhs.score.data.ExamOption
+import com.clhs.score.data.FakeData
+import com.clhs.score.data.YearTermOption
+import com.clhs.score.data.cleanSubjectName
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+class PocketGradesTest {
+    private val exam = FakeData.CURRENT_EXAM_VALUE
+
+    @Test
+    fun subjectDetailCarriesStandardsDistributionAndTrend() {
+        val name = PocketEnvironment.demo().grades(exam).subjects.first().name
+        val detail = assertNotNull(PocketGrades.subjectDetail(exam, name))
+        assertEquals(5, detail.standards.size)
+        assertEquals(1, detail.distribution.count { it.isMine })
+        assertTrue(detail.trend.size > 1)
+    }
+
+    @Test
+    fun anUnpublishedScoreIsNotAZeroInTheDetailOrItsTrend() {
+        val terms = listOf(
+            YearTermOption("114 學年度 第 1 學期", "114_1", listOf(ExamOption("第一次段考", "1"), ExamOption("第二次段考", "2"))),
+        )
+        PocketData.useLive()
+        try {
+            PocketLive.clearAll()
+            PocketLive.putStructure(terms)
+            val published = FakeData.reportFor("114_1", "114_1_E1")
+            val name = published.subjects.first().subjectName
+            val unpublished = published.copy(
+                subjects = published.subjects.map { if (it.subjectName == name) it.copy(scoreDisplay = "未公布", score = null) else it },
+            )
+            PocketLive.putReport("114_1", "1", published)
+            PocketLive.putReport("114_1", "2", unpublished)
+            val key = DemoGrades.terms.single().exams.first { PocketLive.examCodeOf(it.value) == "2" }.value
+            val detail = assertNotNull(PocketGrades.subjectDetail(key, cleanSubjectName(name)))
+            assertEquals("", detail.diffText)
+            assertEquals(0, detail.diffSign)
+            assertEquals(listOf("第一次段考"), detail.trend.map { it.examName })
+            assertEquals(-1.0, DemoGrades.report(key).subjects.first { it.name == cleanSubjectName(name) }.fraction)
+        } finally {
+            PocketLive.clearAll()
+            PocketData.useDemo()
+        }
+    }
+
+    @Test
+    fun simulatorCreditsArePendingUntilStoredAndComeBackForTheSameSubjects() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        assertEquals(false, simulator.state().creditsPending)
+        val row = simulator.state().rows.first()
+        val changed = if (row.credits == 4) 3 else row.credits + 1
+
+        simulator.setCredits(row.name, row.credits)
+        assertEquals(false, simulator.state().creditsPending, "setting the same value is not an edit")
+        simulator.setCredits(row.name, changed)
+        assertEquals(true, simulator.state().creditsPending)
+        assertEquals("自訂・未儲存", simulator.state().creditSourceText)
+
+        val stored = assertNotNull(simulator.creditsJson())
+        simulator.markCreditsSaved(stored)
+        assertEquals(false, simulator.state().creditsPending)
+        assertEquals("自訂・已儲存", simulator.state().creditSourceText)
+
+        // A new simulator for the same exam picks the stored credits up.
+        val reopened = assertNotNull(PocketGrades.simulator(exam))
+        assertEquals(true, reopened.restoreCredits(stored))
+        assertEquals(changed, reopened.state().rows.first().credits)
+        assertEquals(false, reopened.state().creditsPending)
+
+        // Damaged text, or credits saved for other subjects or out of range, change nothing.
+        val fresh = assertNotNull(PocketGrades.simulator(exam))
+        assertEquals(false, fresh.restoreCredits(null))
+        assertEquals(false, fresh.restoreCredits("{"))
+        assertEquals(false, fresh.restoreCredits(stored.replace(row.name, row.name + "X")))
+        assertEquals(false, fresh.restoreCredits(stored.replace("\"${row.name}\":$changed", "\"${row.name}\":9")))
+        assertEquals(row.credits, fresh.state().rows.first().credits)
+
+        // Going back to the defaults replaces the stored credits, so it has to be saved too.
+        reopened.reset()
+        assertEquals("預設・未儲存", reopened.state().creditSourceText)
+        assertEquals(true, reopened.state().creditsPending)
+    }
+
+    @Test
+    fun simulatorStartsFromOfficialAverageAndRespondsToEdits() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        val initial = simulator.state()
+        assertFalse(initial.hasChanges)
+        assertEquals("", initial.deltaText)
+        val row = initial.rows.first { it.canSimulate && it.score < 100.0 }
+        simulator.setScore(row.name, 100.0)
+        val raised = simulator.state()
+        assertEquals(1, raised.deltaSign)
+        assertTrue(raised.rows.first { it.name == row.name }.isAdjusted)
+        simulator.setIncluded(row.name, false)
+        assertEquals(initial.totalCredits - row.credits, simulator.state().totalCredits)
+        simulator.setCredits(row.name, 9)
+        assertEquals(4, simulator.state().rows.first { it.name == row.name }.credits)
+        simulator.reset()
+        assertEquals(initial, simulator.state())
+    }
+
+    @Test
+    fun excludingEverySubjectShowsNoAverageAndNoDelta() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        simulator.state().rows.forEach { simulator.setIncluded(it.name, false) }
+        val empty = simulator.state()
+        assertEquals("--", empty.averageText)
+        assertEquals(0, empty.deltaSign)
+        assertEquals("", empty.deltaText)
+    }
+
+    @Test
+    fun revertingStoredCustomCreditsToTheDefaultsIsPendingSoTheDefaultsCanBeStored() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        val row = simulator.state().rows.first()
+        simulator.setCredits(row.name, if (row.credits == 4) 3 else row.credits + 1)
+        simulator.markCreditsSaved(assertNotNull(simulator.creditsJson()))
+
+        simulator.reset()
+        assertEquals(true, simulator.state().creditsPending, "the stored custom credits no longer match")
+        val defaults = assertNotNull(simulator.creditsJson())
+        simulator.markCreditsSaved(defaults)
+        assertEquals(false, simulator.state().creditsPending)
+
+        val reopened = assertNotNull(PocketGrades.simulator(exam))
+        assertTrue(reopened.restoreCredits(defaults))
+        assertEquals(row.credits, reopened.state().rows.first().credits)
+        assertEquals(false, reopened.state().creditsPending)
+    }
+
+    @Test
+    fun creditsEditedWhileASaveIsInFlightStayPending() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        val row = simulator.state().rows.first()
+        simulator.setCredits(row.name, if (row.credits == 4) 3 else row.credits + 1)
+        val written = assertNotNull(simulator.creditsJson())
+
+        simulator.setCredits(row.name, row.credits)
+        simulator.markCreditsSaved(written)
+        assertEquals(true, simulator.state().creditsPending, "only the earlier credits were stored")
+        assertEquals("自訂・未儲存", simulator.state().creditSourceText)
+
+        // Storing the credits now in use clears it.
+        simulator.markCreditsSaved(assertNotNull(simulator.creditsJson()))
+        assertEquals(false, simulator.state().creditsPending)
+    }
+
+    @Test
+    fun inferredCreditsVerifyAgainstTheOfficialSummary() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        if (simulator.state().check == PocketCreditCheck.MATCHES) return
+        simulator.inferCredits()
+        val inferred = simulator.state()
+        if (inferred.candidates.isEmpty()) return
+        simulator.applyCandidate(0)
+        assertEquals(PocketCreditCheck.MATCHES, simulator.state().check)
+    }
+
+    @Test
+    fun computedInferenceChangesNothingUntilApplied() {
+        val simulator = assertNotNull(PocketGrades.simulator(exam))
+        val before = simulator.state()
+        val result = simulator.computeInference()
+        assertEquals(before, simulator.state(), "a cancelled search must leave the simulator untouched")
+        simulator.applyInference(result)
+        assertTrue(simulator.state().inferenceText.isNotEmpty())
+        val direct = assertNotNull(PocketGrades.simulator(exam)).apply { inferCredits() }.state()
+        assertEquals(direct, simulator.state())
+    }
+
+    @Test
+    fun shareTextOmitsTheStudentNumber() {
+        val text = PocketGrades.shareText(exam)
+        assertTrue("加權平均" in text)
+        assertFalse(FakeData.latestReport().studentInfo.studentNo in text)
+    }
+}
