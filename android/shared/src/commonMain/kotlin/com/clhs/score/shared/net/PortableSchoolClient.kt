@@ -529,13 +529,15 @@ class PortableSchoolClient internal constructor(
             if (currentUrl.host != baseUrl.host || currentUrl.port != baseUrl.port || (!currentUrl.isHttps && baseUrl.isHttps)) {
                 throw SchoolException("學校系統回應異常")
             }
-            val cookies = state.cookiesFor(generation, currentUrl, now())
-            val requestHeaders = buildList {
-                addAll(currentHeaders)
-                if (currentBody != null) add(HttpHeader("Content-Type", "application/x-www-form-urlencoded"))
-                if (cookies.isNotEmpty()) add(HttpHeader("Cookie", cookies.joinToString("; ") { "${it.name}=${it.value}" }))
-            }
             val response = permits.withPermit {
+                // Read the jar only once a permit is held so a queued request sends cookies rotated meanwhile.
+                requireGeneration(generation)
+                val cookies = state.cookiesFor(generation, currentUrl, now())
+                val requestHeaders = buildList {
+                    addAll(currentHeaders)
+                    if (currentBody != null) add(HttpHeader("Content-Type", "application/x-www-form-urlencoded"))
+                    if (cookies.isNotEmpty()) add(HttpHeader("Cookie", cookies.joinToString("; ") { "${it.name}=${it.value}" }))
+                }
                 transport.execute(
                     HttpRequest(currentMethod, currentUrl.toString(), requestHeaders, currentBody, CALL_TIMEOUT_MILLIS, MAX_SCHOOL_RESPONSE_BYTES),
                 )

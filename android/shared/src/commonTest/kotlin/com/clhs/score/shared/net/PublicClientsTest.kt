@@ -166,12 +166,40 @@ class PublicClientsTest {
         assertNull(PublicAnnouncementParser.safeWebUrl("https://user@example.org/"))
         assertEquals("https://www.clhs.tyc.edu.tw/a/b", PublicAnnouncementParser.safeWebUrl("/a/b"))
         assertFailsWith<PublicDataException> { PublicAnnouncementParser.parseDetail("""[{"rcode":404}]""", "1") }
-        assertFailsWith<PublicDataException> { PublicAnnouncementParser.parseDetail("""[{"rcode":200,"content":"%E5%"}]""", "1") }
+        assertFailsWith<PublicDataException> { PublicAnnouncementParser.parseDetail("""[{"rcode":200,"newsId":"1","content":"%E5%"}]""", "1") }
         val duplicate = PublicAnnouncementParser.parseDetail(
             """[{"rcode":200,"newsId":"45072","content":"","attachedfile":"[[\"o\",123,\"same.pdf\"],[\"o\",123,\"same.pdf\"]]"}]""",
             "45072",
         )
         assertEquals("same.pdf", duplicate.attachments.single().name)
+    }
+
+    @Test
+    fun detailOfAnotherOrNoAnnouncementIsRejected() {
+        assertFailsWith<PublicDataException> {
+            PublicAnnouncementParser.parseDetail("""[{"rcode":200,"newsId":"2","title":"別則","content":""}]""", "1")
+        }
+        assertFailsWith<PublicDataException> { PublicAnnouncementParser.parseDetail("""[{"rcode":200,"content":""}]""", "1") }
+        val untitledWithoutId = PublicAnnouncementParser.parseDetail("""[{"rcode":200,"title":"標題","content":""}]""", "1")
+        assertEquals("1", untitledWithoutId.id)
+    }
+
+    @Test
+    fun externalDetailCarriesItsLinkInsteadOfABody() {
+        val detail = PublicAnnouncementParser.parseDetail(
+            """[{"rcode":200,"newsId":"7","title":"外連","content_type":"url","content":"https://example.org/a.pdf#page=3"}]""",
+            "7",
+        )
+        assertTrue(detail.isExternal)
+        assertEquals("https://example.org/a.pdf#page=3", detail.externalUrl)
+        assertEquals("", detail.htmlContent)
+    }
+
+    @Test
+    fun safeWebUrlKeepsTheFragment() {
+        assertEquals("https://example.org/doc.pdf#page=3", PublicAnnouncementParser.safeWebUrl("https://example.org/doc.pdf#page=3"))
+        assertEquals("https://www.clhs.tyc.edu.tw/a/b?x=1#%E7%AB%A0", PublicAnnouncementParser.safeWebUrl("/a/b?x=1#章"))
+        assertEquals("https://example.org/doc", PublicAnnouncementParser.safeWebUrl("https://example.org/doc"))
     }
 
     @Test

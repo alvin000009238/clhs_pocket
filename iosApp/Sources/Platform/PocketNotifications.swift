@@ -166,7 +166,7 @@ final class NotificationCapabilityStore {
 /// Turns shared plans into scheduled notifications.
 @MainActor
 final class PocketNotificationCenter {
-    private static let seenAnnouncementsKey = "platform.seenAnnouncementIds"
+    static let seenAnnouncementsKey = "platform.seenAnnouncementIds"
 
     let scheduler: NotificationScheduling
     let capabilities: NotificationCapabilityStore
@@ -294,10 +294,16 @@ final class PocketNotificationCenter {
     }
 
     /// Sign-out and account changes: nothing scheduled or delivered may outlive the session.
+    /// The announcement baseline is public, not account data, and stays, as on Android: the
+    /// next (guest) check still reports what was published in between.
     func removeEverything() async {
         await scheduler.removeAll()
         capabilities.revokeAll()
-        defaults.removeObject(forKey: Self.seenAnnouncementsKey)
         defaults.removeObject(forKey: Self.coursePausedUntilKey)
+    }
+
+    /// Delete-all: unlike a sign-out, no announcement baseline may remain either.
+    func forgetAnnouncementBaseline() {
+        defaults.removeObject(forKey: Self.seenAnnouncementsKey)
     }
 }

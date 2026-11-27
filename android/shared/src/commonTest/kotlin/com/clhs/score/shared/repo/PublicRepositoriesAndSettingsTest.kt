@@ -69,6 +69,10 @@ class PublicRepositoriesAndSettingsTest {
         assertEquals(listOf(first.id), repository.bookmarks().map { it.id })
         assertFalse(repository.toggleBookmark(first))
         assertTrue(repository.bookmarks().isEmpty())
+        // Bookmarks are never evicted: the oldest one may be the only copy of an announcement gone from the list.
+        repeat(501) { repository.toggleBookmark(first.copy(id = "b$it")) }
+        assertEquals(501, repository.bookmarks().size)
+        assertEquals("b0", repository.bookmarks().last().id)
         files.failWrites += FileStore.SETTINGS
         assertFailsWith<StorageException> { repository.toggleBookmark(first) }
         // Public content still loads while reading state cannot be stored.

@@ -106,7 +106,7 @@ class PortableUrl private constructor(
         }
 
         /** Leaves an already encoded path segment or query alone and escapes only characters that are illegal on the wire. */
-        private fun encodeUnsafe(segment: String): String = buildString {
+        internal fun encodeUnsafe(segment: String): String = buildString {
             for (byte in segment.encodeToByteArray()) {
                 val code = byte.toInt() and 0xFF
                 if (code <= 0x20 || code >= 0x7F || code.toChar() in "\"<>`{}^|\\") appendPercent(code) else append(code.toChar())

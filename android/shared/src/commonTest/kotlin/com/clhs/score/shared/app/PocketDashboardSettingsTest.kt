@@ -58,6 +58,14 @@ class PocketDashboardSettingsTest {
         assertEquals("大安區", widget.selection?.title)
     }
 
+    @Test
+    fun demoYouBikeStationsNeverShowNegativeCounts() {
+        DemoLive.stations.forEach { station ->
+            val row = DemoLive.youBike(station)
+            assertTrue(row.bikesText.toInt() >= 0 && row.docksText.toInt() >= 0, "${station.name}: ${row.docksText}")
+        }
+    }
+
     /** Any searched station can be chosen, and the live loader asks for each station once. */
     @Test
     fun youBikeAcceptsSearchedStations() {
