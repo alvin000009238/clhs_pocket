@@ -236,8 +236,6 @@ struct ScheduleView: View {
                                 }
                                 .frame(minHeight: 44)
                             }
-                        } footer: {
-                            Text("還原後會恢復顯示校方提供的名稱、教師與教室。")
                         }
                     }
                 }
