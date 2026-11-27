@@ -96,11 +96,6 @@ struct ScheduleView: View {
                         }
                     )
                 }
-
-                Text("點選課程可查看教師與教室，也可以自訂顯示名稱。")
-                    .font(.footnote)
-                    .foregroundStyle(PocketColor.onSurfaceVariant)
-                    .padding(.horizontal, 4)
             }
             .pocketPage()
         }
@@ -211,10 +206,7 @@ struct ScheduleView: View {
         return NavigationStack {
             Group {
                 if overrides.isEmpty {
-                    ContentUnavailableView(
-                        "尚未自訂科目", systemImage: "pencil.and.list.clipboard",
-                        description: Text("點選課表中的課程，即可自訂顯示的科目、教師與教室。")
-                    )
+                    ContentUnavailableView("尚未自訂科目", systemImage: "pencil.and.list.clipboard")
                 } else {
                     List {
                         Section {
@@ -915,8 +907,6 @@ private struct CustomSubjectEditor: View {
                     TextField("教室（留空使用原本的）", text: $classroom)
                 } header: {
                     Text("校方科目：\(item.original)")
-                } footer: {
-                    Text("套用到這個科目的每一堂課。每欄最多 \(PocketScheduleStore.shared.maxOverrideLength()) 個字。")
                 }
             }
             .onChange(of: subject) { _, value in subject = Self.clamped(value) }
@@ -1030,9 +1020,6 @@ private struct ScheduleCellSheet: View {
                 .onChange(of: subject) { _, value in subject = Self.clamped(value) }
                 .onChange(of: teacher) { _, value in teacher = Self.clamped(value) }
                 .onChange(of: classroom) { _, value in classroom = Self.clamped(value) }
-                Text("套用到這個科目的每一堂課，\(model.account?.session != nil ? "存在這台裝置並會包含在設定備份中" : "只存在這台裝置")。每欄最多 \(PocketScheduleStore.shared.maxOverrideLength()) 個字。")
-                    .font(.footnote)
-                    .foregroundStyle(PocketColor.onSurfaceVariant)
                 HStack(spacing: 12) {
                     Button("儲存") {
                         model.scheduleOverrides = PocketScheduleStore.shared.setOverride(
