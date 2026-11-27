@@ -660,9 +660,8 @@ final class PocketShellUITests: XCTestCase {
         capture("50-announcements")
 
         // A trailing swipe bookmarks a row without opening it.
-        let swiped = app.buttons["announcement-45049"]
-        XCTAssertTrue(swiped.waitForExistence(timeout: 5))
-        reveal(swiped)
+        let swiped = announcementRow("announcement-45049")
+        XCTAssertTrue(swiped.exists)
         swiped.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5))
             .press(forDuration: 0.1, thenDragTo: swiped.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5)))
         let swipeBookmark = app.buttons["收藏公告"].firstMatch
@@ -674,7 +673,7 @@ final class PocketShellUITests: XCTestCase {
 
         // Opening an announcement marks it read; bookmarking it fills the 收藏 filter.
         let unreadBefore = app.segmentedControls["announcement-filter"].buttons.element(boundBy: 1).label
-        app.buttons["announcement-45055"].tap()
+        announcementRow("announcement-45055").tap()
         XCTAssertTrue(app.buttons["announcement-bookmark"].waitForExistence(timeout: 5))
         app.buttons["announcement-bookmark"].tap()
         capture("52-announcement-detail")
@@ -752,7 +751,8 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.buttons["campus-公告"].waitForExistence(timeout: 10))
         capture("70-campus-hub")
         app.buttons["campus-公告"].tap()
-        XCTAssertTrue(app.buttons["announcement-45055"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.segmentedControls["announcement-filter"].waitForExistence(timeout: 10))
+        XCTAssertTrue(announcementRow("announcement-45055").exists)
 
         // The second page fails once: the footer offers a retry instead of loading in a loop.
         let retry = app.buttons["announcements-load-more-retry"]
@@ -790,7 +790,7 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertFalse(app.buttons["announcement-45055"].exists)
         capture("75-announcements-filtered")
         app.buttons["announcements-clear-filters"].tap()
-        XCTAssertTrue(app.buttons["announcement-45055"].waitForExistence(timeout: 5))
+        XCTAssertTrue(announcementRow("announcement-45055").exists)
 
         app.segmentedControls["announcement-filter"].buttons["收藏"].tap()
         XCTAssertGreaterThanOrEqual(rows.count, 1, "the later-page bookmark is listed")
@@ -1069,6 +1069,19 @@ final class PocketShellUITests: XCTestCase {
     }
 
     /// Scrolls until the element can be tapped.
+    /// Lists only create the rows near the screen, and at accessibility text sizes unread rows
+    /// sorted to the top push the rest out of it: look above and below, then bring the row into view.
+    @discardableResult
+    private func announcementRow(_ identifier: String) -> XCUIElement {
+        let row = app.buttons[identifier]
+        if !row.waitForExistence(timeout: 5) {
+            for _ in 0..<8 where !row.exists { app.swipeUp() }
+            for _ in 0..<16 where !row.exists { app.swipeDown() }
+        }
+        reveal(row)
+        return row
+    }
+
     private func reveal(_ element: XCUIElement) {
         let screen = app.windows.firstMatch.frame
         for _ in 0..<8 {
