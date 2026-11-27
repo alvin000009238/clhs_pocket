@@ -190,13 +190,17 @@ object PocketLive : PocketSource {
 
     // One entry per class and week, so browsing another week keeps the current one.
     private fun scheduleKey(scope: ScheduleScope, classValue: String) = "${scope.name}/$classValue/"
-    override fun schedule(scope: ScheduleScope, today: LocalDate, classValue: String): ScheduleReport? {
-        fun find(value: String) = scheduleKey(scope, value).let { prefix ->
-            schedules.entries.firstOrNull { it.key.startsWith(prefix) && it.value.isValidOn(today) }?.value
-        }
-        // Another class that has not loaded (or failed) has no timetable yet; showing the
-        // student's own lessons under that class's name would be wrong.
-        return find(classValue)
+    override fun schedule(scope: ScheduleScope, today: LocalDate, classValue: String): ScheduleReport? =
+        schedule(scope, today, classValue, "")
+
+    override fun schedule(scope: ScheduleScope, today: LocalDate, classValue: String, yearValue: String): ScheduleReport? {
+        // Another class or term that has not loaded (or failed) has no timetable yet; showing
+        // the cached lessons of the student's own class or another term would be wrong.
+        val prefix = scheduleKey(scope, classValue)
+        return schedules.entries.firstOrNull {
+            it.key.startsWith(prefix) && it.value.isValidOn(today) &&
+                (yearValue.isEmpty() || it.value.yearTermValue == yearValue)
+        }?.value
     }
     /** [classValue] is empty for the signed-in student's own class. */
     fun putSchedule(classValue: String, report: ScheduleReport) {

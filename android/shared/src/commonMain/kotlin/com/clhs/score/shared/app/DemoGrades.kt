@@ -87,7 +87,8 @@ internal object DemoGrades {
     )
 
     private fun subjectRow(subject: SubjectScore): PocketSubjectGrade {
-        val hasScore = !subject.absent && !subject.cheating
+        // Neither a number nor a stored score means unpublished, which is no score of 0.
+        val hasScore = !subject.absent && !subject.cheating && subject.publishedScore != null
         val diff = (subject.diffValue * 10).roundToInt()
         return PocketSubjectGrade(
             name = cleanSubjectName(subject.subjectName),

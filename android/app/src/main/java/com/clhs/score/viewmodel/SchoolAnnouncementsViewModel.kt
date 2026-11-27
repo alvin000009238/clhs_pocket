@@ -4,7 +4,8 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.clhs.score.data.NetworkSchoolAnnouncementsRepository
+import com.clhs.score.BuildConfig
+import com.clhs.score.data.AnnouncementBookmarkRepository
 import com.clhs.score.data.ALL_UNITS_ID
 import com.clhs.score.data.AnnouncementFilterOptions
 import com.clhs.score.data.ANNOUNCEMENT_UNIT_ID_REGEX
@@ -12,6 +13,7 @@ import com.clhs.score.data.SchoolAnnouncement
 import com.clhs.score.data.SchoolAnnouncementDetail
 import com.clhs.score.data.SchoolAnnouncementPage
 import com.clhs.score.data.SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH
+import com.clhs.score.data.schoolAnnouncementsRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,7 +45,7 @@ data class SchoolAnnouncementsUiState(
     val hasFilters: Boolean get() = unitId != ALL_UNITS_ID || categoryId != ALL_UNITS_ID
 }
 
-private const val ANNOUNCEMENT_UNREAD_LOOKUP_MAX_PAGES = 20
+private const val ANNOUNCEMENT_INITIAL_LOAD_MAX_PAGES = 20
 
 class SchoolAnnouncementsViewModel(
     private val loadCached: suspend () -> SchoolAnnouncementPage?,
@@ -51,6 +53,7 @@ class SchoolAnnouncementsViewModel(
     private val loadCachedFilters: suspend () -> AnnouncementFilterOptions = { AnnouncementFilterOptions() },
     private val loadFilters: suspend () -> AnnouncementFilterOptions = { AnnouncementFilterOptions() },
     private val loadUnreadIds: suspend () -> Set<String> = { emptySet() },
+    private val supplementPinnedPages: Boolean = true,
 ) : ViewModel() {
     private var loadJob: Job? = null
     private var loadMoreJob: Job? = null
@@ -203,7 +206,7 @@ class SchoolAnnouncementsViewModel(
             }
             try {
                 showFirstPage(loadPage(0, keyword, filters.unitId, filters.categoryId))
-                if (keyword.isEmpty() && !filters.hasFilters) revealUnreadAnnouncements()
+                if (keyword.isEmpty() && !filters.hasFilters) completeInitialList()
             } catch (error: Exception) {
                 error.throwIfAnnouncementCancellation()
                 _uiState.update { state ->
@@ -225,15 +228,20 @@ class SchoolAnnouncementsViewModel(
         }
     }
 
-    private suspend fun revealUnreadAnnouncements() {
+    private suspend fun completeInitialList() {
+        if (!_uiState.value.hasMore) return
         _uiState.update { it.copy(isLoadingMore = true) }
         try {
-            val unreadSnapshot = loadUnreadIds()
             // Discovery on later pages must not extend this lookup into a crawl of the archive.
-            repeat(ANNOUNCEMENT_UNREAD_LOOKUP_MAX_PAGES - 1) {
+            val unreadSnapshot = loadUnreadIds()
+            val firstPage = _uiState.value.announcements
+            val startsWithOnlyPinned = supplementPinnedPages &&
+                firstPage.isNotEmpty() && firstPage.all(SchoolAnnouncement::isPinned)
+            repeat(ANNOUNCEMENT_INITIAL_LOAD_MAX_PAGES - 1) {
                 val state = _uiState.value
                 val loadedIds = state.announcements.mapTo(HashSet(), SchoolAnnouncement::id)
-                if (!state.hasMore || loadedIds.containsAll(unreadSnapshot)) return
+                val needsOrdinaryAnnouncement = startsWithOnlyPinned && state.announcements.all(SchoolAnnouncement::isPinned)
+                if (!state.hasMore || (loadedIds.containsAll(unreadSnapshot) && !needsOrdinaryAnnouncement)) return
                 val page = loadPage(state.pageIndex + 1, "", ALL_UNITS_ID, ALL_UNITS_ID)
                 _uiState.update {
                     it.copy(
@@ -270,12 +278,13 @@ class SchoolAnnouncementsViewModel(
     }
 
     companion object {
-        fun factory(context: Context): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+        fun factory(context: Context, supplementPinnedPages: Boolean = true): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val reading = com.clhs.score.data.AnnouncementReadRepository.get(context)
-                val repository = NetworkSchoolAnnouncementsRepository(
+                val repository = schoolAnnouncementsRepository(
                     context.applicationContext.cacheDir,
+                    BuildConfig.USE_FAKE_DATA,
                     readRepository = reading,
                 )
                 return SchoolAnnouncementsViewModel(
@@ -284,6 +293,7 @@ class SchoolAnnouncementsViewModel(
                     loadCachedFilters = repository::loadCachedFilterOptions,
                     loadFilters = repository::loadFilterOptions,
                     loadUnreadIds = { reading.unreadIds.first() },
+                    supplementPinnedPages = supplementPinnedPages,
                 ) as T
             }
         }
@@ -335,7 +345,13 @@ class SchoolAnnouncementDetailViewModel(
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    val repository = NetworkSchoolAnnouncementsRepository(context.applicationContext.cacheDir)
+                    val repository = schoolAnnouncementsRepository(
+                        context.applicationContext.cacheDir, BuildConfig.USE_FAKE_DATA,
+                        loadBookmark = { id ->
+                            AnnouncementBookmarkRepository.get(context).bookmarks.first()
+                                .firstOrNull { it.id == id }
+                        },
+                    )
                     return SchoolAnnouncementDetailViewModel {
                         repository.loadDetail(announcementId, category)
                     } as T

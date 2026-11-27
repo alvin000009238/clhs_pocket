@@ -248,8 +248,11 @@ struct DeveloperSettingsView: View {
         if chosen.contains(.cache) {
             do { try LocalDataCategory.clearSystemCaches() } catch { failures.append(error.message) }
         }
-        if chosen.contains(.session), model.isSignedIn {
-            do { try await model.clearSession() } catch { failures.append(error.message) }
+        if chosen.contains(.session) {
+            // Leaving the demo comes first; the school account kept behind it is then signed out too.
+            for _ in 0..<2 where model.isSignedIn {
+                do { try await model.clearSession() } catch { failures.append(error.message); break }
+            }
         }
         measure()
         freed = max(0, before - chosen.reduce(Int64(0)) { $0 + (sizes[$1] ?? 0) })

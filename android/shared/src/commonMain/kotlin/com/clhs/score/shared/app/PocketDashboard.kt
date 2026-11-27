@@ -487,7 +487,7 @@ internal object DemoLive {
         val electric = 2 + index * 3
         val ordinary = 2 + index * 5
         return PocketYouBikeStation(
-            station.id, station.name, "${electric + ordinary}", "${44 - index * 7}", "電輔車 $electric · 一般 $ordinary",
+            station.id, station.name, "${electric + ordinary}", "${(44 - index * 7).coerceAtLeast(0)}", "電輔車 $electric · 一般 $ordinary",
         )
     }
 }

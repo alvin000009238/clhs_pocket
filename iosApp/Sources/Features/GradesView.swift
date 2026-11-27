@@ -73,6 +73,11 @@ struct GradesView: View {
             loadingExam = true
             await live.loadReport(examValue: report.examValue)
             loadingExam = false
+            // Refreshes load only the newest term; an older exam needs its term's other exams for the
+            // comparison and the trend.
+            if let term = model.dataSource.gradeTerms().first(where: { $0.exams.contains { $0.value == report.examValue } }) {
+                await live.loadReports(examValues: term.exams.map(\.value))
+            }
         }
         .navigationTitle(PocketTab.grades.title)
         .sheet(isPresented: $showsExport) {
@@ -401,6 +406,13 @@ private struct GradeExportSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        // The CSV holds grades; it only lives while it can be shared.
+        .onDisappear { removeFile() }
+    }
+
+    private func removeFile() {
+        if let file { try? FileManager.default.removeItem(at: file) }
+        file = nil
     }
 
     private func export() async {
@@ -415,6 +427,7 @@ private struct GradeExportSheet: View {
         }
         let format = DateFormatter()
         format.dateFormat = "yyyyMMdd_HHmmss"
+        removeFile()
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("成績_\(format.string(from: .now)).csv")
         do {
             try Data(PocketGradeExport.shared.csv(examValues: keys).utf8).write(to: url, options: [.atomic, .completeFileProtection])

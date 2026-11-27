@@ -278,7 +278,8 @@ private struct SchoolLoginSheet: View {
                     }
                 }
             },
-            onClose: { dismiss() },
+            // Like swiping down, closing waits for the verification: it would still sign in afterwards.
+            onClose: { if !isVerifying { dismiss() } },
             onDismissError: { message = nil }
         )
         .background(PocketColor.background.ignoresSafeArea())

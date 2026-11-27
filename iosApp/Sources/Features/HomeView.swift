@@ -8,7 +8,6 @@ struct HomeView: View {
     @State private var showingEditor = false
     @State private var editing: PocketWidget?
     @State private var dropTarget: String?
-    @State private var clockDocked = false
     @State private var refreshes = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -22,7 +21,7 @@ struct HomeView: View {
         let widgets = model.widgets(columns: columns)
         ScrollView {
             VStack(alignment: .leading, spacing: PocketMetrics.sectionSpacing) {
-                DateTimeHeader(clock: model.clock, greeting: greetingLine, isRefreshing: isRefreshing)
+                HomeGreeting(clock: model.clock, greeting: greetingLine, isRefreshing: isRefreshing)
                 DashboardGrid(columns: columns) {
                     ForEach(widgets) { widget in
                         WidgetView(widget: widget, columns: columns)
@@ -58,10 +57,6 @@ struct HomeView: View {
             }
             .pocketPage()
         }
-        // Once the date card scrolls under the bar, a compact clock takes its place in the bar.
-        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 96 } action: { _, docked in
-            withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { clockDocked = docked }
-        }
         .refreshable {
             await model.refreshLiveData(force: true)
             refreshes += 1
@@ -70,12 +65,6 @@ struct HomeView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             brandItem
-            ToolbarItem(placement: .principal) {
-                if clockDocked {
-                    DockedClock(clock: model.clock)
-                        .transition(reduceMotion ? .opacity : .scale(scale: 0.85).combined(with: .opacity))
-                }
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showingEditor = true
@@ -146,16 +135,11 @@ private struct CourseHeroCard: View {
     var compact = false
 
     var body: some View {
-        HomeSurface(shape: HomeShape.hero, fill: PocketColor.primaryContainer, accent: true, padding: compact ? 16 : 24) {
+        HomeSurface(shape: HomeShape.hero, fill: PocketColor.primaryContainer, padding: compact ? 16 : 24) {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 6) {
-                    if hero.isInClass {
-                        LiveDot()
-                    }
-                    Text(hero.headline)
-                        .font(.subheadline.weight(.semibold))
-                }
-                .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
+                Text(hero.headline)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
 
                 Text(hero.courseName)
                     .font(compact ? PocketFont.display(26, relativeTo: .title) : PocketFont.hero)
@@ -165,7 +149,7 @@ private struct CourseHeroCard: View {
                     .padding(.top, 6)
 
                 if !compact {
-                Label(hero.supportingText, systemImage: "mappin.and.ellipse")
+                Text(hero.supportingText)
                     .font(.body)
                     .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
                     .padding(.top, 4)
@@ -183,12 +167,8 @@ private struct CourseHeroCard: View {
                     .padding(.top, compact ? 4 : hero.progress >= 0 ? 10 : 18)
 
                 if let next = hero.nextLine, !compact {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.turn.down.right")
-                            .imageScale(.small)
-                        Text(next)
-                            .monospacedDigit()
-                    }
+                    Text(next)
+                    .monospacedDigit()
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(PocketColor.onPrimaryContainer)
                     .padding(.horizontal, 14)
@@ -210,7 +190,7 @@ private struct GuestHeroCard: View {
     var compact = false
 
     var body: some View {
-        HomeSurface(shape: HomeShape.hero, fill: PocketColor.primaryContainer, accent: true, padding: compact ? 16 : 24) {
+        HomeSurface(shape: HomeShape.hero, fill: PocketColor.primaryContainer, padding: compact ? 16 : 24) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("登入後顯示今日課程")
                     .font(PocketFont.display(compact ? 20 : 24, relativeTo: .title2))
@@ -242,7 +222,7 @@ private struct NoLessonCard: View {
     var compact = false
 
     var body: some View {
-        HomeSurface(shape: HomeShape.hero, fill: PocketColor.primaryContainer, accent: true, padding: compact ? 16 : 24) {
+        HomeSurface(shape: HomeShape.hero, fill: PocketColor.primaryContainer, padding: compact ? 16 : 24) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(model.live?.isLoadingPrivate == true ? "正在載入課表…" : "近期沒有課程")
                     .font(PocketFont.display(compact ? 20 : 24, relativeTo: .title2))
@@ -384,22 +364,22 @@ private struct WidgetView: View {
                     WeatherCard(weather: weather, wide: isWide, short: isShort)
                 } else {
                     // Offline or not loaded yet: keep the widget's place instead of leaving a hole.
-                    MetricPlaceholder(title: widget.title, symbol: widget.symbol, failure: "暫時無法取得天氣", short: isShort)
+                    MetricPlaceholder(title: widget.title, failure: "暫時無法取得天氣", short: isShort)
                 }
             case "youbike":
                 if let station = widget.youBike {
                     YouBikeCard(station: station, wide: isWide, short: isShort)
                 } else {
-                    MetricPlaceholder(title: widget.title, symbol: widget.symbol, failure: "暫時無法取得車位資訊", short: isShort)
+                    MetricPlaceholder(title: widget.title, failure: "暫時無法取得車位資訊", short: isShort)
                 }
             case "countdown":
                 CountdownCard(countdown: widget.countdown, wide: isWide, short: isShort)
             case "alerts":
-                HomeSection(title: widget.title, symbol: widget.symbol) {
+                HomeSection(title: widget.title) {
                     if widget.needsSignIn {
-                        EmptyLine(symbol: "person.crop.circle.badge.questionmark", text: "登入後顯示調課與成績更新")
+                        EmptyLine(text: "登入後顯示調課與成績更新")
                     } else if widget.alerts.isEmpty {
-                        EmptyLine(symbol: "checkmark.circle", text: "目前沒有異動")
+                        EmptyLine(text: "目前沒有異動")
                     } else {
                         ForEach(Array(widget.alerts.enumerated()), id: \.element.id) { index, alert in
                             AlertRow(alert: alert)
@@ -408,9 +388,9 @@ private struct WidgetView: View {
                     }
                 } trailing: { EmptyView() }
             case "calendar":
-                HomeSection(title: widget.title, symbol: widget.symbol) {
+                HomeSection(title: widget.title) {
                     if widget.events.isEmpty {
-                        EmptyLine(symbol: "calendar", text: "近期沒有行程")
+                        EmptyLine(text: "近期沒有行程")
                     } else {
                         ForEach(Array(widget.events.enumerated()), id: \.element.id) { index, event in
                             EventTile(event: event)
@@ -419,9 +399,9 @@ private struct WidgetView: View {
                     }
                 } trailing: { PocketMoreLink(value: PocketRoute.calendar) }
             case "announcements":
-                HomeSection(title: widget.title, symbol: widget.symbol) {
+                HomeSection(title: widget.title) {
                     if widget.announcements.isEmpty {
-                        EmptyLine(symbol: "megaphone", text: "沒有未讀、置頂或收藏的公告")
+                        EmptyLine(text: "沒有未讀、置頂或收藏的公告")
                     } else {
                         ForEach(Array(widget.announcements.enumerated()), id: \.element.id) { index, item in
                             AnnouncementTile(item: item)
@@ -455,11 +435,10 @@ enum HomeShape {
     }
 }
 
-/// A tonal home card; `accent` adds a soft tint in two corners.
+/// A flat tonal home card.
 private struct HomeSurface<S: Shape, Content: View>: View {
     let shape: S
     var fill: Color
-    var accent = false
     var padding: CGFloat = PocketMetrics.cardPadding
     @ViewBuilder var content: Content
 
@@ -467,115 +446,44 @@ private struct HomeSurface<S: Shape, Content: View>: View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                ZStack {
-                    shape.fill(fill)
-                    if accent { HomeAccent().clipShape(shape) }
-                }
-            }
+            .background(fill, in: shape)
             .contentShape(shape)
     }
 }
 
-private struct HomeAccent: View {
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        let lead = PocketColor.primary.opacity(scheme == .dark ? 0.24 : 0.14)
-        let trail = PocketColor.tertiary.opacity(scheme == .dark ? 0.2 : 0.12)
-        let none = PocketColor.primary.opacity(0)
-        MeshGradient(width: 3, height: 3, points: [
-            [0, 0], [0.5, 0], [1, 0],
-            [0, 0.5], [0.45, 0.55], [1, 0.5],
-            [0, 1], [0.5, 1], [1, 1],
-        ], colors: [lead, none, none, none, none, none, none, none, trail])
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
 enum HomeClock {
-    static func time(_ clock: PocketClock) -> String {
-        String(format: "%02d:%02d", Int(clock.minuteOfDay) / 60, Int(clock.minuteOfDay) % 60)
-    }
-
     static func weekday(_ clock: PocketClock) -> String {
         ["一", "二", "三", "四", "五", "六", "日"][(Int(clock.dayOfWeek) + 6) % 7]
     }
 }
 
-/// The time and date at the top of 首頁.
-private struct DateTimeHeader: View {
+/// The date and greeting at the top of 首頁.
+private struct HomeGreeting: View {
     let clock: PocketClock
     let greeting: String
     let isRefreshing: Bool
-    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
-        HomeSurface(shape: RoundedRectangle(cornerRadius: HomeShape.radius, style: .continuous), fill: PocketColor.surfaceLow, padding: 20) {
-            HStack(alignment: .top, spacing: 8) {
-                layout {
-                    Text(HomeClock.time(clock))
-                        .font(PocketFont.display(46, relativeTo: .largeTitle))
-                        .monospacedDigit()
-                        .foregroundStyle(PocketColor.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(clock.month) 月 \(clock.day) 日")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(PocketColor.onSurface)
-                        Text("星期\(HomeClock.weekday(clock)) · \(greeting)")
-                            .font(.subheadline)
-                            .foregroundStyle(PocketColor.onSurfaceVariant)
-                    }
-                }
-                Spacer(minLength: 0)
-                if isRefreshing {
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel("更新中")
-                }
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(clock.month) 月 \(clock.day) 日 星期\(HomeClock.weekday(clock))")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(PocketColor.onSurfaceVariant)
+                Text(greeting)
+                    .font(PocketFont.display(30, relativeTo: .largeTitle))
+                    .foregroundStyle(PocketColor.onSurface)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 0)
+            if isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("更新中")
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-    }
-}
-
-/// The compact clock shown in the bar after the date card has scrolled away.
-private struct DockedClock: View {
-    let clock: PocketClock
-
-    var body: some View {
-        let label = HStack(spacing: 6) {
-            Text("\(clock.month)/\(clock.day)").foregroundStyle(PocketColor.onSurfaceVariant)
-            Text(HomeClock.time(clock)).foregroundStyle(PocketColor.primary)
-        }
-        .font(.subheadline.weight(.semibold))
-        .monospacedDigit()
-        .padding(.horizontal, 12)
-        .frame(minHeight: 32)
-        .accessibilityElement(children: .combine)
-        if #available(iOS 26.0, *) {
-            label
-        } else {
-            label.background(PocketColor.surfaceLow, in: .capsule)
-        }
-    }
-}
-
-private struct LiveDot: View {
-    var body: some View {
-        Circle()
-            .fill(PocketColor.primary)
-            .frame(width: 8, height: 8)
-            .padding(3)
-            .background(PocketColor.primary.opacity(0.22), in: .circle)
-            .accessibilityHidden(true)
+        .padding(.horizontal, 4)
+        .padding(.top, 4)
     }
 }
 
@@ -602,17 +510,12 @@ private struct HeroProgress: View {
 /// A list widget: the title sits above a stack of separate rows.
 private struct HomeSection<Content: View, Trailing: View>: View {
     let title: String
-    let symbol: String
     @ViewBuilder var content: Content
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Image(systemName: symbol)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(PocketColor.primary)
-                    .accessibilityHidden(true)
                 Text(title)
                     .font(PocketFont.display(21, relativeTo: .title3))
                     .foregroundStyle(PocketColor.onSurface)
@@ -629,15 +532,10 @@ private struct HomeSection<Content: View, Trailing: View>: View {
 }
 
 private struct EmptyLine: View {
-    let symbol: String
     let text: String
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(PocketColor.onSurfaceVariant)
-                .accessibilityHidden(true)
             Text(text)
                 .font(.subheadline)
                 .foregroundStyle(PocketColor.onSurfaceVariant)
@@ -751,7 +649,7 @@ private struct AnnouncementTile: View {
                                 .accessibilityHidden(true)
                         }
                         if item.isPinned {
-                            PocketChip(text: "置頂", systemImage: "pin.fill", foreground: PocketColor.onTertiaryContainer, background: PocketColor.tertiaryContainer)
+                            PocketChip(text: "置頂", foreground: PocketColor.onTertiaryContainer, background: PocketColor.tertiaryContainer)
                         }
                     }
                 }
@@ -806,7 +704,6 @@ private struct AlertRow: View {
 private struct MetricPlaceholder: View {
     @Environment(AppModel.self) private var model
     let title: String
-    let symbol: String
     let failure: String
     let short: Bool
 
@@ -830,7 +727,7 @@ private struct MetricPlaceholder: View {
                     : AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
                 layout {
                     VStack(alignment: .leading, spacing: 4) {
-                        Label(title, systemImage: symbol)
+                        Text(title)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(PocketColor.onSurfaceVariant)
                         Text(failure)
@@ -872,28 +769,15 @@ private struct WeatherFacts: View {
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) { items }
-            VStack(alignment: .leading, spacing: 2) { items }
+            Text("\(weather.highText) / \(weather.lowText) · 降雨 \(weather.rainText)")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(weather.highText) / \(weather.lowText)")
+                Text("降雨 \(weather.rainText)")
+            }
         }
         .font(.caption.weight(.medium))
         .monospacedDigit()
         .foregroundStyle(PocketColor.onSurfaceVariant)
-        .labelStyle(CompactLabel())
-    }
-
-    @ViewBuilder private var items: some View {
-        Label(weather.highText, systemImage: "arrow.up")
-        Label(weather.lowText, systemImage: "arrow.down")
-        Label("降雨 \(weather.rainText)", systemImage: "drop.fill")
-    }
-}
-
-private struct CompactLabel: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 3) {
-            configuration.icon.imageScale(.small)
-            configuration.title
-        }
         .lineLimit(1)
     }
 }
@@ -923,7 +807,7 @@ private struct WeatherCard: View {
     private var range: String { "\(weather.highText) / \(weather.lowText) · 降雨 \(weather.rainText)" }
 
     var body: some View {
-        HomeSurface(shape: HomeShape.metric, fill: PocketColor.surfaceLow, accent: true, padding: short ? 16 : PocketMetrics.cardPadding) {
+        HomeSurface(shape: HomeShape.metric, fill: PocketColor.surfaceLow, padding: short ? 16 : PocketMetrics.cardPadding) {
             if short {
                 HStack(spacing: 12) {
                     Text(weather.temperatureText)
@@ -986,7 +870,7 @@ private struct CountdownCard: View {
     let short: Bool
 
     var body: some View {
-        HomeSurface(shape: HomeShape.metric, fill: PocketColor.tertiaryContainer, accent: true, padding: short ? 16 : PocketMetrics.cardPadding) {
+        HomeSurface(shape: HomeShape.metric, fill: PocketColor.tertiaryContainer, padding: short ? 16 : PocketMetrics.cardPadding) {
             if let countdown {
                 if short {
                     HStack(spacing: 12) {
@@ -1002,7 +886,7 @@ private struct CountdownCard: View {
                     .frame(maxHeight: .infinity)
                 } else {
                     VStack(alignment: .leading, spacing: 0) {
-                        Label("倒數", systemImage: "hourglass")
+                        Text("倒數")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(PocketColor.onTertiaryContainer.opacity(0.85))
                         Text(countdown.label)
@@ -1017,7 +901,7 @@ private struct CountdownCard: View {
                     .frame(maxHeight: .infinity, alignment: .top)
                 }
             } else {
-                Label("行程已不在行事曆中", systemImage: "hourglass")
+                Text("行程已不在行事曆中")
                     .font(.subheadline)
                     .foregroundStyle(PocketColor.onTertiaryContainer)
                     .frame(maxHeight: .infinity)

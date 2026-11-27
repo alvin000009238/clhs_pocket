@@ -1,6 +1,9 @@
 package com.clhs.score.shared.app
 
+import com.clhs.score.data.ExamOption
 import com.clhs.score.data.FakeData
+import com.clhs.score.data.YearTermOption
+import com.clhs.score.data.cleanSubjectName
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -17,6 +20,34 @@ class PocketGradesTest {
         assertEquals(5, detail.standards.size)
         assertEquals(1, detail.distribution.count { it.isMine })
         assertTrue(detail.trend.size > 1)
+    }
+
+    @Test
+    fun anUnpublishedScoreIsNotAZeroInTheDetailOrItsTrend() {
+        val terms = listOf(
+            YearTermOption("114 學年度 第 1 學期", "114_1", listOf(ExamOption("第一次段考", "1"), ExamOption("第二次段考", "2"))),
+        )
+        PocketData.useLive()
+        try {
+            PocketLive.clearAll()
+            PocketLive.putStructure(terms)
+            val published = FakeData.reportFor("114_1", "114_1_E1")
+            val name = published.subjects.first().subjectName
+            val unpublished = published.copy(
+                subjects = published.subjects.map { if (it.subjectName == name) it.copy(scoreDisplay = "未公布", score = null) else it },
+            )
+            PocketLive.putReport("114_1", "1", published)
+            PocketLive.putReport("114_1", "2", unpublished)
+            val key = DemoGrades.terms.single().exams.first { PocketLive.examCodeOf(it.value) == "2" }.value
+            val detail = assertNotNull(PocketGrades.subjectDetail(key, cleanSubjectName(name)))
+            assertEquals("", detail.diffText)
+            assertEquals(0, detail.diffSign)
+            assertEquals(listOf("第一次段考"), detail.trend.map { it.examName })
+            assertEquals(-1.0, DemoGrades.report(key).subjects.first { it.name == cleanSubjectName(name) }.fraction)
+        } finally {
+            PocketLive.clearAll()
+            PocketData.useDemo()
+        }
     }
 
     @Test

@@ -565,7 +565,7 @@ class ArchitectureBoundaryTest {
         val appSource = readSource("app/src/main/java/com/clhs/score/ui/AuthenticatedApp.kt")
         val campusSource = readSource("app/src/main/java/com/clhs/score/ui/HubScreens.kt")
 
-        assertTrue(campusSource.contains("title = \"欣河智慧校園平台\""))
+        assertTrue(campusSource.contains("\"欣河智慧校園平台\""))
         assertTrue(appSource.contains("AuthGate("))
         assertTrue(appSource.contains("scoreViewModel.getCurrentSession()?.let"))
         assertTrue(webViewSource.contains("session.cookies.forEach"))
@@ -617,48 +617,35 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    fun announcementDetailLoadingKeepsTheHeaderCornerShape() {
+    fun announcementDetailKeepsSelectableContentInOneScrollContainer() {
         val source = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
-        val detailLoading = source.substringAfter("private fun AnnouncementDetailLoading()")
-            .substringBefore("private fun AnnouncementLoadingBlock(")
-
-        assertTrue(detailLoading.contains("shape = MaterialTheme.shapes.largeIncreased"))
+        val detail = source.substringAfter("private fun AnnouncementDetailContent(")
+            .substringBefore("private fun AnnouncementDetailHeader(")
+        val selection = detail.indexOf("SelectionContainer(")
+        val scroll = detail.indexOf(".verticalScroll(")
+        val article = detail.indexOf("AnnouncementHtml(")
+        assertTrue(selection >= 0 && selection < scroll && scroll < article)
+        assertFalse(detail.contains("LazyColumn("))
     }
 
     @Test
-    fun announcementHtmlLinksRemainClickable() {
-        val source = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
-        val textViewSetup = source.substringAfter("TextView(context).apply {")
-            .substringBefore("textSize = 16f")
-
-        assertTrue(textViewSetup.contains("movementMethod = LinkMovementMethod.getInstance()"))
-        assertTrue(textViewSetup.contains("linksClickable = true"))
-        assertFalse(
-            "Text selection replaces LinkMovementMethod and makes announcement links unclickable",
-            textViewSetup.contains("setTextIsSelectable(true)"),
-        )
-    }
-
-    @Test
-    fun campusPersonalAndSettingsDestinationsOwnFormerDrawerEntrances() {
+    fun campusAndCombinedSettingsOwnFormerDrawerEntrances() {
         val gradesSource = readSource("app/src/main/java/com/clhs/score/ui/GradesScreen.kt")
         val hubSource = readSource("app/src/main/java/com/clhs/score/ui/HubScreens.kt")
-        val personalSource = readSource("app/src/main/java/com/clhs/score/ui/PersonalScreen.kt")
         val generalSettingsSource = readSource("app/src/main/java/com/clhs/score/ui/GeneralSettingsScreen.kt")
         val navigationSource = readSource("app/src/main/java/com/clhs/score/ui/navigation/AppNavigation.kt")
         val settingsSource = readSource("app/src/main/java/com/clhs/score/ui/SettingsScreen.kt")
         val advancedSource = readSource("app/src/main/java/com/clhs/score/ui/AdvancedComponents.kt")
 
-        assertTrue(hubSource.contains("title = \"欣河智慧校園平台\""))
-        assertTrue(hubSource.contains("\"學校公告\""))
-        assertTrue(hubSource.contains("title = \"行事曆\""))
-        assertTrue(hubSource.contains("OverviewItemKind.Announcement"))
-        assertTrue(hubSource.contains("OverviewItemKind.CalendarEvent"))
-        assertFalse(hubSource.contains("CampusDestination("))
-        assertTrue(personalSource.contains("LazyColumn("))
+        assertTrue(hubSource.contains("onClick = onOpenAnnouncements"))
+        assertTrue(hubSource.contains("onClick = onOpenCalendar"))
+        assertTrue(hubSource.contains("onClick = onOpenAttendance"))
+        assertTrue(hubSource.contains("onClick = onOpenMerit"))
+        assertTrue(generalSettingsSource.contains("SettingsSection(\"帳號安全\")"))
+        assertTrue(generalSettingsSource.contains("title = \"生物識別解鎖\""))
+        assertTrue(generalSettingsSource.contains("Text(\"登出帳號\","))
         assertTrue(generalSettingsSource.contains("SettingsSection(\"外觀\""))
         assertTrue(generalSettingsSource.contains("SettingsSection(\"關於\""))
-        assertTrue(personalSource.contains("Text(\"登出帳號\","))
         assertFalse(navigationSource.contains("data object SettingsRoute"))
         assertFalse(navigationSource.contains("data object AboutRoute"))
         assertTrue(navigationSource.contains("Overview(OverviewRoute, \"首頁\""))
@@ -676,11 +663,6 @@ class ArchitectureBoundaryTest {
             .substringBefore("SettingsSection(\"關於\")")
         assertTrue(dataPrivacySection.contains("title = \"使用統計\""))
         assertFalse(dataPrivacySection.contains("title = \"生物識別解鎖\""))
-        assertTrue(personalSource.contains("SettingsSection(\"帳號安全\")"))
-        assertTrue(personalSource.contains("title = \"生物識別解鎖\""))
-        assertTrue(personalSource.contains("onOpenSettings"))
-        assertTrue(personalSource.contains("onOpenAttendance"))
-        assertTrue(personalSource.contains("onOpenMerits"))
         assertFalse(
             generalSettingsSource.substringAfter("SettingsSection(\"關於\")")
                 .substringBefore("SettingsSection(\"開發者選項\")")
@@ -696,7 +678,7 @@ class ArchitectureBoundaryTest {
     @Test
     fun announcementReminderEntryLivesInAnnouncementsOverflowMenu() {
         val announcementsSource = readSource("app/src/main/java/com/clhs/score/ui/announcements/SchoolAnnouncementsScreen.kt")
-        val personalSource = readSource("app/src/main/java/com/clhs/score/ui/PersonalScreen.kt")
+        val generalSettingsSource = readSource("app/src/main/java/com/clhs/score/ui/GeneralSettingsScreen.kt")
         val reminderLabel = "text = { Text(\"公告更新提醒\") }"
         val reminderMenu = announcementsSource.substringBefore(reminderLabel).substringAfterLast("PocketOverflowMenuItem(") +
             announcementsSource.substringAfter(reminderLabel).substringBefore("onClick = {")
@@ -706,8 +688,8 @@ class ArchitectureBoundaryTest {
         assertTrue(announcementsSource.contains("text = { Text(\"公告更新提醒\") }"))
         assertFalse(reminderMenu.contains("leadingIcon"))
         assertTrue(announcementsSource.contains("onOpenAnnouncementReminder()"))
-        assertFalse(personalSource.contains("公告更新提醒"))
-        assertFalse(personalSource.contains("onOpenAnnouncementReminder"))
+        assertFalse(generalSettingsSource.contains("公告更新提醒"))
+        assertFalse(generalSettingsSource.contains("onOpenAnnouncementReminder"))
     }
 
     @Test
@@ -724,7 +706,7 @@ class ArchitectureBoundaryTest {
     fun announcementReminderWorkerUsesOnlyPublicAnnouncementData() {
         val worker = readSource("app/src/main/java/com/clhs/score/reminders/AnnouncementReminderWorker.kt")
 
-        assertTrue(worker.contains("NetworkSchoolAnnouncementsRepository"))
+        assertTrue(worker.contains("schoolAnnouncementsRepository(appContext.cacheDir, BuildConfig.USE_FAKE_DATA)"))
         assertTrue(worker.contains("AnnouncementReminderRepository"))
         assertTrue(worker.contains("school_announcement_poll"))
         listOf("SessionStore", "SchoolGradeClient", "SchoolCookieJar", "AuthenticatedSession").forEach { term ->
