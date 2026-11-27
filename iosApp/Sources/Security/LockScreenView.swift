@@ -16,16 +16,10 @@ struct LockScreenView: View {
                         .frame(width: 88, height: 88)
                         .background(PocketColor.primaryContainer, in: Circle())
                         .accessibilityHidden(true)
-                    VStack(spacing: 8) {
-                        Text("壢中 Pocket 已鎖定")
-                            .font(PocketFont.pageTitle)
-                            .foregroundStyle(PocketColor.onSurface)
-                            .multilineTextAlignment(.center)
-                        Text("成績、課表與出缺勤只在解鎖後顯示。")
-                            .font(.body)
-                            .foregroundStyle(PocketColor.onSurfaceVariant)
-                            .multilineTextAlignment(.center)
-                    }
+                    Text("壢中 Pocket 已鎖定")
+                        .font(PocketFont.pageTitle)
+                        .foregroundStyle(PocketColor.onSurface)
+                        .multilineTextAlignment(.center)
                     if let message = lock.message {
                         Label(message, systemImage: "exclamationmark.circle.fill")
                             .font(.callout)

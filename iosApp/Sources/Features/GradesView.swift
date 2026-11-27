@@ -343,10 +343,12 @@ private struct GradeExportSheet: View {
             List {
                 // Status first, so it is visible at the medium detent however many terms there are.
                 Section {
-                    Text(message ?? "匯出所選考試的各科分數、班平均、排名與五標，可用試算表開啟。")
-                        .font(.footnote)
-                        .foregroundStyle(PocketColor.onSurfaceVariant)
-                        .accessibilityIdentifier("export-message")
+                    if let message {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(PocketColor.onSurfaceVariant)
+                            .accessibilityIdentifier("export-message")
+                    }
                     if let file {
                         ShareLink(item: file) {
                             Label("分享 CSV 檔", systemImage: "square.and.arrow.up")

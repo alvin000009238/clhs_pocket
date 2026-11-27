@@ -61,8 +61,6 @@ struct DashboardEditorView: View {
                 Section {
                     Button("還原預設配置", role: .destructive) { model.resetDashboard() }
                         .accessibilityIdentifier("dashboard-reset")
-                } footer: {
-                    Text("按「完成」才會儲存；「取消」可放棄這次的所有變更。")
                 }
             }
             .scrollContentBackground(.hidden)
@@ -256,8 +254,6 @@ struct WidgetSettingsView: View {
                 .accessibilityIdentifier("widget-limit")
             } header: {
                 Text("顯示數量")
-            } footer: {
-                Text("尺寸為「寬」時只顯示 1 則。")
             }
             if widget.type == "announcements" {
                 AnnouncementPrioritySettings(widget: widget)

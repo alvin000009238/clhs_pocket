@@ -72,8 +72,6 @@ struct NotificationSettingsView: View {
                             .foregroundStyle(PocketColor.warning)
                     }
                 }
-            } footer: {
-                Text("通知只在這台裝置上產生，內容不包含分數與排名。")
             }
             Section("通知項目") {
                 Toggle(isOn: binding(\.courseReminders)) { row("上課前提醒", "上課前 5 分鐘") }
@@ -100,8 +98,6 @@ struct NotificationSettingsView: View {
                 }
             } header: {
                 Text("動態與時段")
-            } footer: {
-                Text("iOS 由系統決定背景更新的時機，提醒與小工具可能在開啟 App 後才更新。")
             }
             if model.dataSource.isDemo, settings.notificationsEnabled {
                 Section("示範") {
@@ -166,8 +162,6 @@ struct BackgroundPauseView: View {
                     }
                 ))
                     .accessibilityIdentifier("pause-enabled")
-            } footer: {
-                Text("時段內不在背景檢查成績與公告；上課提醒與小工具不受影響，開啟 App 時仍會正常更新。")
             }
             if model.pauseEnabled {
                 Section {
@@ -210,8 +204,6 @@ struct WeatherSourceView: View {
                     .accessibilityAddTraits(model.weatherSource == source.id ? .isSelected : [])
                     .accessibilityIdentifier("weather-source-\(source.id)")
                 }
-            } footer: {
-                Text(model.usesLiveData ? "切換後會立即重新取得天氣。中央氣象署需要你自己的授權碼，尚未設定時會沿用上次的資料。" : "示範資料的天氣數值固定；使用真實資料時切換會立即重新取得天氣。")
             }
             if model.weatherSource == "cwa" {
                 CwaKeySection()
@@ -270,7 +262,7 @@ struct CwaKeySection: View {
         } header: {
             Text("中央氣象署授權碼")
         } footer: {
-            Text("到中央氣象署開放資料平臺登入會員後取得。授權碼只保存在這台裝置的鑰匙圈，不會包含在設定備份中。")
+            Text("到中央氣象署開放資料平臺登入會員後取得。")
         }
         .task { hasKey = await model.hasCwaKey() }
     }
@@ -315,11 +307,11 @@ struct AppLockSettingsView: View {
                 .disabled(model.lock.method == .unavailable)
                 .accessibilityIdentifier("app-lock-toggle")
             } footer: {
-                Text(
-                    model.lock.method == .unavailable ? "這部裝置尚未設定密碼。請先到「設定」設定裝置密碼，才能開啟 App 鎖定。"
-                        : failed ? "驗證沒有成功，設定未變更。"
-                        : "使用 Face ID、Touch ID 或裝置密碼保護成績與在校紀錄。離開 App 後再回來需要重新驗證。"
-                )
+                if model.lock.method == .unavailable {
+                    Text("這部裝置尚未設定密碼。請先到「設定」設定裝置密碼，才能開啟 App 鎖定。")
+                } else if failed {
+                    Text("驗證沒有成功，設定未變更。")
+                }
             }
         }
         // The user may have set a passcode in Settings while away.
@@ -370,8 +362,6 @@ struct DataSettingsView: View {
                 .accessibilityIdentifier("data-json")
             } header: {
                 Text("設定備份")
-            } footer: {
-                Text("備份與 Android 版通用，包含外觀、首頁配置、通知偏好、安靜時段與登入後的自訂科目名稱，不包含帳號、密碼或成績。")
             }
             if let shown = message {
                 Section {
@@ -470,8 +460,6 @@ struct SettingsJSONEditorView: View {
                     .accessibilityIdentifier("json-editor")
             } header: {
                 Text("設定 JSON")
-            } footer: {
-                Text("套用前會先檢查內容並列出將變更的設定。自訂文字可能含個人資訊，請妥善保管。")
             }
             if let message {
                 Section {
