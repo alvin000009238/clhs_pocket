@@ -59,6 +59,8 @@ fun CampusScreen(
     onOpenMerit: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSchoolWebsite: (() -> Unit)?,
+    campusPin: SchoolAnnouncement? = null,
+    onOpenCampusPin: (SchoolAnnouncement) -> Unit = onOpenAnnouncement,
 ) {
     val rootScroll = rememberScrollState()
     com.clhs.score.ui.navigation.RegisterRootScroll(rootScroll)
@@ -89,12 +91,23 @@ fun CampusScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 val unreadText = announcementBadgeText(unreadAnnouncementCount)
-                val pinned = state.announcements.firstOrNull(SchoolAnnouncement::isPinned)
+                val pinned = if (campusPin != null) {
+                    state.announcements.firstOrNull { it.id == campusPin.id } ?: campusPin
+                } else {
+                    state.announcements.firstOrNull(SchoolAnnouncement::isPinned)
+                }
                 PinnedAnnouncementCard(
                     announcement = pinned,
+                    isCampusPin = campusPin != null,
                     isLoading = state.announcementsLoading,
                     isFailed = state.announcementsFailed,
-                    onClick = if (pinned == null) onOpenAnnouncements else { { onOpenAnnouncement(pinned) } },
+                    onClick = {
+                        when {
+                            pinned == null -> onOpenAnnouncements()
+                            campusPin != null -> onOpenCampusPin(pinned)
+                            else -> onOpenAnnouncement(pinned)
+                        }
+                    },
                 )
                 CampusTileRow {
                     val hasUnread = unreadAnnouncementCount > 0
@@ -144,6 +157,7 @@ fun CampusScreen(
 @Composable
 private fun PinnedAnnouncementCard(
     announcement: SchoolAnnouncement?,
+    isCampusPin: Boolean,
     isLoading: Boolean,
     isFailed: Boolean,
     onClick: () -> Unit,
@@ -173,7 +187,7 @@ private fun PinnedAnnouncementCard(
                         contentColor = MaterialTheme.colorScheme.onTertiary,
                     ) {
                         Text(
-                            "置頂公告",
+                            if (isCampusPin) "釘選公告" else "置頂公告",
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.labelMedium,
                         )
@@ -310,10 +324,22 @@ private fun CampusModuleCard(
 @Preview(name = "校園 · Large Text", widthDp = 320, heightDp = 1000, fontScale = 1.5f)
 @Composable
 private fun CampusScreenPreview() {
+    CampusPreview(campusPin = null)
+}
+
+@Preview(name = "校園 · 手動釘選", widthDp = 360, heightDp = 800, fontScale = 1.3f)
+@Composable
+private fun CampusManualPinPreview() {
+    CampusPreview(campusPin = FakeData.announcementPage.announcements.first { !it.isPinned })
+}
+
+@Composable
+private fun CampusPreview(campusPin: SchoolAnnouncement?) {
     com.clhs.score.ui.theme.ScoreTheme {
         CampusScreen(
             state = OverviewState(isInitialLoading = false, announcements = FakeData.announcementPage.announcements),
             unreadAnnouncementCount = 3,
+            campusPin = campusPin,
             onOpenPersonal = {},
             onOpenAnnouncements = {},
             onOpenAnnouncement = {},

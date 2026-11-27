@@ -177,6 +177,17 @@ private fun SchoolAnnouncementsPreview(
 @Preview(name = "School Announcement Detail · Dark", widthDp = 390, heightDp = 844, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun SchoolAnnouncementDetailPreview() {
+    SchoolAnnouncementBookmarkPreview(isPinnedToCampus = false)
+}
+
+@Preview(name = "公告詳情 · 已釘選", widthDp = 320, heightDp = 780, fontScale = 1.5f)
+@Composable
+private fun SchoolAnnouncementPinnedDetailPreview() {
+    SchoolAnnouncementBookmarkPreview(isPinnedToCampus = true)
+}
+
+@Composable
+private fun SchoolAnnouncementBookmarkPreview(isPinnedToCampus: Boolean) {
     val detail = FakeData.examAnnouncementDetail
     ScoreTheme {
         com.clhs.score.ui.announcements.SchoolAnnouncementDetailScreen(
@@ -188,6 +199,9 @@ private fun SchoolAnnouncementDetailPreview() {
             onRetry = {},
             onOpenUrl = {},
             officialUrl = detail.officialUrl,
+            isBookmarked = true,
+            isPinnedToCampus = isPinnedToCampus,
+            onToggleCampusPin = {},
         )
     }
 }

@@ -90,6 +90,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
@@ -157,6 +158,7 @@ import com.clhs.score.data.SchoolAnnouncementImage
 import com.clhs.score.data.SCHOOL_ANNOUNCEMENT_SEARCH_MAX_LENGTH
 import com.clhs.score.data.safeAnnouncementWebUrl
 import com.clhs.score.ui.hapticClick
+import com.clhs.score.ui.FilledRoundedSymbol
 import com.clhs.score.ui.OutlinedRoundedSymbol
 import com.clhs.score.ui.PocketOptionIcon
 import com.clhs.score.ui.LocalReadingGutter
@@ -204,6 +206,7 @@ fun SchoolAnnouncementsScreen(
     onRetryBookmarks: () -> Unit = {},
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
     val pullToRefreshState = rememberPullToRefreshState()
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -247,7 +250,11 @@ fun SchoolAnnouncementsScreen(
     }
     LaunchedEffect(bookmarksUiState.message) {
         bookmarksUiState.message?.let { message ->
-            snackbarHostState.showSnackbar(message)
+            if (showBookmarks) {
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            } else {
+                snackbarHostState.showSnackbar(message)
+            }
             onBookmarkMessageConsumed()
         }
     }
@@ -1128,6 +1135,8 @@ fun SchoolAnnouncementDetailScreen(
     onOpenExternal: (SchoolAnnouncementDetail) -> Unit = {},
     isBookmarked: Boolean = false,
     onToggleBookmark: () -> Unit = {},
+    isPinnedToCampus: Boolean = false,
+    onToggleCampusPin: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val announcementUrl = uiState.detail?.officialUrl ?: officialUrl
@@ -1135,6 +1144,23 @@ fun SchoolAnnouncementDetailScreen(
     FloatingSubpageLayout(
         onBack = onBack,
         actions = {
+            if (isBookmarked) {
+                IconToggleButton(
+                    checked = isPinnedToCampus,
+                    onCheckedChange = { onToggleCampusPin?.invoke() },
+                    enabled = onToggleCampusPin != null,
+                    colors = IconButtonDefaults.iconToggleButtonColors(
+                        checkedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
+                ) {
+                    if (isPinnedToCampus) {
+                        FilledRoundedSymbol("push_pin", contentDescription = "取消釘選到校園頁")
+                    } else {
+                        OutlinedRoundedSymbol("push_pin", contentDescription = "釘選到校園頁")
+                    }
+                }
+            }
             IconButton(onClick = onToggleBookmark, enabled = uiState.detail != null) {
                 OutlinedRoundedSymbol(if (isBookmarked) "bookmark_added" else "bookmark_add",
                     contentDescription = if (isBookmarked) "取消收藏公告" else "收藏公告")
