@@ -642,6 +642,7 @@ final class PocketShellUITests: XCTestCase {
         launch(onboarded: true, session: "demo")
         tab("校園").tap()
         XCTAssertTrue(app.buttons["campus-公告"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["campus-school-system"].exists, "demo data has no school system to open")
 
         // The hub's hero opens the pinned announcement, whose school page has a table the app leaves out.
         let pinned = app.buttons["campus-pinned"]
@@ -744,6 +745,22 @@ final class PocketShellUITests: XCTestCase {
         XCTAssertTrue(app.buttons["announcement-45040"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["announcement-45055"].exists)
         capture("54-announcements-search")
+    }
+
+    func testSchoolSystemCardOpensAndClosesTheSchoolSite() {
+        launch(onboarded: true, session: "demo", extra: ["-demoSchoolSystemCard", "YES"])
+        tab("校園").tap()
+        let card = app.buttons["campus-school-system"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        reveal(card)
+        XCTAssertTrue(card.label.contains("欣河智慧校園平台"), card.label)
+        XCTAssertTrue(card.label.contains("前往校務系統"), card.label)
+        capture("70b-campus-school-system")
+        card.tap()
+        let close = app.buttons["關閉"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        close.tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
     }
 
     func testAnnouncementsScrollEveryPageFilterSearchAndRemind() {
