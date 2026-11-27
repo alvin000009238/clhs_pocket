@@ -80,12 +80,7 @@ struct ScheduleView: View {
                 header(schedule)
 
                 if schedule.isAvailable {
-                    // One continuous panel, as Android: lessons share the panel colour and hairlines
-                    // separate days and periods, so the subject accent and changes stand out.
-                    grid(schedule)
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, sizeClass == .regular ? 8 : 4)
-                        .background(PocketColor.surfaceLow, in: .rect(cornerRadius: PocketMetrics.innerRadius + 4, style: .continuous))
+                    grid(schedule).schedulePanel()
                 } else {
                     PocketPendingView(
                         isLoading: model.live?.isLoadingPrivate ?? false || loadingClass,
@@ -96,11 +91,6 @@ struct ScheduleView: View {
                         }
                     )
                 }
-
-                Text("點選課程可查看教師與教室，也可以自訂顯示名稱。")
-                    .font(.footnote)
-                    .foregroundStyle(PocketColor.onSurfaceVariant)
-                    .padding(.horizontal, 4)
             }
             .pocketPage()
         }
@@ -211,10 +201,7 @@ struct ScheduleView: View {
         return NavigationStack {
             Group {
                 if overrides.isEmpty {
-                    ContentUnavailableView(
-                        "尚未自訂科目", systemImage: "pencil.and.list.clipboard",
-                        description: Text("點選課表中的課程，即可自訂顯示的科目、教師與教室。")
-                    )
+                    ContentUnavailableView("尚未自訂科目", systemImage: "pencil.and.list.clipboard")
                 } else {
                     List {
                         Section {
@@ -521,7 +508,7 @@ struct ScheduleView: View {
             Text(showsSemester ? schedule.termText : "\(schedule.rangeText) · \(schedule.weekText)")
                 .font(.subheadline)
                 .foregroundStyle(PocketColor.onSurfaceVariant)
-            ScheduleGrid(schedule: schedule) { _ in }
+            ScheduleGrid(schedule: schedule) { _ in }.schedulePanel()
         }
         .padding(20)
         .frame(width: 640)
@@ -551,6 +538,8 @@ struct ScheduleView: View {
                     .frame(width: 44 + CGFloat(schedule.days.count) * 112)
             }
             .scrollIndicators(.visible)
+            // Lessons scrolling past the panel edge are cut along the tiles' own corners.
+            .clipShape(ScheduleShape.tile)
             .accessibilityIdentifier("schedule-grid-scroll")
         } else {
             ScheduleGrid(schedule: schedule) { selectedCell = $0 }
@@ -634,22 +623,41 @@ struct ScheduleView: View {
     }
 }
 
+/// One corner system for the timetable: the panel's continuous corner, and tiles inset by the
+/// panel padding whose radius is the panel radius minus that inset, so every corner is concentric.
+private enum ScheduleShape {
+    static let panelRadius: CGFloat = 22
+    static let inset: CGFloat = 6
+    static let tileRadius = panelRadius - inset
+    static let panel = RoundedRectangle(cornerRadius: panelRadius, style: .continuous)
+    static let tile = RoundedRectangle(cornerRadius: tileRadius, style: .continuous)
+    /// Lessons sit on a lighter tile than the panel; free periods stay open.
+    static let lessonFill = PocketColor.dynamic(0xFDFDFF, 0x24272C)
+}
+
+private extension View {
+    /// Flat panel behind the grid, as Android's surfaceContainerLow card; no shadow.
+    func schedulePanel() -> some View {
+        padding(ScheduleShape.inset)
+            .background(PocketColor.surfaceLow, in: ScheduleShape.panel)
+    }
+}
+
 private struct ScheduleGrid: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.displayScale) private var displayScale
-    @ScaledMetric(relativeTo: .caption) private var compactRowHeight: CGFloat = 58
+    @ScaledMetric(relativeTo: .caption) private var compactRowHeight: CGFloat = 56
     let schedule: PocketSchedule
     let onSelect: (PocketScheduleCell) -> Void
 
-    private let gap: CGFloat = 0
-    private let lunchGap: CGFloat = 18
+    private let lunchGap: CGFloat = 20
     private let lastMorningPeriod = 4
 
+    private var gap: CGFloat { sizeClass == .regular ? 4 : 3 }
     private var rowHeight: CGFloat { sizeClass == .regular ? compactRowHeight + 30 : compactRowHeight }
     private var timeColumnWidth: CGFloat { sizeClass == .regular ? 56 : 30 }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: gap) {
             HStack(spacing: gap) {
                 Color.clear.frame(width: timeColumnWidth, height: 1)
                 ForEach(schedule.days, id: \.dayOfWeek) { day in
@@ -667,8 +675,8 @@ private struct ScheduleGrid: View {
                     }
                     .foregroundStyle(day.isToday ? PocketColor.onPrimary : PocketColor.onSurfaceVariant)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
-                    .background(day.isToday ? PocketColor.primary : .clear, in: .rect(cornerRadius: 12, style: .continuous))
+                    .padding(.vertical, 6)
+                    .background(day.isToday ? PocketColor.primary : .clear, in: ScheduleShape.tile)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("週\(day.label) \(day.dateText)\(day.isToday ? "，今天" : "")")
                 }
@@ -715,30 +723,21 @@ private struct ScheduleGrid: View {
                                 }
                             }
                             .frame(height: height(rows: slot.rows))
-                            .overlay(alignment: .bottom) {
-                                if slot.rows.upperBound < schedule.periods.count, slot.rows.upperBound - 1 != lunchRow {
-                                    hairline.frame(height: 1 / displayScale)
-                                }
-                            }
                             .padding(.bottom, bottomGap(afterRow: slot.rows.upperBound - 1))
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    .overlay(alignment: .leading) { hairline.frame(width: 1 / displayScale) }
                 }
             }
             .overlay(alignment: .top) {
                 if let lunchRow {
-                    HStack(spacing: 8) {
-                        line
-                        Text("午休")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(PocketColor.onSurfaceVariant)
-                        line
-                    }
-                    .frame(height: lunchGap)
-                    .offset(y: offset(ofRow: lunchRow + 1) - lunchGap)
-                    .accessibilityHidden(true)
+                    Text("午休")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(PocketColor.onSurfaceVariant)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: lunchGap)
+                        .offset(y: offset(ofRow: lunchRow + 1) - lunchGap)
+                        .accessibilityHidden(true)
                 }
             }
         }
@@ -789,14 +788,6 @@ private struct ScheduleGrid: View {
         (0..<target).reduce(0) { $0 + rowHeight + bottomGap(afterRow: $1) }
     }
 
-    private var line: some View {
-        Rectangle().fill(PocketColor.outline.opacity(0.8)).frame(height: 1)
-    }
-
-    private var hairline: some View {
-        Rectangle().fill(PocketColor.outline.opacity(0.45)).accessibilityHidden(true)
-    }
-
     private func bottomGap(afterRow row: Int) -> CGFloat {
         if row >= schedule.periods.count - 1 { return 0 }
         return row == lunchRow ? lunchGap : gap
@@ -819,8 +810,11 @@ private struct ScheduleCellView: View {
         let isCancelled = cell.change == .cancelled
         let isChanged = cell.change != .none
         let dimmed = cell.status == .ended || isCancelled
-        // Android's week grid: lessons share the panel, a short subject-colour mark sits above the
-        // name, changes use the tertiary container and the current lesson gets an outline.
+        // Every lesson is its own tile; a short subject-colour mark sits above the name, changes
+        // use the tertiary container and the current lesson an outline, all on the same shape.
+        let fill = isChanged ? PocketColor.tertiaryContainer
+            : isCurrent ? PocketColor.primaryContainer
+            : ScheduleShape.lessonFill
         VStack(spacing: 4) {
             Capsule()
                 .fill(color)
@@ -832,7 +826,7 @@ private struct ScheduleCellView: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(isChanged ? PocketColor.onTertiaryContainer : PocketColor.onSurface)
+                .foregroundStyle(isChanged ? PocketColor.onTertiaryContainer : isCurrent ? PocketColor.onPrimaryContainer : PocketColor.onSurface)
                 // The grid scrolls sideways at accessibility sizes; past this the row height cannot keep up.
                 .dynamicTypeSize(...DynamicTypeSize.accessibility2)
             if sizeClass == .regular || cell.span > 1 {
@@ -846,25 +840,13 @@ private struct ScheduleCellView: View {
         .opacity(dimmed ? 0.55 : 1)
         .padding(.horizontal, 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            if isChanged {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(PocketColor.tertiaryContainer)
-                    .padding(2)
-            } else if isCurrent {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(PocketColor.primaryContainer.opacity(0.6))
-                    .padding(2)
-            }
-        }
+        .background(fill.opacity(dimmed ? 0.6 : 1), in: ScheduleShape.tile)
         .overlay {
             if isCurrent {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(PocketColor.primary, lineWidth: 2)
-                    .padding(2)
+                ScheduleShape.tile.strokeBorder(PocketColor.primary, lineWidth: 2)
             }
         }
-        .contentShape(.rect)
+        .contentShape(ScheduleShape.tile)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(.isButton)
@@ -915,8 +897,6 @@ private struct CustomSubjectEditor: View {
                     TextField("教室（留空使用原本的）", text: $classroom)
                 } header: {
                     Text("校方科目：\(item.original)")
-                } footer: {
-                    Text("套用到這個科目的每一堂課。每欄最多 \(PocketScheduleStore.shared.maxOverrideLength()) 個字。")
                 }
             }
             .onChange(of: subject) { _, value in subject = Self.clamped(value) }
@@ -1030,9 +1010,6 @@ private struct ScheduleCellSheet: View {
                 .onChange(of: subject) { _, value in subject = Self.clamped(value) }
                 .onChange(of: teacher) { _, value in teacher = Self.clamped(value) }
                 .onChange(of: classroom) { _, value in classroom = Self.clamped(value) }
-                Text("套用到這個科目的每一堂課，\(model.account?.session != nil ? "存在這台裝置並會包含在設定備份中" : "只存在這台裝置")。每欄最多 \(PocketScheduleStore.shared.maxOverrideLength()) 個字。")
-                    .font(.footnote)
-                    .foregroundStyle(PocketColor.onSurfaceVariant)
                 HStack(spacing: 12) {
                     Button("儲存") {
                         model.scheduleOverrides = PocketScheduleStore.shared.setOverride(

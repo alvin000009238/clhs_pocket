@@ -373,7 +373,7 @@ private struct GradeSimulatorContent: View {
                 .font(.subheadline)
                 .monospacedDigit()
                 .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.85))
-            Text("* 非官方試算，結果不會改變成績單")
+            Text("* 非官方試算")
                 .font(.caption)
                 .foregroundStyle(PocketColor.onPrimaryContainer.opacity(0.75))
                 .padding(.top, 4)
@@ -560,7 +560,7 @@ private struct CreditsSheet: View {
                         .foregroundStyle(state.check == .matches ? PocketColor.positive : PocketColor.warning)
                         .accessibilityIdentifier("credits-status")
                 } footer: {
-                    Text("學分只用於這次考試的試算，不會改動校方成績單。每科為 1 到 4 學分。")
+                    Text("每科 1 到 4 學分。")
                 }
                 Section("各科學分") {
                     ForEach(Array(state.rows.enumerated()), id: \.element.name) { index, row in
@@ -749,12 +749,6 @@ struct SubjectTrendView: View {
         let visible = sizeClass == .regular ? min(labels.count, 12) : min(labels.count, 6)
         let scrolls = labels.count > visible
         return VStack(alignment: .leading, spacing: 8) {
-        if scrolls {
-            Label("左右滑動查看其他 \(labels.count - visible) 次考試", systemImage: "arrow.left.and.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(PocketColor.primary)
-                .accessibilityIdentifier("trend-scroll-hint")
-        }
         Chart {
             ForEach(Array(trend.segments.enumerated()), id: \.offset) { index, segment in
                 let tint = TrendPalette.color(Int(segment.colorIndex)).opacity(opacity(segment.baseName))
