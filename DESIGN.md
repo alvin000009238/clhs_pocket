@@ -197,7 +197,7 @@ Guest 可使用公開內容與設定。私人內容由 `AuthGate` 顯示登入�
 
 ## 開發與驗證
 
-新增畫面前先找本文件中的同類頁面，再沿用現有 theme、state、元件與 [FakeData.kt](android/app/src/main/java/com/clhs/score/data/FakeData.kt)。不要新增平行 theme、導覽或硬編展示資料。Compose 預覽入口見 [ScorePreviews.kt](android/app/src/main/java/com/clhs/score/ui/ScorePreviews.kt)。依 [測試策略](docs/development/testing.md) 選擇本機檢查；預覽無法驗證互動、生命週期或平台行為時，再做裝置驗證。本文只描述實作規範，不代表已完成裝置視覺驗收。
+新增畫面前先找本文件中的同類頁面，再沿用現有 theme、state、元件與 [FakeData.kt](android/shared/src/commonMain/kotlin/com/clhs/score/data/FakeData.kt)。不要新增平行 theme、導覽或硬編展示資料。Compose 預覽入口見 [ScorePreviews.kt](android/app/src/main/java/com/clhs/score/ui/ScorePreviews.kt)。依 [測試策略](docs/development/testing.md) 選擇本機檢查；預覽無法驗證互動、生命週期或平台行為時，再做裝置驗證。本文只描述實作規範，不代表已完成裝置視覺驗收。
 
 課表更新中僅保留右上操作膠囊內的載入指示，不在週次下方另加線性進度條。
 
